@@ -276,7 +276,7 @@ function HomeBaseBody({
             own eyebrow says. One door. */}
       </Box>
 
-      <EconomicsStrip project={project} />
+      <EconomicsStrip />
 
       {/* ONE card, not three (stage 5 §7.4). The three phase cards described a
           project that moved through System Design → Project Design →

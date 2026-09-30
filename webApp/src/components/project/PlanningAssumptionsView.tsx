@@ -100,11 +100,14 @@ export function PlanningAssumptionsView({
           t={t}
           value={usage.expectedDailyActiveUsers.toLocaleString()}
         />
+        {/* Was REVENUE SHARE until stage 4b2, when revenue share left the vocabulary
+            (founder ruling). The markup is the settlement number that survived, and it is
+            one the founder actually authors. */}
         <Stat
-          label="REVENUE SHARE"
+          label="COMPUTE MARKUP"
           sub="settlement rate"
           t={t}
-          value={`${String(terms.revenueSharePercent)}%`}
+          value={`${String(terms.computeMarkupPercent)}%`}
         />
         <Box sx={{ flexGrow: 1 }} />
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, maxWidth: 460 }}>

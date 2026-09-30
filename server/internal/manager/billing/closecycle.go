@@ -459,9 +459,8 @@ func routingDirectiveName(d RoutingDirective) string {
 // earmarked for a project.json contract alignment (see plan Task 12 earmarks).
 func termsToEngine(t billingstate.BillingTerms) billingengine.BillingTerms {
 	return billingengine.BillingTerms{
-		RevenueShare: billingengine.RevenueShareKind(t.RevenueShareKind),
-		ComputeCost:  billingengine.ComputeCostKind(t.ComputeCostKind),
-		Schedule:     billingengine.ScheduleKind(t.ScheduleKind),
+		ComputeCost: billingengine.ComputeCostKind(t.ComputeCostKind),
+		Schedule:    billingengine.ScheduleKind(t.ScheduleKind),
 	}
 }
 

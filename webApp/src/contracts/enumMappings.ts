@@ -31,20 +31,12 @@ import {
   type CICheckStateGoVarname,
   PIPELINE_PHASE_ORDINAL_TO_GO_VARNAME,
   type PipelinePhaseGoVarname,
-  PROJECT_SESSION_STAGE_ORDINAL_TO_GO_VARNAME,
-  type ProjectSessionStageGoVarname,
   RUNTIME_STATUS_SEAM_ORDINAL_TO_GO_VARNAME,
   type RuntimeStatusSeamGoVarname,
   TESTING_VARIANT_ORDINAL_TO_GO_VARNAME,
   type TestingVariantGoVarname,
 } from './enums.gen.ts';
-import type {
-  ActivityBuildStatusRow,
-  CiStatus,
-  PipelinePhase,
-  ProjectSessionStage,
-  TestingVariantName,
-} from './types';
+import type { ActivityBuildStatusRow, CiStatus, PipelinePhase, TestingVariantName } from './types';
 import type { RuntimePhase } from './operationsTypes';
 
 // --- ActivityBuildStatus (row status) ---------------------------------------
@@ -122,35 +114,15 @@ export function pipelinePhaseFromOrdinal(ordinal: number): PipelinePhase {
   return varname !== undefined ? PIPELINE_PHASE_APP_STRING[varname] : 'unknown';
 }
 
-// --- ProjectSessionStage ------------------------------------------------------
-// ProjectStageAssemblingSDP derives mechanically to "projectStageAssemblingSDP"
-// (the local type name "ProjectSessionStage" shares no whole-word run with the
-// varname's "ProjectStage" prefix, so nothing strips); the app uses
-// "assemblingSdp". Naming + casing convention diff, not a bug.
-//
-// The varnames carry the `Project` infix since stage 4a: one Manager namespace
-// publishes BOTH session-stage shapes, and the projectDesign rail's consts were
-// prefixed to clear the collision with the Phase-1 rail's (whose ordinals differ
-// — this one inserts AssemblingSDP at 2 — so they could not be folded).
-
-const PROJECT_SESSION_STAGE_APP_STRING: Readonly<
-  Record<ProjectSessionStageGoVarname, ProjectSessionStage>
-> = {
-  ProjectSessionStageUnknown: 'unknown',
-  ProjectStageDrafting: 'drafting',
-  ProjectStageAssemblingSDP: 'assemblingSdp',
-  ProjectStageAwaitingReview: 'awaitingReview',
-  ProjectStageRedrafting: 'redrafting',
-  ProjectStageCommitted: 'committed',
-  ProjectStageWithdrawn: 'withdrawn',
-  ProjectStageRefused: 'refused',
-  ProjectStageDraftFailed: 'draftFailed',
-};
-
-export function projectSessionStageFromOrdinal(ordinal: number): ProjectSessionStage {
-  const varname = PROJECT_SESSION_STAGE_ORDINAL_TO_GO_VARNAME[ordinal];
-  return varname !== undefined ? PROJECT_SESSION_STAGE_APP_STRING[varname] : 'unknown';
-}
+// --- ProjectSessionStage: DELETED (stage 4b2 Task 5) --------------------------
+// The second session-stage vocabulary is gone with the second session type. Its ONLY
+// producer was planCompletedSessionView, which emitted three of its nine members, and the
+// one member that made this enum differ from SessionStage — ProjectStageAssemblingSDP — was
+// emitted by a workflow stage 4b1 deleted. `session` now answers for all seventeen artifact
+// kinds through sessionStageFromOrdinal, so the mapping table below it had nothing left to
+// map. The model edit landed (Task 7, `ebfc1a42`) and took the `$defs` entry with it, so
+// enums.gen.ts no longer generates PROJECT_SESSION_STAGE_ORDINAL_TO_GO_VARNAME — nothing
+// remains for this mapping to be derived from.
 
 // --- RuntimeStatusSeam ---------------------------------------------------
 // Mechanical derivation gives ("unknown"/"pending"/"healthy"/"degraded"/

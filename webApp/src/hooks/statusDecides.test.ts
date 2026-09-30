@@ -47,9 +47,10 @@ void test('every hook reaches the server through the OpsClient', () => {
   // The floor only guards against this scan going blind. It was 39 when three
   // Managers published forty ops across fourteen hook modules. Stage 4a's twelve
   // ops are reached from two modules, and the nine readers share ONE
-  // `queryProjectView` helper rather than each naming its own op — so the honest
-  // count is 20 (10 delivery writes + 2 delivery reads + 8 operations/composition
-  // calls in the hooks that did not move), and a lower number means the scan or the
-  // OpsClient discipline broke.
-  assert.ok(total >= 20, `found ${String(total)} OpsClient calls`);
+  // `queryProjectView` helper rather than each naming its own op — so the count was
+  // 20 (10 delivery writes + 2 delivery reads + 8 operations/composition calls in the
+  // hooks that did not move). Stage 4b2 deleted useReplanProject with its contract op,
+  // so the honest count is 19, and a lower number means the scan or the OpsClient
+  // discipline broke.
+  assert.ok(total >= 19, `found ${String(total)} OpsClient calls`);
 });

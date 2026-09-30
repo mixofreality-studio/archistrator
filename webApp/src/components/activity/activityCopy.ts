@@ -4,6 +4,7 @@
  * submitVerb's describeConsequence). There is no i18n in this app, so a string
  * written inline in JSX is a string nobody reviews.
  */
+import type { ReviewCommentStatus, ReviewCommentType } from '../../contracts/types.ts';
 
 /** The chrome eyebrow above the title: `R-GITHUB · DEPLOYMENT`, `ACTIVITY 2 · ARCHITECTURE`. */
 export function eyebrowFor(input: {
@@ -179,25 +180,14 @@ export function verdictLine(verdict: {
   return parts.join(' · ');
 }
 
-/**
- * THE M0 COST BASIS, said out loud (stage 4b1 Step 3a).
- *
- * The Project-Design compute DEFAULTS any planning-assumption family the founder
- * never authored and proceeds — a project that cannot reach its own cost-approval
- * gate cannot be told what it would cost. Approving that gate binds the plan of
- * record and starts spending, so a cost computed on numbers nobody showed the
- * founder is the one way this screen can mislead: the defaulting is recorded, and
- * without this line it would be recorded and INVISIBLE, which is the same lie as
- * refusing.
- *
- * ONE sentence, not two. Its twin (`defaultedCostBasis` — "what is committed is the
- * platform's own document") is retired in the final fix wave with the unreachable arm
- * that was its only caller: the compute never commits slot 8, so that state has no run
- * that produces it.
- */
-export function assumedCostBasis(families: string): string {
-  return `Cost computed on assumed ${families} — no planning assumptions are committed for this project yet`;
-}
+// THE M0 COST BASIS SENTENCE IS THE SERVER'S NOW (stage 4b2 Task 9). `assumedCostBasis`
+// stood here and composed the line from a family list this screen inferred from the
+// committed slots. The compute records what it actually defaulted, in its own words, on
+// the attempt, and that sentence reaches the client on the revision the gate is about
+// (`DeliveryTaskRevisionView.detail`) — so `m0CostBasis.ts` now RENDERS the server's
+// sentence rather than authoring a second one from a proxy that could only ever see the
+// whole-document case. Its already-retired twin (`defaultedCostBasis`) went in the final
+// fix wave with the unreachable arm that was its only caller.
 
 /**
  * THE TWO OVERRIDES, said as two actions (stage 4b1 Task 14, controller ruling 3).
@@ -321,6 +311,73 @@ export function notDispatchedYet(locked: boolean): string {
   return locked
     ? 'Locked — an upstream task has not finished, so nothing has been dispatched here yet.'
     : 'Nothing has been dispatched on this task yet.';
+}
+
+/**
+ * THE ADDRESSEE OF A QUESTION, as a reader says it. The vocabulary is the server's
+ * (`projectstate.ReviewAddresseePM` / `ReviewAddresseeArchitect`, and `toReviewCommentView`
+ * drops anything else to the empty one), so the table has exactly two rows. Anything the
+ * table does not know is shown VERBATIM rather than mangled — the same posture ROLE_LABEL
+ * above takes, for the same reason.
+ */
+const ADDRESSEE_LABEL: Readonly<Record<string, string>> = {
+  pm: 'the product manager',
+  architect: 'the architect',
+};
+
+/**
+ * A CONSTRUCTION question is awaiting a PERSON, and this names which one.
+ *
+ * `AskTaskQuestions` records the question on the round as a `ReviewComment.type = question`
+ * and the SPA renders it. That is all it does, and it is all it CAN do: a construction round
+ * has no artifact kind and no slot, `respondToReviewComment` is slot-scoped, and it is not
+ * registered in the construction job mode (`cmd/aiarch-state-mcp/tools.go`, `modes: {draft,
+ * answer}`) — so a dispatched answer job would open a session that finds nothing to do. The
+ * split is the SERVER's own, to the field: `deliveryManager.AskQuestions` routes on whether
+ * `artifactKindForTask` resolves, and a task that names no kind lands on the round.
+ *
+ * Ruled 2026-09-28 (founder): construction questions are human-answered, label the addressee,
+ * do not write the command. The argument that decided it is doctrinal rather than costed — an
+ * agent answering a question about code it wrote, to clear a thread that gates its own merge,
+ * is the autogate hazard in a different costume, and stage 4b1 had to close that hazard twice.
+ */
+export function constructionQuestionHuman(addressee: string): string {
+  return `Awaiting an answer from ${ADDRESSEE_LABEL[addressee] ?? addressee} — construction questions are answered by a person.`;
+}
+
+/** The same fact where the ask recorded no addressee: a person, but the record does not say who. */
+export const CONSTRUCTION_QUESTION_HUMAN_NO_ROLE =
+  'Awaiting a human answer — construction questions are answered by a person.';
+
+/**
+ * WHETHER a thread carries that notice, and the sentence when it does. The EMPTY STRING is
+ * the honest render for every other thread, and the card draws nothing for it — the same
+ * contract {@link subAttemptsLine} keeps.
+ *
+ * THREE THINGS MAKE IT TRUE RATHER THAN DECORATIVE, and each is a reason not to widen it:
+ *
+ *   - `humanAnswered` is the CALLER's fact, not a guess from the comment. A DESIGN round's
+ *     thread IS answerable by an agent, because its task names a slot and the answer job is
+ *     dispatched against it; labelling both rails the same way would be a new lie replacing
+ *     an old silence.
+ *   - only a QUESTION. A change request is cleared by a redraft, not by an answer, and a
+ *     `staleAck` is an audit entry nobody is waiting on.
+ *   - only an OPEN one. "Awaiting an answer" over a thread somebody already answered or
+ *     resolved is the same kind of untruth from the other direction.
+ */
+export function questionAnswerNotice(input: {
+  /** This round's questions can only be answered by a person — the caller's own fact. */
+  humanAnswered: boolean;
+  type: ReviewCommentType;
+  status: ReviewCommentStatus;
+  /** `ReviewCommentAddressee`, widened: the empty string is "the ask recorded none". */
+  addressee: string;
+}): string {
+  if (!input.humanAnswered) return '';
+  if (input.type !== 'question' || input.status !== 'open') return '';
+  return input.addressee.length > 0
+    ? constructionQuestionHuman(input.addressee)
+    : CONSTRUCTION_QUESTION_HUMAN_NO_ROLE;
 }
 
 /**

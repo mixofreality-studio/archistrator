@@ -6,8 +6,10 @@
  *
  *   - STEER a live escalation. The walk's dispatch failed, the child is holding at
  *     a takeover gate, and the operator's override is fed through the same
- *     decide→execute machinery the automatic variance path uses. The façade
- *     refuses anything else: *"activity X is at <stage>, not awaiting a takeover"*.
+ *     decide→execute machinery the automatic variance path uses. The façade refuses
+ *     anything else, and since stage 4b2 Task 2 it refuses on the LEDGER: *"activity
+ *     X is in flight but no task on its ledger holds a failed attempt, so it is not
+ *     escalated and there is nothing an override could name"*.
  *   - RE-OPEN a finished activity. There is no child at all — a failed walk, a
  *     spent variance budget, an operator's own Skip, or a Completed activity whose
  *     slot commit failed after its exit. The Manager re-arms the row
@@ -27,12 +29,19 @@
  * and the two `RecordOperatorNote{requeue}` accepts), and ESCALATED is DERIVED, by
  * the same rule the Manager recovers the escalated task with (`escalatedTaskOf`:
  * the last task whose highest-numbered attempt FAILED) on an activity that has not
- * exited. That agrees with the server wherever an escalation is open; where it does
- * not — a failure the walk already re-dispatched inside the same poll window — the
- * façade's own precheck refuses the steer and says which stage the activity is
- * actually at, which is the honest end of an approximation rather than a silent
- * mis-dispatch. The exact answer is the live session's `awaitingTakeover` stage, one
- * more read (`QueryProjectView{session}`) than this screen makes today.
+ * exited.
+ *
+ * AND THERE IS NO LONGER A BACKSTOP UNDER IT. This paragraph used to end "the façade's
+ * own precheck refuses the steer and says which stage the activity is actually at".
+ * Stage 4b2 Task 2 removed that stage precheck — it read a single-valued session stage
+ * that a fork made wrong — so the server now applies the SAME ledger rule this file
+ * does. Where they agree, the override lands on the right task; where the derivation is
+ * stale (a failure the walk already re-dispatched inside the same poll window) the
+ * server does not catch it, because it is reading the same ledger and reaching the same
+ * answer. The refusal that remains is the honest one — an empty ledger names nothing —
+ * not a second opinion about liveness. The exact answer is still the live session's
+ * `awaitingTakeover` stage, one more read (`QueryProjectView{session}`) than this screen
+ * makes today.
  *
  * Pure and React-free so `node --test` loads it directly.
  */

@@ -144,10 +144,11 @@ void test('the schema keys ops by exactly the OpsClient OpIds, composition route
   assert.deepEqual(schemaOps, Object.keys(opBindings(doc)).sort());
   assert.ok(schemaOps.includes('compositionGetUserinfo'));
   // The whole roster, MEASURED off the bindings rather than typed here: stage 4a
-  // took it from 51 ops to 23, and a floor written by hand would be the one thing
-  // in this file that does not move when the contract does.
-  assert.equal(schemaOps.filter((o) => o.startsWith('delivery')).length, 12);
-  assert.equal(schemaOps.length, 23);
+  // took it from 51 ops to 23, stage 4b2 to 22 (deliveryManager 12 -> 11 as ReplanProject
+  // went), and a floor written by hand would be the one thing in this file that does not
+  // move when the contract does.
+  assert.equal(schemaOps.filter((o) => o.startsWith('delivery')).length, 11);
+  assert.equal(schemaOps.length, 22);
 });
 
 void test(`${VIEW_OP} is keyed by the OAS view kinds, not by one answer`, () => {

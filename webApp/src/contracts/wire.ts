@@ -6,7 +6,7 @@
  * through the "wire → app" mappers below to produce the SPA's stable app view
  * types (camelCase, lowerCamel string enums). The `{kind, model}` draft envelope
  * IS now typed on the wire (schema.ts's oneOf over the generated `Model*` shapes,
- * appgen step-4 RC1) — mapEnvelope/mapProjectEnvelope still take it in through a
+ * appgen step-4 RC1) — mapEnvelope still takes it in through a
  * structural `{kind: string; model?: unknown}` shape rather than the exact
  * generated union because the SAME two mappers serve several distinct generated
  * envelope schemas (session draft, slot view, …) whose `model` oneOf members
@@ -25,10 +25,6 @@
  */
 import type { components } from './schema';
 import {
-  ACTIVE_ROLE_ORDINAL_TO_APP,
-  type ActiveRole,
-  ACTIVE_STEP_ORDINAL_TO_APP,
-  type ActiveStep,
   ACTIVITY_TYPE_ORDINAL_TO_APP,
   ARTIFACT_KIND_APP_TO_ORDINAL,
   ARTIFACT_KIND_ORDINAL_TO_APP,
@@ -55,7 +51,6 @@ import {
   buildStatusRowFromOrdinal,
   ciStatusFromOrdinal,
   pipelinePhaseFromOrdinal,
-  projectSessionStageFromOrdinal,
   runtimePhaseFromOrdinal,
   autoscalerModeFromOrdinal,
   testingVariantFromOrdinal,
@@ -84,7 +79,6 @@ import type {
   ProducedArtifactRow,
   ProjectArtifactKind,
   ProjectPhase,
-  ProjectSessionState,
   ProjectState,
   ProjectStateWithGit,
   ProjectSummary,
@@ -92,7 +86,6 @@ import type {
   ReviewCommentAddressee,
   ReviewCommentStatus,
   ReviewCommentType,
-  PmCritiqueView,
   ReviewCommentReply,
   ReviewCommentView,
   ReviewDecision,
@@ -134,16 +127,6 @@ export function projectArtifactKindFromOrdinal(ordinal: number): ProjectArtifact
 
 function sessionStageFromOrdinal(ordinal: number): SessionStage {
   return SESSION_STAGE_ORDINAL_TO_APP[ordinal] ?? 'unknown';
-}
-
-/** ActiveRole (0 none,1 architect,2 productManager); old servers omit → none. */
-function activeRoleFromOrdinal(ordinal: number): ActiveRole {
-  return ACTIVE_ROLE_ORDINAL_TO_APP[ordinal] ?? 'none';
-}
-
-/** ActiveStep (0 none,1 drafting,2 critiquing,3 revising); old servers omit → none. */
-function activeStepFromOrdinal(ordinal: number): ActiveStep {
-  return ACTIVE_STEP_ORDINAL_TO_APP[ordinal] ?? 'none';
 }
 
 function projectPhaseFromOrdinal(ordinal: number): ProjectPhase {
@@ -293,15 +276,10 @@ function mapEnvelope(w: { kind: string; model?: unknown }): ArtifactModelEnvelop
   return env;
 }
 
-/** Decode the {kind, model} envelope into the typed Phase-2 envelope — same honest
- *  boundary casts as {@link mapEnvelope}, narrowed to the Phase-2 kind/model unions. */
-function mapProjectEnvelope(w: { kind: string; model?: unknown }): ProjectArtifactModelEnvelope {
-  const env: ProjectArtifactModelEnvelope = { kind: w.kind as ProjectArtifactKind };
-  if (w.model !== undefined && w.model !== null) {
-    env.model = w.model as NonNullable<ProjectArtifactModelEnvelope['model']>;
-  }
-  return env;
-}
+// mapProjectEnvelope is DELETED with the Phase-2 session mapper it decoded for (stage 4b2
+// Task 5): mapEnvelope is the one envelope decoder now, because there is one session view.
+// ProjectArtifactModelEnvelope itself STAYS — the Phase-2 slot renderers read it off the
+// project view (see toRiskModelView and friends in projectAdapters.ts).
 
 // --- project catalog + head-state ------------------------------------------
 
@@ -821,21 +799,22 @@ function committedActivityNames(slots: readonly ArtifactSlotView[]): string[] {
 // --- system-design session -------------------------------------------------
 
 /**
- * The surfaced PM-critique conclusion (F-QA2-7). An unknown wire verdict (a
- * future server) is dropped entirely — rendering a made-up verdict badge would
- * be dishonest, and absence already means "no PM conclusion to show".
+ * Decode the ONE derived session view. It serves BOTH design halves since stage 4b2 Task 5:
+ * `artifactKindFullFromOrdinal` is one table for all seventeen kinds, and the stage vocabulary
+ * the server can emit through this door is {committed, withdrawn, draftFailed}.
+ *
+ * EIGHT MEMBERS LEFT THE WIRE with stage 4b2's model edit — critique, findings,
+ * failureRunUrl, runUrl, stageName, activeRole, activeStep, round — and this mapper
+ * decoded seven of them. They had ZERO producers anywhere in the server once 4b1 retired
+ * the live design rail, so each decode was a branch that could never be taken and each
+ * field a reader could never see. Deleting them removes dead UI, not a feature: what a
+ * derived view of a durable slot can say is {projectId, artifactKind, stage, draft,
+ * failureReason?, reviewThread?} and it says all of it.
  */
-function mapCritique(
-  w: Schemas['DeliveryCritiqueView'] | null | undefined
-): PmCritiqueView | undefined {
-  if (w === undefined || w === null) return undefined;
-  if (w.verdict !== 'approve' && w.verdict !== 'revise') return undefined;
-  return { role: w.role, verdict: w.verdict, summary: w.summary, round: w.round };
-}
-
-export function mapSessionState(w: Schemas['DeliverySessionStateView']): SessionStateResponse {
+export function mapSessionState(
+  w: Schemas['DeliveryDesignArtifactSessionView']
+): SessionStateResponse {
   const artifactKind = systemArtifactKindFromOrdinal(w.artifactKind);
-  const critique = mapCritique(w.critique);
   return {
     projectId: w.projectId,
     artifactKind,
@@ -844,49 +823,7 @@ export function mapSessionState(w: Schemas['DeliverySessionStateView']): Session
       projectId: w.projectId,
       artifactKind,
       stage: w.stage,
-      activeRole: activeRoleFromOrdinal(w.activeRole),
-      activeStep: activeStepFromOrdinal(w.activeStep),
-      round: w.round,
       draft: mapEnvelope(w.draft),
-      ...(w.findings !== undefined && w.findings !== null
-        ? { findings: w.findings.map(mapFinding) }
-        : {}),
-      ...(w.failureReason !== undefined && w.failureReason !== null
-        ? { failureReason: w.failureReason }
-        : {}),
-      ...(w.failureRunUrl !== undefined && w.failureRunUrl !== null
-        ? { failureRunUrl: w.failureRunUrl }
-        : {}),
-      ...(w.runUrl !== undefined && w.runUrl !== null ? { runUrl: w.runUrl } : {}),
-      ...(w.reviewThread !== undefined && w.reviewThread !== null
-        ? { reviewThread: w.reviewThread.map(mapReviewComment) }
-        : {}),
-      ...(critique !== undefined ? { critique } : {}),
-    },
-  };
-}
-
-// --- project-design session ------------------------------------------------
-
-export function mapProjectSessionState(
-  w: Schemas['DeliveryProjectSessionStateView']
-): ProjectSessionState {
-  const artifactKind = projectArtifactKindFromOrdinal(w.artifactKind);
-  return {
-    projectId: w.projectId,
-    artifactKind,
-    stage: projectSessionStageFromOrdinal(w.stage),
-    view: {
-      projectId: w.projectId,
-      artifactKind,
-      stage: w.stage,
-      activeRole: activeRoleFromOrdinal(w.activeRole),
-      activeStep: activeStepFromOrdinal(w.activeStep),
-      round: w.round,
-      draft: mapProjectEnvelope(w.draft),
-      ...(w.findings !== undefined && w.findings !== null
-        ? { findings: w.findings.map(mapFinding) }
-        : {}),
       ...(w.failureReason !== undefined && w.failureReason !== null
         ? { failureReason: w.failureReason }
         : {}),
@@ -896,6 +833,12 @@ export function mapProjectSessionState(
     },
   };
 }
+
+// The project-design session mapper is DELETED (stage 4b2 Task 5). `projectSession` is never
+// set on the wire again: mapSessionState answers for all seventeen artifact kinds, because
+// the two derived views were the same projection of the same slot into two types. The model
+// edit landed (Task 7, `ebfc1a42`), so `DeliveryProjectSessionStateView` is gone from
+// schema.ts and from openapi.yaml — there is no wire type left for a mapper to take.
 
 // --- construction session --------------------------------------------------
 

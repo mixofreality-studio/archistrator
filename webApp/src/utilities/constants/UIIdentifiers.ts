@@ -39,14 +39,10 @@ export const UI_IDENTIFIERS = {
   },
   HomeBase: {
     SCREEN: 'home-base-screen',
-    RESUME_DESIGN: 'resume-design',
     ECONOMICS_STRIP: 'economics-strip',
     ARTIFACT_TOC: 'artifact-toc',
     ARTIFACT_PROSE: 'artifact-prose',
-    phaseCard: (phase: string) => `phase-card-${phase}`,
     tocRow: (kind: string) => `toc-row-${kind}`,
-    OPEN_SYSTEM_DESIGN: 'open-system-design',
-    OPEN_PROJECT_DESIGN: 'open-project-design',
     // The ONE card that replaced the three phase cards (stage 5 §7.4): the plan
     // is the project's one working surface now, so home base offers one door.
     OPEN_PLAN: 'home-base-open-plan',
@@ -60,10 +56,9 @@ export const UI_IDENTIFIERS = {
     reviewPolicyOption: (preset: string) => `review-policy-option-${preset}`,
     REVIEW_POLICY_FLOOR_NOTE: 'review-policy-floor-note',
   },
-  DesignWizard: {
-    SCREEN: 'design-wizard-screen',
-    artifactStep: (kind: string) => `artifact-step-${kind}`,
-  },
+  // The `DesignWizard` namespace (SCREEN, artifactStep) went with the design
+  // wizard itself — the slim spine under `DesignExperience` is the only stepper
+  // over the Phase-1 artifacts now.
   UseCaseCarousel: {
     // The renderer's own root. It says "UseCaseCarousel MOUNTED" and nothing
     // more — the classification → renderer seam is what a black-box case needs
@@ -149,15 +144,11 @@ export const UI_IDENTIFIERS = {
     // reopened by Task 10's submit bar); its testid (`committed-amend`) went with
     // it — Task 10's bar mints its own (`SUBMIT_BAR_PRIMARY`), since the same
     // button slot now carries four possible verbs, not just Amend.
-    RECONCILE: 'committed-reconcile',
     AMEND_COMPOSER: 'amend-composer',
     AMEND_RATIONALE: 'amend-rationale',
     AMEND_INCLUDE_PENDING: 'amend-include-pending',
     AMEND_SUBMIT: 'amend-submit',
     AMEND_CANCEL: 'amend-cancel',
-    // Read-only 'COMMITTED … — current' label shown above the generating scene while
-    // a committed artifact's amendment drafts.
-    AMEND_CURRENT_LABEL: 'amend-current-label',
     // 'basis changed — reconcile' warning chip (committed panel + HomeBase rows).
     STALE_CHIP: 'stale-basis-chip',
     // F45 stale banner (committed pane) + its two actions and the "mark reviewed —
@@ -310,9 +301,6 @@ export const UI_IDENTIFIERS = {
     SENDBACK: 'gate-sendback',
     WITHDRAW: 'gate-withdraw',
     FINDINGS: 'findings',
-    // The surfaced PM-critique conclusion (F-QA2-7): disclosure header + body.
-    PM_REVIEW: 'gate-pm-review',
-    PM_REVIEW_BADGE: 'gate-pm-review-badge',
     // Banner naming the open-comment count that blocks approve.
     OPEN_BLOCK: 'gate-open-block',
     // Graceful FailedPrecondition surface after an approve race.
@@ -323,9 +311,11 @@ export const UI_IDENTIFIERS = {
   // selectors keep resolving; Task 11 renames them along with its own specs.
   // `ASK` retired (Task 10, Ruling P17): the Ask verb moved out of the composer
   // into the submit bar (DesignExperience.SUBMIT_BAR) — see submitBarMenuItem/
-  // SUBMIT_BAR_PRIMARY above.
+  // SUBMIT_BAR_PRIMARY above. `RAIL` and `commentAnchor` are gone too: nothing
+  // renders the rail, and an anchor is carried as a `data-comment-anchor`
+  // JSONPath on the host element and observed through `Comments.ARMED_ANCHOR`,
+  // never as a `comment-anchor-N` testid.
   Chat: {
-    RAIL: 'chat-rail',
     TOGGLE: 'chat-toggle',
     SEND: 'chat-send',
     INPUT: 'chat-input',
@@ -334,7 +324,6 @@ export const UI_IDENTIFIERS = {
     TYPE_QUESTION: 'chat-type-question',
     ADDRESSEE_PM: 'chat-addressee-pm',
     ADDRESSEE_ARCHITECT: 'chat-addressee-architect',
-    commentAnchor: (n: number) => `comment-anchor-${String(n)}`,
   },
   Margin: {
     ROOT: 'comment-margin',
@@ -355,6 +344,10 @@ export const UI_IDENTIFIERS = {
     reply: (id: string) => `margin-reply-${id}`,
     resolve: (id: string) => `margin-resolve-${id}`,
     reopen: (id: string) => `margin-reopen-${id}`,
+    // The line on a CONSTRUCTION round's open question saying a PERSON will answer it, and
+    // who (founder ruling 2026-09-28). Absent on a design round's thread, which an agent
+    // answer job does reach.
+    humanAnswer: (id: string) => `margin-human-answer-${id}`,
     // A STAGED (posted locally, not yet sent) note, keyed by its accumulator index.
     staged: (n: number) => `margin-staged-${String(n)}`,
     stagedDiscard: (n: number) => `margin-staged-discard-${String(n)}`,
@@ -381,23 +374,19 @@ export const UI_IDENTIFIERS = {
     // The per-row "Comment on this item" button inside a CommentableList row.
     listItemComment: (key: string) => `comment-list-item-button-${key}`,
   },
-  ProjectDesign: {
-    SDP_ASSEMBLE: 'sdp-assemble',
-    ADVANCE_CONSTRUCTION: 'advance-construction',
-    ADVANCE_RESULT: 'advance-result',
-    ADVANCE_STALE_ERROR: 'advance-stale-error',
-    ADVANCE_ANYWAY: 'advance-anyway',
-  },
+  // The `ProjectDesign` namespace (SDP_ASSEMBLE, ADVANCE_*) went with the
+  // project-design screen: the SDP review is an M0 gate task in the Activity
+  // Experience now, and its commit-then-advance failures are `Activity.ADVANCE_*`.
   Construction: {
-    ROOT: 'construction-console',
-    // TAB_TRACKER/TAB_INTERVENTIONS/TAB_ARTIFACTS and the tab bodies' own root
-    // testids (TRACKER/INTERVENTIONS/ARTIFACTS/artifactRow) retired with the tab
-    // shell (Task 13) — the lens shell (LENS_TOOLBAR etc. below) is the console
-    // now. The retired components' ids (the summary strip, the tracker nodes, the
-    // lifecycle panel, the policy and phase-gate panels, the intervention queue,
-    // drawer and override controls) went with them (cleanup round); B1 mints its
-    // own ids when it rebuilds pause, resume and override, the same way Task 3
-    // minted LENS_* rather than reviving stale ones.
+    // WHAT IS LEFT OF THE CONSOLE. The tab shell went in Task 13; the LENS SHELL
+    // that replaced it (toolbar, LIST tree, GRAPH canvas, the shared detail pane
+    // and its bodies, the artifact frame and the focus view) went in stage 5,
+    // when the Plan and the Activity Experience took over — and every id those
+    // surfaces placed went with them (orphaned-identifier guard, stage 4b2). What
+    // survives here is what the Plan still mounts: the TASKS lens, the Begin /
+    // Resume controls and their confirm step, the provenance marks, and the
+    // artifact renderers the Activity Experience reaches through ArtifactPanel.
+    // A rebuilt surface mints its own ids rather than reviving stale ones.
     AWAITING: 'construction-awaiting',
     SYSTEM_TEST_VIEW: 'construction-system-test-view',
     TEST_PLAN_VIEW: 'construction-test-plan-view',
@@ -428,62 +417,8 @@ export const UI_IDENTIFIERS = {
     RESUME_OUTCOME: 'construction-resume-outcome',
     TASKS_PAUSED_LABEL: 'construction-tasks-paused-label',
     beginConfirmCandidate: (activityId: string) => `construction-begin-candidate-${activityId}`,
-    // P1-9: the LIST's way back when the toolbar filtered every row away.
-    LIST_CLEAR_FILTERS: 'construction-list-clear-filters',
-    // P1-6: the pane header's count line when no single task is selected
-    // ("N attempts · M phases"), in place of the attempt selector.
-    DETAIL_SELECTION_SUMMARY: 'construction-detail-selection-summary',
-    // P0-4: a tier-1 row's id cell (sized in ch, titled with the full id).
-    listIdCell: (activityId: string) => `construction-list-id-${activityId}`,
-    listTitleCell: (activityId: string) => `construction-list-title-${activityId}`,
-    /** An integration-pending activity's fromPhase row: "waits on …" / "next in line". */
-    listPendingLine: (activityId: string) => `construction-list-pending-${activityId}`,
-    /** The same line on the hover card's fromPhase line (graph lens). */
-    graphHoverPending: (activityId: string) => `construction-graph-hover-pending-${activityId}`,
-    /** The pane's sentence for an integration-pending activity. */
-    DETAIL_PENDING_RESUME: 'construction-detail-pending-resume',
-    /** An activity's pending operator notes: the list row's mark (pendingNotes.ts). */
-    listPendingNote: (activityId: string) => `construction-list-pending-note-${activityId}`,
-    /** The pane's pending-note line (pendingNotes.ts). */
-    DETAIL_PENDING_NOTE: 'construction-detail-pending-note',
     /** A TASKS row's pending-note line (pendingNotes.ts). */
     tasksPendingNote: (key: string) => `construction-tasks-pending-note-${key}`,
-    /** The book's Figure A-1 task key, shown beside a task the profile renamed (P1-7). */
-    listTaskBookKey: (nodeId: string) => `construction-list-task-book-key-${nodeId}`,
-    // Stage D — the GRAPH lens: the architecture layer by layer, each component
-    // card carrying its activity's lifecycle spine (components/construction/graph).
-    GRAPH_CANVAS: 'construction-graph-canvas',
-    GRAPH_RIBBON: 'construction-graph-ribbon',
-    graphMilestone: (id: string) => `construction-graph-milestone-${id}`,
-    /** The key's popover content; GRAPH_KEY_BUTTON opens it (designer P1-2). */
-    GRAPH_KEY: 'construction-graph-key',
-    GRAPH_KEY_BUTTON: 'construction-graph-key-button',
-    /** "N of 29 match · Clear filters" — shown only while a filter is active (P1-4). */
-    GRAPH_FILTER_STATUS: 'construction-graph-filter-status',
-    /** The pinned HTML row-label gutter and one row's label in it (P1-6). */
-    GRAPH_ROW_GUTTER: 'construction-graph-row-gutter',
-    graphRowLabel: (row: string) => `construction-graph-row-label-${row}`,
-    GRAPH_CLEAR_FILTERS: 'construction-graph-clear-filters',
-    GRAPH_LAYER_CHECK: 'construction-graph-layer-check',
-    graphCard: (cardId: string) => `construction-graph-card-${cardId}`,
-    graphLane: (activityId: string) => `construction-graph-lane-${activityId}`,
-    graphSegment: (activityId: string, phase: string) =>
-      `construction-graph-segment-${activityId}-${phase}`,
-    GRAPH_HOVER_CARD: 'construction-graph-hover-card',
-    /** One lane's line inside the hover card (carries data-provenance). */
-    graphHoverLane: (activityId: string) => `construction-graph-hover-lane-${activityId}`,
-    /** A lane's float rail + numeral — rendered ONLY when the network has a computed entry. */
-    // Not under the `construction-graph-lane-` prefix: specs select the lane
-    // family by that prefix, and a float mark must never count as a lane.
-    graphLaneFloat: (activityId: string) => `construction-graph-float-${activityId}`,
-    GRAPH_SCHEDULE_CAPTION: 'construction-graph-schedule-caption',
-    /** M0's hover (PM Q4 copy) and its navigation-only link to the SDP review. */
-    GRAPH_M0_HOVER: 'construction-graph-m0-hover',
-    GRAPH_M0_OPEN_SDP: 'construction-graph-m0-open-sdp',
-    /** M0's copy as a popover — the chip is a button, so the link is keyboard-reachable. */
-    GRAPH_M0_POPOVER: 'construction-graph-m0-popover',
-    /** The key's drawn swatches: hatch, spine, float, critical (designer re-check 8). */
-    graphKeySwatch: (kind: string) => `construction-graph-key-swatch-${kind}`,
     // The TASKS lens (Stage C) — one row per decision the pipeline is stopped on
     // (tasks/owedWork.ts), keyed by the item's own key
     // (`<activityId>:<gateTask>:<round>` or `<activityId>:<reason>`).
@@ -508,178 +443,19 @@ export const UI_IDENTIFIERS = {
     tasksSteer: (key: string, action: string) => `construction-tasks-steer-${action}-${key}`,
     tasksGitHub: (key: string) => `construction-tasks-github-${key}`,
     tasksFlow: (key: string) => `construction-tasks-flow-${key}`,
-    // The decision the shared pane carries for an owed gate (Stage C Task 5).
-    DETAIL_DECISION_NOTE: 'construction-detail-decision-note',
-    DETAIL_DECISION_SEND_BACK: 'construction-detail-decision-send-back',
-    DETAIL_DECISION_FLOW: 'construction-detail-decision-flow',
-    // After a decision: the composer's caption (the note is not delivered yet) and
-    // the body's lead line (designer P0-1, P1-4).
-    DETAIL_DECISION_CAPTION: 'construction-detail-decision-caption',
-    DETAIL_DECISION_LEAD: 'construction-detail-decision-lead',
-    // The drawer's footer link to the next owed decision, below 1200px (designer P2).
-    DETAIL_NEXT_DECISION: 'construction-detail-next-decision',
-    // A steer-needed or failed activity in the pane: why it is owed, and why it
-    // is review-only (designer P0-2, the PM's must-hold).
-    DETAIL_OWED_REASON: 'construction-detail-owed-reason',
-    DETAIL_REVIEW_ONLY_NOTE: 'construction-detail-review-only-note',
-    // The lens shell (Stage B): ONE route, three lenses over one dataset, a
-    // shared toolbar whose state survives a lens switch, and a persistent
-    // detail slot. Replaces the Tracker/Interventions/Artifacts tab bar.
-    LENS_TOOLBAR: 'construction-lens-toolbar',
-    lensButton: (lens: string) => `construction-lens-${lens}`,
-    LENS_TASKS_COUNT: 'construction-lens-tasks-count',
-    LENS_SEARCH: 'construction-lens-search',
-    LENS_SCOPE: 'construction-lens-scope',
-    // The TASKS lens's static order label, in place of the Sort menu (designer P1-1).
-    LENS_SORT_RANKED: 'construction-lens-sort-ranked',
-    LENS_KIND: 'construction-lens-kind',
-    LENS_LAYER: 'construction-lens-layer',
-    LENS_SORT: 'construction-lens-sort',
-    LENS_CONTENT: 'construction-lens-content',
-    LENS_DETAIL: 'construction-lens-detail',
-    // Navigability (Stage B Task 11): the 528-row tree gets no "expand all" —
-    // only a targeted expand to whatever is in flight right now — and an
-    // explicit audit toggle that treats reconstructed/synthesized evidence as
-    // absent, so a reviewer can see what the surface would show if the founder's
-    // 2026-09-09 ruling had never widened the backfill.
-    LENS_EXPAND_TO_PHASE: 'construction-lens-expand-to-phase',
-    /** The "Observed only" evidence toggle (was "Hide synthesized", designer P1-11). */
-    LENS_OBSERVED_ONLY: 'construction-lens-observed-only',
-    /** Expand + Observed only: ONE no-wrap group, so they wrap together (designer). */
-    LENS_TOOLBAR_TOGGLES: 'construction-lens-toolbar-toggles',
-    // The provenance mark carried on a SEARCH-MATCHED task row itself (in
-    // addition to the ancestor reveal + the group headers' own badge). A task
-    // row read in isolation still asserts a state; a match that scrolls one
-    // into view must not be the one case where that assertion has no visible
-    // provenance context beside it.
-    searchMatchProvenance: (nodeId: string) => `construction-search-match-provenance-${nodeId}`,
-    // The LIST lens's three-tier tree (Stage B Task 6): activity › lifecycle
-    // phase › Figure A-1 task. One id per rendered row, keyed by the tree's own
-    // node id (`<activityId>`, `<activityId>::<phase>`, `<activityId>::<phase>::<task>`).
-    LIST_TREE: 'construction-list-tree',
-    /** The column header above the tier-1 rows (float … state). */
-    LIST_HEADER: 'construction-list-header',
-    LIST_EMPTY: 'construction-list-empty',
-    /** The blank room a deep link adds below the list to centre its row (designer N1). */
-    LIST_RUNWAY: 'construction-list-runway',
-    listRow: (nodeId: string) => `construction-list-row-${nodeId}`,
-    listAttempts: (nodeId: string) => `construction-list-attempts-${nodeId}`,
     // The provenance axis (Stage B Task 7) — orthogonal to state. The rail rides
     // every tier; the `≈ RECONSTRUCTED` badge rides GROUP headers only (tier 1
     // and tier 2), so a screen of task rows never fills with chips.
     PROVENANCE_RAIL: 'construction-provenance-rail',
     PROVENANCE_BADGE: 'construction-provenance-badge',
-    // The shared detail pane (Stage B Task 4) — one header/body/action-bar
-    // surface behind all three lenses. Laid out BESIDE the content at
-    // >=1200px; below that it degrades to DETAIL_DRAWER, a non-modal (persistent)
-    // Drawer over the right edge, rendered by DetailPane.tsx itself.
-    DETAIL_PANE: 'construction-detail-pane',
-    DETAIL_DRAWER: 'construction-detail-drawer',
-    DETAIL_COLLAPSE_TOGGLE: 'construction-detail-collapse-toggle',
-    DETAIL_RESIZE_HANDLE: 'construction-detail-resize-handle',
-    DETAIL_CLOSE: 'construction-detail-close',
-    DETAIL_BREADCRUMB: 'construction-detail-breadcrumb',
-    DETAIL_STATE_CHIP: 'construction-detail-state-chip',
-    DETAIL_PROVENANCE_CHIP: 'construction-detail-provenance-chip',
-    /** "Observed only"'s hidden-count chip, BESIDE the grade chip (fix-C review). */
-    DETAIL_OBSERVED_ONLY_CHIP: 'construction-detail-observed-only-chip',
-    DETAIL_ATTEMPT_SELECT: 'construction-detail-attempt-select',
-    DETAIL_EXIT_CRITERION: 'construction-detail-exit-criterion',
-    DETAIL_BODY: 'construction-detail-body',
-    DETAIL_ACTION_BAR: 'construction-detail-action-bar',
-    detailAction: (id: string) => `construction-detail-action-${id}`,
-    // The four bodies that fill the pane's one body slot (Stage B Tasks 8-10),
-    // plus the by-design-ABSENT sibling of the unknown one — a phase the
-    // activity's profile does not carry is not a gap in the data, and the two
-    // never share a body or an id.
-    DETAIL_BODY_UNKNOWN: 'construction-detail-body-unknown',
-    DETAIL_BODY_ABSENT: 'construction-detail-body-absent',
-    DETAIL_BODY_EPISODES: 'construction-detail-body-episodes',
-    DETAIL_BODY_REVIEW: 'construction-detail-body-review',
-    DETAIL_BODY_ARTIFACT: 'construction-detail-body-artifact',
-    // Provenance IN THE PANE (Stage B Task 8, founder ruling 2026-09-09). The
-    // list stamps a reconstructed group with `≈ RECONSTRUCTED`; the pane is
-    // where a reader goes to CHECK one, so it quotes the basis in the open and
-    // states the evidence pointer — including its absence, which is the state of
-    // six of the ten task rows on every widened activity.
-    DETAIL_PROVENANCE_NOTE: 'construction-detail-provenance-note',
-    DETAIL_PROVENANCE_BASIS: 'construction-detail-provenance-basis',
-    /** The condensed note's "Basis and evidence" disclosure (its <summary>). */
-    DETAIL_PROVENANCE_DISCLOSURE: 'construction-detail-provenance-disclosure',
-    DETAIL_EVIDENCE: 'construction-detail-evidence',
-    // The episode body's honesty caption (Task 9): episodes are activity-level
-    // unless an episode's TargetRef is literally the selected attempt key.
-    DETAIL_EPISODE_CAPTION: 'construction-detail-episode-caption',
-    DETAIL_SUBAGENT_GANTT: 'construction-detail-subagent-gantt',
-    // The review body's verdict block (Task 10). A verdict RECONSTRUCTED from a
-    // produced-record note carries its own stamp and is never presented as a
-    // structured verdict — awaitPhaseDecision drops sig.Feedback, so no
-    // structured verdict exists to present.
-    DETAIL_VERDICT: 'construction-detail-verdict',
-    DETAIL_VERDICT_STAMP: 'construction-detail-verdict-stamp',
-    // The ARTIFACT FRAME (designer renderers-placement §1): every committed
-    // artifact in the pane mounts in one frame whose ROLE label (UNDER REVIEW /
-    // COMMITTED NOW / REFERENCE) and SOURCE line say what it is. It never carries
-    // the provenance hatch — that belongs to the attempt, above it.
-    ARTIFACT_FRAME: 'construction-artifact-frame',
-    ARTIFACT_ROLE: 'construction-artifact-role',
-    ARTIFACT_SOURCE: 'construction-artifact-source',
-    ARTIFACT_FOCUS: 'construction-artifact-focus',
-    /** The one sentence between a reconstructed attempt's note and the frame. */
-    ARTIFACT_RECONSTRUCTED_NOTE: 'construction-artifact-reconstructed-note',
-    /** A not-started / unknown selection showing an artifact: its state, in one line. */
-    ARTIFACT_STATE_LINE: 'construction-artifact-state-line',
-    /** The unknown body's briefing, collapsed under the artifact. */
-    ARTIFACT_ABOUT_TASK: 'construction-artifact-about-task',
-    CONTRACT_SUMMARY: 'construction-contract-summary',
-    CONTRACT_SUMMARY_OPEN: 'construction-contract-summary-open',
-    CONTRACT_REFERENCE: 'construction-contract-reference',
-    CONTRACT_REFERENCE_OPEN: 'construction-contract-reference-open',
-    /** A missing contract (a real gap) versus none by design — two ids, two sentences. */
-    CONTRACT_GAP: 'construction-contract-gap',
-    CONTRACT_BY_DESIGN: 'construction-contract-by-design',
-    CONTRACT_UNRESOLVED: 'construction-contract-unresolved',
-    WHO_REACHES_IT: 'construction-who-reaches-it',
-    CODE_REVIEW_COMMIT: 'construction-code-review-commit',
-    SRS_UNREADABLE: 'construction-srs-unreadable',
-    COMPONENT_TEST_PLAN: 'construction-component-test-plan',
-    COMPONENT_TEST_PLAN_EMPTY: 'construction-component-test-plan-empty',
-    TEST_COVERAGE: 'construction-test-coverage',
-    TEST_COVERAGE_DIRECT: 'construction-test-coverage-direct',
-    coverageReachedRow: (scenarioId: string) => `construction-test-coverage-reached-${scenarioId}`,
-    USE_CASE_FLOWS_LINK: 'construction-use-case-flows-link',
-    // The FOCUS view (designer §3): the artifact full-viewport over the console,
-    // the invariant header and action bar in a rail beside it, the lens mounted
-    // underneath. Driven by `&focus=1`.
-    FOCUS_VIEW: 'construction-focus-view',
-    FOCUS_CLOSE: 'construction-focus-close',
-    /** The focus region's heading — where focus lands on entry (polish 4). */
-    FOCUS_HEADING: 'construction-focus-heading',
-    /** The rail's own content under the header: the note, the sentence, the verdict. */
-    FOCUS_RAIL: 'construction-focus-rail',
-    /** Collapse / show the focus view's side panel (per viewer, remembered). */
-    FOCUS_RAIL_TOGGLE: 'construction-focus-rail-toggle',
-    /** The verdict as one chip in the focus header while the side panel is collapsed. */
-    FOCUS_VERDICT_CHIP: 'construction-focus-verdict-chip',
-    /** The pane's body while the focus view is open: unmounted, one line instead. */
-    FOCUS_PLACEHOLDER: 'construction-focus-placeholder',
-    /** Code Review on a reconstructed (or unreviewed) attempt: one line, no CODE frame. */
-    CODE_REVIEW_NO_VIEW: 'construction-code-review-no-view',
     /** The narrow scenario browser's case dropdown (more than 3 cases). */
     CASE_PICKER: 'construction-case-picker',
   },
-  // The GIT-FORWARD per-activity row cluster (U-SPA-GIT). The shared chrome the
-  // construction tracker (and future CR/operations surfaces) render per
-  // git-backed activity, keyed by ActivityID via gitFor(...).
-  Git: {
-    ROW_META: 'git-row-meta',
-    PR_LINK: 'git-pr-link',
-    BRANCH: 'git-branch',
-    MERGED: 'git-merged',
-    CR_LABEL: 'git-cr-label',
-    ARCH_APPROVED: 'git-arch-approved',
-    ciStatus: (status: string) => `git-ci-${status}`,
-  },
+  // The GIT-FORWARD per-activity row cluster (U-SPA-GIT: ROW_META, PR_LINK,
+  // BRANCH, MERGED, CR_LABEL, ARCH_APPROVED, ciStatus) was the construction
+  // tracker's chrome, and no surface has rendered it since the tracker retired.
+  // The `Git` namespace went with it; a surface that shows a branch or a PR again
+  // mints its own ids.
   ServiceContract: {
     ROOT: 'service-contract-view',
     TAB_CODE: 'service-contract-tab-code',
@@ -733,8 +509,6 @@ export const UI_IDENTIFIERS = {
     TAB_DEPLOYMENTS: 'operations-tab-deployments',
     TAB_SCALING: 'operations-tab-scaling',
     TAB_INTERVENTIONS: 'operations-tab-interventions',
-    APP_SELECTOR: 'operations-app-selector',
-    appOption: (id: string) => `operations-app-option-${id}`,
     STATUS_TAB: 'operations-status-tab',
     DEPLOYMENTS_TAB: 'operations-deployments-tab',
     SCALING_TAB: 'operations-scaling-tab',
@@ -757,11 +531,9 @@ export const UI_IDENTIFIERS = {
     INTAKE_SUBMIT: 'change-requests-intake-submit',
     INTAKE_CANCEL: 'change-requests-intake-cancel',
     EMPTY_STATE: 'change-requests-empty',
-    subprojectCard: (id: string) => `change-requests-subproject-${id}`,
   },
   Subproject: {
     ROOT: 'subproject-flow-screen',
-    CLOSE: 'subproject-flow-close',
     NOT_READY: 'subproject-flow-not-ready',
     BACK: 'subproject-flow-back',
   },
@@ -786,16 +558,9 @@ export const UI_IDENTIFIERS = {
     REJECT_SUBMIT: 'sdp-reject-submit',
     optionCard: (optionId: string) => `sdp-option-${optionId}`,
   },
-  Gate: {
-    STAGE_CHIP: 'gate-stage-chip',
-    REQUEST_DRAFT_BUTTON: 'gate-request-draft-button',
-    DRAFT_DISPLAY: 'gate-draft-display',
-    FINDINGS_LIST: 'gate-findings-list',
-    APPROVE_BUTTON: 'gate-approve-button',
-    REJECT_BUTTON: 'gate-reject-button',
-    WITHDRAW_BUTTON: 'gate-withdraw-button',
-    FEEDBACK_INPUT: 'gate-feedback-input',
-  },
+  // The `Gate` namespace was a second, older spelling of the design gate's
+  // controls (STAGE_CHIP, REQUEST_DRAFT_BUTTON, APPROVE_BUTTON, …) that no
+  // component ever placed. `GatePanel` above is the one the gate renders.
   Common: {
     ERROR_ALERT: 'error-alert',
     LOADING: 'loading-indicator',

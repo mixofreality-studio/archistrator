@@ -139,8 +139,9 @@ type Transport interface {
 	// These drive the delivery Manager's construction rail (POST .../delivery/...).
 	// Only the ops the plan's cases actually drive are exposed (plus
 	// UpdateReviewPolicy, the minimal staging op that makes the detailed_design
-	// phase gate actually suspend for a human decision); PauseProject/ReplanProject
-	// are published but wire-driven by no case, so they are NOT added here.
+	// phase gate actually suspend for a human decision); PauseProject is published
+	// but wire-driven by no case, so it is NOT added here. (ReplanProject was the
+	// other one, and stage 4b2 removed it from the contract outright.)
 	//
 	// OverrideActivity joined at stage 4a: execute-a-project-activity's call chain
 	// runs escalate-operator through it, so every scenario's happy case now walks it

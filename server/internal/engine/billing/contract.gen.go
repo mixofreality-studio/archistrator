@@ -8,18 +8,15 @@ import (
 )
 
 type BillingResult struct {
-	SignedNet           Money            `json:"SignedNet"`
-	RoutingDirective    RoutingDirective `json:"RoutingDirective"`
-	RevenueShareApplied Money            `json:"RevenueShareApplied"`
-	ComputeCostApplied  Money            `json:"ComputeCostApplied"`
+	SignedNet          Money            `json:"SignedNet"`
+	RoutingDirective   RoutingDirective `json:"RoutingDirective"`
+	ComputeCostApplied Money            `json:"ComputeCostApplied"`
 }
 
 type BillingTerms struct {
-	RevenueShare         RevenueShareKind `json:"revenueShare"`
-	RevenueSharePercent  float64          `json:"revenueSharePercent"`
-	ComputeCost          ComputeCostKind  `json:"computeCost"`
-	ComputeMarkupPercent float64          `json:"computeMarkupPercent"`
-	Schedule             ScheduleKind     `json:"schedule"`
+	ComputeCost          ComputeCostKind `json:"computeCost"`
+	ComputeMarkupPercent float64         `json:"computeMarkupPercent"`
+	Schedule             ScheduleKind    `json:"schedule"`
 }
 
 type ComputeCostKind int
@@ -54,10 +51,8 @@ type ProjectOption struct {
 }
 
 type Projection struct {
-	RevenueShareKind     RevenueShareKind `json:"RevenueShareKind"`
-	RevenueSharePercent  float64          `json:"RevenueSharePercent"`
-	ComputeCostKind      ComputeCostKind  `json:"ComputeCostKind"`
-	ComputeMarkupPercent float64          `json:"ComputeMarkupPercent"`
+	ComputeCostKind      ComputeCostKind `json:"ComputeCostKind"`
+	ComputeMarkupPercent float64         `json:"ComputeMarkupPercent"`
 }
 
 type ReBillingInput struct {
@@ -66,14 +61,6 @@ type ReBillingInput struct {
 	Terms        BillingTerms  `json:"Terms"`
 	PriorSettled BillingResult `json:"PriorSettled"`
 }
-
-type RevenueShareKind int
-
-const (
-	RevenueShareUnknown        RevenueShareKind = 0
-	RevenueShareLaunchFlat10   RevenueShareKind = 1
-	RevenueShareNegotiatedRate RevenueShareKind = 2
-)
 
 type RoutingDirective int
 
@@ -94,7 +81,7 @@ const (
 // BillingEngine is the generated service-contract interface for this component.
 type BillingEngine interface {
 	ComputeNet(rc fweng.Context, revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (BillingResult, error)
-	ProjectCommitTimeRevenueShareAndComputeCost(rc fweng.Context, option ProjectOption) (Projection, error)
+	ProjectCommitTimeComputeCost(rc fweng.Context, option ProjectOption) (Projection, error)
 	RecomputeNet(rc fweng.Context, affectedCycle ReBillingInput) (BillingResult, error)
 }
 

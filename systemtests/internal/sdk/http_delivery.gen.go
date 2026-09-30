@@ -114,19 +114,6 @@ func (c *HTTPClient) DeliveryOverrideActivity(ctx context.Context, projectID Pro
 	return c.doRequest(ctx, http.MethodPost, path, DeliveryOverrideActivityRequest{Override: override}, nil, http.StatusNoContent)
 }
 
-// DeliveryReplanProjectRequest is the JSON request body for DeliveryReplanProject.
-type DeliveryReplanProjectRequest struct {
-	TickID string `json:"tickID"`
-}
-
-// DeliveryReplanProject calls the ReplanProject operation on the Delivery manager over HTTP.
-func (c *HTTPClient) DeliveryReplanProject(ctx context.Context, projectID ProjectID, tickID string) (ReplanSweepResult, error) {
-	path := fmt.Sprintf("/api/v1/delivery/replan-project/%s", projectID)
-	var out ReplanSweepResult
-	err := c.doRequest(ctx, http.MethodPost, path, DeliveryReplanProjectRequest{TickID: tickID}, &out, http.StatusOK)
-	return out, err
-}
-
 // DeliverySetProjectExecutionPolicyRequest is the JSON request body for DeliverySetProjectExecutionPolicy.
 type DeliverySetProjectExecutionPolicyRequest struct {
 	Policy ExecutionPolicyInput `json:"policy"`

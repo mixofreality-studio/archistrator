@@ -3,6 +3,16 @@
   "title": "Activity Experience — a live gate whose reviewer set the engine refused to propose",
   "note": "C-ReviewEngine is suspended at its Detailed Design gate and the reviewers strip has nothing to draw: `reviewSet` is ABSENT and `reviewSetError` says why. The contract is explicit that this is a defect in the Manager's call or in the engine and never an operator error, and that the gate itself is unaffected — Approve and SendBack still work — so the strip must render the failure without disabling the decision. The round was still opened (the store stamps openedAt before anyone is asked), so the revision is a persisted, undecided round: a subject, an EMPTY roster because the engine never produced one, no verdicts, no decision stamp, and no gate attempt, because the rail writes that only when the round is decided. Task 9 (the review body) reads the committed project as well as the lifecycle — the slots a design review judges, the construction row a renderer draws from, the contracts the activity \u2192 component \u2192 contract JOIN resolves \u2014 so this fixture now answers the summary project view with a live capture of the archistrator project, verbatim apart from GitRows (the server marshals a nil Go map as JSON null; the generated schema types it as a plain object).",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",
@@ -9532,13 +9553,11 @@
                "avgPayloadBytes": 4096
               },
               "terms": {
-               "revenueShare": 0,
-               "revenueSharePercent": 0,
                "computeCost": 2,
                "computeMarkupPercent": 0,
                "schedule": 1
               },
-              "notes": "Team: solo founder (bus-factor-1) + up to 3 concurrent Claude agent streams (architect/PM/product-manager/specialist roles). Founder works ~2 effective days/week (40% of nominal). Parallelism cap: 3 in-flight agent streams; beyond that, founder review quality degrades. Infrastructure: Go + Temporal + Postgres (CNPG for Temporal + billing head-state only; project state is JSON-in-git with git-ref CAS). Construction CI is the user's own GitHub Actions running claude-code-action — the platform holds no LLM key and does not charge for construction. Billing model (2026-06-09 MoR-reversal): pure one-directional vendor charge — the platform bills the user a usage-based HOSTING fee only (DEPLOYED — OPERATED scenario); no flat subscription; no revenue share; no charge for construction or LLM work; revenueShare=0 (no payout; the old merchant-of-record / revenue-share model was reversed). computeCost=2 (tieredFloors: tier floors + free-tier subsidies per ServicePricing strategy); schedule=1 (monthly billing period). Risk flags: bus-factor-1; founder availability variable (2d/wk); operated runtime unchosen; durable execution platform unchosen; git-as-project-state-store novelty; AI-agent construction quality variance; dog-food chicken-and-egg. No hard external deadlines. Internal-only v1 audience.",
+              "notes": "Team: solo founder (bus-factor-1) + up to 3 concurrent Claude agent streams (architect/PM/product-manager/specialist roles). Founder works ~2 effective days/week (40% of nominal). Parallelism cap: 3 in-flight agent streams; beyond that, founder review quality degrades. Infrastructure: Go + Temporal + Postgres (CNPG for Temporal + billing head-state only; project state is JSON-in-git with git-ref CAS). Construction CI is the user's own GitHub Actions running claude-code-action — the platform holds no LLM key and does not charge for construction. Billing model (2026-06-09 MoR-reversal): pure one-directional vendor charge — the platform bills the user a usage-based HOSTING fee only (DEPLOYED — OPERATED scenario); no flat subscription; no charge for construction or LLM work. The platform bills a usage-based hosting fee for operating a delivered system and nothing else. Revenue share was reversed on 2026-06-09 and is no longer part of the vocabulary (stage 4b2, founder ruling): the concept is gone rather than set to zero, because a field whose UNKNOWN member had to stand in for 'none' could not state the platform's actual posture. computeCost=2 (tieredFloors: tier floors + free-tier subsidies per ServicePricing strategy); schedule=1 (monthly billing period). Risk flags: bus-factor-1; founder availability variable (2d/wk); operated runtime unchosen; durable execution platform unchosen; git-as-project-state-store novelty; AI-agent construction quality variance; dog-food chicken-and-egg. No hard external deadlines. Internal-only v1 audience.",
               "indirectDailyRate": {
                "minorUnits": 5000,
                "currency": "USD"
@@ -10891,8 +10910,7 @@
                 "expectedPerCycleNet": {
                  "minorUnits": 120000,
                  "currency": "USD"
-                },
-                "revenueSharePercent": 0
+                }
                },
                {
                 "optionId": "opt-subcritical",
@@ -10910,8 +10928,7 @@
                 "expectedPerCycleNet": {
                  "minorUnits": 120000,
                  "currency": "USD"
-                },
-                "revenueSharePercent": 0
+                }
                },
                {
                 "optionId": "opt-compressed",
@@ -10929,8 +10946,7 @@
                 "expectedPerCycleNet": {
                  "minorUnits": 120000,
                  "currency": "USD"
-                },
-                "revenueSharePercent": 0
+                }
                },
                {
                 "optionId": "opt-decompressed",
@@ -10948,8 +10964,7 @@
                 "expectedPerCycleNet": {
                  "minorUnits": 120000,
                  "currency": "USD"
-                },
-                "revenueSharePercent": 0
+                }
                }
               ],
               "recommendation": "opt-decompressed",
@@ -18677,16 +18692,6 @@
                 "Name": "BillingTerms",
                 "Fields": [
                  {
-                  "Name": "revenueShare",
-                  "Type": "RevenueShareKind",
-                  "Note": ""
-                 },
-                 {
-                  "Name": "revenueSharePercent",
-                  "Type": "float64",
-                  "Note": ""
-                 },
-                 {
                   "Name": "computeCost",
                   "Type": "ComputeCostKind",
                   "Note": ""
@@ -18719,11 +18724,6 @@
                   "Note": ""
                  },
                  {
-                  "Name": "RevenueShareApplied",
-                  "Type": "Money",
-                  "Note": ""
-                 },
-                 {
                   "Name": "ComputeCostApplied",
                   "Type": "Money",
                   "Note": ""
@@ -18743,7 +18743,7 @@
               ]
              },
              {
-              "Signature": "ProjectCommitTimeRevenueShareAndComputeCost(option: ProjectOption) → (Projection, fweng.Error)",
+              "Signature": "ProjectCommitTimeComputeCost(option: ProjectOption) → (Projection, fweng.Error)",
               "Stereotype": "",
               "Note": "",
               "Inputs": [
@@ -18767,16 +18767,6 @@
                {
                 "Name": "Projection",
                 "Fields": [
-                 {
-                  "Name": "RevenueShareKind",
-                  "Type": "RevenueShareKind",
-                  "Note": ""
-                 },
-                 {
-                  "Name": "RevenueSharePercent",
-                  "Type": "float64",
-                  "Note": ""
-                 },
                  {
                   "Name": "ComputeCostKind",
                   "Type": "ComputeCostKind",
@@ -18847,11 +18837,6 @@
                   "Note": ""
                  },
                  {
-                  "Name": "RevenueShareApplied",
-                  "Type": "Money",
-                  "Note": ""
-                 },
-                 {
                   "Name": "ComputeCostApplied",
                   "Type": "Money",
                   "Note": ""
@@ -18882,7 +18867,6 @@
              "ProjectOption",
              "Projection",
              "ReBillingInput",
-             "RevenueShareKind",
              "RoutingDirective",
              "ScheduleKind"
             ],
@@ -25277,7 +25261,6 @@
              "OperationForecast",
              "OptionID",
              "ProjectOption",
-             "RevenueShareKind",
              "ScalePoint",
              "ScheduleKind",
              "SettlementTerms",
@@ -27094,7 +27077,6 @@
              "Requirement",
              "ResearchInput",
              "ResearchSource",
-             "RevenueShareKind",
              "ReviewComment",
              "ReviewCommentReply",
              "ReviewPolicy",

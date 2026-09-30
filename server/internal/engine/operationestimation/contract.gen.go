@@ -64,14 +64,6 @@ type ProjectOption struct {
 	Terms    SettlementTerms `json:"Terms"`
 }
 
-type RevenueShareKind int
-
-const (
-	RevenueShareUnknown        RevenueShareKind = 0
-	RevenueShareLaunchFlat10   RevenueShareKind = 1
-	RevenueShareNegotiatedRate RevenueShareKind = 2
-)
-
 type ScalePoint struct {
 	LoadMultiplier float64 `json:"LoadMultiplier"`
 }
@@ -86,11 +78,9 @@ const (
 )
 
 type SettlementTerms struct {
-	RevenueShare         RevenueShareKind `json:"revenueShare"`
-	RevenueSharePercent  float64          `json:"revenueSharePercent"`
-	ComputeCost          ComputeCostKind  `json:"computeCost"`
-	ComputeMarkupPercent float64          `json:"computeMarkupPercent"`
-	Schedule             ScheduleKind     `json:"schedule"`
+	ComputeCost          ComputeCostKind `json:"computeCost"`
+	ComputeMarkupPercent float64         `json:"computeMarkupPercent"`
+	Schedule             ScheduleKind    `json:"schedule"`
 }
 
 type UsageAssumption struct {

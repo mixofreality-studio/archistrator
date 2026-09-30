@@ -38,7 +38,7 @@ import { slotStageFromOrdinal } from '../contracts/adapters';
 import { PHASE1_ORDER, METHOD_METADATA } from '../contracts/methodMetadata';
 import { mapSessionState, systemArtifactKindFromOrdinal } from '../contracts/wire';
 
-import { useDesignHealth } from '../hooks/useDeliveryQueries';
+import { useActivityView, useDesignHealth } from '../hooks/useDeliveryQueries';
 import { useProject } from '../hooks/useDeliveryQueries';
 import { useCapabilities } from '../hooks/useCapabilities';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
@@ -60,6 +60,7 @@ import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
 import { StructureFindingsProvider } from '../components/flow/StructureFindingsContext';
 import { DeploymentHealthProvider } from '../components/flow/DeploymentHealthContext';
 import { gateDecisionErrorMessage } from '../components/design/gateFaultLogic';
+import { liveDesignGate } from '../components/design/liveDesignGate.ts';
 import type { Anchor } from '../components/comments/CommentContext';
 
 import { useTokens } from '../utilities/theme/ThemeContext';
@@ -190,7 +191,7 @@ export function McpSystemDesignContainer({
       const detail = (event as CustomEvent<McpUiToolResultNotification['params']>).detail;
       const structured = detail.structuredContent;
       if (structured === undefined) return;
-      const mapped = mapSessionState(structured as Schemas['DeliverySessionStateView']);
+      const mapped = mapSessionState(structured as Schemas['DeliveryDesignArtifactSessionView']);
       queryClient.setQueryData(sessionStateKey(projectId, mapped.artifactKind), mapped);
     };
     window.addEventListener('mcp-tool-result', handler);
@@ -223,7 +224,7 @@ export function McpSystemDesignContainer({
     if (seededResult !== undefined) {
       queryClient.setQueryData(
         sessionStateKey(projectId, initialKind),
-        mapSessionState(seededResult as Schemas['DeliverySessionStateView'])
+        mapSessionState(seededResult as Schemas['DeliveryDesignArtifactSessionView'])
       );
     }
     return Math.max(0, PHASE1_KINDS.indexOf(initialKind));
@@ -239,6 +240,22 @@ export function McpSystemDesignContainer({
   const gateRef = reviewRefFor(activeKind) ?? { activityId: '', taskId: '' };
 
   const session = useSessionState(projectId, activeKind, projectId.length > 0);
+  // THE LIVE GATE (stage 4b2 Task 9, controller ruling 1). The derived session door
+  // above answers "what is the durable state of this slot" — committed, withdrawn or
+  // draftFailed — and CANNOT say that a human is owed a decision. That vocabulary
+  // left with the co-author workflow at 4b1, so this widget's approve/reject gate
+  // could never open again. `QueryActivityView` is the authority 4b1 made canonical
+  // for the three design activities, and `gateRef` already names the very task whose
+  // revision carries the answer, so the read costs one op and no new routing.
+  const activity = useActivityView(
+    projectId,
+    gateRef.activityId,
+    projectId.length > 0 && gateRef.activityId.length > 0
+  );
+  const gate = liveDesignGate(activity.data, {
+    reviewTaskId: gateRef.taskId,
+    dispatchTaskId: draftRef.taskId,
+  });
   const requestDraft = useDispatchActivityTask(projectId);
   const submitReview = useSubmitReviewDecision(projectId);
   const acknowledgeStale = useAcknowledgeStaleBasis(projectId);
@@ -414,6 +431,7 @@ export function McpSystemDesignContainer({
               acknowledgeStalePending={acknowledgeStale.isPending}
               activeIndex={safeIndex}
               amendPending={requestDraft.isPending}
+              awaitingHuman={gate.awaitingHuman}
               beginPending={requestDraft.isPending}
               commentSurface={{
                 enabled: true,
@@ -437,6 +455,10 @@ export function McpSystemDesignContainer({
               // "all machine checks passed" on a draft the engine has findings for;
               // a client-side copy of the rules is what the move existed to prevent.
               designHealthFindings={designHealth?.findings}
+              // The other half of the stale-basis ack's refusal: a draft or amendment
+              // actually RUNNING. It rides the same one read as the gate above.
+              dispatchRunning={gate.dispatchRunning}
+              failedRunUrl={gate.failedRunUrl}
               gateError={gateError}
               needsResearch={false}
               project={project}

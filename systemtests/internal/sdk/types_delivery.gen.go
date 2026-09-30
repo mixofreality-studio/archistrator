@@ -310,13 +310,6 @@ type ContractStruct struct {
 	Fields []GoField `json:"Fields"`
 }
 
-type CritiqueView struct {
-	Role    string `json:"role"`
-	Verdict string `json:"verdict"`
-	Summary string `json:"summary"`
-	Round   int64  `json:"round"`
-}
-
 type DefectView struct {
 	Id       string `json:"id"`
 	Title    string `json:"title"`
@@ -325,6 +318,24 @@ type DefectView struct {
 }
 
 type DeliveryVersion int64
+
+type DesignArtifactSessionStage int
+
+const (
+	SessionStageUnknown DesignArtifactSessionStage = 0
+	StageCommitted      DesignArtifactSessionStage = 1
+	StageWithdrawn      DesignArtifactSessionStage = 2
+	StageDraftFailed    DesignArtifactSessionStage = 3
+)
+
+type DesignArtifactSessionView struct {
+	ProjectID     ProjectID                  `json:"projectId"`
+	ArtifactKind  ArtifactKind               `json:"artifactKind"`
+	Stage         DesignArtifactSessionStage `json:"stage"`
+	Draft         DraftModel                 `json:"draft"`
+	FailureReason *string                    `json:"failureReason,omitempty"`
+	ReviewThread  []ReviewCommentView        `json:"reviewThread,omitempty"`
+}
 
 type DesignHealth struct {
 	Findings            []Finding   `json:"findings"`
@@ -571,34 +582,6 @@ const (
 	ProjectPaused  ProjectRunState = "paused"
 )
 
-type ProjectSessionStage int
-
-const (
-	ProjectSessionStageUnknown ProjectSessionStage = 0
-	ProjectStageDrafting       ProjectSessionStage = 1
-	ProjectStageAssemblingSDP  ProjectSessionStage = 2
-	ProjectStageAwaitingReview ProjectSessionStage = 3
-	ProjectStageRedrafting     ProjectSessionStage = 4
-	ProjectStageCommitted      ProjectSessionStage = 5
-	ProjectStageWithdrawn      ProjectSessionStage = 6
-	ProjectStageRefused        ProjectSessionStage = 7
-	ProjectStageDraftFailed    ProjectSessionStage = 8
-)
-
-type ProjectSessionStateView struct {
-	ProjectID     ProjectID           `json:"projectId"`
-	ArtifactKind  ArtifactKind        `json:"artifactKind"`
-	Stage         ProjectSessionStage `json:"stage"`
-	Draft         DraftModel          `json:"draft"`
-	Findings      []Finding           `json:"findings,omitempty"`
-	FailureReason *string             `json:"failureReason,omitempty"`
-	StageName     string              `json:"stageName"`
-	ReviewThread  []ReviewCommentView `json:"reviewThread,omitempty"`
-	ActiveRole    ActiveRole          `json:"activeRole"`
-	ActiveStep    ActiveStep          `json:"activeStep"`
-	Round         int64               `json:"round"`
-}
-
 type ProjectState struct {
 	ProjectID            ProjectID                             `json:"ProjectID"`
 	Name                 string                                `json:"Name"`
@@ -633,16 +616,15 @@ type ProjectSummary struct {
 }
 
 type ProjectView struct {
-	Kind                ProjectViewKind          `json:"kind"`
-	Summary             *ProjectState            `json:"summary,omitempty"`
-	Projects            []ProjectSummary         `json:"projects,omitempty"`
-	Session             *SessionStateView        `json:"session,omitempty"`
-	ProjectSession      *ProjectSessionStateView `json:"projectSession,omitempty"`
-	ConstructionSession *ConstructionSessionView `json:"constructionSession,omitempty"`
-	Pump                *PumpStatus              `json:"pump,omitempty"`
-	DesignHealth        *DesignHealth            `json:"designHealth,omitempty"`
-	Episodes            []EpisodeRecordView      `json:"episodes,omitempty"`
-	Timeline            *EpisodeTimeline         `json:"timeline,omitempty"`
+	Kind                ProjectViewKind            `json:"kind"`
+	Summary             *ProjectState              `json:"summary,omitempty"`
+	Projects            []ProjectSummary           `json:"projects,omitempty"`
+	Session             *DesignArtifactSessionView `json:"session,omitempty"`
+	ConstructionSession *ConstructionSessionView   `json:"constructionSession,omitempty"`
+	Pump                *PumpStatus                `json:"pump,omitempty"`
+	DesignHealth        *DesignHealth              `json:"designHealth,omitempty"`
+	Episodes            []EpisodeRecordView        `json:"episodes,omitempty"`
+	Timeline            *EpisodeTimeline           `json:"timeline,omitempty"`
 }
 
 type ProjectViewKind string
@@ -834,36 +816,6 @@ type ServiceContract struct {
 
 type SessionRef string
 
-type SessionStage int
-
-const (
-	SessionStageUnknown SessionStage = 0
-	StageDrafting       SessionStage = 1
-	StageAwaitingReview SessionStage = 2
-	StageRedrafting     SessionStage = 3
-	StageCommitted      SessionStage = 4
-	StageWithdrawn      SessionStage = 5
-	StageRefused        SessionStage = 6
-	StageDraftFailed    SessionStage = 7
-)
-
-type SessionStateView struct {
-	ProjectID     ProjectID           `json:"projectId"`
-	ArtifactKind  ArtifactKind        `json:"artifactKind"`
-	Stage         SessionStage        `json:"stage"`
-	Draft         DraftModel          `json:"draft"`
-	Findings      []Finding           `json:"findings,omitempty"`
-	FailureReason *string             `json:"failureReason,omitempty"`
-	FailureRunURL *string             `json:"failureRunUrl,omitempty"`
-	RunURL        *string             `json:"runUrl,omitempty"`
-	Critique      *CritiqueView       `json:"critique,omitempty"`
-	StageName     string              `json:"stageName"`
-	ReviewThread  []ReviewCommentView `json:"reviewThread,omitempty"`
-	ActiveRole    ActiveRole          `json:"activeRole"`
-	ActiveStep    ActiveStep          `json:"activeStep"`
-	Round         int64               `json:"round"`
-}
-
 type Severity string
 
 const (
@@ -898,6 +850,7 @@ type TaskAttempt struct {
 	EndedAt    *time.Time          `json:"endedAt,omitempty"`
 	Outcome    string              `json:"outcome"`
 	Evidence   EvidenceRef         `json:"evidence"`
+	Detail     *string             `json:"detail,omitempty"`
 	Provenance AttemptProvenance   `json:"provenance"`
 }
 
@@ -933,6 +886,7 @@ type TaskRevisionView struct {
 	EndedAt      *time.Time             `json:"endedAt,omitempty"`
 	AttemptIDs   []string               `json:"attemptIds"`
 	EpisodeID    *string                `json:"episodeId,omitempty"`
+	Detail       *string                `json:"detail,omitempty"`
 	CommentCount int64                  `json:"commentCount"`
 	Comments     []TaskRevisionComment  `json:"comments"`
 	Note         *string                `json:"note,omitempty"`
@@ -1254,6 +1208,22 @@ func ConstructionStageName(v ConstructionStage) string {
 	}
 }
 
+// DesignArtifactSessionStageName returns the declared varname of a DesignArtifactSessionStage value.
+func DesignArtifactSessionStageName(v DesignArtifactSessionStage) string {
+	switch v {
+	case SessionStageUnknown:
+		return "SessionStageUnknown"
+	case StageCommitted:
+		return "StageCommitted"
+	case StageWithdrawn:
+		return "StageWithdrawn"
+	case StageDraftFailed:
+		return "StageDraftFailed"
+	default:
+		return ""
+	}
+}
+
 // EpisodeKindName returns the declared varname of a EpisodeKind value.
 func EpisodeKindName(v EpisodeKind) string {
 	switch v {
@@ -1416,32 +1386,6 @@ func ProjectRunStateName(v ProjectRunState) string {
 	}
 }
 
-// ProjectSessionStageName returns the declared varname of a ProjectSessionStage value.
-func ProjectSessionStageName(v ProjectSessionStage) string {
-	switch v {
-	case ProjectSessionStageUnknown:
-		return "ProjectSessionStageUnknown"
-	case ProjectStageDrafting:
-		return "ProjectStageDrafting"
-	case ProjectStageAssemblingSDP:
-		return "ProjectStageAssemblingSDP"
-	case ProjectStageAwaitingReview:
-		return "ProjectStageAwaitingReview"
-	case ProjectStageRedrafting:
-		return "ProjectStageRedrafting"
-	case ProjectStageCommitted:
-		return "ProjectStageCommitted"
-	case ProjectStageWithdrawn:
-		return "ProjectStageWithdrawn"
-	case ProjectStageRefused:
-		return "ProjectStageRefused"
-	case ProjectStageDraftFailed:
-		return "ProjectStageDraftFailed"
-	default:
-		return ""
-	}
-}
-
 // ProjectViewKindName returns the declared varname of a ProjectViewKind value.
 func ProjectViewKindName(v ProjectViewKind) string {
 	switch v {
@@ -1507,30 +1451,6 @@ func SDPDecisionName(v SDPDecision) string {
 		return "SDPCommit"
 	case SDPRejectAll:
 		return "SDPRejectAll"
-	default:
-		return ""
-	}
-}
-
-// SessionStageName returns the declared varname of a SessionStage value.
-func SessionStageName(v SessionStage) string {
-	switch v {
-	case SessionStageUnknown:
-		return "SessionStageUnknown"
-	case StageDrafting:
-		return "StageDrafting"
-	case StageAwaitingReview:
-		return "StageAwaitingReview"
-	case StageRedrafting:
-		return "StageRedrafting"
-	case StageCommitted:
-		return "StageCommitted"
-	case StageWithdrawn:
-		return "StageWithdrawn"
-	case StageRefused:
-		return "StageRefused"
-	case StageDraftFailed:
-		return "StageDraftFailed"
 	default:
 		return ""
 	}

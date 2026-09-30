@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -1563,6 +1564,10 @@ func TestArtifactKindIsPhase1(t *testing.T) {
 type stubProjectState struct {
 	calls       []string
 	stagedModel ArtifactModel
+	// reconcileKinds is the PRESERVE set the base was handed, captured so the delegation
+	// test can prove the generated one-kind facade widens it to a one-element slice rather
+	// than dropping it (stage 4b2 Task 6).
+	reconcileKinds []ArtifactKind
 }
 
 func (s *stubProjectState) AdvancePhase(_ fwra.Context, _ ProjectID, _ Version) (Version, error) {
@@ -1630,8 +1635,9 @@ func (s *stubProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ ProjectI
 	return 32, nil
 }
 
-func (s *stubProjectState) ReconcileBranchFromMain(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) ReconcileBranchFromMain(_ fwra.Context, _ ProjectID, _ Version, _ string, kinds []ArtifactKind, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "ReconcileBranchFromMain")
+	s.reconcileKinds = kinds
 	return 50, nil
 }
 
@@ -1792,16 +1798,26 @@ func TestDesignSessionAccess_WithdrawArtifactOnBranch_DelegatesToBase(t *testing
 
 // ---- ReconcileBranchFromMain ----------------------------------------------------
 
+// TestDesignSessionAccess_ReconcileBranchFromMain_DelegatesToBase pins that the WHOLE
+// preserve set reaches the base, unchanged. The one-element shim stage 4b2 Task 6 left here
+// is gone with Task 7's `kinds` param, and the set this asserts is a MULTI-slot one on
+// purpose: a facade that silently narrowed it — sending the first of four — is exactly F80c,
+// three live drafts replaced by main's older copies.
 func TestDesignSessionAccess_ReconcileBranchFromMain_DelegatesToBase(t *testing.T) {
 	base := &stubProjectState{}
 	s := NewDesignSessionAccess(base)
-	v, err := s.ReconcileBranchFromMain(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, "idem-1")
+	want := []ArtifactKind{KindMission, KindGlossary, KindVolatilities, KindCoreUseCases}
+	v, err := s.ReconcileBranchFromMain(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", want, "idem-1")
 	if err != nil {
 		t.Fatalf("ReconcileBranchFromMain: %v", err)
 	}
 	assertCalls(t, base.calls, "ReconcileBranchFromMain")
 	if v != 50 {
 		t.Fatalf("Version = %d, want 50", v)
+	}
+	if !slices.Equal(base.reconcileKinds, want) {
+		t.Fatalf("the base was handed preserve set %v, want exactly %v — the facade must "+
+			"forward the whole set, never narrow it", base.reconcileKinds, want)
 	}
 }
 
@@ -2910,6 +2926,43 @@ type localLocator struct {
 
 func (l localLocator) ProjectRepo(_ ProjectID) (*fwgithub.GitStore, error) { return l.project, nil }
 
+// branchLocator is localLocator that ALSO satisfies the OPTIONAL BranchRepoLocator, so a
+// test can write to a REAL second branch of the throwaway repo. localLocator does not, and
+// projectRepo then quietly resolves every branch override to main — which is fine for the
+// tests that pass "" but would make a reconcile test read and write the SAME ref and prove
+// nothing at all. The F80c overlay is only meaningful across two genuinely divergent refs.
+type branchLocator struct {
+	url     string
+	project *fwgithub.GitStore
+}
+
+func (l branchLocator) ProjectRepo(_ ProjectID) (*fwgithub.GitStore, error) { return l.project, nil }
+
+func (l branchLocator) ProjectRepoOnBranch(_ ProjectID, branch string) (*fwgithub.GitStore, error) {
+	if branch == "" {
+		return l.project, nil
+	}
+	return fwgithub.NewGitStore(l.url, branch)
+}
+
+// newBranchAwareLocalGitStore is newLocalGitStore over a branch-capable locator (see
+// branchLocator). The branch is created by its first write, forked from main's tip — the
+// same shape the design-session branch open flow produces in production.
+func newBranchAwareLocalGitStore(t *testing.T) (*GitStore, RepoCredential, context.Context) {
+	t.Helper()
+	projRepo := gh.StartLocalGitRepo(t, "main")
+	proj, err := fwgithub.NewGitStore(projRepo.URL, "main")
+	if err != nil {
+		t.Fatalf("NewGitStore(project): %v", err)
+	}
+	store, err := NewGitStore(branchLocator{url: projRepo.URL, project: proj}, true /* local */)
+	if err != nil {
+		t.Fatalf("NewGitStore(RA): %v", err)
+	}
+	store = store.WithCatalog(singleRepoCatalog{repo: proj})
+	return store, LocalRepoCredential(), context.Background()
+}
+
 // singleRepoCatalog is the test ProjectCatalog: it reads project.json from the one
 // on-disk repo and yields its id+title — the LOCAL single-repo discover-by-enumeration
 // the production localProjectCatalog implements over the same repo. NOT a behavioral
@@ -3564,9 +3617,202 @@ func TestGitStore_ReconcileBranchFromMain_EmptyBranchIsMisuse(t *testing.T) {
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	_, err := store.ReconcileBranchFromMain(ctx, id, 1, "", KindMission, cred, "wf:reconcile")
+	_, err := store.ReconcileBranchFromMain(ctx, id, 1, "", []ArtifactKind{KindMission}, cred, "wf:reconcile")
 	if k := kindOf(t, err); k != fwra.ContractMisuse {
 		t.Fatalf("reconcile with empty branch kind = %v, want ContractMisuse", k)
+	}
+}
+
+// slotSnapshot renders one slot to JSON so a reconcile test can assert a draft survived
+// BYTE-IDENTICALLY, rather than field-by-field equality a newly added field would silently
+// escape. The whole ArtifactSlot is rendered — model, status, review ledger, revisions —
+// because the overlay replaces the whole slot, so anything less would miss a half-loss.
+func slotSnapshot(t *testing.T, p *Project, kind ArtifactKind) string {
+	t.Helper()
+	slot, ok := slotPtr(p, kind)
+	if !ok {
+		t.Fatalf("slotSnapshot: no named slot for kind %v", kind)
+	}
+	b, err := json.Marshal(slot)
+	if err != nil {
+		t.Fatalf("slotSnapshot: marshal %v: %v", kind, err)
+	}
+	return string(b)
+}
+
+// seedCommittedOnMain stages then commits each model on MAIN, returning the new version. It
+// is main's "older copy" of a slot — what the overlay adopts for every kind NOT preserved.
+func seedCommittedOnMain(ctx context.Context, t *testing.T, store *GitStore, id ProjectID, v Version, cred RepoCredential, tag string, models ...ArtifactModel) Version {
+	t.Helper()
+	var err error
+	for i, m := range models {
+		if v, err = store.StageArtifactForReviewOnBranch(ctx, id, v, "", m, cred,
+			fwra.IdempotencyKey(fmt.Sprintf("wf:%s-stage-%d", tag, i))); err != nil {
+			t.Fatalf("stage %v on main: %v", m.Kind(), err)
+		}
+		if v, err = store.CommitArtifact(ctx, id, v, m.Kind(), cred,
+			fwra.IdempotencyKey(fmt.Sprintf("wf:%s-commit-%d", tag, i))); err != nil {
+			t.Fatalf("commit %v on main: %v", m.Kind(), err)
+		}
+	}
+	return v
+}
+
+// useCaseFixture is a DECODABLE use case: UC-ACT-PRESENT requires every use case to carry a
+// non-empty activity diagram (start + action), and a slot that cannot be decoded cannot be
+// committed — so a reconcile fixture that skipped it would fail on the seed rather than on
+// the thing under test.
+func useCaseFixture(id, name string) UseCase {
+	return UseCase{
+		ID:             id,
+		Name:           name,
+		Trigger:        TriggerBusMessage,
+		Classification: ClassCore,
+		Activity: &ActivityDiagram{
+			Nodes: []ActivityNode{
+				{ID: "start", Kind: NodeStart},
+				{ID: "act", Kind: NodeAction, Label: name},
+			},
+			Edges: []ActivityEdge{{From: "start", To: "act", Kind: EdgeControlFlow}},
+		},
+	}
+}
+
+// Test_ReconcileBranchFromMain_PreservesEverySlotInTheSet is F80c's real case. The verb was
+// written for a session that owned ONE artifact kind; the generic child's `requirements`
+// walk holds FOUR in-flight kinds on ONE activity branch, and reconciling it with the
+// one-kind verb overwrites three live drafts with main's older copies.
+//
+// Seeded: main carries older committed models for mission/glossary/volatilities/coreUseCases
+// AND a `system` the branch never drafts; the branch forks, stages NEWER drafts for all four,
+// and then main advances its `system` underneath it. Reconciling with
+// kinds={mission,glossary,volatilities,coreUseCases} must leave all four branch drafts
+// byte-identical and adopt main's newer `system`.
+func Test_ReconcileBranchFromMain_PreservesEverySlotInTheSet(t *testing.T) {
+	store, cred, ctx := newBranchAwareLocalGitStore(t)
+	id := ProjectID(uuid.NewString())
+	v, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	const branch = "activity/A-1"
+	preserved := []ArtifactKind{KindMission, KindGlossary, KindVolatilities, KindCoreUseCases}
+
+	// --- MAIN, before the branch forks: the older copy of all four requirements slots, plus
+	// the `system` slot this activity never drafts.
+	v = seedCommittedOnMain(ctx, t, store, id, v, cred, "main-old",
+		&MissionStatement{Vision: "main-vision", Mission: "main-mission"},
+		&Glossary{Items: []GlossaryItem{{Term: "main-term", Definition: "main-definition", Category: "domain"}}},
+		&Volatilities{Items: []Volatility{{Name: "main-volatility", Rationale: "r"}}},
+		&CoreUseCases{Decisions: []UseCaseDecision{{UseCase: useCaseFixture("main-uc", "main use case")}}},
+		&System{Components: []Component{{ID: "main-component", Name: "Main"}}},
+	)
+
+	// --- THE BRANCH: one activity, FOUR in-flight drafts, all newer than main's.
+	branchProj, err := store.readProjectOnBranch(ctx, id, branch, cred)
+	if err != nil {
+		t.Fatalf("read the forked branch: %v", err)
+	}
+	bv := branchProj.Version
+	drafts := []ArtifactModel{
+		&MissionStatement{Vision: "branch-vision", Mission: "branch-mission"},
+		&Glossary{Items: []GlossaryItem{{Term: "branch-term", Definition: "branch-definition", Category: "domain"}}},
+		&Volatilities{Items: []Volatility{{Name: "branch-volatility", Rationale: "r"}}},
+		&CoreUseCases{Decisions: []UseCaseDecision{{UseCase: useCaseFixture("branch-uc", "branch use case")}}},
+	}
+	for i, m := range drafts {
+		if bv, err = store.StageArtifactForReviewOnBranch(ctx, id, bv, branch, m, cred,
+			fwra.IdempotencyKey(fmt.Sprintf("wf:branch-stage-%d", i))); err != nil {
+			t.Fatalf("stage %v on the branch: %v", m.Kind(), err)
+		}
+	}
+	before, err := store.readProjectOnBranch(ctx, id, branch, cred)
+	if err != nil {
+		t.Fatalf("read the branch before reconcile: %v", err)
+	}
+
+	// --- MAIN ADVANCES UNDERNEATH IT. This is the divergence: another activity landed a
+	// newer `system` while these four drafts were in flight, and the PR went unmergeable.
+	seedCommittedOnMain(ctx, t, store, id, v, cred, "main-new",
+		&System{Components: []Component{{ID: "main-component", Name: "Main, advanced"}}})
+	mainProj, err := store.readProjectOnBranch(ctx, id, "", cred)
+	if err != nil {
+		t.Fatalf("read main after it advanced: %v", err)
+	}
+
+	// --- THE RECONCILE, with the whole preserve set.
+	if _, err = store.ReconcileBranchFromMain(ctx, id, before.Version, branch, preserved, cred, "wf:reconcile"); err != nil {
+		t.Fatalf("ReconcileBranchFromMain: %v", err)
+	}
+	after, err := store.readProjectOnBranch(ctx, id, branch, cred)
+	if err != nil {
+		t.Fatalf("read the branch after reconcile: %v", err)
+	}
+
+	// EVERY preserved slot survives byte-identically. One of four surviving is the defect.
+	for _, kind := range preserved {
+		want, got := slotSnapshot(t, &before, kind), slotSnapshot(t, &after, kind)
+		if want != got {
+			t.Errorf("the %v draft did NOT survive the reconcile — a live draft was replaced by main's older copy.\n before: %s\n  after: %s",
+				kind, want, got)
+		}
+	}
+	// And the slot the branch does NOT draft is adopted from main — otherwise the branch
+	// still differs from main everywhere and the PR stays unmergeable, which is the whole
+	// point of the verb.
+	if want, got := slotSnapshot(t, &mainProj, KindSystem), slotSnapshot(t, &after, KindSystem); want != got {
+		t.Errorf("the branch did not adopt main's system slot, so the divergence is unresolved.\n  main: %s\nbranch: %s", want, got)
+	}
+}
+
+// Test_ReconcileBranchFromMain_EmptySetAdoptsMainEntirely pins the construction case, which
+// used to be expressed as "the ZERO ArtifactKind matches no slot-table entry". That worked
+// by accident of the zero value naming a real kind (KindMission is 0!) — the old workflow
+// code passed branchReconcile{}.kind, which IS KindMission, so a construction reconcile
+// PRESERVED the branch's mission slot. Harmless only because a construction branch holds no
+// mission draft. An explicit empty SET says what was meant, and this test is what makes the
+// empty set mean "adopt main entirely" rather than "preserve nothing happens".
+func Test_ReconcileBranchFromMain_EmptySetAdoptsMainEntirely(t *testing.T) {
+	if KindMission != 0 {
+		t.Fatalf("KindMission = %d, want 0 — this test's whole premise is that the zero "+
+			"ArtifactKind names a REAL slot, so an empty set cannot be spelled as a zero value", int(KindMission))
+	}
+	store, cred, ctx := newBranchAwareLocalGitStore(t)
+	id := ProjectID(uuid.NewString())
+	v, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	const branch = "activity/C-1"
+
+	// Main holds a committed mission; the branch then diverges with a mission of its own —
+	// the shape a construction branch must NOT be allowed to keep, because it drafts nothing.
+	seedCommittedOnMain(ctx, t, store, id, v, cred, "main",
+		&MissionStatement{Vision: "main-vision", Mission: "main-mission"})
+	branchProj, err := store.readProjectOnBranch(ctx, id, branch, cred)
+	if err != nil {
+		t.Fatalf("read the forked branch: %v", err)
+	}
+	bv, err := store.StageArtifactForReviewOnBranch(ctx, id, branchProj.Version, branch,
+		&MissionStatement{Vision: "branch-vision", Mission: "branch-mission"}, cred, "wf:branch-stage")
+	if err != nil {
+		t.Fatalf("stage on the branch: %v", err)
+	}
+	mainProj, err := store.readProjectOnBranch(ctx, id, "", cred)
+	if err != nil {
+		t.Fatalf("read main: %v", err)
+	}
+
+	if _, err = store.ReconcileBranchFromMain(ctx, id, bv, branch, nil, cred, "wf:reconcile"); err != nil {
+		t.Fatalf("ReconcileBranchFromMain(nil): %v", err)
+	}
+	after, err := store.readProjectOnBranch(ctx, id, branch, cred)
+	if err != nil {
+		t.Fatalf("read the branch after reconcile: %v", err)
+	}
+	if want, got := slotSnapshot(t, &mainProj, KindMission), slotSnapshot(t, &after, KindMission); want != got {
+		t.Fatalf("an EMPTY preserve set must adopt main's EVERY slot, mission included — the "+
+			"zero ArtifactKind is a real kind, not an absence.\n  main: %s\nbranch: %s", want, got)
 	}
 }
 
@@ -7601,15 +7847,13 @@ func TestDesignCommandFor(t *testing.T) {
 		addressee string
 		want      string
 	}{
-		// ---- draft: all 16 dispatchable kinds, verbatim slugs ----
+		// ---- draft: all 14 dispatchable kinds, verbatim slugs ----
 		{"draft mission", KindMission, DesignJobModeDraft, "", "mission-draft"},
 		{"draft glossary", KindGlossary, DesignJobModeDraft, "", "glossary-draft"},
-		{"draft scrubbedRequirements", KindScrubbedRequirements, DesignJobModeDraft, "", "scrubbed-requirements-draft"},
 		{"draft volatilities", KindVolatilities, DesignJobModeDraft, "", "volatilities-draft"},
 		{"draft coreUseCases", KindCoreUseCases, DesignJobModeDraft, "", "core-use-cases-draft"},
 		{"draft system", KindSystem, DesignJobModeDraft, "", "system-draft"},
 		{"draft operationalConcepts", KindOperationalConcepts, DesignJobModeDraft, "", "operational-concepts-draft"},
-		{"draft standardCheck", KindStandardCheck, DesignJobModeDraft, "", "standard-check-draft"},
 		{"draft planningAssumptions", KindPlanningAssumptions, DesignJobModeDraft, "", "planning-assumptions-draft"},
 		{"draft activityList", KindActivityList, DesignJobModeDraft, "", "activity-list-draft"},
 		{"draft network", KindNetwork, DesignJobModeDraft, "", "network-draft"},
@@ -7619,10 +7863,9 @@ func TestDesignCommandFor(t *testing.T) {
 		{"draft decompressedSolution", KindDecompressedSolution, DesignJobModeDraft, "", "decompressed-solution-draft"},
 		{"draft riskModel", KindRiskModel, DesignJobModeDraft, "", "risk-model-draft"},
 
-		// ---- critique: exactly the designKindHasCritique 5 (4 PM + architect-self-critiqued System) ----
+		// ---- critique: exactly the designKindHasCritique 4 (3 PM + architect-self-critiqued System) ----
 		{"critique mission", KindMission, DesignJobModeCritique, "", "mission-critique"},
 		{"critique glossary", KindGlossary, DesignJobModeCritique, "", "glossary-critique"},
-		{"critique scrubbedRequirements", KindScrubbedRequirements, DesignJobModeCritique, "", "scrubbed-requirements-critique"},
 		{"critique coreUseCases", KindCoreUseCases, DesignJobModeCritique, "", "core-use-cases-critique"},
 		{"critique system (architect self-critique)", KindSystem, DesignJobModeCritique, "", "system-critique"},
 
@@ -7635,6 +7878,16 @@ func TestDesignCommandFor(t *testing.T) {
 		{"sdpReview critique undispatchable", KindSdpReview, DesignJobModeCritique, "", ""},
 		{"volatilities critique: non-critique kind", KindVolatilities, DesignJobModeCritique, "", ""},
 		{"answer unknown addressee", KindMission, DesignJobModeAnswer, "nobody", ""},
+
+		// ---- the two RETIRED kinds: not draftable, not critiquable, still kinds ----
+		// Their ArtifactKind ordinals (2 and 7) are untouched wire values in every
+		// committed project.json and their slots are durable history; what stage 4b2
+		// retired is only their DRAFTABILITY. An empty command is how that is spelled.
+		{"scrubbedRequirements draft is retired", KindScrubbedRequirements, DesignJobModeDraft, "", ""},
+		{"scrubbedRequirements critique is retired", KindScrubbedRequirements, DesignJobModeCritique, "", ""},
+		{"standardCheck draft is retired", KindStandardCheck, DesignJobModeDraft, "", ""},
+		{"standardCheck critique is retired", KindStandardCheck, DesignJobModeCritique, "", ""},
+		{"the retired ordinals are unchanged", KindScrubbedRequirements, DesignJobModeAnswer, "architect", "design-answer"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -7642,6 +7895,29 @@ func TestDesignCommandFor(t *testing.T) {
 				t.Errorf("DesignCommandFor(%v,%v,%q) = %q, want %q", c.k, c.mode, c.addressee, got, c.want)
 			}
 		})
+	}
+}
+
+// TestRetiredKinds_KeepTheirOrdinals is the RENUMBERING GUARD (stage 4b2, founder ruling).
+// scrubbedRequirements and standardCheck stopped being DRAFTABLE; they did not stop being
+// kinds. ArtifactKind is an ordinal enum and these two sit at 2 and 7, mid-list, so deleting
+// the members would renumber 3..16 and silently re-key every committed slot in every
+// existing project. The ordinals are wire values on disk; this test is what says so to the
+// next person who reads "retired" as "delete it".
+func TestRetiredKinds_KeepTheirOrdinals(t *testing.T) {
+	if KindScrubbedRequirements != 2 {
+		t.Errorf("KindScrubbedRequirements = %d, want 2 — a committed slot's kind is this number", int(KindScrubbedRequirements))
+	}
+	if KindStandardCheck != 7 {
+		t.Errorf("KindStandardCheck = %d, want 7 — a committed slot's kind is this number", int(KindStandardCheck))
+	}
+	// And the neighbours they would have renumbered.
+	if KindVolatilities != 3 || KindPlanningAssumptions != 8 || KindSdpReview != 16 {
+		t.Errorf("the surrounding ordinals moved: volatilities=%d (want 3), planningAssumptions=%d (want 8), sdpReview=%d (want 16)",
+			int(KindVolatilities), int(KindPlanningAssumptions), int(KindSdpReview))
+	}
+	if len(AllArtifactKinds()) != 17 {
+		t.Errorf("AllArtifactKinds has %d members, want 17 — the retirement removes no kind", len(AllArtifactKinds()))
 	}
 }
 
@@ -10807,6 +11083,51 @@ func TestRecordAttemptOutcome_AppendsOnceAndResolvesInPlace(t *testing.T) {
 	in.Outcome = OutcomeFailed
 	if _, err := a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("k15")); err == nil {
 		t.Fatal("a resolved attempt must not be re-resolved differently; one id names one attempt")
+	}
+}
+
+// TestRecordAttemptOutcome_CarriesTheDetailOntoTheLedger — the attempt's own sentence is
+// DURABLE (stage 4b2). The Project-Design compute records here which planning-assumption
+// families it had to default, and the M0 review is a spend approval over exactly those
+// numbers; before this field existed the sentence was minted by the strategy and dropped.
+//
+// The RESOLVE is the call that knows, and an empty resolve must not erase what the open
+// recorded: an attempt is opened pending BEFORE the work runs, when there is nothing to say.
+func TestRecordAttemptOutcome_CarriesTheDetailOntoTheLedger(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	const sentence = "the plan's cost was computed on ASSUMED values for the calendar"
+
+	in := TaskAttemptInput{AttemptID: AttemptID("C-X", TaskDetailedDesign, 1), TaskID: TaskDetailedDesign,
+		Attempt: 1, Actor: ActorAgent, Outcome: OutcomePending, EvidenceKind: EvidenceNone}
+	var err error
+	if v, err = a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("d1")); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	in.Outcome, in.Detail = OutcomePassed, sentence
+	if v, err = a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("d2")); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
+	if got := exec.Attempts[0].Detail; got != sentence {
+		t.Fatalf("the resolve's detail did not reach the ledger: %q", got)
+	}
+
+	// A second attempt whose OPEN carries the sentence and whose resolve carries none keeps it.
+	in2 := TaskAttemptInput{AttemptID: AttemptID("C-X", TaskConstruction, 1), TaskID: TaskConstruction,
+		Attempt: 1, Actor: ActorAgent, Outcome: OutcomePending, EvidenceKind: EvidenceNone, Detail: sentence}
+	if v, err = a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", in2, cred, fwra.IdempotencyKey("d3")); err != nil {
+		t.Fatalf("open with detail: %v", err)
+	}
+	in2.Outcome, in2.Detail = OutcomeFailed, ""
+	if _, err = a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", in2, cred, fwra.IdempotencyKey("d4")); err != nil {
+		t.Fatalf("resolve without detail: %v", err)
+	}
+	exec, _ = a.ReadActivityExecution(execRC(), id, "C-X")
+	for _, at := range exec.Attempts {
+		if at.Task == TaskConstruction && at.Detail != sentence {
+			t.Fatalf("an empty resolve erased the open's sentence: %q", at.Detail)
+		}
 	}
 }
 

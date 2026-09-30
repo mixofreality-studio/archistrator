@@ -69,7 +69,7 @@
 // the Receive call, so raw bytes are fine; a Schedule fires a fresh WORKFLOW
 // START, whose target parameter is a fixed, concrete Go type declared by the
 // registered workflow function (every current caller's is a struct —
-// pumpSweepInput, replanSweepInput, shortfallSweepInput, reconcileInput — none
+// pumpSweepInput, roundSweepInput, shortfallSweepInput, reconcileInput — none
 // is []byte). scheduleWorkflowArgs therefore omits Args entirely when
 // StartPayload is empty (every current caller) — the Go SDK decodes a missing
 // argument as the target parameter's zero value, and each of those four
@@ -232,7 +232,7 @@ func (r *temporalMessageBus) RegisterSchedule(rc fwra.Context, scheduleID Schedu
 //     which only special-cases a literal nil interface or a nil pointer, not a
 //     nil slice). Decoding a "binary/plain" payload requires the target
 //     parameter to be []byte or interface{} — every current Schedule-fired
-//     workflow's input is a concrete struct (pumpSweepInput, replanSweepInput,
+//     workflow's input is a concrete struct (pumpSweepInput, roundSweepInput,
 //     shortfallSweepInput, reconcileInput), so that decode would fail with
 //     "type *X: value is not a byte slice" the moment a Schedule actually
 //     fired. Zero Args is what the Go SDK is DESIGNED to tolerate: a workflow

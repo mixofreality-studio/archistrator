@@ -3,6 +3,16 @@
   "title": "Activity Experience — the M0 gate whose cost rode on the PLATFORM'S OWN planning assumptions, not this project's",
   "note": "The defaulted-assumptions line (stage 4b1 Task 14 Step 3a) in its SECOND case: slot 8 is committed, and the document in it is the one `sdpComputeStrategy.Produce` wrote for a project that authored none — its `notes` open with the platform's own `defaultPlanningAssumptionsNote` signature, verbatim. `project-design-m0` is the FIRST case (no slot 8 at all), and the two say different sentences because they are different facts with different exits: author the slot, or edit the one you already have. Approving this gate binds the plan of record and starts spending, so a cost computed on numbers nobody showed the founder is the one way this screen can mislead — without the line the defaulting is recorded and INVISIBLE, which is the same lie as refusing. The line is read from the committed slot rather than from the attempt `Detail` the compute actually records: no view in the delivery contract carries an attempt's Detail (grepped across the OAS), which is the carry Task 14's report names. Everything else is `project-design-m0` unchanged.",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",
@@ -60,8 +81,6 @@
                       "avgPayloadBytes": 4096
                     },
                     "terms": {
-                      "revenueShare": 0,
-                      "revenueSharePercent": 0,
                       "computeCost": 2,
                       "computeMarkupPercent": 0,
                       "schedule": 1
@@ -1084,8 +1103,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-subcritical",
@@ -1103,8 +1121,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-compressed",
@@ -1122,8 +1139,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-decompressed",
@@ -1141,8 +1157,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       }
                     ],
                     "recommendation": "opt-decompressed",
@@ -8870,16 +8885,6 @@
                         "Name": "BillingTerms",
                         "Fields": [
                           {
-                            "Name": "revenueShare",
-                            "Type": "RevenueShareKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "revenueSharePercent",
-                            "Type": "float64",
-                            "Note": ""
-                          },
-                          {
                             "Name": "computeCost",
                             "Type": "ComputeCostKind",
                             "Note": ""
@@ -8912,11 +8917,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "RevenueShareApplied",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
                             "Name": "ComputeCostApplied",
                             "Type": "Money",
                             "Note": ""
@@ -8936,7 +8936,7 @@
                     ]
                   },
                   {
-                    "Signature": "ProjectCommitTimeRevenueShareAndComputeCost(option: ProjectOption) → (Projection, fweng.Error)",
+                    "Signature": "ProjectCommitTimeComputeCost(option: ProjectOption) → (Projection, fweng.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -8960,16 +8960,6 @@
                       {
                         "Name": "Projection",
                         "Fields": [
-                          {
-                            "Name": "RevenueShareKind",
-                            "Type": "RevenueShareKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "RevenueSharePercent",
-                            "Type": "float64",
-                            "Note": ""
-                          },
                           {
                             "Name": "ComputeCostKind",
                             "Type": "ComputeCostKind",
@@ -9040,11 +9030,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "RevenueShareApplied",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
                             "Name": "ComputeCostApplied",
                             "Type": "Money",
                             "Note": ""
@@ -9075,7 +9060,6 @@
                   "ProjectOption",
                   "Projection",
                   "ReBillingInput",
-                  "RevenueShareKind",
                   "RoutingDirective",
                   "ScheduleKind"
                 ],
@@ -15470,7 +15454,6 @@
                   "OperationForecast",
                   "OptionID",
                   "ProjectOption",
-                  "RevenueShareKind",
                   "ScalePoint",
                   "ScheduleKind",
                   "SettlementTerms",
@@ -17287,7 +17270,6 @@
                   "Requirement",
                   "ResearchInput",
                   "ResearchSource",
-                  "RevenueShareKind",
                   "ReviewComment",
                   "ReviewCommentReply",
                   "ReviewPolicy",

@@ -34,8 +34,7 @@ const roundSweepMaxPerTick = 200
 // single-project arm that actually stamps. The discriminator is a field rather than a
 // second workflow type because the fan-out is not a different job, it is the same job
 // at platform scope, and a second registered type would be a second name to freeze,
-// drain and keep in the golden for no behaviour of its own (the same argument
-// replanSweepInput's nilable ProjectID already makes for the replan sweep).
+// drain and keep in the golden for no behaviour of its own.
 type roundSweepInput struct {
 	ProjectID ProjectID
 	// TickID is a CORRELATION id only — the same string the child's workflow id embeds,
@@ -51,8 +50,8 @@ type roundSweepInput struct {
 // service-contract entry and the encapsulation gate's rule holds — the only exported
 // symbols this package may carry are its generated contract surface and the five
 // documented registration entrypoints (arch_test.go's encapsulationAllowlistData).
-// The generated, exported PumpResult / ReplanSweepResult are exported because they ARE
-// contract surface; this one is not.
+// The generated, exported PumpResult is exported because it IS contract surface; this
+// one is not.
 type roundSweepResult struct {
 	// Stamped is how many stranded rounds THIS execution withdrew. Only the
 	// single-project arm stamps; the fan-out arm reports 0 and never sums its

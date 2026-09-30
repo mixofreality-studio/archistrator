@@ -1,8 +1,18 @@
 {
   "route": "/project/archistrator/activity/C-billing-state-access?task=designReview",
   "title": "Activity Experience — a construction gate at round 3, over a WITHDRAWN round 2, with one open change request and one open question",
-  "note": "Stage 4b1 Task 14's construction-rail state: the rail that used to answer a guaranteed 400 on every thread verb now answers all of them, and this fixture is where the SPA is held to what the server actually does.\n\nTHE WITHDRAWN ROUND. Revision 2 is the FIRST `withdrawn` outcome any fixture carries — a round pulled back before anyone decided it (`WithdrawReviewRound`, Task 12), which is deliberate and so is not `failed`. It has no verdicts and no decision because nobody judged it, and the revision menu must say the word: a round that vanished from the history would be the record lying about what happened.\n\nTHE OPEN CHANGE REQUEST, and the QUESTION beside it. Round 3's thread carries one of each, both `open`. Only the change request blocks: `deliveryManager` refuses an approve over open change requests (\"cannot approve: N review thread(s) still open\") and a question is a soft warning at the gate, never a block, so the bar must count ONE and say the server's own sentence. Both are open and unanswered, which is also what puts the construction thread's Resolve/Reopen controls on screen for the first time.\n\nRound 1 is `service-fork-sent-back`'s, unchanged: its r1c1 is `resolved` and its r1c2 `answered`, which is the control — an ANSWERED change request does not block approve either, because the reply is the agent's and only the reviewer's own resolve moves it. The dispatch task gains the third attempt round 3 judges; everything else is `service-fork-sent-back` verbatim, including its committed project read.",
+  "note": "Stage 4b1 Task 14's construction-rail state: the rail that used to answer a guaranteed 400 on every thread verb now answers all of them, and this fixture is where the SPA is held to what the server actually does.\n\nTHE WITHDRAWN ROUND. Revision 2 is the FIRST `withdrawn` outcome any fixture carries — a round pulled back before anyone decided it (`WithdrawReviewRound`, Task 12), which is deliberate and so is not `failed`. It has no verdicts and no decision because nobody judged it, and the revision menu must say the word: a round that vanished from the history would be the record lying about what happened.\n\nTHE OPEN CHANGE REQUEST, and the QUESTION beside it. Round 3's thread carries one of each, both `open`. Only the change request blocks: `deliveryManager` refuses an approve over open change requests (\"cannot approve: N review thread(s) still open\") and a question is a soft warning at the gate, never a block, so the bar must count ONE and say the server's own sentence. Both are open and unanswered, which is also what puts the construction thread's Resolve/Reopen controls on screen for the first time.\n\nRound 1 is `service-fork-sent-back`'s, unchanged: its r1c1 is `resolved` and its r1c2 `answered`, which is the control — an ANSWERED change request does not block approve either, because the reply is the agent's and only the reviewer's own resolve moves it. The dispatch task gains the third attempt round 3 judges; everything else is `service-fork-sent-back` verbatim, including its committed project read.\n\nTHE QUESTION'S ADDRESSEE IS A REAL ROLE (stage 4b2 Task 10). r3c2 carried \"seniorDeveloper\", which is outside the server's own two-value question vocabulary (projectstate.ReviewAddresseePM / ReviewAddresseeArchitect) and which `toReviewCommentView` therefore drops to the empty one — so the fixture could only ever exercise the no-addressee fallback. It now reads \"pm\", which is what the composer can actually send and what a currency question is genuinely asked of. That is what lets this state prove the founder's ruling: a CONSTRUCTION round's question says a PERSON will answer it and NAMES them, because the round has no artifact kind and no slot and no agent job can reach its thread. (The three change requests still carry that same out-of-vocabulary addressee. It is inert — a change request is addressed to no one and the adapter drops it — and left alone rather than quietly rewritten in a task that is not about them.)",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",
@@ -9532,13 +9553,11 @@
                       "avgPayloadBytes": 4096
                     },
                     "terms": {
-                      "revenueShare": 0,
-                      "revenueSharePercent": 0,
                       "computeCost": 2,
                       "computeMarkupPercent": 0,
                       "schedule": 1
                     },
-                    "notes": "Team: solo founder (bus-factor-1) + up to 3 concurrent Claude agent streams (architect/PM/product-manager/specialist roles). Founder works ~2 effective days/week (40% of nominal). Parallelism cap: 3 in-flight agent streams; beyond that, founder review quality degrades. Infrastructure: Go + Temporal + Postgres (CNPG for Temporal + billing head-state only; project state is JSON-in-git with git-ref CAS). Construction CI is the user's own GitHub Actions running claude-code-action — the platform holds no LLM key and does not charge for construction. Billing model (2026-06-09 MoR-reversal): pure one-directional vendor charge — the platform bills the user a usage-based HOSTING fee only (DEPLOYED — OPERATED scenario); no flat subscription; no revenue share; no charge for construction or LLM work; revenueShare=0 (no payout; the old merchant-of-record / revenue-share model was reversed). computeCost=2 (tieredFloors: tier floors + free-tier subsidies per ServicePricing strategy); schedule=1 (monthly billing period). Risk flags: bus-factor-1; founder availability variable (2d/wk); operated runtime unchosen; durable execution platform unchosen; git-as-project-state-store novelty; AI-agent construction quality variance; dog-food chicken-and-egg. No hard external deadlines. Internal-only v1 audience.",
+                    "notes": "Team: solo founder (bus-factor-1) + up to 3 concurrent Claude agent streams (architect/PM/product-manager/specialist roles). Founder works ~2 effective days/week (40% of nominal). Parallelism cap: 3 in-flight agent streams; beyond that, founder review quality degrades. Infrastructure: Go + Temporal + Postgres (CNPG for Temporal + billing head-state only; project state is JSON-in-git with git-ref CAS). Construction CI is the user's own GitHub Actions running claude-code-action — the platform holds no LLM key and does not charge for construction. Billing model (2026-06-09 MoR-reversal): pure one-directional vendor charge — the platform bills the user a usage-based HOSTING fee only (DEPLOYED — OPERATED scenario); no flat subscription; no charge for construction or LLM work. The platform bills a usage-based hosting fee for operating a delivered system and nothing else. Revenue share was reversed on 2026-06-09 and is no longer part of the vocabulary (stage 4b2, founder ruling): the concept is gone rather than set to zero, because a field whose UNKNOWN member had to stand in for 'none' could not state the platform's actual posture. computeCost=2 (tieredFloors: tier floors + free-tier subsidies per ServicePricing strategy); schedule=1 (monthly billing period). Risk flags: bus-factor-1; founder availability variable (2d/wk); operated runtime unchosen; durable execution platform unchosen; git-as-project-state-store novelty; AI-agent construction quality variance; dog-food chicken-and-egg. No hard external deadlines. Internal-only v1 audience.",
                     "indirectDailyRate": {
                       "minorUnits": 5000,
                       "currency": "USD"
@@ -10891,8 +10910,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-subcritical",
@@ -10910,8 +10928,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-compressed",
@@ -10929,8 +10946,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-decompressed",
@@ -10948,8 +10964,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       }
                     ],
                     "recommendation": "opt-decompressed",
@@ -18677,16 +18692,6 @@
                         "Name": "BillingTerms",
                         "Fields": [
                           {
-                            "Name": "revenueShare",
-                            "Type": "RevenueShareKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "revenueSharePercent",
-                            "Type": "float64",
-                            "Note": ""
-                          },
-                          {
                             "Name": "computeCost",
                             "Type": "ComputeCostKind",
                             "Note": ""
@@ -18719,11 +18724,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "RevenueShareApplied",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
                             "Name": "ComputeCostApplied",
                             "Type": "Money",
                             "Note": ""
@@ -18743,7 +18743,7 @@
                     ]
                   },
                   {
-                    "Signature": "ProjectCommitTimeRevenueShareAndComputeCost(option: ProjectOption) → (Projection, fweng.Error)",
+                    "Signature": "ProjectCommitTimeComputeCost(option: ProjectOption) → (Projection, fweng.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -18767,16 +18767,6 @@
                       {
                         "Name": "Projection",
                         "Fields": [
-                          {
-                            "Name": "RevenueShareKind",
-                            "Type": "RevenueShareKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "RevenueSharePercent",
-                            "Type": "float64",
-                            "Note": ""
-                          },
                           {
                             "Name": "ComputeCostKind",
                             "Type": "ComputeCostKind",
@@ -18847,11 +18837,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "RevenueShareApplied",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
                             "Name": "ComputeCostApplied",
                             "Type": "Money",
                             "Note": ""
@@ -18882,7 +18867,6 @@
                   "ProjectOption",
                   "Projection",
                   "ReBillingInput",
-                  "RevenueShareKind",
                   "RoutingDirective",
                   "ScheduleKind"
                 ],
@@ -25277,7 +25261,6 @@
                   "OperationForecast",
                   "OptionID",
                   "ProjectOption",
-                  "RevenueShareKind",
                   "ScalePoint",
                   "ScheduleKind",
                   "SettlementTerms",
@@ -27094,7 +27077,6 @@
                   "Requirement",
                   "ResearchInput",
                   "ResearchSource",
-                  "RevenueShareKind",
                   "ReviewComment",
                   "ReviewCommentReply",
                   "ReviewPolicy",
@@ -31547,7 +31529,7 @@
                     "status": "open",
                     "reopened": false,
                     "type": "question",
-                    "addressee": "seniorDeveloper",
+                    "addressee": "pm",
                     "replies": []
                   }
                 ]

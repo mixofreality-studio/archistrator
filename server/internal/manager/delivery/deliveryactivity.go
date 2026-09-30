@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // ===========================================================================
@@ -560,7 +562,8 @@ func (wf *csWorkflows) readBackCritique(
 // The BRANCH is activityBranchName for BOTH rails (R12): spec §5.3 unifies on
 // activity/{activityId}, which is the branch openActivityRow already opened when the PR rail
 // is live, and which the design job creates on a local venue exactly as a construction job
-// does. projectstate.DesignBranch survives unused for one release.
+// does. The per-artifact design-branch resolver that used to name the other branch is DELETED
+// (stage 4b2) — that was the one release it survived unused for.
 //
 // An unresolvable project answers ("", "") — the dormant path: the RA falls back to its
 // configured repo and the read-back/stage ride main, which is byte-for-byte the retired
@@ -1905,6 +1908,12 @@ func (wf *csWorkflows) walkTasks(
 			// would stop the project's one pump.
 			workflow.GetLogger(ctx).Info("delivery.walk.exitedInTask",
 				"activityId", in.ActivityID, "taskId", d.taskID)
+			// AND IT IS REPORTED TO THE PUMP (stage 4b2). This is a terminal the platform
+			// RECORDED — the task's own supervision wrote it — so it is a finish, not a
+			// failure: the pump drops the activity from its started set, frees any lease and
+			// carries the cascade on. The walk never reached its tail, so no lease was ever
+			// taken and the epoch is zero.
+			wf.signalActivityFinished(ctx, in, projectstate.ActivityOutcomeUnknown, 0)
 			return nil
 		}
 		if d.state == walkTaskSentBack {
@@ -3260,6 +3269,12 @@ func (wf *csWorkflows) recordTaskAttempt(
 			Outcome:      produced.Outcome,
 			EvidenceKind: kind,
 			EvidenceRef:  ref,
+			// The strategy's own sentence, DURABLY (stage 4b2). It was produced and dropped:
+			// sdpComputeStrategy has recorded which planning-assumption families the compute
+			// had to default since 4b1, the ledger had nowhere to put it, and the M0 review —
+			// a SPEND APPROVAL — showed the founder a cost with no trace of the numbers it
+			// was computed on.
+			Detail: produced.Detail,
 		})
 }
 
@@ -3304,7 +3319,7 @@ func attemptEvidence(produced producedSubject) (projectstate.EvidenceKind, strin
 func (wf *csWorkflows) finalizeWalk(
 	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
 	ws *walkState, state *constructState,
-) error {
+) (err error) {
 	for _, t := range lc.Tasks {
 		if ws.byTask[t.ID] != walkTaskPassed {
 			return wf.failWalk(ctx, in, state, t.ID, temporal.NewNonRetryableApplicationError(
@@ -3312,7 +3327,34 @@ func (wf *csWorkflows) finalizeWalk(
 		}
 	}
 	csIn := in.csIn()
-	exited, err := wf.runWalkMerge(ctx, in, lc, ws, state)
+	// THE MAIN-WRITE LEASE IS TAKEN HERE, AND HERE IS WHY HERE (stage 4b2). Everything
+	// above this line writes to the ACTIVITY BRANCH or to the activity's own row, and both
+	// are already serialised — the row by its CAS, the branch by being this activity's
+	// alone. Everything below writes MAIN: runWalkMerge's merge, finalizeActivity's
+	// mergeAndRecord, and commitDesignArtifacts' N slot commits. So the lease brackets
+	// exactly the main-writing tail and nothing else, and a walk that never reaches its
+	// tail never asks for one.
+	//
+	// THE RELEASE IS DEFERRED, over every exit including the error paths: a lease leaked by
+	// a returning error is a project that stops until the pump's deadline check reaps it.
+	// It carries the epoch, so a release cannot free a lease a successor was granted after
+	// the pump decided this execution was gone.
+	//
+	// AND IT REPORTS THE OUTCOME IT ACTUALLY REACHED (fix round 1, F5). It used to report
+	// ActivityOutcomeCompleted unconditionally, which was a LIE on two of the three exits —
+	// the `exited` return, where the variance loop gave the activity up, and every error
+	// return, where the tail BROKE. That lie was the blocker's other half: the pump's finish
+	// arm read it, marked the activity finished and deleted the child's future, so the
+	// failure that followed a microsecond later had no channel left to arrive on and the run
+	// reported a CLEAN, QUIESCENT cascade. The pump no longer trusts a signal over a future
+	// it holds (pumpnextactivity.go, applyFinish), and this end of the wire no longer says
+	// something it does not know.
+	var exited bool
+	epoch, leased := wf.requestMainWriteLease(ctx, in, state)
+	if leased {
+		defer func() { wf.releaseMainWriteLease(ctx, in, epoch, mainWriteTailOutcome(exited, err)) }()
+	}
+	exited, err = wf.runWalkMerge(ctx, in, lc, ws, state)
 	if err != nil {
 		return err
 	}
@@ -3322,11 +3364,168 @@ func (wf *csWorkflows) finalizeWalk(
 		// landed.
 		return nil
 	}
+	// EARMARK, RECORDED RATHER THAN FIXED (fix round 1, F1's second half). An error from
+	// either call below returns straight through walkTasks WITHOUT passing through failWalk,
+	// so no terminal FAILURE row is written: the activity is left reading Running (or, if
+	// finalizeActivity already recorded the binary exit and only commitDesignArtifacts broke,
+	// Completed with uncommitted slots — the state the commitDesignArtifacts header already
+	// documents as heal-by-re-open). The pump now STOPS on this error via the child's future,
+	// which is the protection that was missing; what is still owed is the durable row, and
+	// with it pumpReconcile's pre-ContinueAsNew arm ("terminal failure row, no finish
+	// reported") for a child that outlives its pump run. Routing the tail through failWalk
+	// would write VarianceExhausted over an already-recorded Completed, so it is a decision
+	// about that heal path and not a line to add here in a fix round.
 	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred,
 		reconcileTargetOf(lc)); err != nil {
 		return err
 	}
 	return wf.commitDesignArtifacts(ctx, in, lc, ws, state)
+}
+
+// mainWriteTailOutcome is what the merge tail tells the pump it reached. Completed is
+// reserved for the ONE exit that earned it — no error and no give-up — and the other two
+// report Unknown, which is what walkTasks' own exited arm has always reported.
+//
+// IT IS NOT WHAT STOPS THE CASCADE, and the distinction is worth keeping straight:
+// ActivityOutcome cannot tell a clean give-up from a broken tail (both are Unknown), so the
+// pump keys its stop-the-cascade rule on the child's FUTURE, not on this value. This makes
+// the message honest and the log readable; applyFinish is what makes it safe.
+func mainWriteTailOutcome(exited bool, err error) projectstate.ActivityOutcome {
+	if err != nil || exited {
+		return projectstate.ActivityOutcomeUnknown
+	}
+	return projectstate.ActivityOutcomeCompleted
+}
+
+// changeActivityMainWriteLease fences the child's lease request. Its DefaultVersion arm is
+// the pre-4b2 sequence — no request, no wait, no release — and it exists for ONE reason:
+// eight captured deliveryActivity histories replay against this body, every one of them
+// reaches its tail, and a new Activity command in a recorded position is a
+// non-determinism failure. A new execution records v1 and takes the lease.
+const changeActivityMainWriteLease = "delivery-activity-main-write-lease"
+
+// activityLeaseGrantWaitBudget bounds the wait for a grant. It is generous because the
+// queue ahead of this child is other children's MERGE TAILS, and a merge tail can hold a
+// human approval gate — but it is BOUNDED, because a pump that dies between the request
+// and the grant would otherwise wedge this activity forever with nothing to signal it.
+const activityLeaseGrantWaitBudget = 2 * time.Hour
+
+// requestMainWriteLease asks the project's ONE pump for admission to write main, waits for
+// the grant, and reports the epoch it was granted at.
+//
+// IT FAILS OPEN, DELIBERATELY, AND THE REASON IS WRITTEN DOWN RATHER THAN ASSUMED. A
+// request that cannot be delivered — no pump running (RA NotFound, the normal case for an
+// activity an operator started by hand), or any other delivery fault — logs and lets the
+// tail proceed UNLEASED. The lease is a second mechanism over row-level serialisation, not
+// a replacement for it: applyMutationOnBranchFiles' dedup, version guard and ref-CAS are
+// untouched and still serialise per ROW. Failing an activity that did all of its work
+// because the admission queue is unreachable would be strictly worse than the state this
+// wave started from, which had no lease at all.
+func (wf *csWorkflows) requestMainWriteLease(
+	ctx workflow.Context, in deliveryActivityInput, state *constructState,
+) (int64, bool) {
+	if workflow.GetVersion(ctx, changeActivityMainWriteLease, workflow.DefaultVersion, 1) < 1 {
+		return 0, false
+	}
+	logger := workflow.GetLogger(ctx)
+	grants := workflow.GetSignalChannel(ctx, signalActivityLeaseGranted)
+	b, err := json.Marshal(activityLeaseRequest{ActivityID: in.ActivityID})
+	if err != nil {
+		logger.Error("delivery.lease.encodeFailed", "activityId", in.ActivityID, "err", err.Error())
+		return 0, false
+	}
+	if derr := wf.Acts.MessageBusDeliverSignal(ctx,
+		messagebus.ExecutionID(pumpWorkflowID(in.ProjectID)),
+		messagebus.SignalName(signalActivityLeaseRequested),
+		messagebus.ExecutionPayload{Bytes: b}); derr != nil {
+		logger.Error("delivery.lease.unreachable",
+			"activityId", in.ActivityID, "err", derr.Error(),
+			"consequence", "the merge tail runs UNLEASED; the per-row CAS and the branch-file version guard still serialise per row")
+		return 0, false
+	}
+	state.stage = StageDispatching
+	// THE GRANT CHANNEL IS READ DIRECTLY HERE and is deliberately NOT an arm of
+	// routeSignals. The router's addressing unit is a TASK and a lease grant names the
+	// ACTIVITY; and this read happens where walkTasks has already reached inflight == 0, so
+	// no sibling coroutine exists to race for the message — which is the one defect the
+	// router was built to prevent.
+	tctx, cancel := workflow.WithCancel(ctx)
+	defer cancel()
+	timeout := workflow.NewTimer(tctx, activityLeaseGrantWaitBudget)
+	for {
+		var grant activityLeaseGrant
+		timedOut := false
+		sel := workflow.NewSelector(ctx)
+		// DECODED THROUGH pumpReceiveSignalBlocking, not straight into the struct. The grant
+		// arrives over messageBus.deliverSignal as binary/plain bytes, and a struct target
+		// makes the SDK log "Corrupted signal" and DROP it — measured, stage 4b2 Task 14. This
+		// child then waited out the whole two-hour budget and ran unleased, every time.
+		sel.AddReceive(grants, func(c workflow.ReceiveChannel, _ bool) {
+			_ = pumpReceiveSignalBlocking(ctx, c, &grant)
+		})
+		sel.AddFuture(timeout, func(workflow.Future) { timedOut = true })
+		sel.Select(ctx)
+		switch {
+		case timedOut:
+			logger.Error("delivery.lease.timedOut",
+				"activityId", in.ActivityID, "waited", activityLeaseGrantWaitBudget.String(),
+				"consequence", "the merge tail runs UNLEASED; the per-row CAS and the branch-file version guard still serialise per row")
+			return 0, false
+		case grant.Epoch <= pumpLivenessProbeEpoch || grant.ActivityID != in.ActivityID:
+			// A LIVENESS PROBE (pumpLivenessProbeEpoch) or a grant addressed to somebody else.
+			// Both are inert here BY CONSTRUCTION: the pump bumps LeaseEpoch before it delivers
+			// any real grant, so no genuine grant can ever carry the probe's epoch, and the
+			// probe's only observable is its own DELIVERY answer at the pump.
+			continue
+		}
+		logger.Info("delivery.lease.granted", "activityId", in.ActivityID, "epoch", grant.Epoch)
+		return grant.Epoch, true
+	}
+}
+
+// releaseMainWriteLease tells the pump this activity's merge tail is over, at whatever
+// outcome it reached, so the lease is free. Best-effort by design: the pump's reconcile tick
+// is the backstop, and an activity that finished must not fail because the pump it was
+// reporting to has closed.
+//
+// THE OUTCOME IS THE CALLER'S, NOT A CONSTANT (fix round 1, F5). This used to be handed
+// ActivityOutcomeCompleted at its one call site whatever had happened, including the give-up
+// and error exits, and the pump believed it. It now carries mainWriteTailOutcome's answer,
+// and the pump treats a finish as a lease release rather than as proof the activity is over
+// whenever it still holds the child's future.
+func (wf *csWorkflows) releaseMainWriteLease(
+	ctx workflow.Context, in deliveryActivityInput, epoch int64, outcome projectstate.ActivityOutcome,
+) {
+	wf.signalActivityFinished(ctx, in, outcome, epoch)
+}
+
+// signalActivityFinished reports an activity's RECORDED terminal to the pump.
+//
+// IT IS NOT CALLED BY failWalk, and that is not an oversight: an activity that GIVES UP
+// cleanly records a failure row and returns nil so the cascade continues past it (stage
+// 4b1's deliberate decision), while failWalk returns the cause and FAILS the execution.
+// The absence of this signal is therefore the only thing that distinguishes the two in
+// head-state, and pumpReconcile is what reads that distinction.
+func (wf *csWorkflows) signalActivityFinished(
+	ctx workflow.Context, in deliveryActivityInput, outcome projectstate.ActivityOutcome, epoch int64,
+) {
+	if workflow.GetVersion(ctx, changeActivityMainWriteLease, workflow.DefaultVersion, 1) < 1 {
+		return
+	}
+	logger := workflow.GetLogger(ctx)
+	b, err := json.Marshal(activityFinishedSignal{ActivityID: in.ActivityID, Outcome: outcome})
+	if err != nil {
+		logger.Error("delivery.finish.encodeFailed", "activityId", in.ActivityID, "err", err.Error())
+		return
+	}
+	if derr := wf.Acts.MessageBusDeliverSignal(ctx,
+		messagebus.ExecutionID(pumpWorkflowID(in.ProjectID)),
+		messagebus.SignalName(signalActivityFinished),
+		messagebus.ExecutionPayload{Bytes: b}); derr != nil && !isSignalTargetNotFound(derr) {
+		logger.Error("delivery.finish.undelivered",
+			"activityId", in.ActivityID, "epoch", epoch, "err", derr.Error(),
+			"consequence", "the pump learns this terminal from its 30s reconcile instead of at once")
+	}
 }
 
 // commitDesignArtifacts lands every design slot this walk produced on MAIN, and seals Phase 1
@@ -4086,14 +4285,14 @@ func (wf *csWorkflows) mergeAndRecord(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
-	rec branchReconcile,
+	preserveKinds []projectstate.ArtifactKind,
 	headVersion *projectstate.Version,
 ) error {
 	if !gf.enabled {
 		return nil
 	}
 
-	if err := wf.guardMergePreconditions(ctx, in, gf, rec, headVersion); err != nil {
+	if err := wf.guardMergePreconditions(ctx, in, gf, preserveKinds, headVersion); err != nil {
 		return err
 	}
 
@@ -4134,7 +4333,7 @@ func (wf *csWorkflows) guardMergePreconditions(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
-	rec branchReconcile,
+	preserveKinds []projectstate.ArtifactKind,
 	headVersion *projectstate.Version,
 ) error {
 	st, err := wf.readPRStatus(ctx, gf)
@@ -4160,7 +4359,7 @@ func (wf *csWorkflows) guardMergePreconditions(
 	if st.Mergeable {
 		return nil
 	}
-	if rerr := wf.reconcileDivergedBranch(ctx, in, gf, rec, headVersion); rerr != nil {
+	if rerr := wf.reconcileDivergedBranch(ctx, in, gf, preserveKinds, headVersion); rerr != nil {
 		return rerr
 	}
 	if st, err = wf.readPRStatus(ctx, gf); err != nil {
@@ -4200,37 +4399,14 @@ func (wf *csWorkflows) mirrorObservedRollup(
 	return nil
 }
 
-// branchReconcile says whether a diverged activity branch may be reconciled from main, and
-// which slot the reconcile must PRESERVE on the branch.
-//
-// The RA verb (designSessionAccess.reconcileBranchFromMain) overlays main's every slot but
-// ONE onto the branch tip — it was written for the retired rail, where a session owned
-// exactly one artifact kind. The generic child's design walk can hold FOUR in-flight kinds
-// on ONE branch, and reconciling that branch would overwrite three live drafts with main's
-// older copies. So the reconcile is offered only where it is correct:
-//
-//   - zero in-flight kinds (every construction lifecycle): the branch owns no slot, so the
-//     ZERO ArtifactKind — which matches no slot-table entry — adopts main's every slot,
-//     which is exactly right.
-//   - exactly one in-flight kind: the retired rail's own case, unchanged.
-//   - two or more: NOT reconcilable with today's contract. The merge surfaces the honest
-//     refusal instead, and the contract delta this would need is recorded in the earmarks.
-type branchReconcile struct {
-	ok   bool
-	kind projectstate.ArtifactKind
-}
-
-// reconcileTargetOf reads the reconcilable-ness off the LIFECYCLE's own slots, so a
-// lifecycle that gains or loses a design task moves this answer with it.
-func reconcileTargetOf(lc methodassets.Lifecycle) branchReconcile {
-	kinds := designSlotsOfLifecycle(lc)
-	switch len(kinds) {
-	case 0:
-		return branchReconcile{ok: true}
-	case 1:
-		return branchReconcile{ok: true, kind: kinds[0]}
-	}
-	return branchReconcile{}
+// reconcileTargetOf reads the PRESERVE SET off the LIFECYCLE's own slots, so a lifecycle that
+// gains or loses a design task moves this answer with it. Every kind the walk drafts on the
+// activity branch is preserved by the reconcile; every other slot is adopted from main. A
+// construction lifecycle drafts none, and the empty set adopts main's every slot — which is
+// exactly right, and now SAYS so rather than relying on a zero value (see
+// reconcileDivergedBranch, where the zero value's real meaning is written down).
+func reconcileTargetOf(lc methodassets.Lifecycle) []projectstate.ArtifactKind {
+	return designSlotsOfLifecycle(lc)
 }
 
 // reconcileDivergedBranch overlays main's slots onto the activity branch tip so a
@@ -4242,25 +4418,29 @@ func reconcileTargetOf(lc methodassets.Lifecycle) branchReconcile {
 // This is the ONLY workflow caller of designSessionAccess.reconcileBranchFromMain. The verb
 // has been registered and implemented with none since the co-author files went, which is
 // why F80c came back.
+//
+// THE WHOLE PRESERVE SET NOW CROSSES THE WIRE (stage 4b2 Task 7). Task 6 widened the store
+// while the generated Activity still took one kind, so a lifecycle with two or more in-flight
+// design slots took a refusal here — `reconcileWireKind`, the `!expressible` arm and the
+// `delivery.merge.reconcileUnavailable` log key — because sending preserveKinds[0] of four IS
+// F80c: three live drafts replaced by main's older copies, in the path whose whole job is to
+// rescue the branch. All three are gone with the `kinds` param. An EMPTY set is passed
+// verbatim and means "preserve nothing, adopt main entirely", which is the construction case;
+// it is no longer spelled as the zero ArtifactKind, which was KindMission and had been
+// quietly preserving the branch's mission slot.
 func (wf *csWorkflows) reconcileDivergedBranch(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
-	rec branchReconcile,
+	preserveKinds []projectstate.ArtifactKind,
 	headVersion *projectstate.Version,
 ) error {
-	if !rec.ok {
-		workflow.GetLogger(ctx).Warn("delivery.merge.reconcileUnavailable",
-			"activityId", string(in.ActivityID), "branch", gf.branch,
-			"reason", "this lifecycle holds more than one in-flight design slot on one branch, and the reconcile verb preserves only one")
-		return nil
-	}
 	if gf.branch == "" {
 		return nil
 	}
 	if _, err := wf.applyRecoveringOnBranch(ctx, in.ProjectID, gf.branch, 0,
 		func(expected projectstate.Version) (projectstate.Version, error) {
-			return wf.Acts.DesignSessionReconcileBranchFromMain(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.branch, rec.kind)
+			return wf.Acts.DesignSessionReconcileBranchFromMain(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.branch, preserveKinds)
 		}); err != nil {
 		return err
 	}
@@ -4574,7 +4754,7 @@ func (wf *csWorkflows) finalizeActivity(
 	state *constructState,
 	gitOn bool,
 	startedCred railCredEnvelope,
-	rec branchReconcile,
+	preserveKinds []projectstate.ArtifactKind,
 ) error {
 	// --- Step 5a: relay the architecture +1 and record it (git-forward). ---
 	if err := wf.relayArchApprovalAndRecord(ctx, in, gf, headVersion); err != nil {
@@ -4589,7 +4769,7 @@ func (wf *csWorkflows) finalizeActivity(
 	*headVersion = v
 
 	// --- Step 6a: perform the gated merge and record it (git-forward). ---
-	if err := wf.mergeAndRecord(ctx, in, gf, rec, headVersion); err != nil {
+	if err := wf.mergeAndRecord(ctx, in, gf, preserveKinds, headVersion); err != nil {
 		return err
 	}
 

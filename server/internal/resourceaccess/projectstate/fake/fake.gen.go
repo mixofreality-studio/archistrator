@@ -222,7 +222,7 @@ type FakeDesignSessionAccess struct {
 	CommitArtifactWithProvenanceFn       func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, approvedBy string, draftedBy string) (projectstate.Version, error)
 	RejectArtifactOnBranchWithCommentsFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	WithdrawArtifactOnBranchFn           func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	ReconcileBranchFromMainFn            func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	ReconcileBranchFromMainFn            func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kinds []projectstate.ArtifactKind, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	SetReviewCommentStatusOnBranchFn     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	SeedReviewCommentsOnBranchFn         func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 }
@@ -262,11 +262,11 @@ func (f *FakeDesignSessionAccess) WithdrawArtifactOnBranch(rc fwra.Context, proj
 	return f.WithdrawArtifactOnBranchFn(rc, projectID, expectedVersion, branch, kind, notes, idempotencyKey)
 }
 
-func (f *FakeDesignSessionAccess) ReconcileBranchFromMain(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeDesignSessionAccess) ReconcileBranchFromMain(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kinds []projectstate.ArtifactKind, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.ReconcileBranchFromMainFn == nil {
 		panic("FakeDesignSessionAccess.ReconcileBranchFromMainFn not set")
 	}
-	return f.ReconcileBranchFromMainFn(rc, projectID, expectedVersion, branch, kind, idempotencyKey)
+	return f.ReconcileBranchFromMainFn(rc, projectID, expectedVersion, branch, kinds, idempotencyKey)
 }
 
 func (f *FakeDesignSessionAccess) SetReviewCommentStatusOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {

@@ -3,6 +3,16 @@
   "title": "Activity Experience — Project Design, the one M0 cost-approval gate, awaiting the human",
   "note": "The design prefix's third activity (spec §7.2, §6): Project Design is ONE task, ONE lifecycle phase carrying the whole weight, and ONE deterministic review — the M0 cost approval, which no preset can autogate and which never sends back. The round is open and waiting, so it carries a subject and a roster of exactly one seat and neither a verdict nor a decision stamp. The M0 body reads the project beside the view: the committed activityList (slot 9), the network (slot 10) whose M0 milestone depends on this very activity, and the sdpReview (slot 16) the human is approving. Those three slots are captured from the live local server against this repo own state; regenerate with the curl+node recipe in the stage-5 plan, Task 6 Step 3.",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",
@@ -1050,8 +1071,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-subcritical",
@@ -1069,8 +1089,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-compressed",
@@ -1088,8 +1107,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-decompressed",
@@ -1107,8 +1125,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       }
                     ],
                     "recommendation": "opt-decompressed",
@@ -8836,16 +8853,6 @@
                         "Name": "BillingTerms",
                         "Fields": [
                           {
-                            "Name": "revenueShare",
-                            "Type": "RevenueShareKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "revenueSharePercent",
-                            "Type": "float64",
-                            "Note": ""
-                          },
-                          {
                             "Name": "computeCost",
                             "Type": "ComputeCostKind",
                             "Note": ""
@@ -8878,11 +8885,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "RevenueShareApplied",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
                             "Name": "ComputeCostApplied",
                             "Type": "Money",
                             "Note": ""
@@ -8902,7 +8904,7 @@
                     ]
                   },
                   {
-                    "Signature": "ProjectCommitTimeRevenueShareAndComputeCost(option: ProjectOption) → (Projection, fweng.Error)",
+                    "Signature": "ProjectCommitTimeComputeCost(option: ProjectOption) → (Projection, fweng.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -8926,16 +8928,6 @@
                       {
                         "Name": "Projection",
                         "Fields": [
-                          {
-                            "Name": "RevenueShareKind",
-                            "Type": "RevenueShareKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "RevenueSharePercent",
-                            "Type": "float64",
-                            "Note": ""
-                          },
                           {
                             "Name": "ComputeCostKind",
                             "Type": "ComputeCostKind",
@@ -9006,11 +8998,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "RevenueShareApplied",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
                             "Name": "ComputeCostApplied",
                             "Type": "Money",
                             "Note": ""
@@ -9041,7 +9028,6 @@
                   "ProjectOption",
                   "Projection",
                   "ReBillingInput",
-                  "RevenueShareKind",
                   "RoutingDirective",
                   "ScheduleKind"
                 ],
@@ -15436,7 +15422,6 @@
                   "OperationForecast",
                   "OptionID",
                   "ProjectOption",
-                  "RevenueShareKind",
                   "ScalePoint",
                   "ScheduleKind",
                   "SettlementTerms",
@@ -17253,7 +17238,6 @@
                   "Requirement",
                   "ResearchInput",
                   "ResearchSource",
-                  "RevenueShareKind",
                   "ReviewComment",
                   "ReviewCommentReply",
                   "ReviewPolicy",
@@ -21314,6 +21298,7 @@
               {
                 "n": 1,
                 "outcome": "awaitingHuman",
+                "detail": "the plan's cost was computed on ASSUMED values for the resources, the working calendar, the infrastructure kind, the declared usage, the settlement terms, the indirect daily rate, the rate card — the founder authored none, so these are the platform's documented defaults and not decisions",
                 "startedAt": "2026-09-23T07:30:00Z",
                 "attemptIds": [],
                 "round": 1,

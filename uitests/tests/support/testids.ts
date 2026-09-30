@@ -70,10 +70,8 @@ export const TESTID = {
   homeBaseOpenPlan: UI_IDENTIFIERS.HomeBase.OPEN_PLAN,
   artifactToc: UI_IDENTIFIERS.HomeBase.ARTIFACT_TOC,
   economicsStrip: UI_IDENTIFIERS.HomeBase.ECONOMICS_STRIP,
-  // NOTE: phase ids are the typed PhaseId values — systemDesign / projectDesign /
-  // construction — NOT the route slug. The `phase-card-system` shorthand in the
-  // task brief resolves to `phase-card-systemDesign` on the wire.
-  phaseCard: UI_IDENTIFIERS.HomeBase.phaseCard,
+  // One table-of-contents row, keyed by the ARTIFACT KIND (mission / glossary /
+  // … / system), not by a phase: `phaseCard` went with the three phase cards.
   tocRow: UI_IDENTIFIERS.HomeBase.tocRow,
 
   // Design experience (route `/project/$projectId/design/system`)
@@ -130,6 +128,14 @@ export const TESTID = {
   glossaryChip: UI_IDENTIFIERS.Glossary.chip,
   glossarySection: UI_IDENTIFIERS.Glossary.section,
   glossaryEmpty: UI_IDENTIFIERS.Glossary.EMPTY,
+  // The per-term cross-artifact usage chip row. It renders ONLY when the
+  // CommittedSlotsContext hands GlossaryView the four downstream committed slots
+  // (scrubbedRequirements / volatilities / coreUseCases / system), so it is the
+  // observable that says the provider is mounted above this renderer.
+  glossaryUsage: UI_IDENTIFIERS.Glossary.usage,
+  // ANY term's usage row. Derived from the keyed id rather than spelled out, so a
+  // rename of the identifier moves this with it.
+  glossaryUsageAny: new RegExp(`^${UI_IDENTIFIERS.Glossary.usage(0).replace(/0$/, '')}\\d+$`),
 
   // CommentableList (the shared item-granular commenting primitive): a row and
   // its per-item "Comment on this item" button, keyed by the caller's item key
@@ -209,9 +215,9 @@ export const TESTID = {
   gateError: UI_IDENTIFIERS.GatePanel.GATE_ERROR,
 
   // The COMMENT MARGIN (Google-Docs-style threads beside the content) — what the
-  // `ChatRail` became. `UI_IDENTIFIERS.Chat.RAIL` ('chat-rail') is GONE from the
-  // SPA (nothing renders it), so there is deliberately no `chatRail` export any
-  // more: the margin's own root is `marginRoot` below.
+  // `ChatRail` became. `UI_IDENTIFIERS.Chat.RAIL` ('chat-rail') has been deleted
+  // from the SPA's own table (nothing rendered it), so there is no `chatRail`
+  // export to make: the margin's own root is `marginRoot` below.
   //
   // Three ids still read `chat-*` ON THE WIRE because the SPA has not renamed
   // them yet (see UIIdentifiers.ts's `Chat` block): the margin header's re-open
@@ -242,31 +248,23 @@ export const TESTID = {
   marginReply: UI_IDENTIFIERS.Margin.reply,
   marginResolve: UI_IDENTIFIERS.Margin.resolve,
   marginReopen: UI_IDENTIFIERS.Margin.reopen,
+  marginHumanAnswer: UI_IDENTIFIERS.Margin.humanAnswer,
   marginStaged: UI_IDENTIFIERS.Margin.staged,
   marginStagedDiscard: UI_IDENTIFIERS.Margin.stagedDiscard,
-  commentAnchor: UI_IDENTIFIERS.Chat.commentAnchor,
   // Invisible probe reflecting the currently-armed comment anchor (data-anchor-*
   // attrs) — how a diagram-node click OR keyboard ('c'/Enter on a focused,
   // labeled node) arming is observed black-box.
   commentArmedAnchor: UI_IDENTIFIERS.Comments.ARMED_ANCHOR,
 
-  // GIT-FORWARD per-activity row cluster (U-SPA-GIT). The construction tracker's
-  // active-activity detail renders this when the project read carries a gitRow
-  // for the active activity (honest-empty: absent otherwise).
-  gitRowMeta: UI_IDENTIFIERS.Git.ROW_META,
-  gitPrLink: UI_IDENTIFIERS.Git.PR_LINK,
-  gitBranch: UI_IDENTIFIERS.Git.BRANCH,
-  gitMerged: UI_IDENTIFIERS.Git.MERGED,
-  gitCrLabel: UI_IDENTIFIERS.Git.CR_LABEL,
-  gitArchApproved: UI_IDENTIFIERS.Git.ARCH_APPROVED,
-  gitCiStatus: UI_IDENTIFIERS.Git.ciStatus,
-
-  // Construction console (route `/project/$projectId/construction`). The
-  // Tracker/Interventions/Artifacts tab bar (and its per-tab root/row testids)
-  // retired with Task 13 — the lens shell mounts directly, so there is no tab
-  // bar left to select and no separate Artifacts-tab activity row; the same
-  // activity is reached via the LIST lens's tree (constructionListRow) and its
-  // artifact is read from the detail pane (constructionDetailBodyArtifact).
+  // WHAT IS LEFT OF THE CONSTRUCTION CONSOLE. `/project/$projectId/construction`
+  // redirects to the plan, and the console's tab shell, lens toolbar, LIST tree,
+  // GRAPH canvas, detail pane and focus view are all gone — with every testid
+  // they placed, and with the `gitRow*` cluster the tracker used to render
+  // (orphaned-identifier guard, stage 4b2). What the `construction*` names below
+  // still reach is what the Plan and the Activity Experience mount: the TASKS
+  // lens, Begin/Resume and their confirm step, the provenance marks, and the
+  // artifact renderers. A task is reached through `planRow` / `activityScreen`
+  // now, and its artifact through `activityArtifactPanel`.
   constructionSystemTestView: UI_IDENTIFIERS.Construction.SYSTEM_TEST_VIEW,
   constructionTestPlanView: UI_IDENTIFIERS.Construction.TEST_PLAN_VIEW,
   // Begin/Resume and the confirm step in front of it, which names what a Begin
@@ -281,98 +279,17 @@ export const TESTID = {
   constructionPausedLabel: UI_IDENTIFIERS.Construction.PAUSED_LABEL,
   constructionResumeOutcome: UI_IDENTIFIERS.Construction.RESUME_OUTCOME,
   constructionTasksPausedLabel: UI_IDENTIFIERS.Construction.TASKS_PAUSED_LABEL,
-  constructionListPendingNote: UI_IDENTIFIERS.Construction.listPendingNote,
-  constructionDetailPendingNote: UI_IDENTIFIERS.Construction.DETAIL_PENDING_NOTE,
   constructionTasksPendingNote: UI_IDENTIFIERS.Construction.tasksPendingNote,
   constructionBeginConfirmDispatch: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DISPATCH,
   constructionBeginCandidate: UI_IDENTIFIERS.Construction.beginConfirmCandidate,
   constructionCaseChip: UI_IDENTIFIERS.Construction.caseChip,
   constructionActiveCase: UI_IDENTIFIERS.Construction.ACTIVE_CASE,
   constructionCaseExpect: UI_IDENTIFIERS.Construction.CASE_EXPECT,
-  // Stage D — the GRAPH lens (webApp/src/components/construction/graph): the
-  // architecture layer by layer, each card carrying its activity's lifecycle.
-  constructionGraphCanvas: UI_IDENTIFIERS.Construction.GRAPH_CANVAS,
-  constructionGraphRibbon: UI_IDENTIFIERS.Construction.GRAPH_RIBBON,
-  constructionGraphMilestone: UI_IDENTIFIERS.Construction.graphMilestone,
-  constructionGraphKey: UI_IDENTIFIERS.Construction.GRAPH_KEY,
-  constructionGraphKeyButton: UI_IDENTIFIERS.Construction.GRAPH_KEY_BUTTON,
-  constructionGraphFilterStatus: UI_IDENTIFIERS.Construction.GRAPH_FILTER_STATUS,
-  constructionGraphRowGutter: UI_IDENTIFIERS.Construction.GRAPH_ROW_GUTTER,
-  constructionGraphRowLabel: UI_IDENTIFIERS.Construction.graphRowLabel,
-  constructionGraphClearFilters: UI_IDENTIFIERS.Construction.GRAPH_CLEAR_FILTERS,
-  constructionGraphLayerCheck: UI_IDENTIFIERS.Construction.GRAPH_LAYER_CHECK,
-  constructionGraphCard: UI_IDENTIFIERS.Construction.graphCard,
-  constructionGraphLane: UI_IDENTIFIERS.Construction.graphLane,
-  constructionGraphSegment: UI_IDENTIFIERS.Construction.graphSegment,
-  constructionGraphHoverCard: UI_IDENTIFIERS.Construction.GRAPH_HOVER_CARD,
-  constructionGraphHoverLane: UI_IDENTIFIERS.Construction.graphHoverLane,
-  constructionGraphLaneFloat: UI_IDENTIFIERS.Construction.graphLaneFloat,
-  constructionGraphScheduleCaption: UI_IDENTIFIERS.Construction.GRAPH_SCHEDULE_CAPTION,
-  constructionGraphM0Hover: UI_IDENTIFIERS.Construction.GRAPH_M0_HOVER,
-  constructionGraphM0OpenSdp: UI_IDENTIFIERS.Construction.GRAPH_M0_OPEN_SDP,
-  constructionGraphM0Popover: UI_IDENTIFIERS.Construction.GRAPH_M0_POPOVER,
-  constructionGraphKeySwatch: UI_IDENTIFIERS.Construction.graphKeySwatch,
-  // The Stage-B lens shell's toolbar (ConstructionShell.tsx) — its right end
-  // is exactly what the old overlay Drawer's backdrop used to cover.
-  constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
-  constructionLensButton: UI_IDENTIFIERS.Construction.lensButton,
-  constructionListRunway: UI_IDENTIFIERS.Construction.LIST_RUNWAY,
-  constructionLensKind: UI_IDENTIFIERS.Construction.LENS_KIND,
-  constructionLensScope: UI_IDENTIFIERS.Construction.LENS_SCOPE,
-  constructionLensSortRanked: UI_IDENTIFIERS.Construction.LENS_SORT_RANKED,
-  constructionLensSort: UI_IDENTIFIERS.Construction.LENS_SORT,
-  // Navigability (Stage B Task 11) — search box and the per-row provenance
-  // mark a search reveal stamps on a reconstructed task match (see
-  // needsInlineProvenanceMark in activityScope.ts).
-  constructionLensSearch: UI_IDENTIFIERS.Construction.LENS_SEARCH,
-  constructionSearchMatchProvenance: UI_IDENTIFIERS.Construction.searchMatchProvenance,
   // The spelled-out "≈ RECONSTRUCTED" badge ProvenanceGroupStamp puts on a
   // tier-1 activity header and a tier-2 phase header (never on a task row).
   constructionProvenanceBadge: UI_IDENTIFIERS.Construction.PROVENANCE_BADGE,
-  // The LIST lens's three-tier tree (Stage B Task 6). It replaced the CPM graph
-  // as the LIST lens's body — the graph returns under the GRAPH lens in Stage D.
-  constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
-  constructionListHeader: UI_IDENTIFIERS.Construction.LIST_HEADER,
-  constructionLensObservedOnly: UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY,
-  constructionLensExpandToPhase: UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE,
-  constructionLensToolbarToggles: UI_IDENTIFIERS.Construction.LENS_TOOLBAR_TOGGLES,
-  constructionDetailCollapseToggle: UI_IDENTIFIERS.Construction.DETAIL_COLLAPSE_TOGGLE,
-  constructionListTitleCell: UI_IDENTIFIERS.Construction.listTitleCell,
-  constructionListPendingLine: UI_IDENTIFIERS.Construction.listPendingLine,
-  constructionGraphHoverPending: UI_IDENTIFIERS.Construction.graphHoverPending,
-  constructionDetailPendingResume: UI_IDENTIFIERS.Construction.DETAIL_PENDING_RESUME,
-  constructionListIdCell: UI_IDENTIFIERS.Construction.listIdCell,
-  constructionListTaskBookKey: UI_IDENTIFIERS.Construction.listTaskBookKey,
-  constructionListRow: UI_IDENTIFIERS.Construction.listRow,
-  // The LIST's empty state and its "Clear filters" (fix round A, P1-9).
-  constructionListEmpty: UI_IDENTIFIERS.Construction.LIST_EMPTY,
-  constructionListClearFilters: UI_IDENTIFIERS.Construction.LIST_CLEAR_FILTERS,
-  // The pane header's count line and exit line (fix round A, P1-6).
-  constructionDetailSelectionSummary: UI_IDENTIFIERS.Construction.DETAIL_SELECTION_SUMMARY,
-  constructionDetailExitCriterion: UI_IDENTIFIERS.Construction.DETAIL_EXIT_CRITERION,
-  // The shared detail pane (Stage B Task 4) that replaced the overlay Drawer
-  // above as the console's mounted detail surface — beside content at
-  // >=1200px, DETAIL_DRAWER below that (same overlay mechanism, kept).
-  constructionDetailPane: UI_IDENTIFIERS.Construction.DETAIL_PANE,
-  /** The shell's wrapper AROUND the pane — a flex ITEM of the content row, and
-   *  therefore the box the row's `align-items: stretch` actually acts on. */
-  constructionLensDetail: UI_IDENTIFIERS.Construction.LENS_DETAIL,
-  constructionDetailDrawer: UI_IDENTIFIERS.Construction.DETAIL_DRAWER,
-  constructionDetailClose: UI_IDENTIFIERS.Construction.DETAIL_CLOSE,
   /** The provenance rail (drawn only for a reconstructed row, phase, task or lane). */
   constructionProvenanceRail: UI_IDENTIFIERS.Construction.PROVENANCE_RAIL,
-  constructionDetailBreadcrumb: UI_IDENTIFIERS.Construction.DETAIL_BREADCRUMB,
-  constructionDetailStateChip: UI_IDENTIFIERS.Construction.DETAIL_STATE_CHIP,
-  /** The pane header's provenance chip — or, with "Observed only" hiding this
-   *  selection's attempts, the "OBSERVED ONLY · N reconstructed hidden" chip (B1). */
-  constructionDetailProvenanceChip: UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_CHIP,
-  constructionDetailObservedOnlyChip: UI_IDENTIFIERS.Construction.DETAIL_OBSERVED_ONLY_CHIP,
-  constructionDetailActionBar: UI_IDENTIFIERS.Construction.DETAIL_ACTION_BAR,
-  constructionDetailActionRun: UI_IDENTIFIERS.Construction.detailAction('run'),
-  // The four detail-pane bodies (Stage B Tasks 8-10) — which one fills the
-  // pane's single body slot for the current selection (see bodyDispatch.ts).
-  constructionDetailBodyArtifact: UI_IDENTIFIERS.Construction.DETAIL_BODY_ARTIFACT,
-  constructionDetailBodyUnknown: UI_IDENTIFIERS.Construction.DETAIL_BODY_UNKNOWN,
   // The TASKS lens (Stage C): one row per owed decision, the header, the
   // degraded-policy banner, the empty state, and the pane's decision controls.
   constructionTasksLens: UI_IDENTIFIERS.Construction.TASKS_LENS,
@@ -392,49 +309,7 @@ export const TESTID = {
   constructionTasksSteer: UI_IDENTIFIERS.Construction.tasksSteer,
   constructionTasksGitHub: UI_IDENTIFIERS.Construction.tasksGitHub,
   constructionTasksFlow: UI_IDENTIFIERS.Construction.tasksFlow,
-  constructionLensTasksCount: UI_IDENTIFIERS.Construction.LENS_TASKS_COUNT,
-  constructionDetailDecisionNote: UI_IDENTIFIERS.Construction.DETAIL_DECISION_NOTE,
-  constructionDetailDecisionSendBack: UI_IDENTIFIERS.Construction.DETAIL_DECISION_SEND_BACK,
-  constructionDetailDecisionFlow: UI_IDENTIFIERS.Construction.DETAIL_DECISION_FLOW,
-  constructionDetailDecisionCaption: UI_IDENTIFIERS.Construction.DETAIL_DECISION_CAPTION,
-  constructionDetailDecisionLead: UI_IDENTIFIERS.Construction.DETAIL_DECISION_LEAD,
-  constructionDetailNextDecision: UI_IDENTIFIERS.Construction.DETAIL_NEXT_DECISION,
-  constructionDetailVerdict: UI_IDENTIFIERS.Construction.DETAIL_VERDICT,
-  constructionDetailOwedReason: UI_IDENTIFIERS.Construction.DETAIL_OWED_REASON,
-  constructionDetailReviewOnlyNote: UI_IDENTIFIERS.Construction.DETAIL_REVIEW_ONLY_NOTE,
-  // The artifact frame and its placements (renderers slice 1): every committed
-  // artifact in the pane mounts in one frame whose role label and source line
-  // say what it is — and never carries the provenance hatch.
-  constructionArtifactFrame: UI_IDENTIFIERS.Construction.ARTIFACT_FRAME,
-  constructionArtifactRole: UI_IDENTIFIERS.Construction.ARTIFACT_ROLE,
-  constructionArtifactSource: UI_IDENTIFIERS.Construction.ARTIFACT_SOURCE,
-  constructionArtifactFocus: UI_IDENTIFIERS.Construction.ARTIFACT_FOCUS,
-  constructionArtifactReconstructedNote: UI_IDENTIFIERS.Construction.ARTIFACT_RECONSTRUCTED_NOTE,
-  constructionArtifactStateLine: UI_IDENTIFIERS.Construction.ARTIFACT_STATE_LINE,
-  constructionArtifactAboutTask: UI_IDENTIFIERS.Construction.ARTIFACT_ABOUT_TASK,
-  constructionContractSummary: UI_IDENTIFIERS.Construction.CONTRACT_SUMMARY,
-  constructionContractSummaryOpen: UI_IDENTIFIERS.Construction.CONTRACT_SUMMARY_OPEN,
-  constructionContractReference: UI_IDENTIFIERS.Construction.CONTRACT_REFERENCE,
-  constructionContractReferenceOpen: UI_IDENTIFIERS.Construction.CONTRACT_REFERENCE_OPEN,
-  constructionContractGap: UI_IDENTIFIERS.Construction.CONTRACT_GAP,
-  constructionContractByDesign: UI_IDENTIFIERS.Construction.CONTRACT_BY_DESIGN,
-  constructionWhoReachesIt: UI_IDENTIFIERS.Construction.WHO_REACHES_IT,
-  constructionCodeReviewCommit: UI_IDENTIFIERS.Construction.CODE_REVIEW_COMMIT,
-  constructionSrsUnreadable: UI_IDENTIFIERS.Construction.SRS_UNREADABLE,
-  constructionComponentTestPlan: UI_IDENTIFIERS.Construction.COMPONENT_TEST_PLAN,
-  constructionComponentTestPlanEmpty: UI_IDENTIFIERS.Construction.COMPONENT_TEST_PLAN_EMPTY,
-  constructionTestCoverage: UI_IDENTIFIERS.Construction.TEST_COVERAGE,
-  constructionTestCoverageDirect: UI_IDENTIFIERS.Construction.TEST_COVERAGE_DIRECT,
-  constructionCoverageReachedRow: UI_IDENTIFIERS.Construction.coverageReachedRow,
-  constructionUseCaseFlowsLink: UI_IDENTIFIERS.Construction.USE_CASE_FLOWS_LINK,
-  constructionFocusView: UI_IDENTIFIERS.Construction.FOCUS_VIEW,
-  constructionFocusClose: UI_IDENTIFIERS.Construction.FOCUS_CLOSE,
-  constructionFocusHeading: UI_IDENTIFIERS.Construction.FOCUS_HEADING,
-  constructionFocusRail: UI_IDENTIFIERS.Construction.FOCUS_RAIL,
-  constructionFocusRailToggle: UI_IDENTIFIERS.Construction.FOCUS_RAIL_TOGGLE,
-  constructionFocusVerdictChip: UI_IDENTIFIERS.Construction.FOCUS_VERDICT_CHIP,
-  constructionFocusPlaceholder: UI_IDENTIFIERS.Construction.FOCUS_PLACEHOLDER,
-  constructionCodeReviewNoView: UI_IDENTIFIERS.Construction.CODE_REVIEW_NO_VIEW,
+  /** The narrow scenario browser's case dropdown (more than 3 cases). */
   constructionCasePicker: UI_IDENTIFIERS.Construction.CASE_PICKER,
   serviceContractSignatureList: UI_IDENTIFIERS.ServiceContract.SIGNATURE_LIST,
   serviceContractOpRow: UI_IDENTIFIERS.ServiceContract.opRow,
@@ -450,15 +325,10 @@ export const TESTID = {
   serviceContractCodeInterfaceNode: UI_IDENTIFIERS.ServiceContract.CODE_INTERFACE_NODE,
   serviceContractCodeCanvasCaption: UI_IDENTIFIERS.ServiceContract.CODE_CANVAS_CAPTION,
   serviceContractFieldRow: UI_IDENTIFIERS.ServiceContract.FIELD_ROW,
-  constructionDetailProvenanceDisclosure: UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_DISCLOSURE,
   serviceContractStructName: UI_IDENTIFIERS.ServiceContract.STRUCT_NAME,
   serviceContractParamRow: UI_IDENTIFIERS.ServiceContract.PARAM_ROW,
   serviceContractNeighbourRow: UI_IDENTIFIERS.ServiceContract.neighbourRow,
-  constructionDetailBodyReview: UI_IDENTIFIERS.Construction.DETAIL_BODY_REVIEW,
-  constructionDetailProvenanceNote: UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_NOTE,
-  constructionDetailBody: UI_IDENTIFIERS.Construction.DETAIL_BODY,
   constructionScenarioPicker: UI_IDENTIFIERS.Construction.SCENARIO_PICKER,
-  constructionDetailEvidence: UI_IDENTIFIERS.Construction.DETAIL_EVIDENCE,
   // The service contract view (ServiceContractView).
   serviceContractRoot: UI_IDENTIFIERS.ServiceContract.ROOT,
   serviceContractTabCode: UI_IDENTIFIERS.ServiceContract.TAB_CODE,
@@ -474,7 +344,6 @@ export const TESTID = {
   constructionFrontendView: UI_IDENTIFIERS.Construction.FRONTEND_VIEW,
   constructionFrontendOpenLink: UI_IDENTIFIERS.Construction.FRONTEND_OPEN_LINK,
   constructionFrontendNoSurfaces: UI_IDENTIFIERS.Construction.FRONTEND_NO_SURFACES,
-  constructionDetailAction: UI_IDENTIFIERS.Construction.detailAction,
 
   // Operations console (route `/operations/$operatedAppId`).
   operationsRoot: UI_IDENTIFIERS.Operations.ROOT,

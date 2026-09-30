@@ -94,16 +94,6 @@ func (m loggingDeliveryManager) OverrideActivity(rc fwmanager.Context, projectID
 		m.inner.OverrideActivity(rc, projectID, activityID, override))
 }
 
-func (m loggingDeliveryManager) ReplanProject(rc fwmanager.Context, projectID *delivery.ProjectID, tickID string) (delivery.ReplanSweepResult, error) {
-	// A cross-project sweep addresses no single project when projectID is nil.
-	scope := ""
-	if projectID != nil {
-		scope = string(*projectID)
-	}
-	v, err := m.inner.ReplanProject(rc, projectID, tickID)
-	return v, logInfraError(m.log, "Delivery.ReplanProject", scope, err)
-}
-
 func (m loggingDeliveryManager) SetProjectExecutionPolicy(rc fwmanager.Context, projectID delivery.ProjectID, policy delivery.ExecutionPolicyInput) error {
 	return logInfraError(m.log, "Delivery.SetProjectExecutionPolicy", string(projectID),
 		m.inner.SetProjectExecutionPolicy(rc, projectID, policy))

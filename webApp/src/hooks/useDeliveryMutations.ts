@@ -528,12 +528,14 @@ export interface OverrideActivityVars {
  * ONE op, TWO meanings, keyed by liveness — and the caller must know which one it is
  * pressing, because the server can only tell it which one is POSSIBLE:
  *
- *   - a LIVE activity awaiting a takeover is STEERED. The override reaches the
- *     escalated task's own inbox (the Manager recovers the task from the attempt
- *     ledger) and is fed through the same decide→execute machinery the automatic
- *     variance path uses. Anywhere else the façade refuses: *"activity X is at
- *     <stage>, not awaiting a takeover — an override steers an escalation; decide a
- *     gate with SubmitTaskDecision"*.
+ *   - a LIVE activity whose ledger holds a failed attempt is STEERED. The override
+ *     reaches the escalated task's own inbox (the Manager recovers the task from the
+ *     attempt ledger) and is fed through the same decide→execute machinery the
+ *     automatic variance path uses. Anywhere else the façade refuses, and since stage
+ *     4b2 Task 2 it refuses on the LEDGER rather than on a single-valued session
+ *     stage: *"activity X is in flight but no task on its ledger holds a failed
+ *     attempt, so it is not escalated and there is nothing an override could name —
+ *     decide a gate with SubmitTaskDecision, or re-read the activity"*.
  *   - a TERMINAL activity with no live child is RE-OPENED (stage 4b1): the row is
  *     re-armed through `RecordOperatorNote{requeue}`, the pump selects it on its next
  *     tick, and the re-run seeds every task that PASSED from the ledger. The override
@@ -570,30 +572,11 @@ export function useOverrideActivity(
   });
 }
 
-// ── op 9: ReplanProject ──────────────────────────────────────────────────────
+// ReplanProject was op 9 and is DELETED (stage 4b2): the contract is eleven ops, and this
+// client had no caller — the variance surface that would have pressed it is unbuilt, and
+// the stub sweep behind it goes in the same wave.
 
-/**
- * Run the re-plan sweep that detects scope or variance drift and re-derives the
- * project network. No caller today — the variance surface that will press it is
- * unbuilt — but it is one of the twelve and this is its client.
- */
-export function useReplanProject(
-  projectId: string
-): UseMutationResult<OpResult<'deliveryReplanProject'>, Error, string> {
-  const client = useQueryClient();
-  const { ops } = useOpsClient();
-  return useMutation<OpResult<'deliveryReplanProject'>, Error, string>({
-    mutationFn: async (tickID) => {
-      return ops.callForBody<OpResult<'deliveryReplanProject'>>('deliveryReplanProject', {
-        path: { projectID: projectId },
-        body: { tickID } satisfies OpBody<'deliveryReplanProject'>,
-      });
-    },
-    onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
-  });
-}
-
-// ── op 10: SetProjectExecutionPolicy ─────────────────────────────────────────
+// ── op 9: SetProjectExecutionPolicy ──────────────────────────────────────────
 
 /**
  * Set the project's review-policy PRESET (the sophistication dial: vibes /

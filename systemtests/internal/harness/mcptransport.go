@@ -129,15 +129,18 @@ func (t *mcpTransport) RequestProjectArtifactDraft(ctx context.Context, projectI
 }
 
 func (t *mcpTransport) GetProjectSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
+	// `session`, not `projectSession` (stage 4b2): the two derived session members
+	// folded into one that answers for all seventeen artifact kinds, and the Phase-2
+	// half's wire member is gone from the contract.
 	view, err := t.querySession(ctx, projectID, kind)
-	if err != nil || view.ProjectSession == nil {
+	if err != nil || view.Session == nil {
 		return SessionState{}, false, sentinelError(err)
 	}
-	s := view.ProjectSession
+	s := view.Session
 	return SessionState{
 		ProjectID:     string(s.ProjectID),
 		ArtifactKind:  artifactKindNameOf(s.ArtifactKind),
-		Stage:         projectStageName(s.Stage),
+		Stage:         systemStageName(s.Stage),
 		FailureReason: strPtrVal(s.FailureReason),
 	}, true, nil
 }

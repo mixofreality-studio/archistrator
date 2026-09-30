@@ -263,29 +263,45 @@ func (s *GitStore) stageArtifactForReviewOnBranch(ctx context.Context, projectID
 	})
 }
 
-// ReconcileBranchFromMain resolves a diverged session branch server-side (F80c): it reads
-// main's committed aggregate and overlays every slot EXCEPT the session's OWN one (kind)
-// onto the session-branch tip, then commits that reconciliation to the branch. project.json
-// is a SERVER-OWNED, SINGLE-WRITER-PER-SLOT document, so the branch legitimately owns only
-// `kind`; adopting main's other slots makes the branch's project.json differ from main only
-// in `kind`, so the PR's 3-way merge (over the multi-line document) no longer conflicts and
-// the approve-time merge can complete. It is the branch-write twin of the workflow's
+// ReconcileBranchFromMain resolves a diverged activity branch server-side (F80c): it
+// reads main's committed aggregate and overlays every slot the branch is NOT drafting onto
+// the branch tip, then commits that reconciliation to the branch. project.json is a
+// SERVER-OWNED, SINGLE-WRITER-PER-SLOT document, so the branch legitimately owns only the
+// slots in `kinds`; adopting main's other slots makes the branch's project.json differ from
+// main only there, so the PR's 3-way merge (over the multi-line document) no longer conflicts
+// and the approve-time merge can complete. It is the branch-write twin of the workflow's
 // aiarch-state-mcp reconcile (both call the same overlay semantics). An EMPTY branch is a
 // no-op error (reconciliation only makes sense against a real session branch).
-func (s *GitStore) ReconcileBranchFromMain(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+//
+// PRESERVE A SET, NOT A SLOT (stage 4b2 Task 6; F80c's real case). The overlay adopts main's
+// copy of every slot EXCEPT the ones this branch is actively drafting. That used to be
+// exactly one, because a co-author session owned one artifact kind; the generic child's
+// `requirements` walk owns FOUR on one branch, and preserving one of four means silently
+// replacing three live drafts with main's older copies at the moment a diverged PR is being
+// repaired — the worst possible moment for a quiet data loss. An EMPTY/nil `kinds` preserves
+// nothing and adopts main's every slot, which is exactly the construction case: a
+// construction branch drafts no artifact slot at all.
+func (s *GitStore) ReconcileBranchFromMain(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if branch == "" {
+		// The op name is the CONTRACT op's (reconcileBranchFromMain) — it names the verb a
+		// reader finds in the service contract and in the reconcile commit message, and it
+		// stays put across Task 7's rename so no dedup record or commit subject churns twice.
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.ReconcileBranchFromMain: empty branch (nothing to reconcile)")
 	}
-	// Read main's committed aggregate — the source of every OTHER slot's latest content.
+	// Read main's committed aggregate — the source of every OVERLAID slot's latest content.
 	mainProj, err := s.readProjectOnBranch(ctx, projectID, "", cred)
 	if err != nil {
 		return 0, err
 	}
+	preserve := make(map[ArtifactKind]bool, len(kinds))
+	for _, k := range kinds {
+		preserve[k] = true
+	}
 	return s.applyMutationOnBranch(ctx, "ReconcileBranchFromMain", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
-		// p is the session-branch tip; overlay main's slots for every kind but the
-		// session's own, leaving the in-flight draft (+ its review ledger) intact.
+		// p is the session-branch tip; overlay main's slots for every kind this branch is NOT
+		// drafting, leaving every in-flight draft (+ its review ledger) intact.
 		for _, e := range slotTable() {
-			if e.kind == kind {
+			if preserve[e.kind] {
 				continue
 			}
 			*e.ptr(p) = *e.ptr(&mainProj)
@@ -1935,15 +1951,16 @@ func (a *projectStateGitAdapter) AcknowledgeStaleBasis(rc fwra.Context, projectI
 }
 
 // ReconcileBranchFromMain is the branch-reconcile verb (F80c): it overlays main's slots
-// (bar the session's own) onto the session-branch tip so a diverged PR becomes mergeable.
-// The cred is minted just-in-time.
-func (a *projectStateGitAdapter) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+// (bar the ones the branch is drafting) onto the activity-branch tip so a diverged PR becomes
+// mergeable. `kinds` is the PRESERVE set — see the store method. The cred is minted
+// just-in-time.
+func (a *projectStateGitAdapter) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.ReconcileBranchFromMain(ctx, projectID, expectedVersion, branch, kind, cred, idempotencyKey)
+	return a.store.ReconcileBranchFromMain(ctx, projectID, expectedVersion, branch, kinds, cred, idempotencyKey)
 }
 
 // ---------------------------------------------------------------------------
@@ -3201,7 +3218,7 @@ type designSessionBase interface {
 	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
@@ -3309,14 +3326,21 @@ func (s *designSessionAccess) WithdrawArtifactOnBranch(rc fwra.Context, projectI
 	return s.base.WithdrawArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, idempotencyKey)
 }
 
-// ReconcileBranchFromMain overlays main's every slot except kind's own onto the
-// session-branch tip (F80c). Forwards straight to base; the "a non-empty branch is
-// required" invariant is now the CONCRETE substrate's business rule (GitStore rejects
-// branch=="" as fwra.ContractMisuse), not a capability the wrapper synthesizes — the
-// old NotFound-when-unsupported-or-empty fallback here was permanently dormant (every
-// production ProjectStateAccess supported reconcile unconditionally).
-func (s *designSessionAccess) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.ReconcileBranchFromMain(rc, projectID, expectedVersion, branch, kind, idempotencyKey)
+// ReconcileBranchFromMain overlays main's every slot except the preserved ones onto the
+// activity-branch tip (F80c). The "a non-empty branch is required" invariant is the
+// CONCRETE substrate's business rule (GitStore rejects branch=="" as fwra.ContractMisuse),
+// not a capability the wrapper synthesizes — the old NotFound-when-unsupported-or-empty
+// fallback here was permanently dormant (every production ProjectStateAccess supported
+// reconcile unconditionally).
+//
+// The generated parameter list is the PRESERVE SET end to end as of stage 4b2 Task 7 — the
+// one-element shim stage 4b2 Task 6 left here (it forwarded []ArtifactKind{kind}, because the
+// wire still carried one kind between the two commits) is gone, and so is the Manager-side
+// refusal that stopped a multi-slot lifecycle from losing three drafts to it. An EMPTY set is
+// not a mistake: it preserves nothing and adopts main's every slot, which is the construction
+// case (Test_ReconcileBranchFromMain_EmptySetAdoptsMainEntirely pins it).
+func (s *designSessionAccess) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.base.ReconcileBranchFromMain(rc, projectID, expectedVersion, branch, kinds, idempotencyKey)
 }
 
 // SetReviewCommentStatusOnBranch applies a human review-ledger transition (waive/
@@ -3631,6 +3655,11 @@ func OpenReviewCommentIDs(thread []ReviewComment) []string {
 // (drafting/awaiting/rejected/withdrawn/none) returns 0 — the normal (non-amendment) path.
 //
 // PROMOTED CO-AUTHOR HELPER (code-health-phase-bd task D3): see SameArtifactModel above.
+//
+// The DESIGN BRANCH SCHEME that this index used to name is retired (stage 4b2): there is
+// one activity branch per activity now, and `-amend-N` goes with the amendment-UX
+// follow-up. The INDEX stays, because five commit-transition sites below reason from it
+// about why the commit bump is monotonic, and that argument is about commits, not branches.
 func AmendmentIndexFor(slot ArtifactSlot) int {
 	if slot.Status != ReviewCommitted {
 		return 0
@@ -3641,29 +3670,13 @@ func AmendmentIndexFor(slot ArtifactSlot) int {
 	return int(slot.Revisions)
 }
 
-// DesignBranch derives the ONE persistent design SESSION branch per artifact review
-// session (F40 founder ruling 2026-07-05: "we should be committing to the same branch,
-// and improving that, until it merges. not a pr per draft. i want the history of changes
-// in git."). ALL jobs of a session commit here sequentially — the initial draft, the
-// PM/architect critique, and every redraft — and ONE PR (opened once, idempotent on head)
-// merges it on approve. The name is deterministic from project + kind, so within a
-// session it is STABLE across every redraft/reject round (no per-attempt suffix — the F32
-// branch-per-attempt topology is unwound; the stale-base problem it solved is now handled
-// by the workflow template's refresh-from-main git step).
-//
-// amendment > 0 selects a FRESH branch for an AMENDMENT session (F38): reopening a
-// COMMITTED artifact starts session v2+ whose v1 branch/PR already merged (and may be
-// deleted), so it cannot be reused. The "-amend-N" suffix is the only place the attempt
-// counter survives, and only for amendments.
-//
-// PROMOTED CO-AUTHOR HELPER (code-health-phase-bd task D3): see SameArtifactModel above.
-func DesignBranch(projectID ProjectID, kind ArtifactKind, amendment int) string {
-	base := fmt.Sprintf("aiarch-design/%s/%d", projectID, int(kind))
-	if amendment > 0 {
-		return fmt.Sprintf("%s-amend-%d", base, amendment)
-	}
-	return base
-}
+// The per-artifact design SESSION branch resolver (`aiarch-design/{project}/{kind}`, plus the
+// F38 `-amend-N` suffix) is DELETED here (stage 4b2). Spec §5.3 unified on ONE branch per
+// ACTIVITY — activity/{activityId}, which openActivityRow already opens and which a design
+// job creates on a local venue exactly as a construction job does — and 4b1 left this
+// resolver with a single caller that was itself dead by type (the question-seed branch).
+// The last live design-session branch on this repo's remote,
+// refs/heads/aiarch-design/archistrator/0-amend-1, is NOT deleted by deleting this function.
 
 // SlotEnvelope is the wire form of one Project slot across a Temporal boundary: the
 // review status + the model envelope.
@@ -4572,7 +4585,6 @@ func (r *RiskModel) isArtifactModel() {}
 // estimationEngine: composite construction risk
 // operationEstimationEngine: operation cost at declared load
 // operationEstimationEngine: payout(+)/shortfall(-) forecast
-// settlementEngine: projected revenue-share regime rate
 
 // SdpReview holds the Phase-2 SDP review artifact — the options table (the four joined
 // rows) plus the architect's recommendation. This is the model surfaced at the
@@ -5670,9 +5682,6 @@ type Project struct {
 // operationEstimationEngine.estimateForOption for the operation-side forecast
 // (operationEstimationEngine.md §3).
 
-// RevenueShareKind is the closed set of aiarch revenue-share regimes
-// (settlementEngine.md §3). Launch is a flat 10% cut.
-
 // ComputeCostKind is the closed set of compute pass-through pricing regimes
 // (settlementEngine.md §3).
 
@@ -5680,10 +5689,10 @@ type Project struct {
 
 // SettlementTerms is the customer's settlement-terms snapshot carried BY VALUE on
 // the option (settlementEngine.md §3; operationEstimationEngine OQ-2/FU-OE-A — the
-// option carries the terms). settlementEngine.projectCommitTimeRevenueShareAndComputeCost
-// reads only this.
-
-// e.g. 10.0 for launch flat 10%
+// option carries the terms). settlementEngine.projectCommitTimeComputeCost reads
+// only this. REVENUE SHARE IS NOT A MEMBER (stage 4b2, founder ruling): the platform
+// bills a usage-based hosting fee for operating a delivered system and nothing else,
+// so the concept is gone from the vocabulary rather than carried at zero.
 
 // markup on metered compute cost
 
@@ -7569,6 +7578,15 @@ type TaskAttempt struct {
 	Outcome TaskOutcome `json:"outcome,omitempty"`
 	// Evidence points at what this attempt produced or reviewed.
 	Evidence EvidenceRef `json:"evidence"`
+	// Detail is the attempt's own render-ready sentence, verbatim, and EMPTY where the
+	// attempt had nothing to say beyond its outcome. It is durable because it is the only
+	// place a reader can learn WHAT an attempt did rather than merely that it passed: the
+	// Project-Design compute records here which planning-assumption families it had to
+	// default, and the M0 review is a SPEND APPROVAL over exactly those numbers. Before
+	// stage 4b2 the strategy produced this sentence (deliveryactivity.go's sdpComputeStrategy)
+	// and nothing persisted it, so the founder approved a cost computed on assumptions no
+	// view could show them.
+	Detail string `json:"detail,omitempty"`
 	// Provenance is REQUIRED and never omitempty — see AttemptProvenance.
 	Provenance AttemptProvenance `json:"provenance"`
 }
@@ -9260,15 +9278,29 @@ const (
 // designKindSlugs backs designKindSlug — a table lookup (the gocyclo-friendly
 // form of flat enum→value dispatch; the exhaustive linter's map check enforces
 // a key per variant exactly as it would enforce a case).
+//
+// scrubbedRequirements and standardCheck carry NO SLUG (stage 4b2, founder ruling): they
+// are old artifacts this project used to have. What is retired is their DRAFTABILITY —
+// the slug, the command file and the critique — and not their identity: the ArtifactKind
+// ordinals 2 and 7 are WIRE VALUES in every committed project.json, and their slots are
+// durable history a git-as-DB exists to keep. This is the same retired-IN-PLACE the
+// 2026-08-30 Phase-1 collapse already applied to these two kinds and to operationalConcepts
+// (see Phase1RequiredKinds), extended from "not required for the seal" to "not draftable
+// at all". Deleting the members would renumber 3..16 and silently re-key every committed
+// slot in every project; deleting the slots would destroy the record this platform
+// produces. The two are MAPPED TO THE EMPTY STRING rather than dropped from the table:
+// `exhaustive`'s map check requires a key per variant, so naming them here is what stops
+// a future kind from being retired by accident — and "" is already how designKindSlug
+// spells "no command", which DesignCommandFor already treats as undispatchable.
 var designKindSlugs = map[ArtifactKind]string{
 	KindMission:              "mission",
 	KindGlossary:             "glossary",
-	KindScrubbedRequirements: "scrubbed-requirements",
+	KindScrubbedRequirements: "", // retired: not draftable (ordinal 2 stays)
 	KindVolatilities:         "volatilities",
 	KindCoreUseCases:         "core-use-cases",
 	KindSystem:               "system",
 	KindOperationalConcepts:  "operational-concepts",
-	KindStandardCheck:        "standard-check",
+	KindStandardCheck:        "", // retired: not draftable (ordinal 7 stays)
 	KindPlanningAssumptions:  "planning-assumptions",
 	KindActivityList:         "activity-list",
 	KindNetwork:              "network",
@@ -9295,19 +9327,26 @@ func designKindSlug(k ArtifactKind) string {
 // gate with three blockers and zero internal critique, and the ratified "PM must
 // not critique architecture" doctrine stands, so the critic is the architect).
 // The remaining architect-owned Phase-1 kinds (volatilities, operational
-// concepts, standard-check) and every Phase-2 kind still skip critique entirely
+// concepts) and every Phase-2 kind still skip critique entirely
 // (EARMARK: extend only on live QA evidence).
-// LOCKSTEP PIN: this switch's case list is a DELIBERATE, non-imported duplicate
-// of critiqueCriticFor (manager/systemdesign/coauthorartifact.go) — projectstate
-// is a ResourceAccess and sits BELOW manager/systemdesign in the layer graph, so
-// it cannot import that package's func; the two switches must be edited together.
-// critiqueCriticFor carries the matching lockstep pointer back to this func.
+//
+// scrubbedRequirements moved to the false arm with stage 4b2's draftability
+// retirement — a kind nothing drafts cannot be critiqued — and it is NAMED there
+// rather than dropped, because gochecksumtype requires a case per variant and a
+// silently-missing member is how a vocabulary change goes quiet. standardCheck
+// was already there. See designKindSlugs for the whole ruling.
+//
+// The LOCKSTEP PIN this comment used to carry is DELETED: it named
+// critiqueCriticFor in manager/systemdesign/coauthorartifact.go, a file stage 4b1
+// removed. A pin pointing at a file that does not exist is worse than no pin —
+// the next editor looks for the twin, does not find it, and concludes the pin is
+// stale in the other direction.
 func designKindHasCritique(k ArtifactKind) bool {
 	switch k {
-	case KindMission, KindGlossary, KindScrubbedRequirements, KindCoreUseCases,
-		KindSystem:
+	case KindMission, KindGlossary, KindCoreUseCases, KindSystem:
 		return true
-	case KindVolatilities, KindOperationalConcepts, KindStandardCheck,
+	case KindScrubbedRequirements, KindVolatilities, KindOperationalConcepts,
+		KindStandardCheck,
 		KindPlanningAssumptions, KindActivityList, KindNetwork, KindNormalSolution,
 		KindSubcriticalSolution, KindCompressedSolution, KindDecompressedSolution,
 		KindRiskModel, KindSdpReview:
@@ -10275,6 +10314,12 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 			}
 			held.Outcome = attempt.Outcome
 			held.Evidence = EvidenceRef{Kind: attempt.EvidenceKind, Ref: attempt.EvidenceRef}
+			// The resolve carries the detail, and an EMPTY one does not erase what the
+			// open recorded: the pending attempt is opened before the work runs and can
+			// have nothing to say, while the resolve is the call that knows.
+			if attempt.Detail != "" {
+				held.Detail = attempt.Detail
+			}
 			t := now
 			held.EndedAt = &t
 			return nil
@@ -10287,6 +10332,7 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 			Actor:      attempt.Actor,
 			Outcome:    attempt.Outcome,
 			Evidence:   EvidenceRef{Kind: attempt.EvidenceKind, Ref: attempt.EvidenceRef},
+			Detail:     attempt.Detail,
 			Provenance: AttemptProvenance{Origin: OriginObserved, GeneratedAt: &now},
 		}
 		t := now

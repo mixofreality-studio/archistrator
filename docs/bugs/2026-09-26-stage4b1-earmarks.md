@@ -70,6 +70,8 @@ The sharpest finding of the wave, and it is about committed state, not code. Slo
 
 **The ruling wanted: add a `RevenueShareNone` member to `RevenueShareKind`** (a `project.json` enum edit plus codegen, barred from Task 9), then point `defaultSettlementTerms` at it and rewrite slot 8. **Cost if the ruling goes the other way:** every M0 screen on this project says the billing terms were assumed — honest, but noisy — and an SDP priced at a 0% negotiated rate is what the founder approves. Visible in the M0 review either way.
 
+**CLOSED (stage 4b2 Task 7), the other way round: REVENUE SHARE IS REMOVED AS A CONCEPT, not given a fourth member.** Founder ruling, checked against committed objective 3, which commits to operations-first revenue and names design/construction work, tokens and consulting as the other growth paths — revenue share is not among them, so deleting it is consistent with the ratified objectives. The truthful encoding of a concept the business does not have is no concept: 4b1's workaround recorded a NEGOTIATED RATE at zero percent, which is correct behaviour resting on a false statement — the ledger would have said a rate was agreed when none was. Every `revenueShare` / `revenueSharePercent` / `RevenueShareKind` / `RevenueShareApplied` member is gone from all four contracts, slot 8's terms, slot 16's option rows, both engines and the SPA; `billingEngine.projectCommitTimeRevenueShareAndComputeCost` is `projectCommitTimeComputeCost`. With slot 8 now fully authored, `computeProjectPlanSlots` defaults NOTHING on this repo — the measured proof that the uncomputable-SDP finding is closed at its source.
+
 ### Q4 — `CalendarDaysPerWeek` is committed as **2**, where The Method's default is **5**
 
 Not a defect and deliberately NOT defaulted (a named value is never replaced — `Test_DefaultPlanningAssumptions_DoNotOverridePresentData` asserts the 2 survives, and asserts the durations differ between committed and defaulted assumptions). But it is the single biggest lever on every duration and cost in the SDP, it was authored once, and nothing has re-confirmed it. Worth an explicit founder re-ratification at the next M0 rather than an inherited 2.
@@ -288,7 +290,7 @@ Server-side facts Task 14 consumes, recorded here because they are the server's 
 
 ### What Task 14 actually shipped, and the three gaps it could not close from the SPA
 
-- **The M0 defaulting sentence does NOT read the attempt `Detail`, because `Detail` is on no view.** `DeliveryTaskRevisionView` carries `attemptIds` only — the whole OAS-generated schema was grepped — so putting `defaultedDetail` in front of the founder is a server + OAS + regen change, not an SPA one. What ships instead reads the committed planning-assumptions slot: absent ⇒ one sentence, committed carrying `defaultPlanningAssumptionsNote`'s `"Derived defaults: "` prefix ⇒ a different one. **The consequence is the honest part: a PER-FAMILY default (`resolvePlanningAssumptions` filling an `Unknown` revenue share or an empty rate card on an otherwise committed slot) leaves no trace on any view, so the notice is SILENT for exactly the case Task 9's review called the same lie as refusing.** The founder can still approve a cost computed on numbers nobody showed them. Fix: carry the attempt's `Detail`, or a `defaultedFamilies []string`, on `DeliveryTaskRevisionView`, then re-point the notice at it and delete the slot-reading proxy. Ruled acceptable for 4b1 only because it is a wire change arriving after the code freeze, and it is recorded here rather than left to be discovered at an M0.
+- **The M0 defaulting sentence does NOT read the attempt `Detail`, because `Detail` is on no view.** `DeliveryTaskRevisionView` carries `attemptIds` only — the whole OAS-generated schema was grepped — so putting `defaultedDetail` in front of the founder is a server + OAS + regen change, not an SPA one. What ships instead reads the committed planning-assumptions slot: absent ⇒ one sentence, committed carrying `defaultPlanningAssumptionsNote`'s `"Derived defaults: "` prefix ⇒ a different one. **The consequence is the honest part: a PER-FAMILY default (`resolvePlanningAssumptions` filling an `Unknown` revenue share or an empty rate card on an otherwise committed slot) leaves no trace on any view, so the notice is SILENT for exactly the case Task 9's review called the same lie as refusing.** The founder can still approve a cost computed on numbers nobody showed them. Fix: carry the attempt's `Detail`, or a `defaultedFamilies []string`, on `DeliveryTaskRevisionView`, then re-point the notice at it and delete the slot-reading proxy. Ruled acceptable for 4b1 only because it is a wire change arriving after the code freeze, and it is recorded here rather than left to be discovered at an M0. **CLOSED on the WIRE (stage 4b2 Task 7): `DeliveryTaskRevisionView.detail` exists, and so does the whole chain behind it — the attempt ledger had no `Detail` column either, so the sentence `sdpComputeStrategy` has been minting since 4b1 was dropped on every run. `TaskAttemptInput.detail` + `TaskAttempt.Detail` + `recordTaskAttempt` + the revision derivation now carry it. RENDERING it is Task 9 Step 5.**
 - **"Escalated" is DERIVED in the client, not read.** `DeliveryActivityView` has no escalated member — a takeover and an approval gate both fold into `awaitingHuman` — so `overrideActionFor` reproduces the server's `escalatedTaskOf` rule client-side: a second copy of a server rule, the drift hazard this whole wave exists to remove. Terminal (`done|failed`) is exact and is checked first, so a Reopen is never mislabelled; only a Steer can be offered on an activity that is awaiting something else. Exit: read `ConstructionSessionView.stage === 'awaitingTakeover'`, or put the stage on the activity view.
 - **`openThreadCount` was loosened.** An ANSWERED change request no longer blocks approve — that is `ReviewCommentBlocksApprove` applied to the field, and it is the server's rule — but a reviewer who read the old count as "threads I have not finished with" will see a different number for the same board.
 - **The committed-slot arm of the notice could NEVER FIRE, and is now gone (final fix wave, F3).** The paragraph above describes TWO exits — absent slot 8, and a committed slot 8 carrying `defaultPlanningAssumptionsNote`'s `"Derived defaults: "` prefix. Only the first is reachable: `projectDesignComputedKinds()` deliberately EXCLUDES `KindPlanningAssumptions`, so the compute never commits slot 8 at all, and on this very repo slot 8 is committed with `revenueShare == Unknown` — the per-family case, for which the notice returns `''`. The second arm therefore read as coverage of the defaulted case while covering nothing, which is strictly worse than the silence recorded above. The arm, its copy (`defaultedCostBasis`), its constant, its node test and its preview assertion are deleted. **The per-family silence stands exactly as recorded** — it is still the gap, and the fix is still to carry the attempt's `Detail` on the view.
@@ -319,23 +321,36 @@ phase race. What it could NOT close is recorded here rather than left to be foun
 
 ### The F80c reconcile verb preserves ONE slot; a design walk can hold FOUR
 
-`designSessionAccess.reconcileBranchFromMain(projectID, expectedVersion, branch, kind)`
+`designSessionAccess.reconcileBranchFromMain(projectID, expectedVersion, branch, kind)` (as it stood at 4b1)
 overlays main's every slot but `kind` onto the branch tip. It was written for the RETIRED
 rail, where a session owned exactly one artifact kind. The generic child's design walk can
 hold FOUR in-flight kinds on ONE activity branch (`designSlotsOfLifecycle`), and reconciling
 that branch would overwrite three live drafts with main's older copies.
 
-So `reconcileTargetOf` offers the reconcile only where it is correct — zero in-flight kinds
-(every construction lifecycle; the ZERO `ArtifactKind` matches no slot-table entry, so main's
-every slot is adopted, which is exactly right) or exactly one (the retired rail's own case).
-A walk holding two or more logs `delivery.merge.reconcileUnavailable` and takes the honest
-`MergeBranchReconciled` refusal instead, so **F80c is still live for a multi-slot design
-activity on the gh venue**.
+So `reconcileTargetOf` offered the reconcile only where it was correct — zero in-flight kinds
+(every construction lifecycle) or exactly one (the retired rail's own case). A walk holding two
+or more logged `delivery.merge.reconcileUnavailable` and took the honest `MergeBranchReconciled`
+refusal instead, so F80c stayed live for a multi-slot design activity on the gh venue.
 
-**The contract delta this needs** (a `.aiarch/state/project.json` change, which is why it was
-not made here): `reconcileBranchFromMain` takes `kinds []ArtifactKind` rather than one `kind`,
-and the store's overlay skips every member of the set. Both the RA contract and the generated
-Activity/invoker/tool-catalog surfaces move with it.
+**CORRECTION (stage 4b2 Task 6).** The parenthetical above said the zero-kind case worked because
+"the ZERO `ArtifactKind` matches no slot-table entry, so main's every slot is adopted". That is
+FALSE and had been for a wave: `KindMission == 0`, so a construction reconcile passed
+`KindMission` and quietly PRESERVED the branch's mission slot. Harmless in practice — a
+construction branch holds no mission draft, so preserving that slot preserved nothing — but the
+class of bug is not: spelling an ABSENCE as the zero value of an ordinal enum whose zero is a
+real member. `ArtifactKind` has seventeen members starting at 0.
+
+**CLOSED (stage 4b2 Tasks 6 + 7).** `reconcileBranchFromMain` now takes `kinds []ArtifactKind`
+(Task 7's `$defs` edit) and the store's overlay skips every member of the set (Task 6), so the
+whole preserve set crosses the wire and the refusal, its log key and the one-kind adapter are
+all deleted. An EMPTY set is passed verbatim and means "preserve nothing, adopt main entirely",
+which is the construction case — the absence is now spelled as an absence.
+
+**Still open, and recorded rather than fixed:** the preserve set is LIFECYCLE-STATIC
+(`designSlotsOfLifecycle`), not "what the branch actually staged", and the store silently accepts
+a kind the branch never drafted. That slot then keeps its fork-time copy instead of adopting
+main's current one, so the branch still differs from main and the guard's retry buys nothing —
+no data loss, the reconcile just fails to resolve. Low likelihood under single-writer-per-slot.
 
 ### The credential re-mint has no `GetVersion` gate
 

@@ -19,7 +19,6 @@ type FakeDeliveryManager struct {
 	AcknowledgeStaleBasisFn     func(rc fwm.Context, projectID delivery.ProjectID, activityID delivery.ActivityID, taskID string, note string) error
 	SetProjectRunStateFn        func(rc fwm.Context, projectID delivery.ProjectID, runState delivery.ProjectRunState, reason string) error
 	OverrideActivityFn          func(rc fwm.Context, projectID delivery.ProjectID, activityID delivery.ActivityID, override delivery.ActivityOverride) error
-	ReplanProjectFn             func(rc fwm.Context, projectID *delivery.ProjectID, tickID string) (delivery.ReplanSweepResult, error)
 	SetProjectExecutionPolicyFn func(rc fwm.Context, projectID delivery.ProjectID, policy delivery.ExecutionPolicyInput) error
 	QueryProjectViewFn          func(rc fwm.Context, query delivery.ProjectViewQuery) (delivery.ProjectView, error)
 	QueryActivityViewFn         func(rc fwm.Context, projectID delivery.ProjectID, activityID delivery.ActivityID) (delivery.ActivityView, error)
@@ -79,13 +78,6 @@ func (f *FakeDeliveryManager) OverrideActivity(rc fwm.Context, projectID deliver
 		panic("FakeDeliveryManager.OverrideActivityFn not set")
 	}
 	return f.OverrideActivityFn(rc, projectID, activityID, override)
-}
-
-func (f *FakeDeliveryManager) ReplanProject(rc fwm.Context, projectID *delivery.ProjectID, tickID string) (delivery.ReplanSweepResult, error) {
-	if f.ReplanProjectFn == nil {
-		panic("FakeDeliveryManager.ReplanProjectFn not set")
-	}
-	return f.ReplanProjectFn(rc, projectID, tickID)
 }
 
 func (f *FakeDeliveryManager) SetProjectExecutionPolicy(rc fwm.Context, projectID delivery.ProjectID, policy delivery.ExecutionPolicyInput) error {

@@ -37,8 +37,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "deliveryAskQuestions", Description: "Ask one or more clarifying QUESTIONS about one task's artifact, addressed to a role (pm or architect), WITHOUT sending the draft back for a redraft. The questions are appended to the task's review ledger as question-type entries and a lightweight answer job is dispatched so the addressed role answers each in place. Works on a committed artifact too (seeds a question-only thread without opening an amendment). Unlike change-request comments, open questions do NOT block approve.", InputSchema: askQuestionsInputSchema(), OutputSchema: askQuestionsOutputSchema()}, h.handleAskQuestions)
 	mcp.AddTool(srv, &mcp.Tool{Name: "deliveryAcknowledgeStaleBasis", Description: "Mark a stale committed artifact 'reviewed — unaffected': clear its stale-basis flag WITHOUT a redraft, recording the reviewer's note as a durable audit entry in the review thread. Use when an upstream change does not actually affect this artifact (so a reconcile amendment would be a byte-identical no-op). The activity's rail decides which artifact the task names.", InputSchema: acknowledgeStaleBasisInputSchema(), OutputSchema: acknowledgeStaleBasisOutputSchema()}, h.handleAcknowledgeStaleBasis)
 	mcp.AddTool(srv, &mcp.Tool{Name: "deliverySetProjectRunState", Description: "Pause or resume the project's delivery pump. Pausing stops any further activity dispatching and records the reason for the audit trail; resuming clears the recorded pause and starts (or joins) the pump, so work continues within 30 seconds. Refused as FailedPrecondition while a pause is still being applied (retry in a moment).", InputSchema: setProjectRunStateInputSchema(), OutputSchema: setProjectRunStateOutputSchema()}, h.handleSetProjectRunState)
-	mcp.AddTool(srv, &mcp.Tool{Name: "deliveryOverrideActivity", Description: "Steer one activity that is waiting at an escalation: retry it, skip it, take it over, or reassign it. Notes are required. Refused as FailedPrecondition while the activity is not awaiting a takeover.", InputSchema: overrideActivityInputSchema(), OutputSchema: overrideActivityOutputSchema()}, h.handleOverrideActivity)
-	mcp.AddTool(srv, &mcp.Tool{Name: "deliveryReplanProject", Description: "Run the re-plan sweep that detects scope or variance drift and re-derives the project network. With no projectID it sweeps every active project; tickID idempotently identifies the sweep.", InputSchema: replanProjectInputSchema(), OutputSchema: replanProjectOutputSchema()}, h.handleReplanProject)
+	mcp.AddTool(srv, &mcp.Tool{Name: "deliveryOverrideActivity", Description: "Steer one activity that is waiting at an escalation: retry it, skip it, take it over, or reassign it. Notes are required. Refused as FailedPrecondition when no task on the activity's attempt ledger holds a failed attempt (so there is nothing an override could name); an activity that has finished is re-opened instead of signalled.", InputSchema: overrideActivityInputSchema(), OutputSchema: overrideActivityOutputSchema()}, h.handleOverrideActivity)
 	mcp.AddTool(srv, &mcp.Tool{Name: "deliverySetProjectExecutionPolicy", Description: "Set how much of the project's work is gated by a human. Pass a preset — vibes (auto-approve everything short of the deploy/spend/schema risk floor), checkpoints (approval at the contract commit, the construction dispatch and the merge), or full (approval at every step) — or an explicit policy that replaces the review routing outright.", InputSchema: setProjectExecutionPolicyInputSchema(), OutputSchema: setProjectExecutionPolicyOutputSchema()}, h.handleSetProjectExecutionPolicy)
 	mcp.AddTool(srv, &mcp.Tool{Name: "deliveryQueryProjectView", Description: "Return one composed view of a project, selected by kind: summary (head state), projects (every project for an owner), session (the live draft/review session for one artifact kind or one activity), pump (the delivery pump's dispatch status), designHealth (the live Method-rule findings), episodes (the agentic episode records for one artifact kind or activity) or timeline (one episode's full trace). Read-only; the query object carries the selector each kind needs.", InputSchema: queryProjectViewInputSchema(), OutputSchema: queryProjectViewOutputSchema(), Meta: mcp.Meta{"ui": map[string]any{"resourceUri": shellResourceURI, "view": "system-design-session"}}}, h.handleQueryProjectView)
 	mcp.AddTool(srv, &mcp.Tool{Name: "deliveryQueryActivityView", Description: "Return one activity's whole lifecycle in one read: its task DAG (every task, its dependencies, its state) grouped into the lifecycle phases and their earned-value weights, each task's revision history, and the reviewer set at the gate it is waiting at. A review revision backed by a persisted round carries that round's verdicts, comment thread with replies and resolutions, reviewer roster, subject and round number, and who decided it and when; one reconstructed from a row that predates the round ledger carries the episode, send-back note and anchored comments behind it instead, and says so in its provenance. Read-only.", InputSchema: queryActivityViewInputSchema(), OutputSchema: queryActivityViewOutputSchema()}, h.handleQueryActivityView)
@@ -121,15 +120,6 @@ type overrideActivityInput struct {
 }
 
 type overrideActivityOutput struct{}
-
-type replanProjectInput struct {
-	ProjectID *mgr.ProjectID `json:"projectID,omitempty"`
-	TickID    string         `json:"tickID"`
-}
-
-type replanProjectOutput struct {
-	Result mgr.ReplanSweepResult `json:"result"`
-}
 
 type setProjectExecutionPolicyInput struct {
 	ProjectID mgr.ProjectID            `json:"projectID"`
@@ -233,16 +223,6 @@ func overrideActivityInputSchema() *jsonschema.Schema {
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"projectID", "activityID", "override"}
-	return s
-}
-
-// replanProjectInputSchema is the explicit MCP input schema for the ReplanProject operation.
-func replanProjectInputSchema() *jsonschema.Schema {
-	s := objectSchema[replanProjectInput]()
-	fixUUIDStrings(s)
-	relaxRawJSON(s)
-	allowNullMaps(s)
-	s.Required = []string{"tickID"}
 	return s
 }
 
@@ -353,16 +333,6 @@ func overrideActivityOutputSchema() *jsonschema.Schema {
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	describeContractFields(s, reflect.TypeFor[overrideActivityOutput]())
-	return s
-}
-
-// replanProjectOutputSchema is the explicit MCP output schema for the ReplanProject operation.
-func replanProjectOutputSchema() *jsonschema.Schema {
-	s := objectSchema[replanProjectOutput]()
-	fixUUIDStrings(s)
-	relaxRawJSON(s)
-	allowNullMaps(s)
-	describeContractFields(s, reflect.TypeFor[replanProjectOutput]())
 	return s
 }
 
@@ -484,7 +454,7 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"requiresHuman": "Whether the review engine requires a human decision at this gate. Display-only on the session view: the enforced gate is the suspend itself.",
 	},
 	reflect.TypeFor[mgr.ReviewSubjectRef](): {
-		"kind": "What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Today's two writers mint only pullRequest (the rail is live) and artifact (it is not), so commit is the one a future subject-by-sha writer will use.",
+		"kind": "What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Both live rails mint commit (the staged model's sha on the design rail, the pushed work's sha on the construction rail) as of 38fd7f9c; pullRequest is what a reviewer's PR is recorded as, and artifact is the ref of an artifact judged outside either rail.",
 		"ref":  "What the round judged: the staged commit sha, the pull request a reviewer opens, or the artifact's own ref. The artifact AS OF a revision is a git read of this ref — no second copy is stored.",
 	},
 	reflect.TypeFor[mgr.ReviewThreadComment](): {
@@ -500,11 +470,15 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"attemptId": "The gate attempt this verdict was given at.",
 		"summary":   "The reviewer's one-line reason, verbatim.",
 	},
+	reflect.TypeFor[mgr.TaskAttempt](): {
+		"detail": "The attempt's own render-ready sentence, verbatim. Absent where the attempt recorded none.",
+	},
 	reflect.TypeFor[mgr.TaskRevisionView](): {
 		"attemptIds": "Every attempt of the revision, as \"<activityId>:<task>:<n>\" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate.",
 		"comments":   "The anchored comments that rode with a send-back. On a persisted round it is a flat projection of `thread` — the same anchors and texts, so a reader that has only ever known this field keeps working — and the replies, the open/answered/resolved status and the reopen flag live in `thread` and only there.",
 		"decidedAt":  "RFC3339, stamped by the store when the round was decided, verbatim. Omitted while it is undecided and on a reconstructed revision.",
 		"decidedBy":  "Who decided the round. Omitted while it is undecided and on a reconstructed revision.",
+		"detail":     "The attempt's own render-ready sentence, verbatim — 'drafted <kind> on <branch>', 'dispatched <command> for <phase>', 'asked N question(s) of <role>', or a failed venue's whole sentence including its run URL. PRESENT where the revision cites a gate attempt; absent on a reconstructed revision and where no attempt was captured. It exists because the M0 review is a SPEND APPROVAL and the per-family planning-assumption defaulting left no trace on any view: a founder could approve a cost computed on numbers nobody showed them. This is the field that shows them.",
 		"endedAt":    "Omitted while any attempt of the revision is unresolved.",
 		"episodeId":  "The episode of the attempt that reached the gate (else the latest). Omitted on a review task and where no episode was captured.",
 		"n":          "1-based. Revision n is the n-th work that reached the gate, with every failed or retried attempt before it, and the n-th gate attempt that judged it.",
@@ -673,19 +647,6 @@ func (h *Handler) handleOverrideActivity(ctx context.Context, _ *mcp.CallToolReq
 	if err := h.Manager.OverrideActivity(rc, in.ProjectID, in.ActivityID, in.Override); err != nil {
 		return nil, out, mapManagerError(err)
 	}
-	return nil, out, nil
-}
-
-// handleReplanProject is the MCP tool handler for the ReplanProject operation.
-func (h *Handler) handleReplanProject(ctx context.Context, _ *mcp.CallToolRequest, in replanProjectInput) (*mcp.CallToolResult, replanProjectOutput, error) {
-	var out replanProjectOutput
-	principal, _ := security.PrincipalFrom(ctx)
-	rc := fwmanager.Context{Context: ctx, Principal: principal}
-	result, err := h.Manager.ReplanProject(rc, in.ProjectID, in.TickID)
-	if err != nil {
-		return nil, out, mapManagerError(err)
-	}
-	out.Result = result
 	return nil, out, nil
 }
 

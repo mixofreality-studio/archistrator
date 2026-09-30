@@ -24,10 +24,9 @@ type BillingOutcome struct {
 }
 
 type BillingTerms struct {
-	RevenueShareKind int64 `json:"RevenueShareKind"`
-	ComputeCostKind  int64 `json:"ComputeCostKind"`
-	ScheduleKind     int64 `json:"ScheduleKind"`
-	BillingKind      int64 `json:"BillingKind"`
+	ComputeCostKind int64 `json:"ComputeCostKind"`
+	ScheduleKind    int64 `json:"ScheduleKind"`
+	BillingKind     int64 `json:"BillingKind"`
 }
 
 type CustomerProfile map[string]interface{}

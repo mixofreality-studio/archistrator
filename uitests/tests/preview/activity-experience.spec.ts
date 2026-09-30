@@ -417,6 +417,50 @@ test.describe('activity experience: what each body says', () => {
     expect(offBundle).toEqual([]);
   });
 
+  test('a construction question says a PERSON will answer it, and names them', async ({ page }) => {
+    const offBundle = await openState(page, 'activity-experience', 'construction-round-withdrawn');
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+
+    // R-F4 (founder, 2026-09-28). `AskTaskQuestions` records the question on the round
+    // and the SPA renders it — that is ALL it does, and all it can do: a construction
+    // round has no artifact kind and no slot, `respondToReviewComment` is slot-scoped,
+    // and it is not registered in the construction job mode. The screen has always been
+    // silent about that. It says it now, and names who is owed the answer.
+    await expect(page.getByTestId(TESTID.marginHumanAnswer('r3c2'))).toHaveText(
+      'Awaiting an answer from the product manager — construction questions are answered by a person.'
+    );
+    // And it is the QUESTION's line, not the thread's: the open change request beside it
+    // is cleared by a redraft, not by an answer.
+    await expect(page.getByTestId(TESTID.marginHumanAnswer('r3c1'))).toHaveCount(0);
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('…and a DESIGN round’s question is not labelled that way — its thread has an answer job', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'activity-experience', 'architecture-round');
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+
+    // A design round names a committed slot, so `deliveryManager.AskQuestions` routes it
+    // to the slot's durable ledger and dispatches the answer job the addressed role
+    // answers in place. Saying "no agent will answer this" here would be a new lie
+    // replacing an old silence.
+    //
+    // WHAT THIS CASE CAN AND CANNOT PROVE, said plainly: no fixture carries an OPEN
+    // design question (r2c1 is `answered`), so this cannot isolate WHICH of the two
+    // reasons keeps the line off — the design rail, or the settled status. It proves what
+    // a preview is for: no design surface grew a stray line. The RAIL discrimination
+    // itself is held where it can be isolated — `activityCopy.test.ts`'s
+    // humanAnswered:false case, and the container pin on `artifact.kind !== 'slot'`.
+    await expect(page.getByTestId(TESTID.marginCard('r2c1'))).toBeVisible();
+    await expect(page.getByTestId(TESTID.marginHumanAnswer('r2c1'))).toHaveCount(0);
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
   test('a WITHDRAWN round is in the history, saying the word — not missing from it', async ({
     page,
   }) => {
@@ -611,14 +655,21 @@ test.describe('activity experience: the operator’s two overrides', () => {
  * recorded and INVISIBLE, which is the same lie as refusing.
  */
 test.describe('activity experience: what the M0 cost was computed on', () => {
-  test('nothing committed: the line names the assumption and the exit, beside the gate’s own copy', async ({
+  // THE SENTENCE IS THE SERVER'S (stage 4b2 Task 9). The line used to be composed here
+  // from a proxy — "is slot 8 committed at all?" — which answered the whole-document
+  // case and was SILENT for the PER-FAMILY fills, the case that actually ran on this
+  // repo. The compute records what it defaulted in its own words on the attempt, and
+  // that sentence now reaches the revision the gate is about
+  // (`DeliveryTaskRevisionView.detail`), so the screen READS it instead of re-deriving
+  // a rule the Manager owns.
+  test('the defaulted revision renders the compute’s own sentence, beside the gate’s copy', async ({
     page,
   }) => {
     const offBundle = await openState(page, 'activity-experience', 'project-design-m0');
     await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
 
-    await expect(page.getByTestId(TESTID.activityCostBasis)).toHaveText(
-      'Cost computed on assumed every planning assumption — no planning assumptions are committed for this project yet'
+    await expect(page.getByTestId(TESTID.activityCostBasis)).toContainText(
+      "the plan's cost was computed on ASSUMED values for the resources, the working calendar"
     );
     // It stands BESIDE the approve, not instead of it: the founder may still commit
     // a cost they have been told the basis of.
@@ -628,14 +679,14 @@ test.describe('activity experience: what the M0 cost was computed on', () => {
     expect(offBundle).toEqual([]);
   });
 
-  // A COMMITTED SLOT 8 IS SILENCE, and that is the honest reading (final fix wave, F3).
-  // This case used to assert a second sentence for "the document in slot 8 is the compute's
-  // own, signed with `defaultPlanningAssumptionsNote`" — a state no run produces:
-  // `projectDesignComputedKinds()` deliberately EXCLUDES `KindPlanningAssumptions`, so the
-  // compute never commits slot 8 at all. The arm that rendered it, its copy and its assertion
-  // are gone; what is left is the fact the screen can actually tell, which is that a
-  // committed slot 8 says nothing about PER-FAMILY defaults because no view carries them.
-  test('a committed slot 8 says nothing — the per-family defaults are not on the wire', async ({
+  // AN ABSENT DETAIL IS "NOTHING WAS ASSUMED", not a missing value. `defaultedDetail`
+  // returns the empty string when the compute defaulted nothing and the wire omits it.
+  // That is the LIVE state of this repo since stage 4b2 removed revenue share: slot 8
+  // is fully authored and the compute defaults nothing, which is the measured proof the
+  // uncomputable-SDP finding is closed at its source. (The fixture's `-defaulted` suffix
+  // is a legacy misnomer from the retired "the platform wrote slot 8" arm; what it
+  // actually carries is an AUTHORED slot 8 and no detail.)
+  test('a revision with no detail says nothing — the compute assumed nothing', async ({
     page,
   }) => {
     const offBundle = await openState(page, 'activity-experience', 'project-design-m0-defaulted');

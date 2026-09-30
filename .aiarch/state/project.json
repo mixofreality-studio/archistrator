@@ -1099,8 +1099,7 @@
             "expectedPerCycleNet": {
               "minorUnits": 120000,
               "currency": "USD"
-            },
-            "revenueSharePercent": 0
+            }
           },
           {
             "optionId": "opt-subcritical",
@@ -1118,8 +1117,7 @@
             "expectedPerCycleNet": {
               "minorUnits": 120000,
               "currency": "USD"
-            },
-            "revenueSharePercent": 0
+            }
           },
           {
             "optionId": "opt-compressed",
@@ -1137,8 +1135,7 @@
             "expectedPerCycleNet": {
               "minorUnits": 120000,
               "currency": "USD"
-            },
-            "revenueSharePercent": 0
+            }
           },
           {
             "optionId": "opt-decompressed",
@@ -1156,8 +1153,7 @@
             "expectedPerCycleNet": {
               "minorUnits": 120000,
               "currency": "USD"
-            },
-            "revenueSharePercent": 0
+            }
           }
         ],
         "recommendation": "opt-decompressed",
@@ -9425,13 +9421,11 @@
           "avgPayloadBytes": 4096
         },
         "terms": {
-          "revenueShare": 0,
-          "revenueSharePercent": 0,
           "computeCost": 2,
           "computeMarkupPercent": 0,
           "schedule": 1
         },
-        "notes": "Team: solo founder (bus-factor-1) + up to 3 concurrent Claude agent streams (architect/PM/product-manager/specialist roles). Founder works ~2 effective days/week (40% of nominal). Parallelism cap: 3 in-flight agent streams; beyond that, founder review quality degrades. Infrastructure: Go + Temporal + Postgres (CNPG for Temporal + billing head-state only; project state is JSON-in-git with git-ref CAS). Construction CI is the user's own GitHub Actions running claude-code-action — the platform holds no LLM key and does not charge for construction. Billing model (2026-06-09 MoR-reversal): pure one-directional vendor charge — the platform bills the user a usage-based HOSTING fee only (DEPLOYED — OPERATED scenario); no flat subscription; no revenue share; no charge for construction or LLM work; revenueShare=0 (no payout; the old merchant-of-record / revenue-share model was reversed). computeCost=2 (tieredFloors: tier floors + free-tier subsidies per ServicePricing strategy); schedule=1 (monthly billing period). Risk flags: bus-factor-1; founder availability variable (2d/wk); operated runtime unchosen; durable execution platform unchosen; git-as-project-state-store novelty; AI-agent construction quality variance; dog-food chicken-and-egg. No hard external deadlines. Internal-only v1 audience.",
+        "notes": "Team: solo founder (bus-factor-1) + up to 3 concurrent Claude agent streams (architect/PM/product-manager/specialist roles). Founder works ~2 effective days/week (40% of nominal). Parallelism cap: 3 in-flight agent streams; beyond that, founder review quality degrades. Infrastructure: Go + Temporal + Postgres (CNPG for Temporal + billing head-state only; project state is JSON-in-git with git-ref CAS). Construction CI is the user's own GitHub Actions running claude-code-action — the platform holds no LLM key and does not charge for construction. Billing model (2026-06-09 MoR-reversal): pure one-directional vendor charge — the platform bills the user a usage-based HOSTING fee only (DEPLOYED — OPERATED scenario); no flat subscription; no charge for construction or LLM work. The platform bills a usage-based hosting fee for operating a delivered system and nothing else. Revenue share was reversed on 2026-06-09 and is no longer part of the vocabulary (stage 4b2, founder ruling): the concept is gone rather than set to zero, because a field whose UNKNOWN member had to stand in for 'none' could not state the platform's actual posture. computeCost=2 (tieredFloors: tier floors + free-tier subsidies per ServicePricing strategy); schedule=1 (monthly billing period). Risk flags: bus-factor-1; founder availability variable (2d/wk); operated runtime unchosen; durable execution platform unchosen; git-as-project-state-store novelty; AI-agent construction quality variance; dog-food chicken-and-egg. No hard external deadlines. Internal-only v1 audience.",
         "indirectDailyRate": {
           "minorUnits": 5000,
           "currency": "USD"
@@ -14210,6 +14204,10 @@
             "evidenceRef": {
               "type": "string",
               "description": "The evidence itself — a commit, an episode id, an artifact ref."
+            },
+            "detail": {
+              "type": "string",
+              "description": "The attempt's own render-ready sentence, verbatim, or empty where the attempt has nothing to say beyond its outcome. NOT required: an empty detail is the honest answer for an attempt that did exactly what its task says. Recorded on the append and carried unchanged on the resolve."
             }
           },
           "required": [
@@ -14219,7 +14217,8 @@
             "actor",
             "outcome",
             "evidenceKind",
-            "evidenceRef"
+            "evidenceRef",
+            "detail"
           ],
           "additionalProperties": false,
           "description": "One execution of one lifecycle task, as the caller states it. The store denormalises the phase, stamps the clock and the provenance, and appends."
@@ -14360,7 +14359,7 @@
             "roundId": {
               "type": "string",
               "x-go-name": "RoundID",
-              "description": "The deterministic, caller-minted round id. The construction rail mints \"<activityId>:<reviewTaskId>:<n>\"; the DESIGN rails mint \"<activityId>:<reviewTaskId>:<artifactKind>:<n>\", because several artifact kinds share one lifecycle phase (glossary and scrubbedRequirements; system, operationalConcepts and standardCheck) and a three-part id would collide across two independent design sessions. The shape is the caller's; the rule this store enforces is that opening the same id twice opens ONE round — the property the whole ledger rests on under Temporal retry."
+              "description": "The deterministic, caller-minted round id. The construction rail mints \"<activityId>:<reviewTaskId>:<n>\"; the DESIGN rails mint \"<activityId>:<reviewTaskId>:<artifactKind>:<n>\", because several artifact kinds share one lifecycle phase (mission and glossary; system and operationalConcepts) and a three-part id would collide across two independent design sessions. The shape is the caller's; the rule this store enforces is that opening the same id twice opens ONE round — the property the whole ledger rests on under Temporal retry."
             },
             "taskId": {
               "type": "string",
@@ -16168,9 +16167,6 @@
             "RoutingDirective": {
               "$ref": "#/$defs/RoutingDirective"
             },
-            "RevenueShareApplied": {
-              "$ref": "#/$defs/Money"
-            },
             "ComputeCostApplied": {
               "$ref": "#/$defs/Money"
             }
@@ -16178,7 +16174,6 @@
           "required": [
             "SignedNet",
             "RoutingDirective",
-            "RevenueShareApplied",
             "ComputeCostApplied"
           ],
           "additionalProperties": false
@@ -16186,12 +16181,6 @@
         "BillingTerms": {
           "type": "object",
           "properties": {
-            "revenueShare": {
-              "$ref": "#/$defs/RevenueShareKind"
-            },
-            "revenueSharePercent": {
-              "type": "number"
-            },
             "computeCost": {
               "$ref": "#/$defs/ComputeCostKind"
             },
@@ -16203,8 +16192,6 @@
             }
           },
           "required": [
-            "revenueShare",
-            "revenueSharePercent",
             "computeCost",
             "computeMarkupPercent",
             "schedule"
@@ -16299,12 +16286,6 @@
         "Projection": {
           "type": "object",
           "properties": {
-            "RevenueShareKind": {
-              "$ref": "#/$defs/RevenueShareKind"
-            },
-            "RevenueSharePercent": {
-              "type": "number"
-            },
             "ComputeCostKind": {
               "$ref": "#/$defs/ComputeCostKind"
             },
@@ -16313,8 +16294,6 @@
             }
           },
           "required": [
-            "RevenueShareKind",
-            "RevenueSharePercent",
             "ComputeCostKind",
             "ComputeMarkupPercent"
           ],
@@ -16343,20 +16322,6 @@
             "PriorSettled"
           ],
           "additionalProperties": false
-        },
-        "RevenueShareKind": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "x-enum-varnames": [
-            "RevenueShareUnknown",
-            "RevenueShareLaunchFlat10",
-            "RevenueShareNegotiatedRate"
-          ],
-          "x-go-base": "int"
         },
         "RoutingDirective": {
           "type": "integer",
@@ -16420,7 +16385,7 @@
             "error": true
           },
           {
-            "name": "ProjectCommitTimeRevenueShareAndComputeCost",
+            "name": "ProjectCommitTimeComputeCost",
             "params": [
               {
                 "name": "option",
@@ -16837,9 +16802,6 @@
         "BillingTerms": {
           "type": "object",
           "properties": {
-            "RevenueShareKind": {
-              "type": "integer"
-            },
             "ComputeCostKind": {
               "type": "integer"
             },
@@ -16851,7 +16813,6 @@
             }
           },
           "required": [
-            "RevenueShareKind",
             "ComputeCostKind",
             "ScheduleKind",
             "BillingKind"
@@ -18955,30 +18916,6 @@
           ],
           "additionalProperties": false
         },
-        "CritiqueView": {
-          "type": "object",
-          "properties": {
-            "role": {
-              "type": "string"
-            },
-            "verdict": {
-              "type": "string"
-            },
-            "summary": {
-              "type": "string"
-            },
-            "round": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "role",
-            "verdict",
-            "summary",
-            "round"
-          ],
-          "additionalProperties": false
-        },
         "DefectView": {
           "type": "object",
           "properties": {
@@ -19772,98 +19709,6 @@
           ],
           "x-go-base": "string"
         },
-        "ProjectSessionStage": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8
-          ],
-          "x-enum-varnames": [
-            "ProjectSessionStageUnknown",
-            "ProjectStageDrafting",
-            "ProjectStageAssemblingSDP",
-            "ProjectStageAwaitingReview",
-            "ProjectStageRedrafting",
-            "ProjectStageCommitted",
-            "ProjectStageWithdrawn",
-            "ProjectStageRefused",
-            "ProjectStageDraftFailed"
-          ],
-          "x-go-base": "int"
-        },
-        "ProjectSessionStateView": {
-          "type": "object",
-          "properties": {
-            "projectId": {
-              "$ref": "#/$defs/ProjectID",
-              "x-go-name": "ProjectID"
-            },
-            "artifactKind": {
-              "$ref": "#/$defs/ArtifactKind"
-            },
-            "stage": {
-              "$ref": "#/$defs/ProjectSessionStage"
-            },
-            "draft": {
-              "$ref": "#/$defs/DraftModel"
-            },
-            "findings": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/Finding"
-              }
-            },
-            "failureReason": {
-              "type": [
-                "null",
-                "string"
-              ]
-            },
-            "stageName": {
-              "type": "string",
-              "x-go-name": "StageName"
-            },
-            "reviewThread": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/ReviewCommentView"
-              }
-            },
-            "activeRole": {
-              "$ref": "#/$defs/ActiveRole"
-            },
-            "activeStep": {
-              "$ref": "#/$defs/ActiveStep"
-            },
-            "round": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "projectId",
-            "artifactKind",
-            "stage",
-            "stageName",
-            "draft",
-            "activeRole",
-            "activeStep",
-            "round"
-          ],
-          "additionalProperties": false
-        },
         "ProjectState": {
           "type": "object",
           "properties": {
@@ -20043,13 +19888,7 @@
               "type": [
                 "null"
               ],
-              "$ref": "#/$defs/SessionStateView"
-            },
-            "projectSession": {
-              "type": [
-                "null"
-              ],
-              "$ref": "#/$defs/ProjectSessionStateView"
+              "$ref": "#/$defs/DesignArtifactSessionView"
             },
             "constructionSession": {
               "type": [
@@ -20499,7 +20338,7 @@
                 "artifact",
                 "pullRequest"
               ],
-              "description": "What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Today's two writers mint only pullRequest (the rail is live) and artifact (it is not), so commit is the one a future subject-by-sha writer will use."
+              "description": "What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Both live rails mint commit (the staged model's sha on the design rail, the pushed work's sha on the construction rail) as of 38fd7f9c; pullRequest is what a reviewer's PR is recorded as, and artifact is the ref of an artifact judged outside either rail."
             },
             "ref": {
               "type": "string",
@@ -20792,31 +20631,24 @@
         "SessionRef": {
           "type": "string"
         },
-        "SessionStage": {
+        "DesignArtifactSessionStage": {
           "type": "integer",
           "enum": [
             0,
             1,
             2,
-            3,
-            4,
-            5,
-            6,
-            7
+            3
           ],
           "x-enum-varnames": [
             "SessionStageUnknown",
-            "StageDrafting",
-            "StageAwaitingReview",
-            "StageRedrafting",
             "StageCommitted",
             "StageWithdrawn",
-            "StageRefused",
             "StageDraftFailed"
           ],
-          "x-go-base": "int"
+          "x-go-base": "int",
+          "description": "The stages the DERIVED design-artifact session view can report, and all of them. This is a REPLACEMENT of the eight-member SessionStage, not a renumbering of it: the door is committedSessionView, a projection of one durable ArtifactSlot, so a committed slot reads committed, a withdrawn one withdrawn, and every other terminal-but-uncommitted status reads an honest draftFailed. Drafting, awaitingReview, redrafting and refused had no producer left once stage 4b1 retired the live design rail, and StageDrafting in particular is the value an SPA wedges a spinner on. SessionStageUnknown stays at 0 deliberately: a three-member enum would make the ZERO VALUE mean committed, and a zero-valued view reading as a committed artifact is the same defect class as ArtifactKind's KindMission == 0."
         },
-        "SessionStateView": {
+        "DesignArtifactSessionView": {
           "type": "object",
           "properties": {
             "projectId": {
@@ -20827,49 +20659,16 @@
               "$ref": "#/$defs/ArtifactKind"
             },
             "stage": {
-              "$ref": "#/$defs/SessionStage"
+              "$ref": "#/$defs/DesignArtifactSessionStage"
             },
             "draft": {
               "$ref": "#/$defs/DraftModel"
-            },
-            "findings": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/Finding"
-              }
             },
             "failureReason": {
               "type": [
                 "null",
                 "string"
               ]
-            },
-            "failureRunUrl": {
-              "type": [
-                "null",
-                "string"
-              ],
-              "x-go-name": "FailureRunURL"
-            },
-            "runUrl": {
-              "type": [
-                "null",
-                "string"
-              ],
-              "x-go-name": "RunURL"
-            },
-            "critique": {
-              "type": [
-                "null"
-              ],
-              "$ref": "#/$defs/CritiqueView"
-            },
-            "stageName": {
-              "type": "string",
-              "x-go-name": "StageName"
             },
             "reviewThread": {
               "type": [
@@ -20879,28 +20678,16 @@
               "items": {
                 "$ref": "#/$defs/ReviewCommentView"
               }
-            },
-            "activeRole": {
-              "$ref": "#/$defs/ActiveRole"
-            },
-            "activeStep": {
-              "$ref": "#/$defs/ActiveStep"
-            },
-            "round": {
-              "type": "integer"
             }
           },
           "required": [
             "projectId",
             "artifactKind",
             "stage",
-            "stageName",
-            "draft",
-            "activeRole",
-            "activeStep",
-            "round"
+            "draft"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "The ONE derived session view, for all seventeen artifact kinds (stage 4b2). It is a projection of the durable slot, NOT a live session: its subject is what the slot says now, and the live execution's view is constructionSession, a different subject with a different lifetime. Eight members were pruned with the type's rename because nothing in the server could set them once 4b1 retired the live design rail — they were decoded by the SPA and always absent."
         },
         "Severity": {
           "type": "string",
@@ -21024,6 +20811,13 @@
             "evidence": {
               "$ref": "#/$defs/EvidenceRef"
             },
+            "detail": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "description": "The attempt's own render-ready sentence, verbatim. Absent where the attempt recorded none."
+            },
             "provenance": {
               "$ref": "#/$defs/AttemptProvenance"
             }
@@ -21135,6 +20929,13 @@
               "type": "string",
               "x-go-name": "EpisodeID",
               "description": "The episode of the attempt that reached the gate (else the latest). Omitted on a review task and where no episode was captured."
+            },
+            "detail": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "description": "The attempt's own render-ready sentence, verbatim — 'drafted <kind> on <branch>', 'dispatched <command> for <phase>', 'asked N question(s) of <role>', or a failed venue's whole sentence including its run URL. PRESENT where the revision cites a gate attempt; absent on a reconstructed revision and where no attempt was captured. It exists because the M0 review is a SPEND APPROVAL and the per-family planning-assumption defaulting left no trace on any view: a founder could approve a cost computed on numbers nobody showed them. This is the field that shows them."
             },
             "commentCount": {
               "type": "integer"
@@ -21718,28 +21519,6 @@
             "error": true
           },
           {
-            "name": "ReplanProject",
-            "params": [
-              {
-                "name": "projectID",
-                "pointer": true,
-                "schema": {
-                  "$ref": "#/$defs/ProjectID"
-                }
-              },
-              {
-                "name": "tickID",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/ReplanSweepResult"
-            },
-            "error": true
-          },
-          {
             "name": "SetProjectExecutionPolicy",
             "params": [
               {
@@ -22205,10 +21984,14 @@
                 }
               },
               {
-                "name": "kind",
+                "name": "kinds",
                 "schema": {
-                  "$ref": "#/$defs/ArtifactKind"
-                }
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ArtifactKind"
+                  }
+                },
+                "description": "The PRESERVE set: every slot NOT named here is overlaid from main. An empty array preserves nothing and adopts main's every slot, which is the construction case."
               },
               {
                 "name": "idempotencyKey",
@@ -25549,20 +25332,6 @@
           ],
           "additionalProperties": false
         },
-        "RevenueShareKind": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "x-enum-varnames": [
-            "RevenueShareUnknown",
-            "RevenueShareLaunchFlat10",
-            "RevenueShareNegotiatedRate"
-          ],
-          "x-go-base": "int"
-        },
         "ScalePoint": {
           "type": "object",
           "properties": {
@@ -25594,12 +25363,6 @@
         "SettlementTerms": {
           "type": "object",
           "properties": {
-            "revenueShare": {
-              "$ref": "#/$defs/RevenueShareKind"
-            },
-            "revenueSharePercent": {
-              "type": "number"
-            },
             "computeCost": {
               "$ref": "#/$defs/ComputeCostKind"
             },
@@ -25611,8 +25374,6 @@
             }
           },
           "required": [
-            "revenueShare",
-            "revenueSharePercent",
             "computeCost",
             "computeMarkupPercent",
             "schedule"
@@ -28842,20 +28603,6 @@
           ],
           "additionalProperties": false
         },
-        "RevenueShareKind": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "x-enum-varnames": [
-            "RevenueShareUnknown",
-            "RevenueShareLaunchFlat10",
-            "RevenueShareNegotiatedRate"
-          ],
-          "x-go-base": "int"
-        },
         "ReviewComment": {
           "type": "object",
           "properties": {
@@ -29150,9 +28897,6 @@
             },
             "expectedPerCycleNet": {
               "$ref": "#/$defs/Money"
-            },
-            "revenueSharePercent": {
-              "type": "number"
             }
           },
           "required": [
@@ -29162,8 +28906,7 @@
             "buildCost",
             "compositeRisk",
             "projectedMonthlyCost",
-            "expectedPerCycleNet",
-            "revenueSharePercent"
+            "expectedPerCycleNet"
           ],
           "additionalProperties": false
         },
@@ -29196,12 +28939,6 @@
         "SettlementTerms": {
           "type": "object",
           "properties": {
-            "revenueShare": {
-              "$ref": "#/$defs/RevenueShareKind"
-            },
-            "revenueSharePercent": {
-              "type": "number"
-            },
             "computeCost": {
               "$ref": "#/$defs/ComputeCostKind"
             },
@@ -29213,8 +28950,6 @@
             }
           },
           "required": [
-            "revenueShare",
-            "revenueSharePercent",
             "computeCost",
             "computeMarkupPercent",
             "schedule"

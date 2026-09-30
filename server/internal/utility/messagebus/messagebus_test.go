@@ -268,7 +268,7 @@ func scheduledWorkflow(_ workflow.Context, _ []byte) error {
 // package's caller managers register — a single TYPED STRUCT parameter whose
 // ZERO VALUE is a legitimate "no scope, sweep everything" input (billing's
 // shortfallSweepInput, operations' reconcileInput, construction's
-// replanSweepInput / pumpSweepInput). Deliberately NOT []byte (scheduledWorkflow
+// roundSweepInput / pumpSweepInput). Deliberately NOT []byte (scheduledWorkflow
 // above) — a []byte target would still decode under the STALE []any{payload.
 // Bytes} construction (byte-slice payloads decode fine into a []byte target),
 // masking exactly the bug scheduleWorkflowArgs fixes; only a concrete struct

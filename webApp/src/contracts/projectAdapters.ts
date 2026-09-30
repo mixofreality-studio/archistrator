@@ -636,7 +636,6 @@ export interface SdpOptionView {
   compositeRisk: number;
   projectedMonthlyCost: Money;
   expectedPerCycleNet: Money;
-  revenueSharePercent: number;
   recommended: boolean;
 }
 
@@ -661,7 +660,6 @@ export function toSdpReviewView(envelope: ProjectArtifactModelEnvelope | undefin
       compositeRisk: o.compositeRisk,
       projectedMonthlyCost: o.projectedMonthlyCost,
       expectedPerCycleNet: o.expectedPerCycleNet,
-      revenueSharePercent: o.revenueSharePercent,
       recommended: o.optionId === model.recommendation,
     })
   );

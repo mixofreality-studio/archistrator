@@ -904,13 +904,6 @@ const INFRA_KIND_LABELS: Record<number, string> = {
   1: 'Go + Temporal + Postgres',
 };
 
-/** Integer ordinal labels for the Go RevenueShare enum (0-based). */
-const REVENUE_SHARE_LABELS: Record<number, string> = {
-  0: 'None',
-  1: 'Launch flat 10%',
-  2: 'Negotiated rate',
-};
-
 /** Integer ordinal labels for the Go ComputeCost enum (0-based). */
 const COMPUTE_COST_LABELS: Record<number, string> = {
   0: 'Unknown',
@@ -958,7 +951,6 @@ function planningAssumptionsToMarkdown(m: PlanningAssumptionsModel): string {
   // Settlement terms
   const t = m.terms;
   const termsRows = [
-    `- **Revenue share:** ${labelFor(REVENUE_SHARE_LABELS, t.revenueShare)} (${String(t.revenueSharePercent)}%)`,
     `- **Compute cost:** ${labelFor(COMPUTE_COST_LABELS, t.computeCost)} (markup ${String(t.computeMarkupPercent)}%)`,
     `- **Schedule:** ${labelFor(SCHEDULE_LABELS, t.schedule)}`,
   ];
@@ -1063,12 +1055,12 @@ function sdpReviewToMarkdown(m: SdpReviewModel): string {
   const options = m.options ?? [];
   if (options.length > 0) {
     const header =
-      '| Option | Solution | Duration (d) | Build Cost | Composite Risk | Monthly Cost | Per-Cycle Net | Rev Share % |';
-    const sep = '|---|---|---|---|---|---|---|---|';
+      '| Option | Solution | Duration (d) | Build Cost | Composite Risk | Monthly Cost | Per-Cycle Net |';
+    const sep = '|---|---|---|---|---|---|---|';
     const rows = options
       .map(
         (o) =>
-          `| ${o.optionId} | ${o.solutionKind} | ${String(o.durationDays)} | ${formatMoney(o.buildCost)} | ${String(o.compositeRisk)} | ${formatMoney(o.projectedMonthlyCost)} | ${formatMoney(o.expectedPerCycleNet)} | ${String(o.revenueSharePercent)}% |`
+          `| ${o.optionId} | ${o.solutionKind} | ${String(o.durationDays)} | ${formatMoney(o.buildCost)} | ${String(o.compositeRisk)} | ${formatMoney(o.projectedMonthlyCost)} | ${formatMoney(o.expectedPerCycleNet)} |`
       )
       .join('\n');
     parts.push(`## Options\n\n${header}\n${sep}\n${rows}`);

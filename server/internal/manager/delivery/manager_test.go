@@ -135,6 +135,114 @@ func Test_CommittedSessionView_CarriesReviewThread(t *testing.T) {
 	}
 }
 
+// slotWriters is the test-side inverse of the production slotAccessors map: it PUTS a slot
+// onto a Project by kind, so a table test can seed any one of the seventeen without a
+// seventeen-arm switch per case. Keyed rather than switched on purpose — the length assertion
+// in Test_DesignArtifactSessionView_IsTotalOverEveryKind is what keeps it from drifting,
+// which a switch's exhaustiveness check could not do for a map-driven producer.
+var slotWriters = map[projectstate.ArtifactKind]func(*projectstate.Project, projectstate.ArtifactSlot){
+	projectstate.KindMission:              func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.Mission = s },
+	projectstate.KindGlossary:             func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.Glossary = s },
+	projectstate.KindScrubbedRequirements: func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.ScrubbedRequirements = s },
+	projectstate.KindVolatilities:         func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.Volatilities = s },
+	projectstate.KindCoreUseCases:         func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.CoreUseCases = s },
+	projectstate.KindSystem:               func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.SystemDesign = s },
+	projectstate.KindOperationalConcepts:  func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.OperationalConcepts = s },
+	projectstate.KindStandardCheck:        func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.StandardCheck = s },
+	projectstate.KindPlanningAssumptions:  func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.PlanningAssumptions = s },
+	projectstate.KindActivityList:         func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.ActivityList = s },
+	projectstate.KindNetwork:              func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.Network = s },
+	projectstate.KindNormalSolution:       func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.NormalSolution = s },
+	projectstate.KindSubcriticalSolution:  func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.SubcriticalSolution = s },
+	projectstate.KindCompressedSolution:   func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.CompressedSolution = s },
+	projectstate.KindDecompressedSolution: func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.DecompressedSolution = s },
+	projectstate.KindRiskModel:            func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.RiskModel = s },
+	projectstate.KindSdpReview:            func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.SdpReview = s },
+}
+
+// Test_DesignArtifactSessionView_IsTotalOverEveryKind is the fold's premise, executable.
+//
+// Before it, TWO producers answered the same question for disjoint kind sets and returned two
+// wire types whose enums diverged at exactly one member — ProjectStageAssemblingSDP, whose
+// producer stage 4b1 deleted. After it there is ONE producer, and the assertion is that it is
+// TOTAL: every one of the seventeen artifact kinds resolves through it, against every one of
+// ArtifactReviewStatus's five members, and every answer is one of the THREE stages a durable
+// slot can actually express. A fourth reachable stage here would mean the fold lost something.
+func Test_DesignArtifactSessionView_IsTotalOverEveryKind(t *testing.T) {
+	kinds := projectstate.AllArtifactKinds()
+	if len(slotWriters) != len(kinds) {
+		t.Fatalf("slotWriters covers %d kinds, AllArtifactKinds has %d — the table drifted", len(slotWriters), len(kinds))
+	}
+	expressible := []DesignArtifactSessionStage{StageCommitted, StageWithdrawn, StageDraftFailed}
+	for _, k := range kinds {
+		write, ok := slotWriters[k]
+		if !ok {
+			t.Fatalf("no slot writer for kind %s", k.WireName())
+		}
+		for _, st := range []projectstate.ArtifactReviewStatus{
+			projectstate.ReviewCommitted, projectstate.ReviewWithdrawn,
+			projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected,
+		} {
+			proj := projectstate.Project{ID: "p", Version: 1}
+			write(&proj, projectstate.ArtifactSlot{Status: st})
+			ps := &projectstatefake.FakeProjectStateAccess{
+				ReadProjectFn: func(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+					return proj, nil
+				},
+			}
+			m := &deliveryManager{projectState: ps}
+			view, err := m.designArtifactSessionView(context.Background(), "p", fromPSKind(k))
+			if err != nil {
+				t.Fatalf("kind %s / status %d must resolve, got %v", k.WireName(), st, err)
+			}
+			if view.ArtifactKind != fromPSKind(k) {
+				t.Errorf("kind %s / status %d: the view must carry its own kind, got %d", k.WireName(), st, view.ArtifactKind)
+			}
+			if !slices.Contains(expressible, view.Stage) {
+				t.Errorf("kind %s / status %d: stage %v is outside the three a slot can express %v",
+					k.WireName(), st, view.Stage, expressible)
+			}
+			if view.Stage == SessionStageUnknown {
+				t.Errorf("kind %s / status %d produced the ZERO stage — every answer must be a named one", k.WireName(), st)
+			}
+		}
+	}
+}
+
+// Test_DesignArtifactSessionView_PhaseTwoKindsNoLongerTakeASecondDoor pins the deletion: a
+// Phase-2 kind must reach the SAME producer a Phase-1 kind reaches, and must come back on the
+// SAME wire member. Two doors to one question is how the two enums drifted in the first
+// place, and `projectSession` is what the second door filled — so a Phase-2 answer landing
+// anywhere but `session` is the fold undone. `projectSession` itself is no longer a field to
+// check: stage 4b2's model edit deleted it from ProjectView, so the second door is now gone
+// from the CONTRACT and not merely unfilled.
+func Test_DesignArtifactSessionView_PhaseTwoKindsNoLongerTakeASecondDoor(t *testing.T) {
+	for _, k := range projectstate.AllArtifactKinds() {
+		proj := projectstate.Project{ID: "p", Version: 1}
+		slotWriters[k](&proj, projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted})
+		ps := &projectstatefake.FakeProjectStateAccess{
+			ReadProjectFn: func(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+				return proj, nil
+			},
+		}
+		m := &deliveryManager{projectState: ps}
+		kind := fromPSKind(k)
+		pid := "p"
+		out, err := m.QueryProjectView(bgRC(), ProjectViewQuery{
+			Kind: ProjectViewSession, ProjectID: &pid, ArtifactKind: &kind,
+		})
+		if err != nil {
+			t.Fatalf("kind %s: the session view must resolve, got %v", k.WireName(), err)
+		}
+		if out.Session == nil {
+			t.Fatalf("kind %s: the answer must land on `session` — the ONE derived member", k.WireName())
+		}
+		if out.Session.Stage != StageCommitted {
+			t.Errorf("kind %s: a committed slot must render StageCommitted, got %v", k.WireName(), out.Session.Stage)
+		}
+	}
+}
+
 // SessionRef is opaque: it round-trips and compares by value, never parsed.
 func Test_SessionRef_OpaqueValueSemantics(t *testing.T) {
 	a := newSessionRef("proj-1:1")
@@ -239,7 +347,7 @@ func (f *renderFakeProjectState) SeedReviewCommentsOnBranch(fwra.Context, projec
 	panic("renderFakeProjectState.SeedReviewCommentsOnBranch must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *renderFakeProjectState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, []projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
 	panic("renderFakeProjectState.ReconcileBranchFromMain must not be called by these façade-precondition tests")
 }
 
@@ -476,7 +584,7 @@ func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projects
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
@@ -1094,17 +1202,16 @@ func Test_EngineReviewPolicy_CarriesTheStoredDocument(t *testing.T) {
 	}
 }
 
-// The live set is exactly the non-terminal stages: drafting / awaitingReview /
-// redrafting / draftFailed (the recovery gate keeps the branch+PR).
+// The live set is exactly ONE stage since stage 4b2 narrowed the vocabulary: draftFailed,
+// the recovery gate that keeps the branch+PR. drafting / awaitingReview / redrafting were
+// the other three and they left with the members — the derived door projects a durable slot
+// and cannot report a live draft — so this walks the WHOLE enum rather than two hand lists,
+// which is what stops a future member from being silently non-live.
 func Test_SessionStageIsLive(t *testing.T) {
-	live := []SessionStage{StageDrafting, StageAwaitingReview, StageRedrafting, StageDraftFailed}
-	for _, s := range live {
-		if !sessionStageIsLive(s) {
-			t.Errorf("stage %s must be live", sessionStageLabel(s))
-		}
+	if !sessionStageIsLive(StageDraftFailed) {
+		t.Error("draft failed must be live — the session is suspended there with its branch and PR intact")
 	}
-	terminal := []SessionStage{SessionStageUnknown, StageCommitted, StageWithdrawn, StageRefused}
-	for _, s := range terminal {
+	for _, s := range []DesignArtifactSessionStage{SessionStageUnknown, StageCommitted, StageWithdrawn} {
 		if sessionStageIsLive(s) {
 			t.Errorf("stage %s must NOT be live", sessionStageLabel(s))
 		}
@@ -1208,17 +1315,135 @@ func TestNextQuestionRound(t *testing.T) {
 	}
 }
 
-func TestIsLiveSessionStage(t *testing.T) {
-	live := []SessionStage{StageDrafting, StageAwaitingReview, StageRedrafting, StageRefused}
-	for _, s := range live {
-		if !isLiveSessionStage(s) {
-			t.Errorf("stage %v must be live", s)
+// Test_QuestionBranch_TheLiveStageAndTheDerivedStagesAreDisjoint is the deletion's
+// ARGUMENT, executable. resolveQuestionBranch asked isLiveSessionStage of a view only
+// committedSessionView produces, and the two vocabularies do not intersect — so the
+// branch arm was unreachable for every possible input, not merely unused in practice.
+//
+// It survives the deletion as the pin on the RATIFIED answer: design questions are
+// seeded on MAIN, beside the slot, because a question's thread outlives the activity
+// branch that is squashed at merge.
+//
+// It replaces TestIsLiveSessionStage, which pinned the predicate by itself. The predicate
+// was never wrong about its own vocabulary; what was wrong was asking it about a view that
+// speaks the other one, and only a test that names BOTH sets can say that.
+//
+// Stage 4b2 settled the disjointness STRUCTURALLY: the four live stages are no longer
+// members of DesignArtifactSessionStage at all, so the two sets cannot intersect because one
+// of them is empty. What remains worth driving is the half that can still move — the
+// producer's output set — so that is all this now does.
+func Test_QuestionBranch_TheLiveStageAndTheDerivedStagesAreDisjoint(t *testing.T) {
+	derived := []DesignArtifactSessionStage{StageCommitted, StageWithdrawn, StageDraftFailed}
+	// The producer's OUTPUT set is exactly `derived`, DRIVEN rather than asserted: every
+	// one of ArtifactReviewStatus's five members (contract.gen.go: None, AwaitingReview,
+	// Committed, Rejected, Withdrawn) is fed through committedSessionView, and every answer
+	// must land in `derived`. A sixth status that renders a LIVE stage would break this — and
+	// that is exactly the change that would have made the deleted arm reachable.
+	all := []projectstate.ArtifactReviewStatus{
+		projectstate.ReviewCommitted, projectstate.ReviewWithdrawn,
+		projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected,
+	}
+	for _, st := range all {
+		view, err := committedSessionView("p", KindMission, projectstate.ArtifactSlot{Status: st})
+		if err != nil {
+			t.Fatalf("committedSessionView(status %d): %v", st, err)
+		}
+		if !slices.Contains(derived, view.Stage) {
+			t.Errorf("committedSessionView(status %d).Stage = %v, which is outside the derived set %v — the deleted branch arm would be reachable again", st, view.Stage, derived)
 		}
 	}
-	for _, s := range []SessionStage{SessionStageUnknown, StageDraftFailed} {
-		if isLiveSessionStage(s) {
-			t.Errorf("stage %v must NOT be live", s)
-		}
+}
+
+// Test_AskArtifactQuestions_Phase1_SeedsOnMain pins the RATIFIED answer (4b1 Q6, closed in 4b2).
+// Before this task the target was main by accident — through a guard that could not be
+// true. After it, main is the only thing the code can express, and this test is what
+// says so out loud.
+//
+// The DesignSessionAccess double leaves ReadProjectOnBranchFn UNSET on purpose: the
+// generated fake panics on an unset Fn, so the double itself asserts that the branch-taking
+// read (readProjectMaybeBranch) is gone and the head-state read is the plain ReadProject.
+func Test_AskArtifactQuestions_Phase1_SeedsOnMain(t *testing.T) {
+	ask := []AnchoredComment{{JSONPath: "$.vision", Text: "why is it worded this way?"}}
+	for _, tc := range []struct {
+		name   string
+		status projectstate.ArtifactReviewStatus
+	}{
+		{"a committed slot", projectstate.ReviewCommitted},
+		{"a withdrawn slot", projectstate.ReviewWithdrawn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Revisions 3 makes AmendmentIndexFor answer 3 for the committed row — the datum the
+			// deleted resolver used to name `…-amend-3` with. It must change nothing now.
+			slot := projectstate.ArtifactSlot{Status: tc.status, Revisions: 3}
+			ps := &projectstatefake.FakeProjectStateAccess{
+				ReadProjectFn: func(_ fwra.Context, id projectstate.ProjectID) (projectstate.Project, error) {
+					return projectstate.Project{ID: id, Version: 4, Mission: slot}, nil
+				},
+			}
+			var branches []string
+			ds := &projectstatefake.FakeDesignSessionAccess{
+				SeedReviewCommentsOnBranchFn: func(_ fwra.Context, _ projectstate.ProjectID, ver projectstate.Version, branch string, kind projectstate.ArtifactKind, _ int64, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+					branches = append(branches, branch)
+					if ver != 4 {
+						t.Errorf("the seed must CAS on the version the main read returned, got %d", ver)
+					}
+					if kind != projectstate.KindMission || len(comments) != 1 {
+						t.Errorf("seed = kind %d with %d comments, want the one mission question", kind, len(comments))
+					}
+					return ver + 1, nil
+				},
+			}
+			m := newDesignFacade(nil, ps, nil, nil, nil, nil, ds, nil, nil, "")
+			if err := m.askArtifactQuestions(bgRC(), "p", KindMission, projectstate.ReviewAddresseeArchitect, ask); err != nil {
+				t.Fatalf("the ask must land: %v", err)
+			}
+			if len(branches) != 1 || branches[0] != "" {
+				t.Fatalf("the question must be seeded on MAIN; branches = %q", branches)
+			}
+		})
+	}
+}
+
+// Test_AskArtifactQuestions_Phase2_SeedsOnMain is the Phase-2 half, through the SAME door
+// (stage 4b2 Task 5 merged the two twin bodies). Same ratification, same shape — and the same
+// unset ReadProjectOnBranchFn standing in for the deleted branch read.
+func Test_AskArtifactQuestions_Phase2_SeedsOnMain(t *testing.T) {
+	ask := []AnchoredComment{{JSONPath: "$.resources[0]", Text: "where does this rate come from?"}}
+	for _, tc := range []struct {
+		name   string
+		status projectstate.ArtifactReviewStatus
+	}{
+		{"a committed slot", projectstate.ReviewCommitted},
+		{"a withdrawn slot", projectstate.ReviewWithdrawn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			slot := projectstate.ArtifactSlot{Status: tc.status, Revisions: 3}
+			ps := &projectstatefake.FakeProjectStateAccess{
+				ReadProjectFn: func(_ fwra.Context, id projectstate.ProjectID) (projectstate.Project, error) {
+					return projectstate.Project{ID: id, Version: 9, PlanningAssumptions: slot}, nil
+				},
+			}
+			var branches []string
+			ds := &projectstatefake.FakeDesignSessionAccess{
+				SeedReviewCommentsOnBranchFn: func(_ fwra.Context, _ projectstate.ProjectID, ver projectstate.Version, branch string, kind projectstate.ArtifactKind, _ int64, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+					branches = append(branches, branch)
+					if ver != 9 {
+						t.Errorf("the seed must CAS on the version the main read returned, got %d", ver)
+					}
+					if kind != projectstate.KindPlanningAssumptions || len(comments) != 1 {
+						t.Errorf("seed = kind %d with %d comments, want the one planning-assumptions question", kind, len(comments))
+					}
+					return ver + 1, nil
+				},
+			}
+			m := newPlanFacade(nil, ps, nil, nil, nil, nil, nil, ds, nil, nil, nil)
+			if err := m.askArtifactQuestions(bgRC(), "p", KindPlanningAssumptions, projectstate.ReviewAddresseePM, ask); err != nil {
+				t.Fatalf("the ask must land: %v", err)
+			}
+			if len(branches) != 1 || branches[0] != "" {
+				t.Fatalf("the question must be seeded on MAIN; branches = %q", branches)
+			}
+		})
 	}
 }
 
@@ -1445,7 +1670,7 @@ func (f *fakeProjectStateAccess) SetReviewCommentStatusOnBranch(_ fwra.Context, 
 func (f *fakeProjectStateAccess) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
-func (f *fakeProjectStateAccess) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectStateAccess) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 func (f *fakeProjectStateAccess) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -2582,7 +2807,7 @@ func (f *setResearchFakeState) SeedReviewCommentsOnBranch(fwra.Context, projects
 	panic("setResearchFakeState.SeedReviewCommentsOnBranch must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *setResearchFakeState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, []projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
 	panic("setResearchFakeState.ReconcileBranchFromMain must not be called by SetResearchInput")
 }
 
@@ -2820,14 +3045,10 @@ var _ projectstate.ProjectStateAccess = (*setResearchNotFoundOnWrite)(nil)
 // alongside it. sessionStageLabel is the single authoritative map; withStageName stamps it.
 
 func TestSessionStageLabel_Map(t *testing.T) {
-	cases := map[SessionStage]string{
+	cases := map[DesignArtifactSessionStage]string{
 		SessionStageUnknown: "not started",
-		StageDrafting:       "drafting",
-		StageAwaitingReview: "awaiting review",
-		StageRedrafting:     "redrafting",
 		StageCommitted:      "committed",
 		StageWithdrawn:      "withdrawn",
-		StageRefused:        "refused",
 		StageDraftFailed:    "draft failed",
 	}
 	for stage, want := range cases {
@@ -4413,9 +4634,11 @@ func Test_AdvanceToConstruction_StaleSlot_FailedPreconditionNamingSlot(t *testin
 	}
 }
 
-// F73 (part 2, Phase-2 twin). The committed view must carry the slot's durable reviewThread so
-// questions seeded on a COMMITTED Phase-2 artifact render on it.
-func Test_PD_CommittedSessionView_CarriesReviewThread(t *testing.T) {
+// F73 (part 2, Phase-2 half). The committed view must carry the slot's durable reviewThread so
+// questions seeded on a COMMITTED Phase-2 artifact render on it — now through the SAME
+// producer the Phase-1 half uses (stage 4b2 Task 5 deleted pdCommittedSessionView, which was
+// this same switch over the same slot into a second wire type).
+func Test_CommittedSessionView_Phase2Kind_CarriesReviewThread(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	slot := projectstate.ArtifactSlot{
 		Status: projectstate.ReviewCommitted,
@@ -4428,11 +4651,11 @@ func Test_PD_CommittedSessionView_CarriesReviewThread(t *testing.T) {
 			AuthorRole: reviewAuthorRole,
 		}},
 	}
-	view, err := pdCommittedSessionView(id, KindPlanningAssumptions, slot)
+	view, err := committedSessionView(id, KindPlanningAssumptions, slot)
 	if err != nil {
 		t.Fatalf("committedSessionView on a committed slot must not error: %v", err)
 	}
-	if view.Stage != ProjectStageCommitted {
+	if view.Stage != StageCommitted {
 		t.Fatalf("committed slot must render StageCommitted, got %d", view.Stage)
 	}
 	if len(view.ReviewThread) != 1 || view.ReviewThread[0].Text != "which resources are assumed?" {
@@ -4604,7 +4827,7 @@ func (f *pdFakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projec
 	return f.bump(), nil
 }
 
-func (f *pdFakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *pdFakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
@@ -5495,23 +5718,6 @@ func (f *ledgerThreadFake) SeedReviewCommentsOnBranch(_ fwra.Context, _ projects
 	return expectedVersion, nil
 }
 
-// The live set is exactly the non-terminal stages: drafting / assemblingSdp /
-// awaitingReview / redrafting / draftFailed (the recovery gate keeps the branch+PR).
-func Test_PD_SessionStageIsLive(t *testing.T) {
-	live := []ProjectSessionStage{ProjectStageDrafting, ProjectStageAssemblingSDP, ProjectStageAwaitingReview, ProjectStageRedrafting, ProjectStageDraftFailed}
-	for _, s := range live {
-		if !pdSessionStageIsLive(s) {
-			t.Errorf("stage %s must be live", pdSessionStageLabel(s))
-		}
-	}
-	terminal := []ProjectSessionStage{ProjectSessionStageUnknown, ProjectStageCommitted, ProjectStageWithdrawn, ProjectStageRefused}
-	for _, s := range terminal {
-		if pdSessionStageIsLive(s) {
-			t.Errorf("stage %s must NOT be live", pdSessionStageLabel(s))
-		}
-	}
-}
-
 // TestDeriveClassRates_FromModelTier checks the AI $/day derivation (F11b) against the
 // hand-computed price list × the default throughput (2 MTok in / 0.5 MTok out per day):
 //
@@ -5617,25 +5823,6 @@ func TestExistingQuestionRound(t *testing.T) {
 	// A never-seeded question is not found.
 	if _, ok := existingQuestionRound(nil, qs); ok {
 		t.Fatal("existingQuestionRound must report not-found for an empty thread")
-	}
-}
-
-func Test_PD_SessionStageLabel_Map(t *testing.T) {
-	cases := map[ProjectSessionStage]string{
-		ProjectSessionStageUnknown: "not started",
-		ProjectStageDrafting:       "drafting",
-		ProjectStageAssemblingSDP:  "assembling SDP",
-		ProjectStageAwaitingReview: "awaiting review",
-		ProjectStageRedrafting:     "redrafting",
-		ProjectStageCommitted:      "committed",
-		ProjectStageWithdrawn:      "withdrawn",
-		ProjectStageRefused:        "refused",
-		ProjectStageDraftFailed:    "draft failed",
-	}
-	for stage, want := range cases {
-		if got := pdSessionStageLabel(stage); got != want {
-			t.Errorf("sessionStageLabel(%d) = %q, want %q", int(stage), got, want)
-		}
 	}
 }
 
@@ -6393,14 +6580,24 @@ func Test_ComputeProjectPlanSlots_ReproducesTheCommittedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("computeProjectPlanSlots over the committed state: %v", err)
 	}
-	// MEASURED, and it is a finding rather than an expectation: this repo's committed slot 8
-	// names NO revenue-share regime (revenueShare: 0 is RevenueShareUnknown), which
-	// billingEngine refuses outright on money-safety grounds — so the compute defaults the
-	// billing TERMS and records it. That single unusable field is why slots 11-16 have carried
-	// staleBasis since the billing reversal: nothing could re-derive them. Everything the
-	// founder actually authored is kept, which the calendar half below asserts.
-	if !slices.Equal(defaulted, []string{assumedTerms}) {
-		t.Fatalf("the committed slot 8 names no revenue-share regime, so the TERMS and nothing else may be defaulted; got %v", defaulted)
+	// MEASURED, AND IT MOVED — this is the state finding stage 4b2 closed. Until the wave's
+	// model edit, this repo's committed slot 8 carried `revenueShare: 0`, which IS
+	// RevenueShareUnknown, which billingEngine refused outright on money-safety grounds; the
+	// compute therefore had to default the whole billing TERMS family on every run, and that
+	// single unusable field is why slots 11-16 carried staleBasis from the 2026-06-09 billing
+	// reversal onward. Revenue share is now gone from the vocabulary rather than defaulted
+	// around, slot 8's remaining terms (computeCost tieredFloors, monthly) are ALL AUTHORED,
+	// and the compute defaults NOTHING. An empty list is the strongest form of this
+	// assertion: every number the M0 screen shows a founder for this project is one they
+	// authored.
+	if len(defaulted) != 0 {
+		t.Fatalf("the committed slot 8 is fully authored since the revenue-share removal, so "+
+			"NOTHING may be defaulted; got %v", defaulted)
+	}
+	// And the attempt's sentence agrees: nothing defaulted means no sentence, because a note
+	// saying "nothing was assumed" is noise on every well-formed project.
+	if got := defaultedDetail(defaulted); got != "" {
+		t.Fatalf("defaultedDetail over an empty family list = %q, want the empty string", got)
 	}
 	var kinds []projectstate.ArtifactKind
 	byKind := map[projectstate.ArtifactKind]projectstate.ArtifactModel{}
@@ -8298,25 +8495,6 @@ func Test_ExecuteNextActivity_StillDecidingAtBudget_ReturnsDistinguishableOutcom
 	_, err := executeWithin(t, newTestConstructionManager(mc), pid, 2*time.Second) // a 5s terminal wait would blow this guard
 	if ce := asConstructionError(t, err); !strings.Contains(ce.Error(), pumpStillDecidingDetail) {
 		t.Fatalf("want the distinguishable still-deciding outcome, got %v", err)
-	}
-}
-
-// ---- RunReplanSweep (op 2.2) ------------------------------------------------
-
-func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
-	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, nil, "")
-	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
-		t.Fatalf("want ContractMisuse, got %s", got)
-	}
-}
-
-func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
-	nilID := ProjectID("")
-	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, &nilID, "tick-1")
-	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
-		t.Fatalf("want ContractMisuse for an explicit nil projectId, got %s", got)
 	}
 }
 
@@ -10317,7 +10495,7 @@ type csFakeProjectState struct {
 	resumed int
 
 	// reconciles counts designSessionAccess.reconcileBranchFromMain calls and records the
-	// branch + preserved kind each one carried — the F80c verb the child's restored merge
+	// branch + preserved kind SET each one carried — the F80c verb the child's restored merge
 	// guard reaches (final fix wave, G3). onReconcile, when set, runs on each call, which is
 	// how a test models "the reconcile made the PR mergeable again".
 	reconciles  []reconcileCall
@@ -10377,6 +10555,39 @@ type csFakeProjectState struct {
 	// commentStatuses is every comment id SetReviewCommentStatus was called with, in order
 	// (stage 4b1 Task 10). It is the drain-past-capacity case's whole assertion.
 	commentStatuses []string
+
+	// failDelay holds RecordActivityFailed open for this long AFTER it has appended to
+	// `failed` and released the lock (stage 4b2 Task 14). It exists for exactly ONE
+	// consumer and it is a CAPTURE knob, not a behaviour knob: the pump's pause check at
+	// dispatch gate 2 (pump-pause-before-dispatch) consumes a pause that was buffered
+	// while the run was inside some Activity, and on a real dev server the only way to
+	// deliver a signal INTO that window is to make the Activity slow. verdictBlocked's
+	// record is the right Activity to widen, because it is the one blocking call that sits
+	// INSIDE pumpStartFrontier's loop — after readProject and before the first dispatch's
+	// gate — which is precisely the window gate 2 covers. Widening readProject instead
+	// would also delay every other reader of this double, including the child's.
+	failDelay time.Duration
+}
+
+// setOperatorPaused records the project's pause the way the real store's
+// RecordOperatorPaused does, from OUTSIDE a workflow — the capture driver's way of making
+// a pump that is already cascading meet a RECORDED pause on its next wake-up
+// (changePumpHonorsRecordedPause v2). It is a store write, not a signal, which is the
+// whole distinction that gate tells apart.
+func (f *csFakeProjectState) setOperatorPaused(reason string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.project.OperatorPaused = true
+	f.project.PauseReason = reason
+	f.bump()
+}
+
+// failedCount reports how many RecordActivityFailed calls have landed. A capture driver
+// polls it to learn that the pump is INSIDE the next one (see failDelay).
+func (f *csFakeProjectState) failedCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.failed)
 }
 
 // noteCall is one RecordOperatorNote; deliveredCall one RecordOperatorNoteDelivered.
@@ -10469,13 +10680,22 @@ func (f *csFakeProjectState) RecordActivityExited(_ fwra.Context, _ projectstate
 
 func (f *csFakeProjectState) RecordActivityFailed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
+		f.mu.Unlock()
 		return 0, err
 	}
 	f.failed = append(f.failed, failCall{activityID: activityID, reason: reason, detail: detail})
 	f.stampRow(activityID)
-	return f.bump(), nil
+	v, delay := f.bump(), f.failDelay
+	f.mu.Unlock()
+	// The hold is OUTSIDE the lock and AFTER the append, so a capture driver polling
+	// failedCount() observes the call and can deliver a signal while the pump is still
+	// waiting on this Activity. Zero for every other test, which is every other test's
+	// behaviour unchanged.
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	return v, nil
 }
 
 func (f *csFakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, reason string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -11269,15 +11489,17 @@ func (fakeFullProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstat
 	return 0, nil
 }
 
-// reconcileCall is one observed F80c reconcile: which branch, and which slot it preserved.
+// reconcileCall is one observed F80c reconcile: which branch, and which SET of slots it
+// preserved (stage 4b2 Task 6 — the verb preserves a set, because one activity branch can
+// hold four in-flight design slots).
 type reconcileCall struct {
 	branch string
-	kind   projectstate.ArtifactKind
+	kinds  []projectstate.ArtifactKind
 }
 
-func (f fakeFullProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, branch string, kind projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f fakeFullProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, branch string, kinds []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
-	f.reconciles = append(f.reconciles, reconcileCall{branch: branch, kind: kind})
+	f.reconciles = append(f.reconciles, reconcileCall{branch: branch, kinds: kinds})
 	hook := f.onReconcile
 	f.version++
 	v := f.version
@@ -11891,11 +12113,6 @@ func (b *recordingSignalBus) RegisterSchedule(fwra.Context, messagebus.ScheduleI
 
 var _ messagebus.MessageBus = (*recordingSignalBus)(nil)
 
-func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState) {
-	env.RegisterWorkflowWithOptions(wf.ReplanSweepWorkflow, workflow.RegisterOptions{Name: executionKindReplanSweep})
-	registerGenDesignSessionRead(env, ps)
-}
-
 // fakeProjectLister widens fakeFullProjectState with a SCRIPTED ListProjects — the
 // one surface PumpSweepWorkflow's enumeration depends on. Every other method falls
 // through to fakeFullProjectState's stubs (never exercised by the sweep itself).
@@ -12053,6 +12270,17 @@ func (r cascadingPumpRig) runInput(t *testing.T, in pumpInput) (PumpResult, erro
 func isContinueAsNew(err error) bool {
 	var canErr *workflow.ContinueAsNewError
 	return errors.As(err, &canErr)
+}
+
+// atItsHistoryBudget puts the run one event over the pump's ceiling, which since stage 4b2
+// is the ONLY reason the pump continues as new: the lease pump PARKS on its selector
+// instead of continuing once per dispatched activity, so a continue is now a history fact
+// rather than a cascade step. The SDK's test environment serves this as the workflow's
+// history length, so the boundary runs against the PRODUCTION const rather than a smaller
+// budget substituted for it.
+func (r cascadingPumpRig) atItsHistoryBudget() cascadingPumpRig {
+	r.env.SetCurrentHistoryLength(pumpHistoryBudget + 1)
+	return r
 }
 
 // M1 / I2 test 8 (version gate "pause-relays-to-pump", DefaultVersion branch). A
@@ -12291,34 +12519,6 @@ func Test_ApplyPausePolicy_ZeroValuePolicy_IsTheOldBug(t *testing.T) {
 	}
 }
 
-// ---- Tests: replan sweep (ReplanSweepWorkflow) ------------------------------
-
-// A quiet sweep returns an empty result (no auto-replan).
-func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	pid := ProjectID(uuid.NewString())
-	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
-	wf := csNewWorkflows(wfDeps{
-		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-	})
-	registerReplanSweep(env, wf, ps)
-
-	env.ExecuteWorkflow(executionKindReplanSweep, replanSweepInput{ProjectID: &pid})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("sweep error: %v", err)
-	}
-	var res ReplanSweepResult
-	if err := env.GetWorkflowResult(&res); err != nil {
-		t.Fatalf("decode sweep result: %v", err)
-	}
-	if len(res.FlaggedVariances) != 0 {
-		t.Fatalf("want an empty quiet sweep, got %v", res.FlaggedVariances)
-	}
-}
-
 // ---- Tests: pump sweep (PumpSweepWorkflow, Task 7c) -------------------------
 
 // fakeScheduleBus records every RegisterSchedule call. Satisfies messagebus.MessageBus.
@@ -12342,27 +12542,28 @@ func (b *fakeScheduleBus) RegisterSchedule(_ fwra.Context, scheduleID messagebus
 
 var _ messagebus.MessageBus = (*fakeScheduleBus)(nil)
 
-// RegisterSchedules must register exactly the three platform-wide Schedules — the
-// pump sweep (30s, targeting PumpSweepWorkflow), the replan sweep (5m, targeting
-// ReplanSweepWorkflow) and, from stage 4b1, the round sweep (5m, targeting
-// RoundSweepWorkflow) — with the right ids/workflow-types/intervals.
+// RegisterSchedules must register exactly the two platform-wide Schedules — the
+// pump sweep (30s, targeting PumpSweepWorkflow) and, from stage 4b1, the round sweep
+// (5m, targeting RoundSweepWorkflow) — with the right ids/workflow-types/intervals.
+// The replan sweep was the third and went with its workflow at stage 4b2: it fired
+// every five minutes to produce an empty result, which reads as coverage and is not.
 //
-// The three ids are asserted as LITERALS as well as through the consts: a Schedule id is
+// The two ids are asserted as LITERALS as well as through the consts: a Schedule id is
 // live namespace state, not an internal name, so renaming one is a deploy step (delete
 // the old id by hand — it cannot be moved or adopted) and must never pass unnoticed
 // just because the test read the same const the code did. The COUNT is asserted for the
 // same reason in reverse: a Schedule nobody registers is a sweep that silently never
-// fires, and only the count catches a registration dropped in a merge.
-func Test_RegisterSchedules_RegistersPumpSweepAndReplanSweep(t *testing.T) {
-	// A table over the three, so a fourth Schedule is one row rather than another
-	// straight-line block — which is what took this test past the complexity gate when the
-	// round sweep made it three.
+// fires, and only the count catches a registration dropped in a merge — and, read the
+// other way, it is what fails if a deleted sweep's registration is left behind.
+func Test_RegisterSchedules_RegistersPumpSweepAndRoundSweep(t *testing.T) {
+	// A table, so a third Schedule is one row rather than another straight-line block —
+	// which is what took this test past the complexity gate when the round sweep made it
+	// three.
 	want := []struct {
 		name, id, wantLiteral, kind string
 		intervalSecs                int
 	}{
 		{"pump sweep", scheduleIDPumpSweep, "delivery:pumpSweep", executionKindPumpSweep, pumpSweepIntervalSecs},
-		{"replan sweep", scheduleIDReplanSweep, "delivery:replanSweep", executionKindReplanSweep, replanSweepIntervalSecs},
 		{"round sweep", scheduleIDRoundSweep, "delivery:roundSweep", executionKindRoundSweep, roundSweepIntervalSecs},
 	}
 
@@ -13698,10 +13899,17 @@ type deliveryReplayRig struct {
 	wf   *csWorkflows
 	ps   *csFakeProjectState
 	pipe agenticjob.AgenticJobAccess
+	// bus backs messageBus.deliverSignal. It is nil for every child-only case (replayRig
+	// then serves a recordingSignalBus, which answers "delivered" and routes nothing), and
+	// the REAL Temporal-client-backed bus for a PUMP capture — because the pump's lease
+	// grant, the child's lease request and the child's finish report all ride that one
+	// invoker, and a recording double would leave all three unrouted. A capture that cannot
+	// route them records a park, not a shape.
+	bus messagebus.MessageBus
 }
 
 func (r deliveryReplayRig) activities() genActivities {
-	return replayRig{wf: r.wf, ps: r.ps, pipe: r.pipe}.activities()
+	return replayRig{wf: r.wf, ps: r.ps, pipe: r.pipe, bus: r.bus}.activities()
 }
 
 // deliveryReplayRegistrations is the ONE workflow a post-4b1 fixture can belong to. The
@@ -14064,15 +14272,34 @@ func Test_Replay_DeliveryHistories(t *testing.T) {
 			}
 		})
 	}
+	replayAssertNoOrphanFixtures(t, covered)
+}
+
+// replayAssertNoOrphanFixtures is both halves of the orphan guard, and it is a function
+// rather than the tail of Test_Replay_DeliveryHistories only because adding the second case
+// list pushed that test over the gocyclo budget. The guard itself is unchanged.
+//
+// THE FILE-LEVEL SWEEP UNIONS BOTH CASE LISTS, exactly as the retired
+// Test_Replay_EveryFixtureDirectoryIsNamed unioned the three per-rail ones. It has to:
+// deliveryReplayDirs() names post-4b2-pump as well (stage 4b2 Task 14), so a sweep that knew
+// only the generic child's cases would report every pump fixture as an orphan. Splitting it
+// into a per-test sweep over each test's own directory would leave the CROSS case uncovered
+// — a fixture dropped into the wrong directory — which is why there is one sweep and not
+// two.
+//
+// THE DIRECTORY-LEVEL HALF was folded in when stage 4b1 Task 13 deleted the three per-rail
+// case lists. The file-level sweep cannot state it: a whole directory no case list names is
+// globbed by nobody, so its fixtures are never even enumerated and nothing replays them.
+func replayAssertNoOrphanFixtures(t *testing.T, covered map[string]bool) {
+	t.Helper()
+	for _, sc := range pumpReplayCases() {
+		covered[pumpReplayFixturePath(sc)] = true
+	}
 	for _, f := range replayFixtureFiles(t, deliveryReplayDirs()) {
 		if !covered[f] {
 			t.Errorf("fixture %s has no replay case, so nothing replays it", f)
 		}
 	}
-	// THE DIRECTORY-LEVEL HALF OF THE ORPHAN GUARD, folded in here when stage 4b1 Task 13 deleted
-	// the three per-rail case lists that Test_Replay_EveryFixtureDirectoryIsNamed used to union.
-	// The file-level sweep above cannot state it: a whole directory no case list names is globbed
-	// by nobody, so its fixtures are never even enumerated and nothing replays them.
 	named := map[string]bool{}
 	for _, d := range deliveryReplayDirs() {
 		named[d] = true
@@ -14112,10 +14339,547 @@ func deliveryReplayEventCount(t *testing.T, path string) int {
 	return len(h.Events)
 }
 
-// deliveryReplayDirs is the set of fixture directories the generic child's cases name. It is
-// a LIST of one rather than the constant, so the orphan sweep keeps the same shape it had when
-// three per-rail case lists were unioned, and a second directory needs no new plumbing.
-func deliveryReplayDirs() []string { return []string{deliveryReplayDir} }
+// deliveryReplayDirs is the set of fixture directories the replay case lists name — BOTH of
+// them since stage 4b2 Task 14. It was a LIST of one rather than the constant precisely so
+// that a second directory would need no new plumbing, and this is the second directory.
+//
+// The directory-level orphan guard folded into Test_Replay_DeliveryHistories reads this, and
+// it fails on a directory no case list names. So this line and pumpReplayCases() are ONE
+// commit: the directory alone is an orphan, and the cases alone make replayFixtureFiles
+// t.Fatalf on an empty directory.
+func deliveryReplayDirs() []string { return []string{deliveryReplayDir, pumpReplayDir} }
+
+// ===========================================================================
+// THE PUMP'S REPLAY FIXTURES (stage 4b2 Task 14).
+//
+// constructionPumpNextActivity and constructionProjectSupervision are both in the
+// registered-names golden and both on the frozen list, and every fixture that used to
+// replay them has been in replay-archive/ since stage 4b1. 4b1 CHANGED the pump; 4b2
+// REWROTE it. In between, a non-determinism introduced into either workflow was caught by
+// nothing.
+//
+// WHY THESE WERE CAPTURED AFTER THE REWRITE AND NOT BEFORE, and what that costs. A rig that
+// registers only the pump parks forever on the old child.Get, and a fixture captured against
+// the old pump would replay a command sequence (ExecuteChildWorkflow → child.Get → Sleep →
+// ContinueAsNew) that no longer exists — worthless the moment the rewrite landed. So nothing
+// pins the TRANSITION itself. The drain this wave already requires is what makes that
+// acceptable, and it is stated here rather than hidden.
+//
+// A FRESH CAPTURE CAN ONLY RECORD THE HIGHEST ARM OF EVERY FENCE. GetVersion on a new
+// execution returns maxSupported, so no capture can ever produce a DefaultVersion history —
+// those arms exist for the histories already in flight and are pinned by the census's
+// DefaultVersion tests, not by a fixture. "One driver per fence arm" therefore means: one
+// driver per fence's CURRENT arm, and per BRANCH TAKEN inside it, because two runs at the
+// same version that take different branches record different command sequences. What is NOT
+// covered is named at pumpReplayCases.
+// ===========================================================================
+
+// pumpReplayDir is the pump's own fixture directory. It is a SECOND directory rather than
+// more files in post-4b1/ because that directory's contract is "one workflow type, one
+// commit", and these are two more types captured a wave later.
+//
+// It also holds the ONE deliveryActivity history captured at stage 4b2, and that is not a
+// stray: it is the CHILD HALF of the pump's lease handshake — the only fixture that records
+// changeActivityMainWriteLease at v1 — so it belongs with the pump and not with the eight
+// pre-lease child histories it would silently contradict.
+const pumpReplayDir = "post-4b2-pump"
+
+// pumpReplayRegistrations is the SECOND registration list, and it is second rather than an
+// extension of deliveryReplayRegistrations on purpose. That one names exactly one workflow
+// and its doc comment says that is the whole point of stage 4b1; widening it would register
+// three workflows for every deliveryActivity replay — harmless for replay, wrong for
+// CAPTURE, because RegisterWorker would make the worker poll for three types on one queue
+// and a driver mis-start would silently capture the wrong one.
+//
+// deliveryActivity IS in this list, and that is not a contradiction: the pump starts children
+// and no longer awaits them, so a pump fixture needs a worker that can actually RUN one —
+// otherwise the started children never reach a terminal, never report, and the pump's history
+// records a park rather than a shape.
+func pumpReplayRegistrations(wf *csWorkflows) []genRegisteredWorkflow {
+	return []genRegisteredWorkflow{
+		{Name: executionKindPump, Fn: wf.PumpNextActivityWorkflow},
+		{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
+		{Name: executionKindDeliveryActivity, Fn: wf.DeliveryActivityWorkflow},
+	}
+}
+
+// pumpReplayCase is one captured pump-or-supervision history. Its rig takes the dev-server
+// CLIENT, which the generic-child cases do not need: the pump's three lease messages ride
+// messageBus.deliverSignal, and that invoker needs the REAL Temporal-backed bus to route
+// them. On the REPLAY side the client is nil — no Activity runs during a replay — and the
+// bus is then never called.
+type pumpReplayCase struct {
+	name  string
+	rig   func(t *testing.T, c client.Client) deliveryReplayRig
+	drive func(ctx context.Context, t *testing.T, c client.Client, tq string, r deliveryReplayRig) (wfID, runID string, open bool)
+}
+
+func pumpReplayFixturePath(c pumpReplayCase) string {
+	return filepath.Join("testdata", "replay", pumpReplayDir, c.name+".json")
+}
+
+// pumpReplayBus is the lease's transport for a capture: the PRODUCTION
+// Temporal-client-backed MessageBus, with an empty kind table because DeliverSignal resolves
+// no kind (only RegisterSchedule does). nil on the replay side.
+func pumpReplayBus(c client.Client) messagebus.MessageBus {
+	if c == nil {
+		return nil
+	}
+	return messagebus.NewTemporalMessageBus(c, nil)
+}
+
+// pumpReplayActivity is one coding row of a pump fixture's plan. componentID is the knob the
+// blocked cases turn: an id that is not in the committed systemDesign is what
+// nextEligibleActivity classifies as ComponentUnresolved.
+func pumpReplayActivity(name, componentID string) projectstate.ActivityItem {
+	return projectstate.ActivityItem{
+		Name: name, Title: name, WorkerClass: "junior-developer", Coding: true, ComponentID: componentID,
+	}
+}
+
+// pumpReplayProject is a committed plan whose rows have NO dependencies, so the frontier is
+// every row at once — which is the property stage 4b2 exists to produce and the serial pump
+// could not.
+func pumpReplayProject(items ...projectstate.ActivityItem) projectstate.Project {
+	deps := make([]projectstate.NetworkDependency, 0, len(items))
+	for _, it := range items {
+		deps = append(deps, projectstate.NetworkDependency{Activity: it.Name, DependsOn: []string{}})
+	}
+	proj := projWithActivities(items, deps)
+	proj.ID = projectstate.ProjectID(shapeProjectID)
+	proj.Version = 1
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{}
+	return proj
+}
+
+// pumpReplayPumpRig is the receiver every PUMP case shares: the REAL selection rule, the real
+// review engine and the real SDP engines, the plan as head-state, and the real lease
+// transport. The pipeline double is the fast one by default — a job terminal on its first
+// observe burns no durable timer — and tune is how a case that needs the child to still be
+// running when the pump wakes up slows it down on the PRODUCTION observe ladder rather than
+// on a substituted sleep.
+//
+// NextEligibleActivity IS WIRED EXPLICITLY, and it is the one line a capture cannot omit:
+// wf.nextEligible answers verdictQuiescent for a NIL dep (deliberately — the seam is
+// injected, not defaulted), so a rig that leaves it unset captures a pump that reads
+// head-state and then goes quiet. MEASURED: the first attempt at this fixture recorded 19
+// events, three version markers and `{"dispatched":false}`, with no child start anywhere in
+// it. It cleared no event floor, which is exactly what the floor is for.
+func pumpReplayPumpRig(c client.Client, proj projectstate.Project, tune func(*csFakePipeline)) deliveryReplayRig {
+	ps := &csFakeProjectState{project: proj}
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
+	if tune != nil {
+		tune(pipe)
+	}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	deps.SDPEngines = shapeSDPEngines()
+	deps.NextEligibleActivity = nextEligibleActivity
+	// THE REAL INTERVENTION ENGINE AND THE MANAGER'S OWN POLICY — the exact production
+	// wiring (constructionInterventionPolicy is the builder WorkerManifest uses). It is
+	// unreached on the pump cases' happy path (no job fails, so no variance directive is
+	// asked for) and load-bearing on the supervision one: ApplyPausePolicy dispatches on
+	// Policy.Mode and the ZERO value has no registered strategy, so a supervision fixture
+	// captured against fakeIntervention would record a PausePlan production cannot produce.
+	deps.Intervention = intervention.NewInterventionEngine()
+	deps.InterventionPolicy = constructionInterventionPolicy("")
+	return deliveryReplayRig{wf: replayWorkflows(deps), ps: ps, pipe: pipe, bus: pumpReplayBus(c)}
+}
+
+// pumpReplayStartPump starts the project's ONE pump under its PRODUCTION id. The id is
+// load-bearing for a lease fixture and not decoration: the child addresses its lease request
+// at pumpWorkflowID(projectID), so a pump started under any other id is a pump the child
+// cannot reach.
+func pumpReplayStartPump(ctx context.Context, t *testing.T, c client.Client, tq string) client.WorkflowRun {
+	t.Helper()
+	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID: pumpWorkflowID(shapeProjectID), TaskQueue: tq,
+	}, executionKindPump, pumpInput{ProjectID: shapeProjectID})
+	if err != nil {
+		t.Fatalf("start the pump: %v", err)
+	}
+	return run
+}
+
+// pumpReplayAwaitDispatch waits until the pump has recorded its dispatch decision — the
+// Query the façade reads synchronously (G-P8), which is the earliest point at which the
+// whole frontier is known to have gone out. A driver that mutates head-state before this
+// would race the frontier it is trying to affect.
+func pumpReplayAwaitDispatch(ctx context.Context, t *testing.T, c client.Client, wfID string) pumpDispatch {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(deadline) {
+		if enc, err := c.QueryWorkflow(ctx, wfID, "", queryPumpDispatch); err == nil {
+			var d pumpDispatch
+			if enc.Get(&d) == nil && d.Decided {
+				return d
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("%s never recorded a dispatch decision", wfID)
+	return pumpDispatch{}
+}
+
+// pumpReplayAwaitFailures waits until n verdictBlocked records have landed in the store. The
+// nth call is still INSIDE its Activity when this returns (failDelay holds it open after the
+// append), which is the window a driver delivers a pause into.
+func pumpReplayAwaitFailures(t *testing.T, ps *csFakeProjectState, n int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(deadline) {
+		if ps.failedCount() >= n {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("the pump never recorded %d blocked activities (got %d)", n, ps.failedCount())
+}
+
+// pumpReplaySignalPause delivers an operator pause to a pump BY WORKFLOW ID, as a struct —
+// which is the JSON arm of pumpPauseRequested's two. (The relayed arm is raw bytes; the pump
+// decodes into `any` so that both land, and the supervision fixture is what records the
+// relay.)
+func pumpReplaySignalPause(ctx context.Context, t *testing.T, c client.Client, wfID, reason string) {
+	t.Helper()
+	replaySignal(ctx, t, c, wfID, signalOperatorPauseRequested,
+		operatorPauseSignal{ProjectID: shapeProjectID, Reason: reason})
+}
+
+// pumpReplayAwaitChildDone waits for one activity child the PUMP started to reach its own
+// terminal, and exports it by an EXPLICIT run id.
+//
+// THE EMPTY RUN ID IS A TRAP HERE, measured: c.GetWorkflow(ctx, id, "") resolves to
+// whatever run the server currently holds for that id, and a capture case runs after the
+// previous case's leftovers were terminated under the SAME id — so the resolution raced the
+// pump's fresh child start and the first attempt exported a run that had been TERMINATED
+// (0.14 s, "workflow execution error: terminated"). Waiting for a RUNNING execution and
+// then pinning its run id is what makes "the child this pump just started" a fact rather
+// than a resolution order.
+func pumpReplayAwaitChildDone(
+	ctx context.Context, t *testing.T, c client.Client, id ActivityID,
+) client.WorkflowRun {
+	t.Helper()
+	wfID := deliveryActivityWorkflowID(shapeProjectID, id)
+	var runID string
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) && runID == "" {
+		if d, derr := c.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil &&
+			d.GetWorkflowExecutionInfo().GetStatus() == enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+			runID = d.GetWorkflowExecutionInfo().GetExecution().GetRunId()
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if runID == "" {
+		t.Fatalf("the pump never started a RUNNING child at %s", wfID)
+	}
+	run := c.GetWorkflow(ctx, wfID, runID)
+	wctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	if err := run.Get(wctx, nil); err != nil {
+		t.Fatalf("the activity child %s did not complete cleanly: %v", id, err)
+	}
+	return run
+}
+
+// pumpReplayCases is every captured pump/supervision history, one per fence arm the pump can
+// still record plus the supervision branch plus the child half of the lease.
+//
+// WHAT IS NOT COVERED, stated rather than implied:
+//
+//   - "pump-drain-pause-before-continue-as-new" v1. Its GetVersion is called only once
+//     pumpShouldContinueAsNew is already true, i.e. past pumpHistoryBudget (4000 events). No
+//     capture can reach it — 4000 events is hours of cascade — so that fence is pinned by
+//     Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew and
+//     Test_Pump_DrainPause_StopsTheCascadeInsteadOfContinuing and by nothing here. The whole
+//     ContinueAsNew boundary is therefore unfixtured, which is the shape's riskiest ten
+//     lines: carry for Task 16.
+//   - Every fence's DefaultVersion arm, for the reason in the section header.
+func pumpReplayCases() []pumpReplayCase {
+	return []pumpReplayCase{
+		{
+			// THE WHOLE FRONTIER, THEN QUIESCENCE. Two independent rows go out in ONE pass (the
+			// property that replaced the serial cascade), both children run their merge tail
+			// through the lease, and the pump reconciles both off their FUTURES and returns
+			// quiet. It records: the eligibility ladder at changeLedgerPartialResume v1 +
+			// changeDesignActivitiesDispatchable v1, changePumpHonorsRecordedPause v2 on its
+			// FALSE arm, pump-pause-decode-any v1 and pump-pause-before-dispatch v1 both with
+			// nothing pending, the selector park, the reconcile, and the lease granted → released
+			// → re-granted. It is the only fixture that records the lease invariant at all.
+			name: "pump-dispatch-then-quiesce",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				return pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-ONE", "todo-list-manager"),
+					pumpReplayActivity("C-TWO", "todo-list-manager"),
+				), nil)
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ deliveryReplayRig) (string, string, bool) {
+				run := pumpReplayStartPump(ctx, t, c, tq)
+				deliveryReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// A RECORDED PAUSE MET BY A PUMP THAT IS ALREADY CASCADING —
+			// changePumpHonorsRecordedPause v2's TRUE arm. The pause is a STORE write, not a
+			// signal, which is exactly the distinction that gate tells apart from the other
+			// three pause checks.
+			//
+			// THE 20-EVENT FLOOR IS WHY IT IS DRIVEN THIS WAY. A pump that meets a recorded
+			// pause on its FIRST wake-up records ~10 events and would fail the floor, so this
+			// driver lets it dispatch the whole frontier first and records the pause underneath
+			// it. The child is held on the production observe ladder (runningPolls) so that it
+			// is still in flight when the pump's 30s reconcile brings it back to the gate — the
+			// cascade is stopped while work is in the air, which is the state an operator halt
+			// actually produces.
+			name: "pump-recorded-pause-quiet-return",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				return pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-ONE", "todo-list-manager"),
+					pumpReplayActivity("C-TWO", "todo-list-manager"),
+				), func(p *csFakePipeline) { p.runningPolls = 4 })
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r deliveryReplayRig) (string, string, bool) {
+				run := pumpReplayStartPump(ctx, t, c, tq)
+				pumpReplayAwaitDispatch(ctx, t, c, run.GetID())
+				r.ps.setOperatorPaused("operator halt with the cascade in flight")
+				deliveryReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// A PAUSE SIGNAL CONSUMED AT DISPATCH GATE 2 — pump-pause-before-dispatch v1's TRUE
+			// arm, the one arm no other fixture takes. The pause is delivered while the pump is
+			// inside a verdictBlocked record, i.e. after readProject and INSIDE the frontier
+			// loop, which is precisely the window that gate covers: "a pause DELIVERED BEFORE
+			// the dispatching workflow task starts". NO child is started, and that absence is
+			// the assertion — the history records two durable failure records and then a quiet
+			// return, with no StartChildWorkflowExecutionInitiated anywhere in it.
+			name: "pump-signal-pause-at-gate-two",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				r := pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-BAD-ONE", "todo-list-managr"),
+					pumpReplayActivity("C-BAD-TWO", "todo-lst-manager"),
+					pumpReplayActivity("C-ONE", "todo-list-manager"),
+				), nil)
+				// THE HOLD MUST BE SHORTER THAN THE ACTIVITY'S OWN TIMEOUT, and the first
+				// attempt at this fixture proved it the hard way: 20 s against
+				// recordActivityOptions' 10 s StartToClose made the record time out, retry, and
+				// sleep again — nine attempts and six minutes with no terminal in sight. Four
+				// seconds leaves the driver a wide window and the Activity six seconds of head
+				// room.
+				r.ps.failDelay = 4 * time.Second
+				return r
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r deliveryReplayRig) (string, string, bool) {
+				run := pumpReplayStartPump(ctx, t, c, tq)
+				pumpReplayAwaitFailures(t, r.ps, 2)
+				pumpReplaySignalPause(ctx, t, c, run.GetID(), "operator halt between the read and the frontier")
+				deliveryReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// G-P5's DURABLE RECORD, AND THE FRONTIER CONTINUING PAST IT. The serial pump
+			// RETURNED on verdictBlocked, so one plan defect took the whole frontier down with
+			// it; this history records the failure write and then the child start for the row
+			// BEHIND the defect. It ends on the fourth and last pause path — the selector's own
+			// pause arm, a pause that lands while the pump is PARKED — which no other fixture
+			// records either.
+			name: "pump-blocked-writes-sticky-failure",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				return pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-BAD", "todo-list-managr"),
+					pumpReplayActivity("C-ONE", "todo-list-manager"),
+				), func(p *csFakePipeline) { p.runningPolls = 4 })
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r deliveryReplayRig) (string, string, bool) {
+				run := pumpReplayStartPump(ctx, t, c, tq)
+				d := pumpReplayAwaitDispatch(ctx, t, c, run.GetID())
+				if !d.Dispatched {
+					t.Fatalf("the frontier must continue past the blocked row; the pump dispatched nothing: %+v", d)
+				}
+				pumpReplayAwaitFailures(t, r.ps, 1)
+				pumpReplaySignalPause(ctx, t, c, run.GetID(), "operator halt while the pump is parked")
+				deliveryReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// THE SUPERVISION WORKFLOW, which has been on the frozen list and in the golden with
+			// no fixture at all since 4b1. RECORD → RELAY → CANCEL behind its one GetVersion
+			// ("pause-relays-to-pump" v1), against the REAL intervention engine and the
+			// Manager's real policy.
+			//
+			// A REAL PUMP IS STARTED FIRST, and that is what makes this the interesting arm. The
+			// relay's whole purpose is the case the branch documents — "a pump already cascading
+			// holds a head-state snapshot from before the record, so the relayed signal is what
+			// stops it" — and a relay into an empty namespace records RA NotFound and the
+			// tolerated arm instead. So the pump is put where production has one, its child is
+			// held on the observe ladder so it is still cascading when the pause lands, and the
+			// history records deliverSignal COMPLETING. (The pump's own history is not exported
+			// here; pump-recorded-pause-quiet-return is the fixture for what it does next.)
+			name: "supervision-pause-record-relay-cancel",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				return pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-ONE", "todo-list-manager"),
+				), func(p *csFakePipeline) { p.runningPolls = 4 })
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ deliveryReplayRig) (string, string, bool) {
+				pump := pumpReplayStartPump(ctx, t, c, tq)
+				pumpReplayAwaitDispatch(ctx, t, c, pump.GetID())
+				run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+					ID: pauseTargetWorkflowID(shapeProjectID), TaskQueue: tq,
+				}, executionKindProjectSupervision, projectSupervisionInput{ProjectID: shapeProjectID})
+				if err != nil {
+					t.Fatalf("start the supervision workflow: %v", err)
+				}
+				pumpReplaySignalPause(ctx, t, c, run.GetID(), "operator halt")
+				deliveryReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// THE CHILD HALF OF THE LEASE, at changeActivityMainWriteLease v1 — the fence the
+			// pump commit added, whose DefaultVersion arm is what kept the eight post-4b1
+			// fixtures green and whose v1 arm therefore guarded a path NO fixture exercised.
+			// This is that fixture: a child started BY A REAL PUMP, which asks for the lease,
+			// is granted it, runs its merge tail and reports its terminal. Both v1 sites
+			// (requestMainWriteLease and signalActivityFinished) are Activity commands in a
+			// recorded position, which is exactly what a non-determinism failure is made of.
+			// Its activity id is UNIQUE to this case (C-LEASE, not C-ONE) so that no other
+			// case's leftover can ever occupy the workflow id this one exports.
+			name: "child-lease-granted-and-released",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				return pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-LEASE", "todo-list-manager"),
+				), nil)
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ deliveryReplayRig) (string, string, bool) {
+				pump := pumpReplayStartPump(ctx, t, c, tq)
+				pumpReplayAwaitDispatch(ctx, t, c, pump.GetID())
+				child := pumpReplayAwaitChildDone(ctx, t, c, "C-LEASE")
+				// The PUMP is left to drain on its own; this fixture is the child's history.
+				deliveryReplayAwaitDone(ctx, t, pump)
+				return child.GetID(), child.GetRunID(), false
+			},
+		},
+	}
+}
+
+// Test_Capture_PumpHistories is the CAPTURE TOOL behind the post-4b2-pump fixtures
+// (env-gated, exactly like Test_Capture_DeliveryHistories).
+//
+//	CONSTRUCT_HISTORY_CAPTURE=1 GOWORK=off go test ./internal/manager/delivery/ \
+//	    -run Test_Capture_PumpHistories -count=1 -v -timeout 40m
+//
+// IT NEEDS THE `temporal` CLI ON PATH and that requirement is stated in NO README and no
+// Makefile target — only in the t.Fatalf below, so a fresh checkout discovers it by failing.
+// Earmarked for Task 17.
+func Test_Capture_PumpHistories(t *testing.T) {
+	if os.Getenv("CONSTRUCT_HISTORY_CAPTURE") != "1" {
+		t.Skip("capture tool: set CONSTRUCT_HISTORY_CAPTURE=1 to (re)write testdata/replay/post-4b2-pump/ fixtures")
+	}
+	bin, err := exec.LookPath("temporal")
+	if err != nil {
+		t.Fatalf("the capture needs the temporal CLI on PATH: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+	defer cancel()
+	srv, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
+		ExistingPath:  bin,
+		ClientOptions: &client.Options{Namespace: "pump-replay-capture"},
+		LogLevel:      "error",
+	})
+	if err != nil {
+		t.Fatalf("start dev server: %v", err)
+	}
+	defer func() { _ = srv.Stop() }()
+	c := srv.Client()
+
+	only := os.Getenv("CONSTRUCT_HISTORY_CAPTURE_CASE")
+	for i, sc := range pumpReplayCases() {
+		if only != "" && only != sc.name {
+			continue
+		}
+		t.Run(sc.name, func(t *testing.T) {
+			r := sc.rig(t, c)
+			// ONE TASK QUEUE PER CASE, and one worker on it. The pump, the supervision workflow
+			// and the child all live on the SAME queue here because they do in production too
+			// (one Manager, one queue) — and because the pump's children inherit its queue.
+			tq := fmt.Sprintf("pump-replay-capture-%d", i)
+			w := worker.New(c, tq, worker.Options{})
+			RegisterWorker(w, genWorkerManifest{
+				Workflows:       pumpReplayRegistrations(r.wf),
+				ActivityOptions: deliveryActivityOptions(),
+				Activities:      r.activities(),
+			})
+			if err := w.Start(); err != nil {
+				t.Fatalf("start worker: %v", err)
+			}
+			defer w.Stop()
+			// THE CLEANUP IS A DEFER AND IT RUNS ON FAILURE TOO, which the first full capture
+			// run proved is the whole point: every case reuses the FIXED workflow ids
+			// (pumpWorkflowID/deliveryActivityWorkflowID over one project id, because the child
+			// addresses its lease request at the pump's production id and cannot be given a
+			// per-case one), a case that t.Fatalf'd left its pump RUNNING, and the next case's
+			// start collided with it and timed out waiting for a dispatch decision that
+			// belonged to the previous case. Terminating BEFORE the drive as well covers a
+			// leftover from a previous invocation of the tool.
+			pumpReplayTerminateLeftovers(ctx, c)
+			defer pumpReplayTerminateLeftovers(ctx, c)
+			wfID, runID, open := sc.drive(ctx, t, c, tq, r)
+			if err := replayExportHistory(ctx, c, wfID, runID, pumpReplayFixturePath(sc)); err != nil {
+				t.Fatalf("export %s: %v", pumpReplayFixturePath(sc), err)
+			}
+			if open {
+				_ = c.TerminateWorkflow(ctx, wfID, "", "replay capture done")
+			}
+		})
+	}
+}
+
+// pumpReplayTerminateLeftovers terminates the pump, the supervision workflow and every
+// activity child of the fixed project id, ignoring "not found". A capture case that ends
+// while a child is deliberately still in flight (three of the six do) would otherwise leave
+// that child polling into the NEXT case's worker — and a case that FAILED would leave its
+// pump holding the id the next case needs.
+func pumpReplayTerminateLeftovers(ctx context.Context, c client.Client) {
+	ids := []string{pumpWorkflowID(shapeProjectID), pauseTargetWorkflowID(shapeProjectID)}
+	for _, it := range []ActivityID{"C-ONE", "C-TWO", "C-BAD", "C-BAD-ONE", "C-BAD-TWO", "C-LEASE"} {
+		ids = append(ids, deliveryActivityWorkflowID(shapeProjectID, it))
+	}
+	for _, id := range ids {
+		_ = c.TerminateWorkflow(ctx, id, "", "replay capture done")
+	}
+}
+
+// Test_Replay_PumpHistories replays every captured pump/supervision history against the
+// current code. It mirrors Test_Replay_DeliveryHistories exactly: a missing fixture FAILS (it
+// never skips), a fixture too thin to be a shape fails, and the orphan sweep that fails on a
+// fixture no case names lives in that test, which unions both case lists.
+func Test_Replay_PumpHistories(t *testing.T) {
+	for _, sc := range pumpReplayCases() {
+		path := pumpReplayFixturePath(sc)
+		t.Run(sc.name, func(t *testing.T) {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("fixture %s is missing (capture it with CONSTRUCT_HISTORY_CAPTURE=1): %v", path, err)
+			}
+			if n := deliveryReplayEventCount(t, path); n < deliveryReplayMinEvents {
+				t.Errorf("fixture %s holds %d events; a run that reached a terminal has more than %d, "+
+					"so this history records a park rather than a shape", path, n, deliveryReplayMinEvents)
+			}
+			rep := worker.NewWorkflowReplayer()
+			for _, reg := range pumpReplayRegistrations(sc.rig(t, nil).wf) {
+				rep.RegisterWorkflowWithOptions(reg.Fn, workflow.RegisterOptions{Name: reg.Name})
+			}
+			if err := rep.ReplayWorkflowHistoryFromJSONFile(nil, path); err != nil {
+				t.Fatalf("replaying %s against the current code: %v", path, err)
+			}
+		})
+	}
+}
 
 // ===========================================================================
 // D1 — INTEGRATION-PENDING ROWS, THE PUMP HALF (architect (D), D.1 / D.2 / D.4).
@@ -14302,21 +15066,13 @@ func b13Mock(view ConstructionSessionView, queryErr error, signal bool) *tempora
 	return mc
 }
 
-func TestOverrideActivity_Precheck_OnlyAtATakeover(t *testing.T) {
+// TestOverrideActivity_Precheck_OnlyAnEscalationIsSteerable is the ACCEPT half of the B1.3
+// precheck plus its ordering claim. The REFUSAL half moved to
+// Test_OverrideActivity_RefusesWhenTheLedgerNamesNoEscalatedTask when stage 4b2 Task 2
+// re-pointed the precheck at the attempt ledger: refusing by `constructState.stage` was the
+// open 4b1 fork defect, so a case that pinned the stage-worded refusal was pinning the bug.
+func TestOverrideActivity_Precheck_OnlyAnEscalationIsSteerable(t *testing.T) {
 	retry := ActivityOverride{Kind: OverrideRetry, Notes: "the server was down"}
-	for name, view := range map[string]ConstructionSessionView{
-		"a phase gate":       awaitingAt("detailed_design"),
-		"the merge hold":     awaitingAt(mergeGateKey),
-		"a running pipeline": {Stage: StagePipelineRunning},
-		"an exited activity": {Stage: StageExited},
-	} {
-		mc := b13Mock(view, nil, false)
-		err := newTestConstructionManager(mc).OverrideActivity(testCtx(), "proj-1", "C-Orders", retry)
-		if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition || !strings.Contains(e.Detail, "not awaiting a takeover") {
-			t.Errorf("%s: want FailedPrecondition, got %s %q", name, e.Kind, e.Detail)
-		}
-		mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-	}
 	mc := b13Mock(ConstructionSessionView{Stage: StageAwaitingTakeover, AwaitingGate: ptrTo(takeoverGateKey)}, nil, true)
 	if err := newFacadeConstructionManager(mc, escalatedRowStore("C-Orders", projectstate.TaskDetailedDesign)).
 		OverrideActivity(testCtx(), "proj-1", "C-Orders", retry); err != nil {
@@ -14327,6 +15083,164 @@ func TestOverrideActivity_Precheck_OnlyAtATakeover(t *testing.T) {
 	strict := &temporalmocks.Client{}
 	if got := asConstructionError(t, newTestConstructionManager(strict).OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{Kind: OverrideRetry, Notes: " "})).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse before the session read, got %s", got)
+	}
+}
+
+// forkLedgerStore seeds ONE activity row in the shape a `service`/`frontend` FORK leaves
+// behind: the design branch has passed its work and sits at its approval gate, and the test
+// branch has escalated. `escalated` is the task whose latest attempt resolved FAILED; pass ""
+// for a row on which nothing failed.
+//
+// The designReview attempt is LAST on purpose. Ledger order is the only thing that records
+// which branch the walk touched most recently, and it is the datum the retired stage-based
+// precheck was effectively reading through `constructState.stage` — so a seed that put the
+// failure last would not reproduce the defect.
+func forkLedgerStore(activityID string, escalated projectstate.MethodTask) *csFakeProjectState {
+	at := func(task projectstate.MethodTask, outcome projectstate.TaskOutcome) projectstate.TaskAttempt {
+		return projectstate.TaskAttempt{
+			AttemptID: projectstate.AttemptID(activityID, task, 1), Task: task, Attempt: 1, Outcome: outcome,
+		}
+	}
+	outcomeOf := func(task projectstate.MethodTask) projectstate.TaskOutcome {
+		if task == escalated {
+			return projectstate.OutcomeFailed
+		}
+		return projectstate.OutcomePassed
+	}
+	return &csFakeProjectState{project: projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			activityID: {
+				ActivityID: activityID,
+				StartedAt:  &testLedgerClock,
+				Attempts: []projectstate.TaskAttempt{
+					at(projectstate.TaskDetailedDesign, outcomeOf(projectstate.TaskDetailedDesign)),
+					at(projectstate.TaskSTP, outcomeOf(projectstate.TaskSTP)),
+					at(projectstate.TaskDesignReview, outcomeOf(projectstate.TaskDesignReview)),
+				},
+			},
+		},
+	}}
+}
+
+// Test_OverrideActivity_SteersAnEscalatedForkBranchWhileASiblingHoldsAGate is the OPEN
+// 4b1 defect. A `service` fork holds `stp` (escalated: its latest attempt FAILED) and
+// `designReview` (at an approval gate). constructState.stage is single-valued and reports
+// whichever was ENTERED LAST, so the precheck refused a steer the ledger can name — and the
+// SPA's own overrideActionFor, which reproduces escalatedTaskOf's rule off the wire, was
+// correctly offering it.
+//
+// It is driven at the FAÇADE with a seeded row rather than through a live child,
+// deliberately: the defect is in the precheck's choice of source, and driving it through
+// a walk would make the test depend on which gate the scheduler enters second — the very
+// nondeterminism the fix removes. What a live child adds — that the router forwards an
+// override by TaskID to that task's own inbox — is pinned by
+// Test_Facade_OverrideAtATakeover_ReachesTheEscalatedTasksInbox and by the
+// fork-signal-reaches-the-named-task lifecycle shape.
+func Test_OverrideActivity_SteersAnEscalatedForkBranchWhileASiblingHoldsAGate(t *testing.T) {
+	store := forkLedgerStore("C-Orders", projectstate.TaskSTP)
+	// VERIFY THE SEED FIRST: a row that does not name stp would make this pass for the wrong
+	// reason, since the op's whole claim is that it asks escalatedTaskOf.
+	if task, ok := escalatedTaskOf(store.execution("C-Orders")); !ok || task != projectstate.TaskSTP {
+		t.Fatalf("the seeded fork ledger names (%q, %v) as escalated, want (%q, true)", task, ok, projectstate.TaskSTP)
+	}
+	// The session reports the DESIGN branch's approval gate — the other branch's stage, which
+	// is the only stage a single-valued field can carry.
+	mc := b13Mock(awaitingAt(shapeDesignReviewTask), nil, true)
+	if err := newFacadeConstructionManager(mc, store).
+		OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{
+			Kind: OverrideRetry, Notes: "the test rig's credentials expired mid-run"}); err != nil {
+		t.Fatalf("an override on the ESCALATED branch of a fork must be accepted even though the "+
+			"session view reports the SIBLING's approval gate: %v", err)
+	}
+	// THE DELIVERY, not the nil: an override that reached the wrong inbox, or none, is
+	// indistinguishable from a refusal to the operator waiting on it.
+	mc.AssertNumberOfCalls(t, "SignalWorkflow", 1)
+	for _, c := range mc.Calls {
+		if c.Method != "SignalWorkflow" {
+			continue
+		}
+		if got, want := c.Arguments.String(1), deliveryActivityWorkflowID("proj-1", "C-Orders"); got != want {
+			t.Errorf("the override addressed workflow %q, want the generic child %q", got, want)
+		}
+		if got := c.Arguments.String(3); got != signalOperatorOverride {
+			t.Errorf("the override was sent as signal %q, want %q", got, signalOperatorOverride)
+		}
+		sig, ok := c.Arguments.Get(4).(operatorOverrideSignal)
+		if !ok {
+			t.Fatalf("the override's payload is %T, want operatorOverrideSignal", c.Arguments.Get(4))
+		}
+		if sig.TaskID != string(projectstate.TaskSTP) {
+			t.Fatalf("the override named task %q, want %q — the router forwards by TaskID and a "+
+				"signal naming the gated sibling (or nothing) never reaches the escalation",
+				sig.TaskID, projectstate.TaskSTP)
+		}
+	}
+}
+
+// Test_OverrideActivity_SteersAnEscalationAtEveryLiveStage closes the coverage gap the
+// precheck's re-pointing left (4b2 Task 2 review, finding C). The reversal is asserted at the
+// approval-gate stage above; these two were ACCEPTED with no test in either direction, and an
+// untested accept is how the next refactor silently restores the refusal.
+//
+// It pins what the code DOES, and one of the two rows is a known wart rather than a
+// ratification: `StageExited` is accepted because the child is still QUERYABLE for a while
+// after the walk sets it, so the operator's steer is sent to a workflow that is about to have
+// no inbox — a dropped signal (or a mapSignalError) one moment before the NotFound reopen arm
+// would have served them properly. EARMARKED (F2); the honest fix is for the precheck to ask
+// whether the child is still RUNNING rather than whether it answers, which is a liveness
+// question the session Query cannot express today.
+func Test_OverrideActivity_SteersAnEscalationAtEveryLiveStage(t *testing.T) {
+	for name, view := range map[string]ConstructionSessionView{
+		"a running pipeline on the sibling branch": {Stage: StagePipelineRunning},
+		"an exited walk the child still answers":   {Stage: StageExited},
+	} {
+		mc := b13Mock(view, nil, true)
+		err := newFacadeConstructionManager(mc, forkLedgerStore("C-Orders", projectstate.TaskSTP)).
+			OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{
+				Kind: OverrideRetry, Notes: "the test rig's credentials expired mid-run"})
+		if err != nil {
+			t.Fatalf("%s: the ledger names stp as escalated, so the steer must be accepted: %v", name, err)
+		}
+		mc.AssertNumberOfCalls(t, "SignalWorkflow", 1)
+		for _, c := range mc.Calls {
+			if c.Method != "SignalWorkflow" {
+				continue
+			}
+			sig, ok := c.Arguments.Get(4).(operatorOverrideSignal)
+			if !ok || sig.TaskID != string(projectstate.TaskSTP) {
+				t.Fatalf("%s: the override named %v, want the escalated task %q", name, c.Arguments.Get(4), projectstate.TaskSTP)
+			}
+		}
+	}
+}
+
+// Test_OverrideActivity_RefusesWhenTheLedgerNamesNoEscalatedTask pins the other half:
+// the re-order must not turn the precheck into an accept-everything. An activity with a
+// LIVE child and no failed attempt on any task is not escalated, and the refusal sentence
+// is the operator's only explanation.
+//
+// It sweeps the stages the retired precheck used to refuse BY NAME, plus the takeover stage
+// it used to admit, over one row on which nothing failed: the verdict is the same at every
+// one of them, which is the re-order's actual claim — the stage is not the discriminator in
+// either direction.
+func Test_OverrideActivity_RefusesWhenTheLedgerNamesNoEscalatedTask(t *testing.T) {
+	retry := ActivityOverride{Kind: OverrideRetry, Notes: "the server was down"}
+	for name, view := range map[string]ConstructionSessionView{
+		"a phase gate":       awaitingAt("detailed_design"),
+		"the merge hold":     awaitingAt(mergeGateKey),
+		"a running pipeline": {Stage: StagePipelineRunning},
+		"an exited activity": {Stage: StageExited},
+		"a takeover":         {Stage: StageAwaitingTakeover, AwaitingGate: ptrTo(takeoverGateKey)},
+	} {
+		mc := b13Mock(view, nil, false)
+		err := newFacadeConstructionManager(mc, forkLedgerStore("C-Orders", "")).
+			OverrideActivity(testCtx(), "proj-1", "C-Orders", retry)
+		if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition ||
+			!strings.Contains(e.Detail, "no task on its ledger holds a failed attempt") {
+			t.Errorf("%s: want FailedPrecondition naming the empty ledger, got %s %q", name, e.Kind, e.Detail)
+		}
+		mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	}
 }
 
@@ -14343,10 +15257,10 @@ func TestOverrideActivity_Precheck_OnlyAtATakeover(t *testing.T) {
 // is a measurement: csFakePipeline reports a failing job FAILED on its FIRST observe
 // (observedPhase checks failTask before any running budget), so the escalation is already open
 // at t=0 and there is no window in which this walk is NOT awaiting a takeover. That claim is
-// asserted where it can be: TestOverrideActivity_Precheck_OnlyAtATakeover refuses an override
-// at a gate, at a running pipeline and at an exited activity AND asserts nothing was
-// signalled — and with nothing signalled there is nothing left for a later escalation to
-// consume, which is the whole of what G7 was about.
+// asserted where it can be: Test_OverrideActivity_RefusesWhenTheLedgerNamesNoEscalatedTask
+// refuses an override at a gate, at a running pipeline and at an exited activity AND asserts
+// nothing was signalled — and with nothing signalled there is nothing left for a later
+// escalation to consume, which is the whole of what G7 was about.
 func Test_Facade_OverrideAtATakeover_ReachesTheEscalatedTasksInbox(t *testing.T) {
 	rig := varianceRig(t, intervention.VarianceEscalate, 0)
 	rig.pipe.failTask[projectstate.TaskDetailedDesign] = true
@@ -15125,6 +16039,109 @@ func TestDeriveTaskViews_RevisionMembersNoteAndProvenance(t *testing.T) {
 
 	avCheckWorkRevisions(t, t0, avTask(t, views, "construction").Revisions)
 	avCheckGateRevisions(t, avTask(t, views, "codeReview").Revisions)
+}
+
+// Test_Revision_CarriesTheDecisiveAttemptsDetail is the M0 SPEND-APPROVAL pin (stage 4b2).
+//
+// The Project-Design compute has recorded which planning-assumption families it had to
+// default since 4b1 — `Detail: defaultedDetail(defaulted)` on the produced subject — and
+// nothing persisted it: TaskAttempt had no Detail, so the sentence was minted and dropped
+// on every run and the M0 screen showed a founder a cost with no trace of the numbers it
+// was computed on. This walks the whole path now: the attempt carries it, the revision
+// derivation takes it from the DECISIVE attempt (not the last member), and the wire view
+// omits it rather than sending an empty string.
+func Test_Revision_CarriesTheDecisiveAttemptsDetail(t *testing.T) {
+	const sentence = "the plan's cost was computed on ASSUMED values for calendar — the " +
+		"founder authored none, so these are the platform's documented defaults and not decisions"
+
+	first := avObserved(projectstate.TaskConstruction, 1, projectstate.OutcomeFailed)
+	first.Detail = "a retry that says something else"
+	decisive := avObserved(projectstate.TaskConstruction, 2, projectstate.OutcomePassed)
+	decisive.Detail = sentence
+	quiet := avObserved(projectstate.TaskCodeReview, 1, projectstate.OutcomePassed)
+
+	views := deriveTaskViews(avServiceLifecycle(), []projectstate.TaskAttempt{first, decisive, quiet}, nil, nil, "")
+
+	work := avTask(t, views, "construction").Revisions
+	if len(work) != 1 {
+		t.Fatalf("construction revisions = %d, want 1 (the failed retry folds in)", len(work))
+	}
+	if work[0].Detail != sentence {
+		t.Errorf("the revision carries %q, want the DECISIVE attempt's sentence %q — a retry's "+
+			"account is not what explains the outcome the revision reports", work[0].Detail, sentence)
+	}
+
+	gate := avTask(t, views, "codeReview").Revisions
+	if len(gate) != 1 || gate[0].Detail != "" {
+		t.Errorf("a gate attempt that recorded no sentence must carry none, got %+v", gate)
+	}
+
+	// On the wire: present as a string, or ABSENT — never an empty string, because "this
+	// attempt said nothing" and "this attempt said the empty sentence" are different facts.
+	wire := revisionViews(work)
+	if len(wire) != 1 || wire[0].Detail == nil || *wire[0].Detail != sentence {
+		t.Errorf("the wire revision's detail = %v, want a pointer to the sentence", wire[0].Detail)
+	}
+	if got := revisionViews(gate); got[0].Detail != nil {
+		t.Errorf("a revision with no sentence must OMIT detail, got %q", *got[0].Detail)
+	}
+}
+
+// Test_ReviewRevision_CarriesTheGateAttemptsOwnDetail is the OTHER half of the pin above,
+// and it was missing: deleting `rev.Detail = g.Detail` from reviewRevision left the WHOLE
+// delivery package green (measured, stage 4b2 Task 10). The test above walks the DISPATCH
+// side — dispatchRevision's decisive-attempt Detail — and its only word about a gate is
+// "a gate attempt that recorded no sentence must carry none", which a deleted assignment
+// satisfies perfectly.
+//
+// The field's own contract says what the gap costs: `detail` is "the attempt's own
+// render-ready sentence, verbatim — 'drafted <kind> on <branch>', 'dispatched <command> for
+// <phase>', 'asked N question(s) of <role>', or a failed venue's whole sentence including
+// its run URL. PRESENT where the revision cites a GATE attempt". Every one of those reaches
+// a reader through this line and no other, and the M0 SPEND GATE is on it: the
+// projectDesign lifecycle has exactly ONE task, the `sdpReview` REVIEW task, so
+// `sdpComputeStrategy.Produce`'s `defaultedDetail` lands on a GATE attempt — and
+// `m0CostBasisNotice` renders that revision's `detail`. Without this line the founder is
+// shown a cost with no trace of the assumed numbers it was computed on, which is the one
+// way that screen can mislead.
+func Test_ReviewRevision_CarriesTheGateAttemptsOwnDetail(t *testing.T) {
+	const failed = "the design job failed in your CI: https://github.com/acme/app/actions/runs/42"
+	const asked = "asked 2 question(s) of pm"
+
+	first := avObserved(projectstate.TaskCodeReview, 1, projectstate.OutcomeFailed)
+	first.Detail = failed
+	second := avObserved(projectstate.TaskCodeReview, 2, projectstate.OutcomePending)
+	second.Detail = asked
+	// The work task has to reach its gate for the phase to hold any gate revision at all.
+	work := avObserved(projectstate.TaskConstruction, 1, projectstate.OutcomePassed)
+
+	views := deriveTaskViews(avServiceLifecycle(),
+		[]projectstate.TaskAttempt{work, first, second}, nil, nil, "")
+
+	gate := avTask(t, views, "codeReview").Revisions
+	if len(gate) != 2 {
+		t.Fatalf("codeReview revisions = %d, want 2 (one per gate attempt)", len(gate))
+	}
+	if gate[0].Detail != failed {
+		t.Errorf("revision 1 carries %q, want the failed venue's whole sentence %q — the run URL "+
+			"reaches a reader through this field and no other", gate[0].Detail, failed)
+	}
+	if gate[1].Detail != asked {
+		t.Errorf("revision 2 carries %q, want the ask's own sentence %q", gate[1].Detail, asked)
+	}
+
+	// On the wire, the same contract the dispatch side keeps: a pointer to the sentence,
+	// and ABSENT rather than an empty string where the attempt said nothing.
+	wire := revisionViews(gate)
+	if len(wire) != 2 || wire[0].Detail == nil || *wire[0].Detail != failed {
+		t.Fatalf("the wire gate revision's detail = %v, want a pointer to %q", wire[0].Detail, failed)
+	}
+	quiet := avObserved(projectstate.TaskCodeReview, 1, projectstate.OutcomePassed)
+	quietViews := deriveTaskViews(avServiceLifecycle(),
+		[]projectstate.TaskAttempt{work, quiet}, nil, nil, "")
+	if got := revisionViews(avTask(t, quietViews, "codeReview").Revisions); got[0].Detail != nil {
+		t.Errorf("a gate attempt that said nothing must OMIT detail, got %q", *got[0].Detail)
+	}
 }
 
 // avCheckWorkRevisions asserts the dispatch side of the run above: two revisions, the
@@ -16141,6 +17158,84 @@ func TestRevisionViews_AReconstructedRevisionShipsNoRoundMembers(t *testing.T) {
 	}
 }
 
+// Test_RoundRevisions_CarryTheJoinedGateAttemptsDetail is roundRevisions' half of the
+// contract Test_ReviewRevision_CarriesTheGateAttemptsOwnDetail pins on the other path:
+// detail is PRESENT where the revision cites a GATE attempt. Both paths cite one; only
+// one of them used to copy the sentence.
+//
+// What rides on it is the M0 cost basis. The projectDesign lifecycle's ONE task IS its
+// review task, so the compute's own sentence — which planning assumptions it had to
+// assume, and therefore what the founder is approving a price on — is recorded on a GATE
+// attempt. Before a round is persisted the reviewRevision path carries it; the moment a
+// round exists past splitAtLowestRound's cut, THIS path answers instead. Joining the
+// attempt and dropping its sentence made the disclosure vanish exactly when the gate
+// became real, and no fixture could catch it because the fixtures carry no persisted
+// round at that gate.
+func Test_RoundRevisions_CarryTheJoinedGateAttemptsDetail(t *testing.T) {
+	const assumed = "Cost computed on assumed terms, rateCard — no planning assumptions are committed"
+
+	gate := projectstate.TaskDesignReview
+	round := avRound(gate, 1, projectstate.RoundPassed)
+	attempt := avObserved(gate, 1, projectstate.OutcomePassed)
+	attempt.Detail = assumed
+
+	revs := roundRevisions([]projectstate.ReviewRound{round}, []projectstate.TaskAttempt{attempt}, false)
+	if len(revs) != 1 || len(revs[0].AttemptIDs) != 1 {
+		t.Fatalf("the round must cite its gate attempt before detail can ride it; got %d revisions, attempts %v", len(revs), revs[0].AttemptIDs)
+	}
+	if revs[0].Detail != assumed {
+		t.Errorf("the joined revision carries %q, want the gate attempt's own sentence %q — the founder reads the M0 cost basis through this field and no other", revs[0].Detail, assumed)
+	}
+
+	// The wire keeps the same rule the dispatch side keeps: a pointer to the sentence,
+	// and ABSENT rather than an empty string where the attempt said nothing.
+	if wire := revisionViews(revs); len(wire) != 1 || wire[0].Detail == nil || *wire[0].Detail != assumed {
+		t.Fatalf("the wire revision's detail = %v, want a pointer to %q", wire[0].Detail, assumed)
+	}
+	quiet := avObserved(gate, 1, projectstate.OutcomePassed)
+	quietRevs := roundRevisions([]projectstate.ReviewRound{avRound(gate, 1, projectstate.RoundPassed)}, []projectstate.TaskAttempt{quiet}, false)
+	if got := revisionViews(quietRevs); got[0].Detail != nil {
+		t.Errorf("a gate attempt that said nothing must OMIT detail, got %q", *got[0].Detail)
+	}
+
+	// A round that cites NO attempt has no sentence to carry, and must not invent one.
+	if got := roundRevisions([]projectstate.ReviewRound{avRound(gate, 2, projectstate.RoundPending)}, nil, false); got[0].Detail != "" {
+		t.Errorf("a round citing no gate attempt carries detail %q; there is none to carry", got[0].Detail)
+	}
+
+	// THE M0 SHAPE, and the case the first cut of this fix could not reach. `sdpReview` is
+	// the one review task in all fourteen lifecycles carrying an artifactKind of its own, so
+	// the M0 round is ALWAYS kinded while its gate attempt — like every attempt — is not.
+	// A join that tested key equality alone could never hold here, so the revision cited no
+	// attempt and carried no sentence, and the founder's cost basis vanished the moment the
+	// round was persisted. That is the defect this test exists to hold shut.
+	m0 := avRound(projectstate.MethodTask(sdpReviewTaskID), 1, projectstate.RoundPassed)
+	m0.ArtifactKind = kindPtr(projectstate.KindSdpReview)
+	m0Attempt := avObserved(projectstate.MethodTask(sdpReviewTaskID), 1, projectstate.OutcomePassed)
+	m0Attempt.Detail = assumed
+
+	m0Revs := roundRevisions([]projectstate.ReviewRound{m0}, []projectstate.TaskAttempt{m0Attempt}, false)
+	if len(m0Revs[0].AttemptIDs) != 1 {
+		t.Fatalf("the kinded M0 round cites %v gate attempts, want its own — a kinded round with no rival may claim the kindless attempt of its number", m0Revs[0].AttemptIDs)
+	}
+	if m0Revs[0].Detail != assumed {
+		t.Errorf("the M0 revision carries %q, want the compute's own sentence %q — this is the cost basis the founder approves a price on", m0Revs[0].Detail, assumed)
+	}
+
+	// And the stage-3 guarantee is untouched: TWO kinds at one (task, number) means neither
+	// claims, because the attempt cannot say which of them it settled.
+	rivalA := avRound(gate, 1, projectstate.RoundPassed)
+	rivalA.ArtifactKind = kindPtr(projectstate.KindSystem)
+	rivalB := avRound(gate, 1, projectstate.RoundSentBack)
+	rivalB.ArtifactKind = kindPtr(projectstate.KindOperationalConcepts)
+	rivals := roundRevisions([]projectstate.ReviewRound{rivalA, rivalB}, []projectstate.TaskAttempt{attempt}, false)
+	for i, rev := range rivals {
+		if len(rev.AttemptIDs) != 0 || rev.Detail != "" {
+			t.Errorf("rival revision %d claims attempt %v / detail %q; two kinds sharing a number may bind neither", i+1, rev.AttemptIDs, rev.Detail)
+		}
+	}
+}
+
 // Test_ReviewRounds_TwoKindsOnOneGateDoNotBindOneAttempt is the stage-3 entry criterion
 // made executable. Two rounds numbered 1 on ONE review task, judging DIFFERENT artifact
 // kinds, must read as TWO revisions — and neither may claim the other's gate attempt.
@@ -16365,8 +17460,9 @@ func railWired(ProjectID) bool { return true }
 
 // THE DRAIN CONTRACT IS A SET OF LITERAL STRINGS, RE-PINNED (final fix wave, B3). The
 // deleted Test_WorkflowIDDerivation was the only assertion over them, and after it went
-// neither replanSweepWorkflowID (in EITHER form) nor pauseTargetWorkflowID had a single test
-// reference — the literals appeared in no assertion anywhere.
+// neither replanSweepWorkflowID (in EITHER form, now gone with its workflow at stage 4b2)
+// nor pauseTargetWorkflowID had a single test reference — the literals appeared in no
+// assertion anywhere.
 //
 // These are not internal details: they are what the drain note TELLS AN OPERATOR TO DRAIN
 // before this branch deploys, and what the pause signal is addressed to. A rename is invisible
@@ -16380,9 +17476,7 @@ func Test_WorkflowIDDerivation(t *testing.T) {
 	for _, c := range []struct{ name, got, want string }{
 		{"pump (tick-invariant)", pumpWorkflowID(pid), "proj-1:nextActivity"},
 		{"pause / supervision target", pauseTargetWorkflowID(pid), "proj-1:construction"},
-		{"replan sweep, per project", replanSweepWorkflowID(&scoped, "t7"), "proj-1:replanSweep:t7"},
-		{"replan sweep, all projects", replanSweepWorkflowID(nil, "t7"), ":all:replanSweep:t7"},
-		{"round sweep", roundSweepWorkflowID(pid, "t7"), "proj-1:roundSweep:t7"},
+		{"round sweep", roundSweepWorkflowID(scoped, "t7"), "proj-1:roundSweep:t7"},
 		{"generic activity child", deliveryActivityWorkflowID(pid, "C-MST"), "proj-1:activity:C-MST"},
 	} {
 		if c.got != c.want {
@@ -16468,12 +17562,19 @@ const (
 // shapeOutcome is what every shape case asserts on.
 //
 // TWO order fields, and the distinction is the whole reason the fork is testable.
-// TaskOrder is the order tasks were STARTED, and it is IDENTICAL in both branch-order
-// cases by construction: readyTasks fans out in lifecycle DECLARATION order, which is
-// deterministic, so once srsReview passes it always returns [detailedDesign, stp] in
-// that order. Branch order is not a walker variable and must never be asserted as one.
-// What a branch order actually changes is which branch's pipeline COMPLETES first, so
-// CompletedOrder is the discriminator.
+// TaskOrder is the order task starts were OBSERVED — at the fake pipeline's submit and at
+// the fake store's openReviewRound, both of which run inside ACTIVITIES. Along one branch
+// that is an order; BETWEEN two parallel branches it is a SAMPLE, and it must never be
+// asserted as one. Two forked branches' activities are scheduled in one workflow task and
+// run on concurrent goroutines, so which of them reaches the recorder first is a race the
+// row-version conflict retry amplifies — the ~8% flake diagnosed in assertShapeForkOverlap,
+// where the measurement is written down. Declaration order IS deterministic, but it is a
+// property of readyTasks, and Test_DeliveryWalk_ForkFansOutInDeclarationOrder asserts it
+// there, purely.
+//
+// What a branch order actually changes is which branch's pipeline COMPLETES first, and
+// that is separated by a whole 15-second poll cycle of workflow time rather than by
+// nothing, so CompletedOrder is the discriminator and is safe to order.
 //
 // Timeline is the THIRD field, and it is here because the fork's own claim — "both
 // branches were in flight at once" — cannot be stated on the other two at all. They are
@@ -16764,6 +17865,34 @@ func newShapeRig(t *testing.T, typeKey string) *shapeRig {
 		wf.Deliveries = rig.rec
 		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
 		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
+	case "pump":
+		// THE ONE ARM THAT IS NOT A LIFECYCLE. continue-as-new-loses-no-signal is a shape of
+		// the PUMP, not of a walk, and it is in this table rather than beside the other
+		// Test_Pump cases for the reason the table exists: it is the wave's riskiest failure
+		// and the only one that fails SILENTLY, so it belongs with the cases a reader runs to
+		// ask "does this commit still hold the shapes". The rig is a two-activity frontier
+		// with both children held open, which is what lets the run reach a continue-as-new
+		// boundary with work still outstanding.
+		ps := &csFakeProjectState{project: projectstate.Project{
+			ID: "shape-p", Version: 1, Phase: 2,
+			ActivityExecution: map[string]projectstate.ActivityExecution{},
+		}}
+		ps.rec = rig.rec
+		pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary(), rec: rig.rec}
+		deps := gateDeps(ps)
+		deps.Review = review.NewReviewEngine()
+		deps.NextEligibleActivity = twoActivityFrontier
+		wf := csNewWorkflows(deps)
+		wf.Deliveries = rig.rec
+		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
+		rig.register = func(env *testsuite.TestWorkflowEnvironment) {
+			registerPumpWithBus(env, wf, ps, pipe, &recordingSignalBus{})
+			env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+				After(90 * time.Minute).Return(nil)
+			read := &genActivities{DesignSession: projectstate.NewDesignSessionAccess(fakeFullProjectState{ps})}
+			env.OnActivity("designSessionAccess.readProjectOnBranch", mock.Anything, mock.Anything, mock.Anything).
+				After(2 * time.Minute).Return(read.DesignSessionReadProjectOnBranch)
+		}
 	default:
 		t.Fatalf("newShapeRig: no rail is wired for lifecycle %q — add its arm rather than defaulting it, "+
 			"because a shape case silently driving the wrong child would pass for the wrong reason", typeKey)
@@ -16860,6 +17989,22 @@ func lifecycleShapeCases() []lifecycleShapeCase {
 			// (reviewengine.go:432). One case, both halves.
 			name: "human-floor-under-vibes", typeKey: "requirements",
 			drive: driveVibesFloor, wantToday: shapePassesToday,
+		},
+		{
+			// CONTINUE-AS-NEW LOSES NO SIGNAL. The ELEVENTH case, and it exists because this
+			// wave's riskiest failure is the only one that fails SILENTLY. A lease request or a
+			// finish buffered on a run that continues-as-new is DISCARDED by the SDK; the next
+			// run has no record of it; the project's one pump then waits out a lease deadline
+			// for an activity that already finished, or never re-selects an activity whose
+			// finish was the thing lost. pump-singular-per-project means there is no second
+			// pump to cover it — the blast radius is that the project stops.
+			//
+			// The case buffers BOTH a finish and a lease request across a CAN boundary and
+			// asserts both survive into the next run's input. It is MUTATION-CHECKED: remove
+			// the drain-and-carry and this case goes red, which is the discipline every case in
+			// this table was written with.
+			name: "continue-as-new-loses-no-signal", typeKey: "pump",
+			drive: driveContinueAsNewLosesNoSignal, wantToday: shapePassesToday,
 		},
 	}
 }
@@ -17027,6 +18172,49 @@ func driveVibesFloor(t *testing.T, rig *shapeRig) shapeOutcome {
 	return got
 }
 
+// driveContinueAsNewLosesNoSignal drives ONE pump run to a ContinueAsNew boundary with a
+// finish AND a lease request buffered on it, and reports what the boundary carried.
+//
+// THE TIMING IS THE CASE, so it is spelled out. The pump's head-state read is held for two
+// minutes and both signals are delivered at one, so they land while the run is inside an
+// Activity: they are BUFFERED and the selector has not seen either of them. The history
+// length is over the pump's budget from the start, so the first frontier pass is followed
+// straight away by the continue-as-new decision — which is exactly the window in which the
+// SDK would throw both messages away. What the carry catches is asserted off the next
+// run's own input, not off a hook, because the input is the only thing that actually
+// survives the boundary.
+func driveContinueAsNewLosesNoSignal(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.register(rig.env)
+	rig.env.SetCurrentHistoryLength(pumpHistoryBudget + 1)
+	rig.env.RegisterDelayedCallback(func() {
+		rig.env.SignalWorkflow(signalActivityFinished, activityFinishedSignal{
+			ActivityID: "C-ONE", Outcome: projectstate.ActivityOutcomeCompleted})
+		rig.env.SignalWorkflow(signalActivityLeaseRequested, activityLeaseRequest{ActivityID: "C-TWO"})
+	}, time.Minute)
+
+	rig.env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: "shape-p"})
+	if !rig.env.IsWorkflowCompleted() {
+		t.Fatal("the shape driver did not reach a terminal")
+	}
+	var canErr *workflow.ContinueAsNewError
+	if err := rig.env.GetWorkflowError(); !errors.As(err, &canErr) {
+		t.Fatalf("the case needs a continue-as-new to measure; got %v", err)
+	}
+	var next pumpInput
+	if err := converter.GetDefaultDataConverter().FromPayloads(canErr.Input, &next); err != nil {
+		t.Fatalf("decode the continued input: %v", err)
+	}
+	for _, c := range next.Carried {
+		rig.rec.signalDelivered(string(c.ActivityID), c.Kind)
+	}
+	// The started set rides across as well; without it the next run re-dispatches both.
+	for _, id := range next.Started {
+		rig.rec.taskStarted(string(id))
+	}
+	return rig.rec.outcome(nil, false)
+}
+
 // ---- shared driver plumbing ------------------------------------------------
 
 // shapeRequireCompleted is the precondition every case shares: a driver that did not
@@ -17126,9 +18314,23 @@ func assertShape(t *testing.T, name string, got shapeOutcome) {
 		assertShapeInboxOverflow(t, name, got)
 	case "human-floor-under-vibes":
 		assertShapeVibesFloor(t, name, got)
+	case "continue-as-new-loses-no-signal":
+		assertShapeContinueAsNewLosesNoSignal(t, name, got)
 	default:
 		t.Fatalf("no assertion is written for shape case %q; a case without one would pass by saying nothing", name)
 	}
+}
+
+// assertShapeContinueAsNewLosesNoSignal is the drain-and-carry's oracle. BOTH messages
+// must be in the continued input, and the assertion names them individually rather than
+// counting, because a carry that kept only the finish is the exact half-fix that would
+// look like a pass: the finish is the one a reader thinks of first, and the lost lease
+// request is the one that leaves a project waiting on an admission nobody will answer.
+func assertShapeContinueAsNewLosesNoSignal(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	shapeWantOrder(t, name, "SignalsDelivered", got.SignalsDelivered,
+		[]string{"C-ONE:" + pumpCarriedFinish, "C-TWO:" + pumpCarriedLeaseRequest})
+	shapeWantOrder(t, name, "TaskOrder", got.TaskOrder, []string{"C-ONE", "C-TWO"})
 }
 
 // assertShapeLinearDeployment pins the shape the flat walk and the DAG walk must agree
@@ -17157,17 +18359,39 @@ func assertShapeLinearDeployment(t *testing.T, name string, got shapeOutcome) {
 	shapeWantAdvanced(t, name, got.PhaseAdvanced)
 }
 
-// assertShapeForkOverlap is the half both branch-order cases share: the fan-out STARTS
-// in lifecycle declaration order (asserted, so a data reorder in lifecycles.json is
-// caught rather than absorbed) and BOTH branches are in flight at once. The overlap is
-// read off the MERGED Timeline and nowhere else — the two starts must both precede the
-// first completion of either — because that is the one statement TaskOrder and
-// CompletedOrder cannot make between them (see shapeOutcome.Timeline). A walker that
-// serialises the branches satisfies the declaration-order half and fails this one, which
-// is the whole reason there are two fork cases instead of one.
+// assertShapeForkOverlap is the half both branch-order cases share: BOTH branches start,
+// each exactly once, and both are in flight at once. The overlap is read off the MERGED
+// Timeline and nowhere else — the two starts must both precede the first completion of
+// either — because that is the one statement TaskOrder and CompletedOrder cannot make
+// between them (see shapeOutcome.Timeline). A walker that serialises the branches fails
+// it, which is the whole reason there are two fork cases instead of one.
+//
+// IT USED TO ASSERT THE BRANCH START ORDER HERE, and that assertion flaked ~8% of runs
+// (measured 1 in 12 at 6ba40dd7 and 1 in 12 at the wave's base c5851e90, so it predates
+// this wave; reproduced 1 in 15 and 1 in 25 while diagnosing). The cause is not the
+// walker. Both branches' `recordAttemptOutcome` activities are scheduled in ONE workflow
+// task and execute on concurrent goroutines against a fake that checks the row version
+// optimistically; whichever lands first wins, and the LOSER re-reads, retries and so
+// reaches its submitAgenticJob — where the shape recorder records a task START — second.
+// Both orders were observed in the debug log, with the conflict swapping sides:
+//
+//	GREEN run: 15 recordAttemptOutcome ok, 16 CONFLICT, 17 submit(detailedDesign), 23 submit(stp)
+//	RED   run: 15 CONFLICT, 16 recordAttemptOutcome ok, 17 submit(stp), 23 submit(detailedDesign)
+//
+// So TaskOrder SAMPLES the fan-out order between two parallel branches; it does not
+// decide it, and no observation point inside an activity can. Declaration order is a
+// property of readyTasks, and that is where it is now asserted — deterministically,
+// against the real lifecycle data, by Test_DeliveryWalk_ForkFansOutInDeclarationOrder.
+// The claim this line used to make ("a data reorder in lifecycles.json is caught") is
+// kept there and is now caught 100% of the time instead of 92%.
 func assertShapeForkOverlap(t *testing.T, name string, got shapeOutcome) {
 	t.Helper()
-	shapeWantBefore(t, name, "TaskOrder", got.TaskOrder, "detailedDesign", "stp")
+	for _, branch := range []string{"detailedDesign", "stp"} {
+		if n := shapeCount(got.TaskOrder, branch); n != 1 {
+			t.Fatalf("%s: both fork branches must start exactly once; %q started %d times. TaskOrder=%v",
+				name, branch, n, got.TaskOrder)
+		}
+	}
 	firstDone := shapeFirstIndexOf(got.Timeline,
 		shapeEventCompleted+"detailedDesign", shapeEventCompleted+"stp")
 	if firstDone < 0 {
@@ -17180,6 +18404,42 @@ func assertShapeForkOverlap(t *testing.T, name string, got shapeOutcome) {
 		}
 	}
 	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+}
+
+// Test_DeliveryWalk_ForkFansOutInDeclarationOrder is where the fork's declaration-order
+// claim actually lives, and it is here because the shape oracle could only SAMPLE it (see
+// assertShapeForkOverlap). readyTasks is pure over the lifecycle and one walkState, so
+// this runs with no Temporal environment, no fakes, no goroutines and no flake — and it
+// runs against the REAL method-assets data rather than a hand-built fixture, which is the
+// half that makes it worth having: the failure it exists to catch is someone reordering
+// `detailedDesign` and `stp` in lifecycles.json.
+//
+// Declaration order is not cosmetic. ValidateLifecycle guarantees it is a topological
+// order, and readyTasks walking lc.Tasks in it is what makes the fan-out DETERMINISTIC
+// under replay: a map walk would be non-determinism and a sort by id would be a second
+// rule to keep in step with the data.
+func Test_DeliveryWalk_ForkFansOutInDeclarationOrder(t *testing.T) {
+	lc, ok := methodassets.LifecycleFor("service")
+	if !ok {
+		t.Fatal("the platform's method assets carry no `service` lifecycle")
+	}
+	ws := newWalkState(lc)
+	ws.byTask["srs"] = walkTaskPassed
+	ws.byTask["srsReview"] = walkTaskPassed
+
+	var got []string
+	for _, task := range readyTasks(lc, ws) {
+		got = append(got, task.ID)
+	}
+	if want := []string{"detailedDesign", "stp"}; !slices.Equal(got, want) {
+		t.Fatalf("with srsReview passed the fork must fan out in lifecycle declaration order %v; got %v — "+
+			"a reorder in lifecycles.json changes which child the pump starts first on every service activity", want, got)
+	}
+	// The JOIN is the other half of the same rule and costs one line here: `testing`
+	// dependsOn [integration, stpReview], so it must not be ready while either is unpassed.
+	if slices.Contains(got, "testing") {
+		t.Fatalf("the join must not be ready while its dependsOn are unpassed; got %v", got)
+	}
 }
 
 // assertShapeSendBackJudgedPair is the send-back's real claim, which is about what did
@@ -17654,6 +18914,16 @@ func shapeSDPEngines() sdpEngines {
 // (the round comment status its gate applies, and the operator note an override at a gate
 // records).
 func registerDeliveryActivity(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess) {
+	registerDeliveryActivityWithBus(env, wf, ps, pipe, &recordingSignalBus{})
+}
+
+// registerDeliveryActivityWithBus is registerDeliveryActivity with the
+// messageBus.deliverSignal Activity backed by a caller-supplied bus — the transport the
+// child's MAIN-WRITE LEASE request and its terminal report ride (stage 4b2).
+func registerDeliveryActivityWithBus(
+	env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState,
+	pipe agenticjob.AgenticJobAccess, bus messagebus.MessageBus,
+) {
 	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
 	registerGenPipeline(env, pipe)
 	registerGenEpisodes(env, nil)
@@ -17668,11 +18938,16 @@ func registerDeliveryActivity(env *testsuite.TestWorkflowEnvironment, wf *csWork
 	registerGenConstructionTransition(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, ps)
-	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}}
+	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}, MessageBus: bus}
 	env.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus,
 		activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordOperatorNote,
 		activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
+	// The delivery child asks the pump for the main-write lease through
+	// messageBus.deliverSignal (stage 4b2), so the transport is registered for every
+	// delivery-child case, not only the ones that exercise the lease — the production
+	// worker registers one set per queue.
+	env.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 }
 
 // shapeApprove / shapeReject are the generic child's gate signals: keyed by TASK, which is
@@ -18672,6 +19947,38 @@ func Test_Phase1RequiredKinds_AreExactlyTheTwoDesignLifecyclesOutput(t *testing.
 		t.Fatalf("the two design lifecycles produce %v but Phase1RequiredKinds() is %v — "+
 			"the four-then-one mapping has residue, and the Phase-1 seal would then wait on a kind nothing drafts "+
 			"or seal without one it does", produced, required)
+	}
+}
+
+// THE PRESERVE SET IS THE LIFECYCLE'S OWN SLOTS (stage 4b2 Task 6, F80c). reconcileBranchFromMain
+// overlays main's every slot onto a diverged activity branch EXCEPT the ones the branch is
+// drafting, so the set it must be handed is exactly what this activity holds in flight — four
+// for `requirements`, one for `architecture`, none for every construction lifecycle. Preserving
+// fewer than the activity holds replaces a live draft with main's older copy in the very path
+// that exists to rescue the branch.
+func Test_ReconcileTargetOf_IsTheLifecyclesWholeInFlightSet(t *testing.T) {
+	// The zero-value trap, pinned where the caller reasons about it: KindMission is ZERO, so
+	// "no kind" cannot be spelled as a zero ArtifactKind. The retired branchReconcile said it
+	// could, and was wrong for a whole wave — harmlessly, because a construction branch holds
+	// no mission draft, but the comment claimed the opposite of what the code did.
+	if projectstate.KindMission != 0 {
+		t.Fatalf("KindMission = %d, want 0 — reconcileDivergedBranch's wire-kind comment is "+
+			"written against that ordinal and must be re-read if it ever moves", int(projectstate.KindMission))
+	}
+	designSlots := map[string]int{"requirements": 4, "architecture": 1, "projectDesign": 0}
+	for _, lc := range methodassets.Lifecycles() {
+		got := reconcileTargetOf(lc)
+		if want, isDesign := designSlots[lc.Type]; isDesign {
+			if len(got) != want {
+				t.Errorf("%s preserves %v (%d kinds), want %d — the reconcile must preserve every "+
+					"slot the walk drafts on that one branch", lc.Type, got, len(got), want)
+			}
+			continue
+		}
+		if len(got) != 0 {
+			t.Errorf("construction lifecycle %s preserves %v, want the EMPTY set — a construction "+
+				"branch drafts no artifact slot, so the reconcile adopts main entirely", lc.Type, got)
+		}
 	}
 }
 
@@ -20069,18 +21376,38 @@ func Test_Facade_ConstructionSignalsNameTheGenericChildAndItsTask(t *testing.T) 
 	}
 }
 
-// AWAY FROM A GATE, BOTH SIGNALS REFUSE rather than presenting as success: a redraft delivered
-// to a task that is mid-dispatch is re-offered when it retires (i.e. does nothing), and a task
-// whose activity has exited has no inbox at all.
+// AWAY FROM A GATE, BOTH SIGNALS REFUSE rather than presenting as success — and since stage
+// 4b2 the discriminator is THE ROUND, not the session's single-valued stage. The three
+// refusals below are the ones that survive that change, and each names a fact about the TASK
+// or about the WHOLE activity, never about which branch of a fork was entered last.
+//
+// WHAT LEFT THIS TEST, recorded here because a deleted assertion is invisible otherwise: the
+// case "a running pipeline" WITH a pending round on the very task being decided used to refuse.
+// It cannot any more, and it must not: that view is INDISTINGUISHABLE from a fork whose
+// sibling branch is dispatching while this task's gate is open (see
+// Test_Facade_ConstructionSignalsReachASiblingBranchesOpenGate), which is the defect the
+// change fixes. The early-decision window it also admits is one the child is built for — it
+// buffers a decision that arrives before its gate and applies it there.
 func Test_Facade_ConstructionSignalsRefuseAwayFromTheirGate(t *testing.T) {
-	for name, view := range map[string]ConstructionSessionView{
-		"a running pipeline":  {Stage: StagePipelineRunning},
-		"another task's gate": awaitingAt("codeReview"),
-		"an exited activity":  {Stage: StageExited},
+	for name, tc := range map[string]struct {
+		view ConstructionSessionView
+		ps   *csFakeProjectState
+	}{
+		// WHOLE-ACTIVITY stages. Neither is written by one branch of a fork, so neither can
+		// name the wrong one — an exited walk has no inbox at all, and a paused one puts the
+		// decision where nobody can see it.
+		"an exited activity": {ConstructionSessionView{Stage: StageExited},
+			task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending, nil)},
+		"a paused activity": {ConstructionSessionView{Stage: StagePaused},
+			task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending, nil)},
+		// PER-TASK ledger facts, at a view that would have admitted them before.
+		"a task whose round is already decided": {awaitingAt("designReview"),
+			task12RoundStore("designReview", "detailedDesign", projectstate.RoundPassed, nil)},
+		"a task with no round at all": {awaitingAt("codeReview"),
+			task12RoundStore("codeReview", "construction", projectstate.RoundPending, nil)},
 	} {
-		fc := &fakeTemporalClient{session: view}
-		ps := task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending, nil)
-		m := task12Manager(fc, ps)
+		fc := &fakeTemporalClient{session: tc.view}
+		m := task12Manager(fc, tc.ps)
 		if _, err := m.DispatchActivityTask(testCtx(), "p", "A", "designReview", nil); err == nil ||
 			asConstructionError(t, err).Kind != fwmanager.FailedPrecondition {
 			t.Errorf("%s: a re-dispatch must refuse, got %v", name, err)
@@ -20100,6 +21427,49 @@ func Test_Facade_ConstructionSignalsRefuseAwayFromTheirGate(t *testing.T) {
 		DispatchActivityTask(testCtx(), "p", "A", "designReview", nil)
 	if e := asConstructionError(t, err); e.Kind != fwmanager.NotFound {
 		t.Fatalf("want the session read's NotFound for a dormant activity, got %s %q", e.Kind, e.Detail)
+	}
+}
+
+// THE FORK DEFECT, at the façade (stage 4b2 ride-along to Task 3; the same class Task 2 fixed
+// on the steer path, one step wider).
+//
+// constructState carries ONE `stage` and ONE `awaitingGate`; enterHumanStage overwrites both
+// on every gate entry. An ordinary `service` fork opens `stp`'s review and `designReview` at
+// the same time, so whichever was entered SECOND is the only one the session view names — and
+// the precheck used to require `gateNameOf(view) == taskID`, refusing a decision on the
+// sibling with "activity A is at awaitingApproval/codeReview, not awaiting designReview". That
+// is the ROUTINE approval path, not an override: the operator could not approve one of the two
+// gates the screen was showing them.
+//
+// Both ops are asserted on DELIVERY rather than on a bare nil, because a precheck that stops
+// refusing but signals nothing is the same outage wearing a 200.
+func Test_Facade_ConstructionSignalsReachASiblingBranchesOpenGate(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		signal string
+		drive  func(*deliveryManager) error
+	}{
+		{"a decision", signalTaskDecision, func(m *deliveryManager) error {
+			return m.SubmitReviewDecision(testCtx(), "p", "A", "designReview",
+				ReviewDecisionInput{Decision: ReviewApprove}, nil)
+		}},
+		{"a re-dispatch", lSignalRedraft, func(m *deliveryManager) error {
+			_, err := m.DispatchActivityTask(testCtx(), "p", "A", "designReview", nil)
+			return err
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// The view names the SIBLING's gate — the fork state, entered second.
+			fc := &fakeTemporalClient{session: awaitingAt("stpReview")}
+			ps := task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending, nil)
+			if err := c.drive(task12Manager(fc, ps)); err != nil {
+				t.Fatalf("%s on the branch whose round is OPEN must be accepted even though the "+
+					"session view names the sibling's gate: %v", c.name, err)
+			}
+			if want := deliveryActivityWorkflowID("p", "A"); fc.lastWorkflowID != want || fc.lastSignalName != c.signal {
+				t.Fatalf("%s signalled %q/%q, want %q/%q", c.name, fc.lastWorkflowID, fc.lastSignalName, want, c.signal)
+			}
+		})
 	}
 }
 
@@ -22117,14 +23487,83 @@ func Test_Guard_DivergedBranchIsReconciledRatherThanLoopingForever(t *testing.T)
 	if got := ps.reconciles[0].branch; got != "activity/C-MST" {
 		t.Fatalf("the reconcile must name the ACTIVITY branch, got %q", got)
 	}
-	// A construction lifecycle holds no in-flight design slot, so the reconcile preserves
-	// NONE and adopts main's every slot — the zero kind. Preserving a real one would leave a
-	// slot diverged and the PR dirty.
-	if got := ps.reconciles[0].kind; got != projectstate.ArtifactKind(0) {
-		t.Fatalf("a construction branch owns no slot, so the reconcile preserves none; got kind %v", got)
+	// A construction lifecycle holds no in-flight design slot, so the reconcile preserves NONE
+	// and adopts main's every slot — and the EMPTY SET is now what crosses the wire, verbatim.
+	// It used to be the zero ArtifactKind, which is KindMission, so every construction
+	// reconcile quietly preserved the branch's mission slot; harmless (a construction branch
+	// holds no mission draft) but not what the retired comment claimed. Stage 4b2 Task 7's
+	// `kinds` param is what lets the absence be spelled as an absence.
+	if got := ps.reconciles[0].kinds; len(got) != 0 {
+		t.Fatalf("a construction branch owns no slot, so the reconcile must preserve NONE — "+
+			"the empty set, not a stand-in for it; got %v", got)
 	}
 	if rail.merges != 1 {
 		t.Fatalf("the reconciled PR must merge, got %d merges", rail.merges)
+	}
+}
+
+// THE WHOLE PRESERVE SET REACHES THE ACTIVITY, on the lifecycle that has more than one
+// slot to lose (stage 4b2 Task 10).
+//
+// The case above is the CONSTRUCTION one, and its only assertion about the set is
+// `len(kinds) == 0`. That is satisfied by every wrong answer a truncation can give: replacing
+// `preserveKinds` with `preserveKinds[:1]` at the Activity call site left `./internal/manager/
+// delivery` entirely GREEN (measured), and `preserveKinds[:1]` is VERBATIM the F80c defect
+// stage 4b2 Task 7 deleted — the wire took one kind while the store took a set, so a
+// `requirements` branch holding four in-flight drafts had three of them replaced by main's
+// older copies, in the path whose whole job is to rescue that branch.
+//
+// `Test_ReconcileTargetOf_IsTheLifecyclesWholeInFlightSet` pins what the SET is; nothing
+// pinned that the set survives the trip. This drives the four-slot `requirements` lifecycle
+// through the real merge guard, on the real rail, and reads back what the Activity was
+// handed.
+func Test_Guard_DivergedDesignBranchPreservesEveryInFlightSlot(t *testing.T) {
+	rig, _ := designShapeRigOn(t, projectstate.ReviewPresetVibes,
+		func(_ ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.RepoRefFromString("acct|owner/repo-1"), true
+		})
+	// The PR rail LIFECYCLE, lit: the repo resolver above and the GitStatus mirror the rig
+	// already wires are the other two thirds of gitEnabled.
+	rig.cswf.RailEnabled = railWired
+	rail := &stubRail{
+		prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess, merged: true,
+		notMergeableUntilReconciled: true,
+	}
+	rig.cs.onReconcile = func() {
+		rail.mu.Lock()
+		rail.reconciled = true
+		rail.mu.Unlock()
+	}
+	rig.register(rig.env)
+	registerGenRail(rig.env, rail)
+
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "requirements",
+		Activity:   designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	if len(rig.cs.reconciles) != 1 {
+		t.Fatalf("want exactly one reconcile of the diverged design branch, got %v", rig.cs.reconciles)
+	}
+	lc, ok := methodassets.LifecycleFor("requirements")
+	if !ok {
+		t.Fatal("the platform carries no requirements lifecycle")
+	}
+	want := designSlotsOfLifecycle(lc)
+	if len(want) < 2 {
+		t.Fatalf("this case is only a test while requirements holds MORE THAN ONE slot; it holds %v", want)
+	}
+	if got := rig.cs.reconciles[0].kinds; !slices.Equal(got, want) {
+		t.Fatalf("the reconcile preserved %v, want the lifecycle's whole in-flight set %v — every "+
+			"kind dropped here is a live draft replaced by main's older copy, which is F80c itself", got, want)
+	}
+	if got := rig.cs.reconciles[0].branch; got != "activity/requirements" {
+		t.Errorf("the reconcile must name the ACTIVITY branch, got %q", got)
+	}
+	if rail.merges != 1 {
+		t.Errorf("the reconciled PR must merge, got %d merges", rail.merges)
 	}
 }
 
@@ -22281,9 +23720,24 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, 
 	// Phase-gate + per-activity construction-status records (fire only when gitOn;
 	// the gate tests wire GitStatus so these must be registered).
 	registerGenGitStatus(env, ps)
+	// The child's merge tail asks the pump for the main-write lease over this transport
+	// (stage 4b2); with no pump running it answers and the tail proceeds unleased.
+	env.RegisterActivityWithOptions((&genActivities{MessageBus: &recordingSignalBus{}}).MessageBusDeliverSignal,
+		activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 }
 
 func registerPump(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
+	registerPumpWithBus(env, wf, ps, pipe, &recordingSignalBus{}, eps...)
+}
+
+// registerPumpWithBus is registerPump with the messageBus.deliverSignal Activity backed by
+// a caller-supplied bus — the transport the MAIN-WRITE LEASE rides (stage 4b2). The pump
+// grants over it, the child asks over it, and its NotFound answer is how the pump learns a
+// holder's execution has closed, so a lease case wires its own bus to see all three.
+func registerPumpWithBus(
+	env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState,
+	pipe agenticjob.AgenticJobAccess, bus messagebus.MessageBus, eps ...*fakeEpisodes,
+) {
 	env.RegisterWorkflowWithOptions(wf.PumpNextActivityWorkflow, workflow.RegisterOptions{Name: executionKindPump})
 	// ONE CHILD. The pump starts the generic DAG child for every activity, and since stage 4b1
 	// Task 13 there is no other type to register: the retired per-kind children and the version
@@ -22300,11 +23754,16 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *c
 	registerGenConstructionTransition(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, ps)
-	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}}
+	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}, MessageBus: bus}
 	env.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus,
 		activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordOperatorNote,
 		activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
+	// THE LEASE'S TRANSPORT (stage 4b2). The pump grants through messageBus.deliverSignal
+	// and the child asks through it, both on the SAME generated invoker relayPauseToPump
+	// uses — so every rig that runs a pump or a delivery child must register it, exactly as
+	// the production worker does once per queue.
+	env.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 }
 
 // registerPumpSweep registers PumpSweepWorkflow + projectStateAccess.listProjects
@@ -22628,11 +24087,16 @@ func Test_Pump_ProjectNotFound_QuietTick(t *testing.T) {
 	}
 }
 
-// An eligible activity ⇒ the pump runs the per-activity child to COMPLETION, then
-// SELF-CASCADES via ContinueAsNew (Task 3). The test env surfaces ContinueAsNew as a
-// *workflow.ContinueAsNewError carrying the next pumpInput. The child's spine ran
-// end-to-end (one reviewed + one completed exit recorded).
-func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
+// An eligible activity ⇒ the pump runs the per-activity child to its TERMINAL and then
+// drains to quiet.
+//
+// IT USED TO ASSERT A ContinueAsNew HERE, and the change is the wave's whole shape. The
+// old pump continued once per DISPATCHED activity, so "it dispatched" and "it continued as
+// new" were the same fact. The lease pump parks on a selector instead, learns the child's
+// terminal from its future, finds nothing new on the frontier and RETURNS — so a continue
+// is now a HISTORY fact (pumpHistoryBudget) and never a cascade step, and the cascade's own
+// drain-to-quiet is what ends the run. The child's spine still ran end-to-end.
+func Test_Pump_EligibleActivity_RunsChildToTerminal_ThenDrainsQuiet(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -22652,14 +24116,19 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("pump did not complete")
 	}
-	// A successful eligible dispatch self-cascades: the terminal "error" is a
-	// ContinueAsNewError carrying the next tick's pumpInput (NOT a real failure).
-	err := env.GetWorkflowError()
-	var canErr *workflow.ContinueAsNewError
-	if !errors.As(err, &canErr) {
-		t.Fatalf("want a ContinueAsNewError (self-cascade), got %v", err)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a drained cascade is a clean return, not an error: %v", err)
 	}
-	// The child ran end-to-end exactly once.
+	var res PumpResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump result: %v", err)
+	}
+	if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != "C-XYZ" {
+		t.Fatalf("want the run to report the activity it dispatched, got %+v", res)
+	}
+	// The child ran end-to-end exactly once — and ONCE is the claim that matters now that
+	// the pump re-computes the frontier on every wake-up: pumpState.Started is what stops a
+	// finished activity being dispatched a second time by the same pump chain.
 	if len(ps.exited) != 1 || ps.exited[0].activityID != "C-XYZ" {
 		t.Fatalf("want the child to have recorded one exit for C-XYZ, got %v", ps.exited)
 	}
@@ -22832,7 +24301,7 @@ func Test_Pump_BlockedActivity_RecordsTerminalFailure(t *testing.T) {
 	if err := enc.Get(&d); err != nil {
 		t.Fatalf("decode pump dispatch decision: %v", err)
 	}
-	if d != (pumpDispatch{Decided: true}) {
+	if !d.Decided || d.Dispatched || d.ActivityID != nil || len(d.ActivityIDs) != 0 {
 		t.Fatalf("want a decided non-dispatch decision, got %+v", d)
 	}
 }
@@ -23091,9 +24560,20 @@ func Test_Pump_PreDispatchGate_DefaultVersion_KeepsOldDispatch(t *testing.T) {
 }
 
 // M1 (version gate "pump-drain-pause-before-continue-as-new", DefaultVersion branch). A
-// pre-change execution continues-as-new straight after the Sleep, as it always did.
+// pre-change execution SKIPS the pre-ContinueAsNew pause drain entirely and continues as
+// new with the pause still buffered, exactly as its history recorded.
+//
+// THE RIG CHANGED WITH THE PUMP'S SHAPE, and it is worth saying how. The old pump reached
+// this gate once per dispatched activity, so a 10-minute child and a pause at one minute
+// were enough to sit on it. The lease pump continues as new only at its HISTORY BUDGET, so
+// the budget is what puts the run on the boundary; and the pause has to survive to the
+// boundary, which means it must land after the run-start check (readDelay holds the read)
+// and past the pre-dispatch gate (pinned to its own DefaultVersion arm here). What is
+// asserted is unchanged: with this gate at DefaultVersion the buffered pause is NOT
+// consumed and the run continues.
 func Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew(t *testing.T) {
-	rig := newCascadingPumpRig(10*time.Minute, 0)
+	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute).atItsHistoryBudget()
+	rig.env.OnGetVersion("pump-pause-before-dispatch", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
 	rig.env.OnGetVersion("pump-drain-pause-before-continue-as-new", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
 	rig.pauseAt(t, time.Minute)
 
@@ -23106,6 +24586,23 @@ func Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew(t *testing.T) {
 	}
 }
 
+// THE OTHER ARM, and it is the one the gate exists for: at v1 the pre-ContinueAsNew drain
+// DOES see the buffered pause and the run goes quiet instead of continuing. Same rig, one
+// GetVersion stub fewer — so the two cases differ in exactly the fact under test.
+func Test_Pump_DrainPause_StopsTheCascadeInsteadOfContinuing(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute).atItsHistoryBudget()
+	rig.env.OnGetVersion("pump-pause-before-dispatch", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	rig.pauseAt(t, time.Minute)
+
+	res, err := rig.run(t)
+	if err != nil {
+		t.Fatalf("a pause drained at the continue-as-new boundary must end the run quietly, got %v", err)
+	}
+	if !res.Dispatched || *rig.childStarts != 1 {
+		t.Fatalf("the run dispatched before the pause and must report it, got %+v with %d child start(s)", res, *rig.childStarts)
+	}
+}
+
 // M1/M2 (version gate "pump-pause-decode-any", DefaultVersion branch). A pre-change
 // execution keeps the OLD struct decode at run start, which drops a binary/plain
 // (relayed) pause — ReceiveAsync consumes it as corrupted — so the run dispatches and
@@ -23115,12 +24612,15 @@ func Test_Pump_DecodeGate_DefaultVersion_KeepsOldStructDecode(t *testing.T) {
 	rig.env.OnGetVersion("pump-pause-decode-any", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
 	rig.pauseAt(t, 0)
 
-	_, err := rig.run(t)
-	if !isContinueAsNew(err) {
+	res, err := rig.run(t)
+	if err != nil {
 		t.Fatalf("a pre-change execution must not see the byte pause (old struct decode), got %v", err)
 	}
-	if *rig.childStarts != 1 {
-		t.Fatalf("want the old-sequence dispatch of one child, got %d", *rig.childStarts)
+	// The consequence the gate buys: the run DISPATCHES, where the new decode would have
+	// quieted it at run start. (It no longer continues as new to prove that — the lease pump
+	// drains to quiet instead — so the dispatch itself is the observable.)
+	if !res.Dispatched || *rig.childStarts != 1 {
+		t.Fatalf("want the old-sequence dispatch of one child, got %+v with %d start(s)", res, *rig.childStarts)
 	}
 }
 
@@ -23188,12 +24688,12 @@ func Test_Pump_OperatorDriven_RecordedPause_StillDispatches(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
 	rig.env.OnGetVersion(changePumpHonorsRecordedPause, workflow.DefaultVersion, 2).Return(workflow.Version(1))
 
-	_, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
-	if !isContinueAsNew(err) {
-		t.Fatalf("an operator-driven pump must dispatch and self-cascade through a recorded pause, got %v", err)
+	res, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
+	if err != nil {
+		t.Fatalf("an operator-driven pump must dispatch through a recorded pause, got %v", err)
 	}
-	if *rig.childStarts != 1 {
-		t.Fatalf("want the one dispatched child, got %d", *rig.childStarts)
+	if !res.Dispatched || *rig.childStarts != 1 {
+		t.Fatalf("want the one dispatched child, got %+v with %d start(s)", res, *rig.childStarts)
 	}
 }
 
@@ -23201,7 +24701,7 @@ func Test_Pump_OperatorDriven_RecordedPause_StillDispatches(t *testing.T) {
 // dropped OperatorDriven would honour the recorded pause on its second iteration and
 // stop after one activity.
 func Test_Pump_ContinueAsNew_CarriesOperatorDriven(t *testing.T) {
-	rig := newCascadingPumpRig(10*time.Minute, 0)
+	rig := newCascadingPumpRig(10*time.Minute, 0).atItsHistoryBudget()
 
 	_, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
 	var canErr *workflow.ContinueAsNewError
@@ -23215,6 +24715,12 @@ func Test_Pump_ContinueAsNew_CarriesOperatorDriven(t *testing.T) {
 	if next.ProjectID != rig.pid || !next.OperatorDriven {
 		t.Fatalf("ContinueAsNew must carry the whole input (OperatorDriven true), got %+v", next)
 	}
+	// AND THE STARTED SET RIDES ACROSS TOO (stage 4b2). Without it the next run would
+	// re-dispatch the child this run started: one pump chain dispatches one activity at
+	// most once, and Started is where that is remembered.
+	if len(next.Started) != 1 || next.Started[0] != "C-XYZ" {
+		t.Fatalf("ContinueAsNew must carry the started set, got %v", next.Started)
+	}
 }
 
 // I2 test 8 (version gate "pump-honors-recorded-pause", DefaultVersion branch). A
@@ -23224,12 +24730,12 @@ func Test_Pump_RecordedPauseGate_DefaultVersion_StillDispatches(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
 	rig.env.OnGetVersion(changePumpHonorsRecordedPause, workflow.DefaultVersion, 2).Return(workflow.DefaultVersion)
 
-	_, err := rig.run(t)
-	if !isContinueAsNew(err) {
+	res, err := rig.run(t)
+	if err != nil {
 		t.Fatalf("a pre-change pump must dispatch as it always did, got %v", err)
 	}
-	if *rig.childStarts != 1 {
-		t.Fatalf("want the old-sequence dispatch of one child, got %d", *rig.childStarts)
+	if !res.Dispatched || *rig.childStarts != 1 {
+		t.Fatalf("want the old-sequence dispatch of one child, got %+v with %d start(s)", res, *rig.childStarts)
 	}
 }
 
@@ -23277,21 +24783,30 @@ func Test_PumpSweep_NoProjects_EmptyResult(t *testing.T) {
 	}
 }
 
-// Only construction-phase projects are pumped; system-design/project-design-phase
-// projects are skipped WITHOUT starting a child pump for them (the eligibility
-// filter mirrors nextEligibleActivity's own Phase gate).
-func Test_PumpSweep_FiltersToConstructionPhaseOnly(t *testing.T) {
+// Test_PumpSweep_SweepsAProjectInDesignPhases pins G-S2 in the shape stage 4b2 Task 4
+// gave it, and it is a LIVE DEFECT caught after the fact. Stage 4b1 made the three
+// design activities dispatchable (admissibleInPhase plus the eligibleWithDesign rung)
+// and re-pointed the pump at the generic child, but the SWEEP kept the pre-4b1 blanket
+// `s.Phase != PhaseConstruction` filter — so a project at phase 1 or 2 was skipped every
+// 30 seconds and only a manual Begin ever started its design walk. Its predecessor,
+// Test_PumpSweep_FiltersToConstructionPhaseOnly, asserted exactly the defect.
+//
+// The assertion is on the sweep's RESULT (PumpedProjects), not on a log line: a sweep
+// that silently skips is exactly the failure this catches.
+func Test_PumpSweep_SweepsAProjectInDesignPhases(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
-	constructionProjectID := projectstate.ProjectID(uuid.NewString())
+	systemDesignID := projectstate.ProjectID(uuid.NewString())
+	projectDesignID := projectstate.ProjectID(uuid.NewString())
+	constructionID := projectstate.ProjectID(uuid.NewString())
 	ps := &csFakeProjectState{project: projectstate.Project{Version: 1, Phase: 2}}
 	lister := fakeProjectLister{
 		fakeFullProjectState: fakeFullProjectState{ps},
 		summaries: []projectstate.ProjectSummary{
-			{ProjectID: projectstate.ProjectID(uuid.NewString()), Phase: projectstate.PhaseSystemDesign},
-			{ProjectID: projectstate.ProjectID(uuid.NewString()), Phase: projectstate.PhaseProjectDesign},
-			{ProjectID: constructionProjectID, Phase: projectstate.PhaseConstruction},
+			{ProjectID: systemDesignID, Phase: projectstate.PhaseSystemDesign},
+			{ProjectID: projectDesignID, Phase: projectstate.PhaseProjectDesign},
+			{ProjectID: constructionID, Phase: projectstate.PhaseConstruction},
 		},
 	}
 	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
@@ -23306,8 +24821,54 @@ func Test_PumpSweep_FiltersToConstructionPhaseOnly(t *testing.T) {
 	if err := env.GetWorkflowResult(&res); err != nil {
 		t.Fatalf("decode pump sweep result: %v", err)
 	}
-	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(constructionProjectID) {
-		t.Fatalf("want exactly the one construction-phase project pumped, got %v", res.PumpedProjects)
+	want := []ProjectID{ProjectID(systemDesignID), ProjectID(projectDesignID), ProjectID(constructionID)}
+	if !slices.Equal(res.PumpedProjects, want) {
+		t.Fatalf("G-S2: every non-paused project is swept whatever its phase — a design-phase project's "+
+			"walk is the pump's job since 4b1. want %v, got %v", want, res.PumpedProjects)
+	}
+}
+
+// Test_PumpSweep_StillSkipsAPausedProject pins G-S1 while Task 4 deletes the line
+// directly ABOVE it. The phase filter moved; this one must not. The sweep must never
+// silently override an operator pause every 30 seconds — and now that no phase narrows
+// the fan-out, the pause is the ONLY thing that takes a project out of it.
+//
+// It is deliberately not a duplicate of Test_PumpSweep_ExcludesPausedProject_IncludesUnpaused:
+// that case pauses a CONSTRUCTION-phase project, which the deleted filter would have
+// admitted anyway. This one pauses a PROJECT-DESIGN-phase project — a project the old
+// filter skipped for the wrong reason and the new sweep must skip for the right one. It is
+// GREEN both before and after the deletion on purpose (before, for the wrong reason), so
+// the deletion is proved by Test_PumpSweep_SweepsAProjectInDesignPhases alone and this one
+// only ever moves if the PAUSE moves.
+func Test_PumpSweep_StillSkipsAPausedProject(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pausedID := projectstate.ProjectID(uuid.NewString())
+	activeID := projectstate.ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries: []projectstate.ProjectSummary{
+			{ProjectID: pausedID, Phase: projectstate.PhaseProjectDesign, OperatorPaused: boolPtr(true)},
+			{ProjectID: activeID, Phase: projectstate.PhaseConstruction},
+		},
+	}
+	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &csFakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(activeID) {
+		t.Fatalf("G-S1: an operator pause survives the phase filter's deletion — want only the "+
+			"unpaused project pumped, got %v", res.PumpedProjects)
 	}
 }
 
@@ -23511,11 +25072,32 @@ func Test_PumpSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst(t *test
 // ---- Tests: RegisterSchedules (Task 7c) -------------------------------------
 
 // End to end: the pump picks the integration-pending P (its dependency is Done) and its
-// child dispatches P's Integration phase only.
+// child dispatches P's Integration phase ONLY — it resumes the ledger-partial row at its
+// first incomplete phase instead of re-walking it.
+//
+// THE COUNT MOVED FROM 1 TO THE WHOLE FRONTIER (stage 4b2) and that is the wave, not a
+// regression: the pump starts EVERY eligible activity, so O's own walk runs alongside P's
+// resumed integration. What this case is about is P, and P's single dispatch is asserted
+// exactly; O's presence is asserted too, because "the frontier went out in parallel" is
+// the property that replaced the serial cascade and an assertion that ignored it would
+// pass a pump that had quietly gone back to one-at-a-time.
 func Test_Pump_IntegrationPendingRow_DispatchesOnlyItsIntegration(t *testing.T) {
 	got := d1PumpRun(t, nil)
-	if len(got) != 1 || got[0].ActivityID != "P" || got[0].DispatchInputs["phase"] != string(projectstate.MethodPhaseIntegration) {
-		t.Fatalf("want one dispatch, P's integration; got %v", got)
+	var forP []agenticjob.PipelineSpec
+	sawO := false
+	for _, s := range got {
+		switch s.ActivityID {
+		case "P":
+			forP = append(forP, s)
+		case "O":
+			sawO = true
+		}
+	}
+	if len(forP) != 1 || forP[0].DispatchInputs["phase"] != string(projectstate.MethodPhaseIntegration) {
+		t.Fatalf("want exactly one dispatch for P, its integration; got %v", forP)
+	}
+	if !sawO {
+		t.Fatalf("the pump starts the WHOLE frontier: O is eligible and must have been dispatched too; got %v", got)
 	}
 }
 
@@ -23559,8 +25141,9 @@ func Test_Pump_PauseThenResumeThenTheNextTickDispatches(t *testing.T) {
 		t.Fatalf("resume: %v", err)
 	}
 	next := newCascadingPumpRig(10*time.Minute, 0, func(p *projectstate.Project) { *p = paused.ps.project })
-	if _, err := next.run(t); !isContinueAsNew(err) || *next.childStarts != 1 {
-		t.Fatalf("after the resume the next tick must dispatch, got err=%v starts=%d", err, *next.childStarts)
+	res, err := next.run(t)
+	if err != nil || !res.Dispatched || *next.childStarts != 1 {
+		t.Fatalf("after the resume the next tick must dispatch, got %+v err=%v starts=%d", res, err, *next.childStarts)
 	}
 }
 
@@ -23711,6 +25294,82 @@ func Test_Facade_M0Approve_ReachesTheGenericChildCommitsTheEightSlotsAndAdvances
 	}
 	if advanced != 1 {
 		t.Errorf("AdvancePhase ran %d times, want exactly 1 — commit-then-advance, once", advanced)
+	}
+}
+
+// m0RoundStore is the projectDesign fixture plus ONE round at `sdpReview`, pending, carrying
+// the artifact kind the lifecycle gives that task (`SdpReview` — it is the one review task in
+// method-assets v0.9.0 that carries a kind of its own, and that is the whole reason these two
+// cases exist). thread is the round's review thread as the founder's screen shows it.
+func m0RoundStore(t *testing.T, thread []projectstate.ReviewComment) *csFakeProjectState {
+	t.Helper()
+	proj := projectDesignFixtureProject(t)
+	kind := projectstate.KindSdpReview
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		shapeSDPActivity: {
+			ActivityID: shapeSDPActivity,
+			StartedAt:  &testLedgerClock,
+			Reviews: []projectstate.ReviewRound{{
+				RoundID: projectstate.AttemptID(shapeSDPActivity, sdpReviewTaskID, 1),
+				TaskID:  sdpReviewTaskID, ArtifactKind: &kind, Round: 1,
+				Outcome: projectstate.RoundPending, SubjectRef: projectstate.SubjectRef{Ref: "sha"},
+				Thread: thread,
+			}},
+		},
+	}
+	ps := &csFakeProjectState{project: proj}
+	seedCommittedPlanRow(ps, shapeSDPActivity)
+	return ps
+}
+
+// THE M0 GATE IS THE ONE WHERE A FOUNDER APPROVES MONEY, AND ITS OPEN-COMMENT REFUSAL HAD
+// NEVER RUN. settleThreadsBeforeApprove resolved its round through latestRoundFor, which keys
+// through roundGateKey, so a caller naming no artifact kind saw only KINDLESS rounds — and it
+// returns nil on a miss, by design, because the first approve of a gate must not be blocked
+// by a round that does not exist yet. `sdpReview`'s round is KINDED. So at M0 the resolver
+// found nothing, the miss read as "nothing to settle", and BOTH halves — the refusal stage
+// 4b1 added to close the open-comment regression, and the answered-thread sweep — silently
+// did nothing. Measured by Task 3 and carried; fixed here with roundsAtTask, the resolver
+// Task 3 built for precisely this reason at requireOpenRound.
+func Test_Facade_M0Approve_IsRefusedWhileAChangeRequestIsOpen(t *testing.T) {
+	ps := m0RoundStore(t, []projectstate.ReviewComment{task12Comment("m0c1", "price the compressed option again")})
+	fc := &fakeTemporalClient{session: awaitingAt(sdpReviewTaskID)}
+	chosen := "normalSolution"
+	err := task12Manager(fc, ps).SubmitReviewDecision(testCtx(), shapeProjectID, shapeSDPActivity,
+		sdpReviewTaskID, ReviewDecisionInput{Decision: ReviewApprove, OptionID: &chosen}, nil)
+	if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition ||
+		!strings.Contains(e.Detail, "cannot approve: 1 review thread(s) still open") {
+		t.Fatalf("M0 must refuse an approve over an open change request in the design rail's own words; got %v", err)
+	}
+	if fc.lastSignalName != "" {
+		t.Fatalf("a refused M0 approve must not signal, got %q", fc.lastSignalName)
+	}
+}
+
+// THE OTHER HALF OF THE SAME MISS: approve resolves every ANSWERED thread in one gesture
+// (design §3.4). At M0 it had never swept, so a founder accepting a plan whose eight asks had
+// all been answered was left with eight threads still shown outstanding on the Activity
+// Experience and eight Resolve clicks to make. An OPEN thread alongside them would refuse the
+// approve outright (the case above), so this one's threads are all answered.
+func Test_Facade_M0Approve_SweepsTheAnsweredThreads(t *testing.T) {
+	answered := task12Comment("m0c1", "why decompressed and not normal?")
+	answered.Status = projectstate.ReviewCommentAnswered
+	ps := m0RoundStore(t, []projectstate.ReviewComment{answered})
+	fc := &fakeTemporalClient{session: awaitingAt(sdpReviewTaskID)}
+	chosen := "decompressedSolution"
+	if err := task12Manager(fc, ps).SubmitReviewDecision(testCtx(), shapeProjectID, shapeSDPActivity,
+		sdpReviewTaskID, ReviewDecisionInput{Decision: ReviewApprove, OptionID: &chosen}, nil); err != nil {
+		t.Fatalf("an M0 approve over an ANSWERED thread must be accepted: %v", err)
+	}
+	round := latestRoundAt(ps.execution(shapeSDPActivity), sdpReviewTaskID)
+	for _, c := range round.Thread {
+		if c.Status != projectstate.ReviewCommentResolved {
+			t.Fatalf("the approve must sweep every answered thread resolved (design §3.4); comment %s is %q",
+				c.ID, c.Status)
+		}
+	}
+	if fc.lastSignalName != signalTaskDecision {
+		t.Fatalf("the accepted M0 approve must still reach the child, got %q", fc.lastSignalName)
 	}
 }
 
@@ -25062,5 +26721,1955 @@ func Test_DeliveryActivityOptions_EveryInvokedActivityIsTuned(t *testing.T) {
 			t.Errorf("the hook carries a preset for %q, which NO surviving workflow invokes (Acts.%s has no call site) — "+
 				"a preset for a call that cannot happen is configuration nobody can retire", name, method)
 		}
+	}
+}
+
+// ===========================================================================
+// THE PUMP GUARD CENSUS (stage 4b2 Task 1).
+//
+// Stage 4b1 lost EIGHT preconditions inside bodies it deleted — a precondition that
+// lived in a deleted body and was not re-asserted in the body that replaced it — and
+// EVERY ONE was invisible to this suite. The fakes still modelled them; no test armed
+// them. They were found by a reviewer reading the retired rail's guards against the new
+// one, by hand, after the fact, one of them a live `vibes` autogate regression that had
+// been shipping for two waves.
+//
+// Stage 4b2 rewrites PumpNextActivityWorkflow (Task 12), and Task 11 DELETED the replan
+// sweep — with its two rows discharged first, which is what this census is for. The pump
+// is this wave's deleted body. So its guards come out of it FIRST,
+// as docs/bugs/2026-09-28-pump-guard-census.md and as the assertions below, and Task 16
+// walks that list rather than re-deriving it.
+//
+// WHERE THIS LIVES, and why it is not its own file: the 4b2 plan's Task 1 asks for
+// pumpguards_test.go. That file cannot exist — arch.CheckFileLayout's
+// testFileNameViolations rule (framework-go arch/filelayout.go) flags every *_test.go in
+// a component package whose name is not the package's ONE allowed test file, which here
+// is manager_test.go (see this file's header). A second test file is a red TestFileLayout
+// in internal/arch_test.go, and no gate is weakened to accommodate a doc.
+// ===========================================================================
+
+// pumpGuard is one row of the census: a guard-shaped line in the pump's neighbourhood,
+// what it protects, how its absence shows up, and the test that re-runs it. PinnedBy is
+// the load-bearing member — a guard nobody re-runs is a comment.
+type pumpGuard struct{ ID, Site, Protects, BreaksAs, PinnedBy string }
+
+// pumpGuardCensusDoc is the written twin, relative to this package directory. The two
+// halves are kept in agreement by Test_PumpGuardCensus_TheDocAndTheCodeAgree, because a
+// list Task 16 walks and a list the suite enforces must not be two different lists.
+const pumpGuardCensusDoc = "../../../../docs/bugs/2026-09-28-pump-guard-census.md"
+
+// pumpGuardCensus is the machine-readable census. Sites are line numbers at c5851e90;
+// Task 12 MOVES them, so the ID is the stable handle and the line is provenance.
+func pumpGuardCensus() []pumpGuard {
+	out := pumpGuardCensusPump()
+	out = append(out, pumpGuardCensusPumpSweep()...)
+	return append(out, pumpGuardCensusSupervision()...)
+}
+
+// pumpGuardCensusPump is the 22 guards of pumpnextactivity.go — the body Task 12 deletes.
+func pumpGuardCensusPump() []pumpGuard {
+	return []pumpGuard{
+		{"G-P1", "pumpnextactivity.go:61-66", "the dispatch Query handler is registered BEFORE any blocking call",
+			"the facade's awaitDispatchDecision polls a run that cannot serve it and falls through to terminalPumpResult — a slow dispatch reported as a closed pump",
+			"Test_Pump_DispatchQueryIsServedBeforeTheFirstBlockingCall"},
+		{"G-P2", "pumpnextactivity.go:92-98", "a pause signal at run start goes quiet with NO ContinueAsNew",
+			"a paused pump continues-as-new, re-enters and dispatches on the next run",
+			"Test_Pump_PauseSignal_HaltsCascade_NoDispatch"},
+		{"G-P3", "pumpnextactivity.go:100-108", "a project with no state yet is a quiet tick, not an error; every other read error still fails the run",
+			"the Schedule's child start fails and logs a platform-wide sweep error every 30s",
+			"Test_Pump_ProjectNotFound_QuietTick"},
+		{"G-P4", "pumpnextactivity.go:116-121", "the RECORDED-pause gate sits BEFORE nextEligible",
+			"a pump the sweep restarts inside the relay window acts on the frontier — dispatching, or writing a durable failure record, while the operator has construction paused",
+			"Test_Pump_SweepStarted_RecordedPause_BlockedFrontier_NoFailureRecord"},
+		{"G-P5", "pumpnextactivity.go:133-168", "verdictBlocked writes a LOUD, DURABLE, APP-VISIBLE failure record and returns quiet",
+			"a plan defect becomes a silent quiescent pump: a project with 29 activities to build looks finished",
+			"Test_Pump_BlockedActivity_RecordsTerminalFailure"},
+		{"G-P6", "pumpnextactivity.go:169-172", "verdictQuiescent returns WITHOUT ContinueAsNew",
+			"an infinite pump: one run per second, per project, forever",
+			"Test_Pump_DrainedNetwork_QuietNoContinueAsNew"},
+		{"G-P7", "pumpnextactivity.go:187-192", "the pre-dispatch pause gate, between readProject (an Activity) and the child start",
+			"a pause that lands mid-read still dispatches one more activity, with nothing able to cancel it",
+			"Test_Pump_PauseDuringReadProject_NoNewDispatch"},
+		{"G-P8", "pumpnextactivity.go:219-220", "the dispatch decision is recorded BEFORE the blocking Get",
+			"every Begin blocks for the whole cascade drain and then times out at pumpDispatchWaitBudget",
+			"Test_Pump_DispatchDecisionIsReadableBeforeTheCascadeDrains"},
+		{"G-P9", "pumpnextactivity.go:252-256", "the drain gate before ContinueAsNew: a signal buffered on a run that ends in ContinueAsNew is NOT carried into the next run",
+			"a pause that lands while the run is parked is discarded and the next run dispatches",
+			"Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity"},
+		{"G-P10", "pumpnextactivity.go:259", "ContinueAsNew carries ONLY pumpInput — and the WHOLE of it",
+			"Task 12 grows the payload; an unbounded carry across a per-activity ContinueAsNew chain is unbounded history and an eventual payload failure that wedges the project's one pump",
+			"Test_Pump_ContinueAsNewPayloadIsBoundedByThePlan"},
+		{"G-P11", "pumpnextactivity.go:327-345", "an UNDECODABLE pause still counts as a pause (fail safe, not open)",
+			"an operator halt is ignored because a byte payload did not parse",
+			"Test_Pump_UndecodablePauseSignal_StillPauses"},
+		{"G-P12", "pumpnextactivity.go:230-232", "child.Get's error arm: a FAILED CHILD FAILS THE PUMP RUN — this is how a cascade stops",
+			"a failing activity is re-dispatched by the next tick forever, or the cascade walks past it and builds on a broken dependency",
+			"Test_Pump_AFailedChildFailsTheRunAndStopsTheCascade"},
+		{"G-P13", "pumpnextactivity.go:221-230", "ORDERING: the pump cannot re-select while the child runs, so nextEligible reads SETTLED state",
+			"the same still-Running activity is selected twice, or two children race one dependency frontier",
+			"Test_Pump_TheNextSelectionWaitsForTheChildsTerminal"},
+		{"G-P14", "pumpnextactivity.go:242-244", "the 1s durable pace between cascade iterations",
+			"an unpaced pump busy-spins ContinueAsNew, burning a workflow task per iteration",
+			"Test_Pump_TheCascadeIsPacedBetweenIterations"},
+		{"G-P15", "pumpnextactivity.go:164-166", "the failure record's OWN error arm — a record that cannot land fails the run",
+			"G-P5's loudness becomes best-effort and a blocked frontier goes silent again",
+			"Test_Pump_BlockedActivity_AFailedFailureRecordFailsTheRun"},
+		{"G-P16", "pumpnextactivity.go:386", "the child is addressed by deliveryActivityWorkflowID — idempotent on its id, so a redundant tick collapses",
+			"two executions for one activity, both writing the same row; and the facade signals an id the pump never started",
+			"Test_Pump_StartsOneChildAndNamesNoActivityType"},
+		{"G-P17", "pumpnextactivity.go:387", "PARENT_CLOSE_POLICY_ABANDON on the child start",
+			"the pump's own close — every ContinueAsNew, every failure — terminates every in-flight activity",
+			"Test_Pump_TheChildIsAbandonedSoThePumpsOwnCloseNeverKillsIt"},
+		{"G-P18", "pumpnextactivity.go:268-273", "pumpPausedBehindGate's GetVersion fence, TWO change ids through one func; Default skips the check entirely",
+			"a pump parked across the deploy replays a recorded command sequence into a new arm — a non-determinism panic on the project's ONE pump",
+			"Test_Pump_PreDispatchGate_DefaultVersion_KeepsOldDispatch"},
+		{"G-P19", "pumpnextactivity.go:284-293", "changePumpHonorsRecordedPause's THREE arms (no gate / operator-driven exempt / binds every pump)",
+			"the same replay wedge, plus a resumed project that will not pump",
+			"Test_Pump_RecordedPauseGate_DefaultVersion_StillDispatches"},
+		{"G-P20", "pumpnextactivity.go:301-310", "the pump-pause-decode-any fence: Default keeps the old struct decode",
+			"replaying a pre-change history takes the quiet branch where the history recorded a dispatch",
+			"Test_Pump_DecodeGate_DefaultVersion_KeepsOldStructDecode"},
+		{"G-P21", "pumpnextactivity.go:362-370", "the eligibility ladder: two fences, three CUMULATIVE arms",
+			"non-determinism on replay, or a dropped rung that silently un-dispatches the three design activities",
+			"Test_Pump_EligibilityRuleLadder_EachFenceArmSelectsItsRule"},
+		{"G-P22", "pumpnextactivity.go:398-403", "a nil NextEligibleActivity helper is a quiet tick, never a dispatch",
+			"a wiring regression becomes a nil-deref inside the project's one pump",
+			"Test_Pump_NoEligibleActivity_QuietTick"},
+	}
+}
+
+// THE TWO REPLAN-SWEEP ROWS, G-R1 and G-R2, ARE DISCHARGED AND GONE (Task 11). They were
+// listed to be SHOWN to protect nothing that survives, and they were: both tests ran green,
+// the all-projects arm had no reachable caller over either transport, and the workflow they
+// guarded is deleted. A census row whose subject no longer exists is not a guard, so the
+// rows leave with it — the two meta-tests below are what make that a single edit rather
+// than a doc that quietly outlives its code.
+
+// pumpGuardCensusPumpSweep is pumpsweep.go's seven guards. Task 4 deleted G-S2's filter
+// without touching G-S1, the line directly below it, and ADDED G-S7 — the row the census
+// missed, and the one whose removal the whole package accepted in silence.
+func pumpGuardCensusPumpSweep() []pumpGuard {
+	return []pumpGuard{
+		{"G-S1", "pumpsweep.go:94-96", "an OperatorPaused project is excluded from the fan-out",
+			"PauseProject stops the cascade for at most 30 seconds",
+			"Test_PumpSweep_ExcludesPausedProject_IncludesUnpaused"},
+		{"G-S2", "pumpsweep.go:83-99", "NO phase filter: every non-paused project is swept, whatever its phase (Task 4 DELETED the construction-only filter, which had been wrong for the three design activities since 4b1)",
+			"the filter back, in any form: a project at phase 1 or 2 is swept never and its design walk starts only when an operator presses Begin",
+			"Test_PumpSweep_SweepsAProjectInDesignPhases"},
+		{"G-S3", "pumpsweep.go:94", "a nil OperatorPaused pointer is NOT paused",
+			"an envelope that omits the flag stops every project on the platform",
+			"Test_PumpSweep_NilOperatorPaused_TreatedAsNotPaused"},
+		{"G-S4", "pumpsweep.go:106-116", "wait for the START ack only, and swallow AlreadyStarted as the desired outcome",
+			"the platform fan-out blocks behind one project's drain, or every tick fails on every healthy cascading project",
+			"Test_PumpSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst"},
+		{"G-S5", "pumpsweep.go:77-80", "a failed enumeration fails the whole tick — no partial fan-out",
+			"a catalog fault silently pumps a subset of the platform and the rest look drained",
+			"Test_PumpSweep_AFailedListProjects_FailsTheWholeTick"},
+		{"G-S6", "pumpsweep.go:65", "the sweep's OwnerScope is non-empty",
+			"ListProjects answers ContractMisuse and every sweep tick fails platform-wide, with a Schedule log as the only symptom",
+			"Test_PumpSweep_TheOwnerScopeIsNeverEmpty"},
+		// G-S7 is the row the census MISSED. Task 1's reviewer found it and measured its
+		// removal as green across this entire package; stage 4b2 Task 4 added the row and
+		// the pin. It is G-P17's twin one level up.
+		{"G-S7", "pumpsweep.go:100", "PARENT_CLOSE_POLICY_ABANDON on the SWEEP's child pump start",
+			"the default policy is TERMINATE, so every pump the 30s Schedule starts is killed a moment later when its millisecond-long tick closes — the platform's whole self-start path, silently",
+			"Test_PumpSweep_TheChildPumpIsAbandonedSoTheTickNeverKillsIt"},
+	}
+}
+
+// pumpGuardCensusSupervision is projectsupervision.go's seven guards. It is in the census
+// because relayPauseToPump is the ONE existing example of an out-of-band signal reaching
+// the pump — the shape a react-by-signal pump copies, G-V5 hole included.
+func pumpGuardCensusSupervision() []pumpGuard {
+	return []pumpGuard{
+		{"G-V1", "projectsupervision.go:40-44", "the sessionState Query handler is registered BEFORE the blocking Receive",
+			"a project-scope GetSessionState fails for every unpaused project",
+			"Test_Supervision_SessionStateIsQueryableWhileItWaitsForThePause"},
+		{"G-V2", "projectsupervision.go:74", "the pause-relays-to-pump fence: Default keeps cancel-then-record with no relay",
+			"non-determinism on a supervision run already inside the branch at deploy",
+			"Test_Pause_RelayGate_DefaultVersion_CancelThenRecord_NoRelay"},
+		{"G-V3", "projectsupervision.go:84-92", "RECORD then RELAY then CANCEL, in that order",
+			"a pump started inside the relay window dispatches through an operator halt",
+			"Test_Pause_RecordsBeforeRelayingToPump"},
+		{"G-V4", "projectsupervision.go:84-92", "each step's error arm aborts the rest, and the pause STAYS recorded",
+			"a half-applied pause the next sweep tick overrides",
+			"Test_Pause_RelayFailsAfterRecord_PausedStaysRecorded_WorkflowFails"},
+		{"G-V5", "projectsupervision.go:152-155", "only a NotFound signal target is tolerated; every other delivery failure propagates",
+			"a pause lost with no trace — and, generalised to completions, the react-by-signal pump's dropped-signal hole",
+			"Test_Pause_NoRunningPump_NotFoundTolerated"},
+		{"G-V6", "projectsupervision.go:125-127", "a plan that does not ask for the record writes NO head state",
+			"a project paused in head-state that the engine never paused",
+			"Test_Pause_APlanThatDoesNotRecord_WritesNoPause"},
+		{"G-V7", "projectsupervision.go:66", "the intervention policy is threaded into ApplyPausePolicy",
+			"the real engine rejects every pause with \"unknown policy mode\"",
+			"Test_ApplyPausePolicy_ZeroValuePolicy_IsTheOldBug"},
+	}
+}
+
+// Test_PumpGuardCensus_EveryGuardIsPinned is the 4b1 lesson made executable. Stage 4b1
+// lost EIGHT preconditions inside bodies it deleted, and every one was invisible to the
+// suite: the reviewer found them by reading the retired rail's guards against the new one.
+// 4b2 rewrites the pump, so the guards come out of the body BEFORE the body moves, and
+// this test refuses a census row that names no test.
+//
+// It does NOT assert the guards still hold — the named tests do that. It asserts that the
+// LIST and the SUITE agree, which is the property a census has and a comment does not.
+func Test_PumpGuardCensus_EveryGuardIsPinned(t *testing.T) {
+	names := testFuncNamesInPackage(t)
+	seen := map[string]bool{}
+	for _, g := range pumpGuardCensus() {
+		if seen[g.ID] {
+			t.Errorf("guard %s is listed twice — one id, one guard", g.ID)
+		}
+		seen[g.ID] = true
+		if g.PinnedBy == "" {
+			t.Errorf("guard %s (%s) names no test — a guard nobody re-runs is a comment", g.ID, g.Site)
+			continue
+		}
+		if !names[g.PinnedBy] {
+			t.Errorf("guard %s names %s, which does not exist in this package", g.ID, g.PinnedBy)
+		}
+	}
+}
+
+// pumpGuardDocRowPattern matches an id where the written census puts a ROW and nowhere
+// else: **bolded**, in the FIRST cell, at the START of a line. The anchor is the whole
+// point — `\*\*(G-…)\*\*` anywhere in the document (which is what this pattern used to be)
+// counts a passing mention in prose as a row, and then a row can be DELETED from a table
+// and the mention keeps the census green.
+var pumpGuardDocRowPattern = regexp.MustCompile(`^\|\s*\*\*(G-[A-Z]+[0-9]+)\*\*\s*\|`)
+
+// pumpGuardDocTestPattern pulls each backticked Test* identifier out of a PinnedBy cell. A
+// cell may name several — G-P18's two change ids, G-P19's three arms — so the rule is
+// containment, not equality: the code's PinnedBy must be AMONG them, and every one of them
+// must exist.
+var pumpGuardDocTestPattern = regexp.MustCompile("`(Test[A-Za-z0-9_]*)`")
+
+// pumpGuardDocRowCells is the width of a per-file census row: ID | Line | Verdict | Guard |
+// What it protects | BreaksAs | PinnedBy. THE UNARMED LIST's rows are three cells wide and
+// are deliberately NOT rows by this rule — all fourteen of its guards are bolded there as
+// well as in their file's table, so counting its rows is exactly what let a real row be
+// deleted unnoticed. (Task 16 added the Verdict column and moved this 6 → 7; PinnedBy stays
+// LAST, which is what the index below relies on.)
+const pumpGuardDocRowCells = 7
+
+// pumpGuardDocUnarmedRowCells is the width of a row in THE UNARMED LIST: ID | the guard
+// nothing armed | why the silence is dangerous. Named rather than spelled 3 because the
+// two widths are the whole reason that list's rows are not counted as census rows.
+const pumpGuardDocUnarmedRowCells = 3
+
+// markdownRowCells splits one pipe table row into its trimmed cells. A cell carrying a
+// literal `|` would split into more and the row would stop being a row — which fails the
+// census RED, the safe direction, with the count in the message.
+func markdownRowCells(line string) []string {
+	body := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(line), "|"), "|")
+	cells := strings.Split(body, "|")
+	for i, c := range cells {
+		cells[i] = strings.TrimSpace(c)
+	}
+	return cells
+}
+
+// Test_PumpGuardCensus_TheDocAndTheCodeAgree keeps the two halves one census. Task 16
+// walks docs/bugs/2026-09-28-pump-guard-census.md ROW BY ROW; this suite enforces
+// pumpGuardCensus(). A row in one and not the other is how the written list quietly stops
+// being the list that is checked — which is exactly how the 4b1 guards were lost.
+//
+// IT USED TO BE AN ID-SET TEST OVER THE WHOLE DOCUMENT, and it was weaker than it read.
+// Measured at e4015c76, all three of these were GREEN:
+//
+//   - de-bolding a per-file table row's id (for any of the sixteen guards the UNARMED LIST
+//     also bolds, the other mention covered it);
+//   - DELETING a per-file table row outright, for the same sixteen and the same reason —
+//     and Task 16 walks rows, so a deleted row is work that silently stops being owed;
+//   - naming a DIFFERENT pinning test in the doc than the code names. The document could
+//     send Task 16 to a test that pins something else entirely.
+//
+// So it is re-keyed on the row's SHAPE (bolded id, first cell, line start, six cells) and
+// it reads the PinnedBy column rather than only the id. Every id bolded in a first cell
+// anywhere — the unarmed list included — must still be a guard the code knows, so an id
+// invented in that list is caught too.
+func Test_PumpGuardCensus_TheDocAndTheCodeAgree(t *testing.T) {
+	raw, err := os.ReadFile(pumpGuardCensusDoc)
+	if err != nil {
+		t.Fatalf("reading the written census: %v", err)
+	}
+	names := testFuncNamesInPackage(t)
+	rows := map[string][]string{}
+	bolded := map[string]bool{}
+	for n, line := range strings.Split(string(raw), "\n") {
+		m := pumpGuardDocRowPattern.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		bolded[m[1]] = true
+		cells := markdownRowCells(line)
+		if len(cells) != pumpGuardDocRowCells {
+			continue // the unarmed list's three-cell rows, which are a summary and not the census
+		}
+		if _, dup := rows[m[1]]; dup {
+			t.Errorf("guard %s has TWO census rows (the second at %s:%d) — one id, one row", m[1], pumpGuardCensusDoc, n+1)
+		}
+		rows[m[1]] = cells
+	}
+
+	inCode := map[string]bool{}
+	for _, g := range pumpGuardCensus() {
+		inCode[g.ID] = true
+		cells, ok := rows[g.ID]
+		if !ok {
+			t.Errorf("guard %s is in pumpGuardCensus() but has no ROW in %s — a mention in prose, or a bold in "+
+				"the unarmed list, is not a row: a row is %d cells with the id bolded in the first",
+				g.ID, pumpGuardCensusDoc, pumpGuardDocRowCells)
+			continue
+		}
+		var named []string
+		for _, m := range pumpGuardDocTestPattern.FindAllStringSubmatch(cells[pumpGuardDocRowCells-1], -1) {
+			named = append(named, m[1])
+		}
+		if len(named) == 0 {
+			t.Errorf("guard %s's PinnedBy cell names no test — the code says %s, and a row that does not "+
+				"repeat it is a row Task 16 cannot walk", g.ID, g.PinnedBy)
+			continue
+		}
+		if !slices.Contains(named, g.PinnedBy) {
+			t.Errorf("guard %s is pinned by %s in pumpGuardCensus() and by %v in %s — the doc must name the "+
+				"test the suite enforces, or the two halves send a reader to different places",
+				g.ID, g.PinnedBy, named, pumpGuardCensusDoc)
+		}
+		for _, name := range named {
+			if !names[name] {
+				t.Errorf("guard %s's PinnedBy cell names %s, which does not exist in this package", g.ID, name)
+			}
+		}
+	}
+	for id := range bolded {
+		if !inCode[id] {
+			t.Errorf("guard %s is bolded as a row id in %s but is not in pumpGuardCensus() — the list Task 16 walks must be the list the suite enforces", id, pumpGuardCensusDoc)
+		}
+	}
+}
+
+// pumpGuardDocHeadingPattern matches a per-file census heading and pulls its declared
+// guard count: "## `pumpnextactivity.go` — 22 guards", and also the discharged file's
+// "## `replansweep.go` — DISCHARGED, 0 guards".
+var pumpGuardDocHeadingPattern = regexp.MustCompile("^##\\s+`([A-Za-z0-9_]+\\.go)`\\D*?(\\d+)\\s+guards")
+
+// pumpGuardVerdictCell is the index of the Verdict column in a per-file census row:
+// ID | Line | Verdict | … . It is Task 16's answer for the row, and every row carries one.
+const pumpGuardVerdictCell = 2
+
+// pumpGuardVerdictWords is the CLOSED vocabulary a Verdict cell may open with. The brief
+// specified three. The fourth exists because exactly one row — G-P13 — is neither: its
+// successor is real and named, so it is not LOST (which is a blocker, not a note), and its
+// successor covers one of its two halves at reduced scope, so a plain RE-ASSERTED would
+// claim a parity the row itself spends a paragraph denying. Longest-first, because
+// "**RE-ASSERTED**" would otherwise never be reached past its own prefix — it is not one,
+// the closing `**` sees to that, but the order makes the rule independent of that luck.
+var pumpGuardVerdictWords = []string{
+	"**RE-ASSERTED IN REDUCED FORM**",
+	"**RE-ASSERTED**",
+	"**DELETED WITH ITS SUBJECT**",
+	"**LOST**",
+}
+
+// pumpGuardVerdictWordOf reports which verdict a Verdict cell opens with.
+func pumpGuardVerdictWordOf(cell string) (string, bool) {
+	for _, w := range pumpGuardVerdictWords {
+		if strings.HasPrefix(cell, w) {
+			return w, true
+		}
+	}
+	return "", false
+}
+
+// pumpGuardDocFileOfSite pulls the file name out of a census Site ("pumpsweep.go:94-96").
+func pumpGuardDocFileOfSite(site string) string {
+	if before, _, ok := strings.Cut(site, ":"); ok {
+		return before
+	}
+	return site
+}
+
+// pumpGuardDocHeadlineCounts reads every TWO-cell "| label | number |" row in the written
+// census and returns label → number, with ** ** and backticks stripped off the label. That
+// shape is the Headline counts table and nothing else in the document: every other table
+// is three cells or more.
+func pumpGuardDocHeadlineCounts(t *testing.T, doc string) map[string]int {
+	t.Helper()
+	out := map[string]int{}
+	for line := range strings.SplitSeq(doc, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
+			continue
+		}
+		cells := markdownRowCells(line)
+		if len(cells) != 2 {
+			continue
+		}
+		n, err := strconv.Atoi(strings.Trim(cells[1], "* "))
+		if err != nil {
+			continue
+		}
+		out[strings.Trim(cells[0], "*` ")] = n
+	}
+	return out
+}
+
+// Test_PumpGuardCensus_TheHeadlineCountsAreTrue is the hole stage 4b2 Task 4's review
+// found and Task 16 closes.
+//
+// The other two meta-tests check the row SET and the PinnedBy column. Neither reads a
+// NUMBER, so "| Guard rows total | **38** |" and "## `pumpnextactivity.go` — 22 guards"
+// both stayed green while wrong — and the total was in fact wrong for two tasks (Task 1's
+// report and progress.md still say 37; the truth is 36 = 38 − 2 after Task 11 discharged
+// the two replansweep.go rows). THAT IS THE ONE FIGURE A READER USES TO NOTICE A MISSING
+// ROW: a reader who is told 36 and counts 35 goes looking, and a reader who is told nothing
+// trustworthy does not. Both halves are checked against pumpGuardCensus() itself, so the
+// document cannot describe a census the code does not have.
+func Test_PumpGuardCensus_TheHeadlineCountsAreTrue(t *testing.T) {
+	raw, err := os.ReadFile(pumpGuardCensusDoc)
+	if err != nil {
+		t.Fatalf("reading the written census: %v", err)
+	}
+	doc := string(raw)
+	census := pumpGuardCensus()
+
+	perFile := map[string]int{}
+	unpinned := 0
+	for _, g := range census {
+		perFile[pumpGuardDocFileOfSite(g.Site)]++
+		if g.PinnedBy == "" {
+			unpinned++
+		}
+	}
+
+	counts := pumpGuardDocHeadlineCounts(t, doc)
+	want := map[string]int{"Guard rows total": len(census), "Rows with no pin": unpinned}
+	maps.Copy(want, perFile)
+	scan := scanPumpGuardDoc(t, doc)
+	want["Rows NOTHING armed before the census"] = scan.unarmed
+	want["Verdict rows total"] = len(census)
+	for _, word := range pumpGuardVerdictWords {
+		want[strings.Trim(word, "* ")] = scan.verdicts[word]
+	}
+	assertPumpGuardCounts(t, counts, want)
+
+	// The per-file HEADINGS, which are the second place the same number is written and the
+	// place a reader meets it while walking the table.
+	for file, n := range scan.headings {
+		if perFile[file] != n {
+			t.Errorf("the heading for %s declares %d guards; pumpGuardCensus() holds %d for that file",
+				file, n, perFile[file])
+		}
+	}
+	for file, n := range perFile {
+		if _, ok := scan.headings[file]; !ok {
+			t.Errorf("pumpGuardCensus() holds %d guards in %s and the written census has no \"## `%s` — N guards\" "+
+				"section for them", n, file, file)
+		}
+	}
+}
+
+// assertPumpGuardCounts compares every number the written census declares against the
+// number pumpGuardCensus() (or the document's own rows) actually holds. A MISSING label is
+// an error too: a count a reader cannot find is a count nobody checks against.
+func assertPumpGuardCounts(t *testing.T, counts, want map[string]int) {
+	t.Helper()
+	for label, n := range want {
+		got, ok := counts[label]
+		if !ok {
+			t.Errorf("the written census has no headline count for %q — it should read %d", label, n)
+			continue
+		}
+		if got != n {
+			t.Errorf("the written census's headline says %s = %d; the census actually holds %d", label, got, n)
+		}
+	}
+}
+
+// pumpGuardDocScanResult is what one pass over the written census counts for itself: the
+// per-file section headings, THE UNARMED LIST's three-cell rows, and the verdict carried by
+// every full row. Split out of the test for the complexity budget, along a real seam — this
+// is everything that is read out of the DOCUMENT, and the test is everything that is
+// compared against the CODE.
+type pumpGuardDocScanResult struct {
+	unarmed  int
+	headings map[string]int
+	verdicts map[string]int
+}
+
+// scanPumpGuardDoc walks the written census once. It also enforces the verdict VOCABULARY:
+// a row whose Verdict cell opens with none of the four words is a row Task 16 did not walk,
+// and an empty one is worse.
+func scanPumpGuardDoc(t *testing.T, doc string) pumpGuardDocScanResult {
+	t.Helper()
+	out := pumpGuardDocScanResult{headings: map[string]int{}, verdicts: map[string]int{}}
+	for line := range strings.SplitSeq(doc, "\n") {
+		if h := pumpGuardDocHeadingPattern.FindStringSubmatch(line); h != nil {
+			n, cerr := strconv.Atoi(h[2])
+			if cerr != nil {
+				t.Fatalf("unreadable guard count in heading %q: %v", line, cerr)
+			}
+			out.headings[h[1]] = n
+			continue
+		}
+		m := pumpGuardDocRowPattern.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		cells := markdownRowCells(line)
+		switch len(cells) {
+		case pumpGuardDocUnarmedRowCells:
+			out.unarmed++
+		case pumpGuardDocRowCells:
+			word, ok := pumpGuardVerdictWordOf(cells[pumpGuardVerdictCell])
+			if !ok {
+				t.Errorf("guard %s's Verdict cell opens with none of %v — a verdict Task 16 did not define is a "+
+					"row nobody walked, and an empty one is worse: %q",
+					m[1], pumpGuardVerdictWords, cells[pumpGuardVerdictCell])
+				continue
+			}
+			out.verdicts[word]++
+		}
+	}
+	return out
+}
+
+// deliverSignalWireFormProducers is the closed list of signal names this package delivers
+// through messageBus.deliverSignal. Anything on it crosses the bus as RAW BYTES.
+var deliverSignalWireFormProducers = []string{
+	"signalActivityFinished",
+	"signalActivityLeaseGranted",
+	"signalActivityLeaseRequested",
+	"signalOperatorPauseRequested",
+}
+
+// Test_DeliverSignal_TheWireFormProducersAreAClosedList is the census's SIBLING, and it is
+// here because stage 4b2 shipped the defect it describes.
+//
+// THE RULE, measured in Task 14 and not enforced anywhere: messageBus.deliverSignal hands
+// the Temporal client a []byte, the default data converter tags it binary/plain, and
+// ByteSlicePayloadConverter can assign such a payload to nothing but a *[]byte. So a
+// workflow that RECEIVES one of these signals into a concrete struct gets nothing: the SDK
+// logs "Corrupted signal received on channel …" and moves on, and a failed signal assign is
+// INVISIBLE to the workflow. All three lease channels did exactly that, so the whole
+// stage-4b2 main-write lease was inert in production — no request reached the pump, no grant
+// reached a child, every merge tail waited out its two-hour budget and then ran unleased.
+// Nothing failed. Silence was the entire symptom. Only the pause path had it right, and it
+// said so at the site (pumpPauseRequested) without the lesson being inherited.
+//
+// WHAT THIS TEST DOES, AND WHAT IT DOES NOT. It does NOT enforce the decode — that needs
+// dataflow from a GetSignalChannel call to a Receive target across struct fields, closure
+// params and helper funcs, which is an arch gate (framework-go arch/) and not a package
+// test; it is carried as such. What it does is make the PRODUCER side a closed list that
+// cannot grow in silence, because a fifth producer is the only way a fifth channel gets this
+// wire form, and this is the door its author walks through. The error message is the rule.
+func Test_DeliverSignal_TheWireFormProducersAreAClosedList(t *testing.T) {
+	fset := token.NewFileSet()
+	entries, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []string
+	for _, e := range entries {
+		if strings.HasSuffix(e, "_test.go") || strings.HasSuffix(e, ".gen.go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, e, nil, 0)
+		if perr != nil {
+			t.Fatalf("parse %s: %v", e, perr)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "MessageBusDeliverSignal" || len(call.Args) < 3 {
+				return true
+			}
+			// (ctx, targetExecutionID, signalName, payload) — the NAME is the third argument.
+			where := e + ":" + strconv.Itoa(fset.Position(call.Pos()).Line)
+			name, ok := deliverSignalNameArg(call.Args[2])
+			if !ok {
+				t.Errorf("%s delivers a signal whose NAME is not messagebus.SignalName(<const>) — the wire-form "+
+					"rule is keyed on the name, so a computed name is a channel nobody can check", where)
+				return true
+			}
+			found = append(found, name)
+			return true
+		})
+	}
+	slices.Sort(found)
+	found = slices.Compact(found)
+	if !slices.Equal(found, deliverSignalWireFormProducers) {
+		t.Errorf("messageBus.deliverSignal is called with %v; the closed list is %v.\n"+
+			"A signal delivered this way crosses the bus as binary/plain RAW BYTES, and a workflow that receives "+
+			"it into a concrete struct DROPS IT SILENTLY (the SDK logs \"Corrupted signal\" and moves on). If this "+
+			"list grew, the new channel's RECEIVER must decode into `any` first — see pumpReceiveSignal and "+
+			"pumpPauseRequested — and the name belongs in deliverSignalWireFormProducers. If it shrank, take the "+
+			"name out. Measured: all three lease channels got this wrong and the whole main-write lease was inert "+
+			"in production until stage 4b2 Task 14.", found, deliverSignalWireFormProducers)
+	}
+}
+
+// deliverSignalNameArg reads messagebus.SignalName(<ident>) and reports the ident.
+func deliverSignalNameArg(arg ast.Expr) (string, bool) {
+	conv, ok := arg.(*ast.CallExpr)
+	if !ok || len(conv.Args) != 1 {
+		return "", false
+	}
+	sel, ok := conv.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "SignalName" {
+		return "", false
+	}
+	id, ok := conv.Args[0].(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	return id.Name, true
+}
+
+// testFuncNamesInPackage parses every *_test.go in this directory and returns the set of
+// top-level Test* func names. Precedent for the technique: paramguard_arch_test.go keys
+// bodies by receiver + name, and internal/arch_test.go's TestBuildStatusVocabulariesAgree
+// parses two switches.
+func testFuncNamesInPackage(t *testing.T) map[string]bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	out := map[string]bool{}
+	entries, err := filepath.Glob("*_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		f, perr := parser.ParseFile(fset, e, nil, 0)
+		if perr != nil {
+			t.Fatalf("parse %s: %v", e, perr)
+		}
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
+				out[fn.Name.Name] = true
+			}
+		}
+	}
+	return out
+}
+
+// ---- The guards nothing armed before this task -----------------------------
+
+// queryPumpDispatchAt reads the pump's dispatch Query at workflow time `at`, WHILE the run
+// is still going, and reports what it answered. The mid-run read is the whole point: every
+// pre-existing query in this file runs after the run closed, which cannot tell a handler
+// registered first from one registered last.
+func queryPumpDispatchAt(rig cascadingPumpRig, at time.Duration) (*pumpDispatch, *error) {
+	var answer pumpDispatch
+	var qerr error
+	rig.env.RegisterDelayedCallback(func() {
+		enc, err := rig.env.QueryWorkflow(queryPumpDispatch)
+		if err != nil {
+			qerr = err
+			return
+		}
+		qerr = enc.Get(&answer)
+	}, at)
+	return &answer, &qerr
+}
+
+// G-P1. The Query handler is registered before ANY blocking call, so a facade that joined
+// the run can read it while the pump is still inside its first Activity. readProject is
+// held for two minutes and the Query runs at one: it must be SERVED (the handler exists)
+// and must answer "not decided" (the run has not reached its decision point).
+func Test_Pump_DispatchQueryIsServedBeforeTheFirstBlockingCall(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute)
+	answer, qerr := queryPumpDispatchAt(rig, time.Minute)
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("the rig dispatches and drains; got %v", err)
+	}
+	if *qerr != nil {
+		t.Fatalf("G-P1: the pump must serve queryPumpDispatch while parked in readProject, its FIRST blocking call: %v", *qerr)
+	}
+	if answer.Decided {
+		t.Fatalf("G-P1: the run had not reached its decision point; want an undecided answer, got %+v", *answer)
+	}
+}
+
+// G-P8. THE ORDER, not the value: the dispatch decision is recorded after the child-start
+// command is queued and BEFORE the blocking Get, so the facade's synchronous
+// ExecuteNextActivity returns this tick's answer while the cascade drains in the
+// background. The child is held for ten minutes and the Query runs at one, so an
+// assignment moved below child.Get answers "not decided" here and fails — the existing
+// facade tests observe the Query's VALUE and could never see this.
+//
+// THE BLOCK IT IS READ IN FRONT OF IS NOW THE SELECTOR PARK, not child.Get, and the guard
+// is stronger for it: the decision is recorded after the WHOLE frontier is started and
+// before the park, so a Begin that joined a run dispatching five activities still returns
+// within a workflow task instead of waiting out five cascades.
+func Test_Pump_DispatchDecisionIsReadableBeforeTheCascadeDrains(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0)
+	answer, qerr := queryPumpDispatchAt(rig, time.Minute)
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("the rig dispatches and drains; got %v", err)
+	}
+	if *qerr != nil {
+		t.Fatalf("query the in-flight pump: %v", *qerr)
+	}
+	if !answer.Decided || !answer.Dispatched || answer.ActivityID == nil || *answer.ActivityID != "C-XYZ" {
+		t.Fatalf("G-P8: the dispatch must be readable while the pump is still parked; got %+v", *answer)
+	}
+	// And the WHOLE frontier is on the Query, which is where it lives until PumpResult
+	// grows activityIds (see pumpDispatchedResult's BLOCKED note).
+	if len(answer.ActivityIDs) != 1 || answer.ActivityIDs[0] != "C-XYZ" {
+		t.Fatalf("G-P8: the frontier must be readable as a list, got %v", answer.ActivityIDs)
+	}
+}
+
+// pumpContinueAsNewCarry declares, per pumpInput field, the bound that keeps the
+// ContinueAsNew payload finite. A field this table does not name is a test failure, which
+// is the point: stage 4b2 Task 12 GROWS this payload (the started set), and the bound is
+// stated here once rather than argued twice. A slice/map/array field must say what bounds
+// it — "bounded by the plan's activity count" is the answer the plan expects.
+var pumpContinueAsNewCarry = map[string]string{
+	"ProjectID":      "one id per run, O(1)",
+	"OperatorDriven": "one bool per run, O(1)",
+	"Started":        "bounded by the plan's activity count — one id per activity this pump chain ever dispatched",
+	"Finished":       "bounded by the plan's activity count — a subset of Started",
+	"LeaseHolder":    "at most one activity, ever — the invariant, O(1)",
+	"LeaseEpoch":     "one int64 per run, O(1)",
+	"LeaseGrantedAt": "one timestamp per run, O(1)",
+	"Carried":        "bounded by the plan's activity count — at most one finish and one lease request per activity, drained at the boundary and replayed at once",
+}
+
+// pumpContinueAsNewPayloadBudget is the self-imposed ceiling on the ContinueAsNew payload,
+// measured in bytes of encoded input. It is far under Temporal's own limit deliberately:
+// the pump continues-as-new once per dispatched activity, so the payload is paid on every
+// iteration, and a carry that needs more than this is carrying state that belongs in
+// head-state. This repo's plan has 30 activities; 8 KiB holds their ids many times over.
+const pumpContinueAsNewPayloadBudget = 8 << 10
+
+// G-P10. The payload's BOUND, which nothing pinned — Test_Pump_ContinueAsNew_CarriesOperatorDriven
+// pins that the whole input rides across, and that is the other half.
+func Test_Pump_ContinueAsNewPayloadIsBoundedByThePlan(t *testing.T) {
+	tp := reflect.TypeFor[pumpInput]()
+	if got, want := tp.NumField(), len(pumpContinueAsNewCarry); got != want {
+		t.Errorf("pumpInput has %d fields and pumpContinueAsNewCarry states %d bounds", got, want)
+	}
+	for i := 0; i < tp.NumField(); i++ {
+		f := tp.Field(i)
+		bound, declared := pumpContinueAsNewCarry[f.Name]
+		if !declared {
+			t.Errorf("G-P10: pumpInput.%s (%s) rides ContinueAsNew and pumpContinueAsNewCarry states no bound for it — Task 12 grows this payload and OWES the bound here", f.Name, f.Type)
+			continue
+		}
+		if k := f.Type.Kind(); k == reflect.Slice || k == reflect.Map || k == reflect.Array {
+			if !strings.Contains(bound, "bounded by") {
+				t.Errorf("G-P10: pumpInput.%s is a %s, so its bound must name what bounds it (\"bounded by ...\"); got %q", f.Name, k, bound)
+			}
+		}
+	}
+	rig := newCascadingPumpRig(10*time.Minute, 0).atItsHistoryBudget()
+	_, err := rig.run(t)
+	carried, size := pumpContinuedInput(t, err)
+	if size > pumpContinueAsNewPayloadBudget {
+		t.Fatalf("G-P10: the ContinueAsNew payload is %d bytes, over the %d-byte budget it is paid once per dispatched activity", size, pumpContinueAsNewPayloadBudget)
+	}
+	if len(carried.Started) != 1 || carried.Started[0] != "C-XYZ" {
+		t.Fatalf("the started set is what the bound is stated against; got %v", carried.Started)
+	}
+
+	// THE FABRICATION HALF (fix round 1, F2). The measurement above is one shot over a
+	// well-behaved cascade, and the reflection above it reads FIELD NAMES — so between them
+	// they could not see that the declared bound was false. "Finished … a subset of Started"
+	// and "Carried … at most one finish and one lease request per activity" are claims about
+	// ids THE PUMP STARTED, and nothing enforced that: pumpGrantLease validated a lease
+	// REQUEST because "Temporal does not authenticate a signaler", and the finish arm and the
+	// drain validated nothing at all. A reviewer fabricated fifty ids and the pump accepted
+	// and carried every one.
+	//
+	// THERE ARE TWO DOORS INTO THE PAYLOAD and the timing of each is spelled out, because a
+	// case that only reaches one of them would leave the other unarmed.
+	//
+	// DOOR 1, THE SELECTOR ARM (Finished). The pump is UNDER its history budget when it
+	// starts, so it parks; fifty finishes for activities it never started arrive at one
+	// minute and the parked selector consumes them one per wake-up; the budget is crossed at
+	// ten minutes, long after the last of them, so the run continues-as-new with whatever the
+	// arm let in.
+	selectorDoor, _ := pumpContinuedInput(t, pumpFabricatedFinishRun(t, fabricatedFinishes, 0, 10*time.Minute))
+	if len(selectorDoor.Finished) != 0 {
+		t.Errorf("G-P10/F2: Finished is declared %q; the finish ARM let in %d id(s) the pump never started: %v",
+			pumpContinueAsNewCarry["Finished"], len(selectorDoor.Finished), selectorDoor.Finished)
+	}
+
+	// DOOR 2, THE PRE-CONTINUE-AS-NEW DRAIN (Carried). The head-state read is held for two
+	// minutes and the budget is crossed from the start, so the fifty land while the run is
+	// inside an Activity: the selector never sees one, and the drain is what meets them.
+	drainDoor, dsize := pumpContinuedInput(t, pumpFabricatedFinishRun(t, fabricatedFinishes, 2*time.Minute, 0))
+	if len(drainDoor.Carried) != 0 {
+		t.Errorf("G-P10/F2: Carried is declared %q; the DRAIN carried %d fabricated message(s) across the boundary: %+v",
+			pumpContinueAsNewCarry["Carried"], len(drainDoor.Carried), drainDoor.Carried)
+	}
+	if dsize > pumpContinueAsNewPayloadBudget {
+		t.Errorf("G-P10/F2: %d fabricated finishes grew the payload to %d bytes, over the %d-byte budget — the declared bound was a bound on the sender's manners",
+			fabricatedFinishes, dsize, pumpContinueAsNewPayloadBudget)
+	}
+}
+
+// fabricatedFinishes is how many ids a case invents. Fifty is the reviewer's number, and it
+// is far enough over the plan's thirty activities that a payload built from them is a
+// payload nothing in the plan bounds.
+const fabricatedFinishes = 50
+
+// pumpFabricatedFinishRun runs one pump that is told, by a signaler Temporal did not
+// authenticate, that n activities it never started have finished, and returns the run's
+// terminal error for pumpContinuedInput to decode.
+//
+// readDelay holds the head-state read, which is how a case chooses whether the messages are
+// met by the SELECTOR (delay 0 — the pump is parked when they land) or by the DRAIN (a delay
+// longer than their arrival — they are buffered behind an Activity and the selector never
+// sees them). budgetAt crosses the history ceiling at a workflow time of the case's
+// choosing; zero crosses it before the run starts.
+func pumpFabricatedFinishRun(t *testing.T, n int, readDelay, budgetAt time.Duration) error {
+	t.Helper()
+	rig := newCascadingPumpRig(90*time.Minute, readDelay)
+	if budgetAt == 0 {
+		rig = rig.atItsHistoryBudget()
+	} else {
+		rig.env.RegisterDelayedCallback(func() { rig.env.SetCurrentHistoryLength(pumpHistoryBudget + 1) }, budgetAt)
+	}
+	rig.env.RegisterDelayedCallback(func() {
+		for i := range n {
+			rig.env.SignalWorkflow(signalActivityFinished, activityFinishedSignal{
+				ActivityID: ActivityID(fmt.Sprintf("C-NOBODY-STARTED-THIS-%02d", i)),
+				Outcome:    projectstate.ActivityOutcomeCompleted,
+			})
+		}
+	}, time.Minute)
+	_, err := rig.run(t)
+	return err
+}
+
+// pumpContinuedInput decodes the payload a pump run handed its successor, and reports its
+// encoded size — the two things every bound claim in pumpContinueAsNewCarry is about.
+func pumpContinuedInput(t *testing.T, err error) (pumpInput, int) {
+	t.Helper()
+	var canErr *workflow.ContinueAsNewError
+	if !errors.As(err, &canErr) {
+		t.Fatalf("want a ContinueAsNewError to measure, got %v", err)
+	}
+	size := 0
+	for _, p := range canErr.Input.GetPayloads() {
+		size += len(p.GetData())
+	}
+	var in pumpInput
+	if derr := converter.GetDefaultDataConverter().FromPayloads(canErr.Input, &in); derr != nil {
+		t.Fatalf("decode the continued input: %v", derr)
+	}
+	return in, size
+}
+
+// G-P12. A FAILED CHILD FAILS THE PUMP RUN, and that is how a cascade stops on a broken
+// activity instead of marching down the frontier. NOTHING armed this: both existing
+// OnWorkflow(executionKindDeliveryActivity) mocks in this file Return(nil), so no test has
+// ever failed a child. It is also one of the four things child.Get gives that a signal
+// does not — a signal carries no error channel, and deliveryActivity has no
+// failure-signal producer — so Task 12 owes this guard a replacement, not a re-assertion.
+func Test_Pump_AFailedChildFailsTheRunAndStopsTheCascade(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
+		},
+	})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+	starts := 0
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		Run(func(mock.Arguments) { starts++ }).
+		Return(errors.New("the activity child failed"))
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump did not complete")
+	}
+	err := env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("G-P12: a failed child must FAIL the pump run; a clean completion is a cascade that silently walked past a broken activity")
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("G-P12: a failed child must STOP the cascade, not continue it: %v", err)
+	}
+	if starts != 1 {
+		t.Fatalf("want the one child, got %d", starts)
+	}
+}
+
+// pumpFlightCounts counts head-state reads and child starts, so a test can ask what the
+// pump had done AT A MOMENT rather than only at the end.
+type pumpFlightCounts struct {
+	mu       sync.Mutex
+	reads    int
+	children int
+}
+
+func (c *pumpFlightCounts) watch(env *testsuite.TestWorkflowEnvironment) {
+	env.SetOnActivityStartedListener(func(info *activity.Info, _ context.Context, _ converter.EncodedValues) {
+		if info.ActivityType.Name != "designSessionAccess.readProjectOnBranch" {
+			return
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.reads++
+	})
+	env.SetOnChildWorkflowStartedListener(func(*workflow.Info, workflow.Context, converter.EncodedValues) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.children++
+	})
+}
+
+func (c *pumpFlightCounts) read() (int, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reads, c.children
+}
+
+// G-P13, REPLACED RATHER THAN DELETED — which it had to be, because this test's whole
+// subject, child.Get, is what stage 4b2 removed. The old guard read: THE PUMP CANNOT
+// RE-SELECT WHILE THE CHILD RUNS, so nextEligible's PumpWroteRow / ledger derivation reads
+// SETTLED state. Two halves of it are now three different things, and saying which is
+// which is the point of this comment.
+//
+//  1. STILL TRUE, AND STILL THE FIRST ASSERTION: the pump does not END while a child it
+//     started is in flight. It parks on a selector instead of blocking on a Get, so
+//     PumpStatus.open keeps meaning "the cascade is alive", which awaitDispatchDecision and
+//     the SPA both assume.
+//
+//  2. DELIBERATELY ABANDONED: "one run selects once". The lease pump dispatches the WHOLE
+//     frontier in parallel — that is the wave's purpose — so the SECOND assertion below,
+//     which used to read `children == 1`, silently changes meaning the moment a run
+//     dispatches more than one child. It survives here ONLY because this rig's selection
+//     double hands back the same activity forever, and it is kept as the pin on the OTHER
+//     property that replaced ordering: one pump chain dispatches one activity AT MOST ONCE
+//     (pumpState.Started). What replaces the exclusion ordering used to buy is LEASE
+//     EXCLUSIVITY — at most one activity writes main at a time — pinned by
+//     Test_Pump_GrantsAtMostOneLease, not here.
+//
+//  3. INVERTED: "one run reads head-state once" is now FALSE BY DESIGN and the opposite is
+//     asserted. The pump must RE-READ AND RE-DERIVE ON EVERY WAKE-UP, because the child
+//     writes head-state and the frontier genuinely moves; a pump that carried its frontier
+//     in memory would be stale by construction.
+//
+// TWO EARLIER DRAFTS OF THE FIRST ASSERTION WERE WRONG, and they stay recorded because the
+// mistake IS the census's own failure mode. Draft 1 sampled counters at one minute; draft 2
+// compared env.Now() before and after. BOTH stay true with child.Get deleted, because the
+// test environment goes on skipping time for the abandoned child's pending timer. Only the
+// RUN's own liveness distinguishes them.
+func Test_Pump_TheNextSelectionWaitsForTheChildsTerminal(t *testing.T) {
+	const childRun = 10 * time.Minute
+	rig := newCascadingPumpRig(childRun, 0)
+	counts := &pumpFlightCounts{}
+	counts.watch(rig.env)
+	stillRunningMidFlight := false
+	rig.env.RegisterDelayedCallback(func() {
+		stillRunningMidFlight = !rig.env.IsWorkflowCompleted()
+	}, childRun/2)
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("the rig dispatches and drains; got %v", err)
+	}
+	if !stillRunningMidFlight {
+		t.Fatalf("G-P13 (1): the pump must still be RUNNING while a child it started is in flight; it had already ended %s into a child that takes %s, so PumpStatus.open would stop meaning the cascade is alive", childRun/2, childRun)
+	}
+	reads, children := counts.read()
+	if children != 1 {
+		t.Fatalf("G-P13 (2): one pump chain dispatches one activity at most once; got %d child start(s)", children)
+	}
+	if reads < 2 {
+		t.Fatalf("G-P13 (3): the pump must RE-READ head-state on every wake-up — the child writes it and the frontier moves — got %d read(s) across a run that woke at least twice", reads)
+	}
+}
+
+// G-P14. The cascade paces itself. pumpPaceInterval appeared in NO test file before the
+// census: an unpaced pump busy-spins, one workflow task per iteration, and nothing would
+// have said so. What it paces changed with the shape — it used to sit between
+// continue-as-new iterations and now sits between WAKE-UPS — but the failure it prevents
+// is the same one, and it is worse in the new shape: each iteration also builds a durable
+// head-state read and a fresh timer.
+func Test_Pump_TheCascadeIsPacedBetweenIterations(t *testing.T) {
+	rig := newCascadingPumpRig(0, 0)
+	start := rig.env.Now()
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("the rig dispatches and drains; got %v", err)
+	}
+	if elapsed := rig.env.Now().Sub(start); elapsed < pumpPaceInterval {
+		t.Fatalf("G-P14: the cascade must wait at least %s before handing off to the next iteration; the run took %s of workflow time", pumpPaceInterval, elapsed)
+	}
+}
+
+// G-P15. G-P5's loudness is not best-effort. If the durable ActivityConstructionFailed
+// record CANNOT land, the run must fail rather than report a clean quiet tick — otherwise
+// the blocked frontier is invisible again, which is the whole defect G-P5 exists to end.
+// Every write conflicts, so applyRecovering exhausts its bound and the error propagates.
+func Test_Pump_BlockedActivity_AFailedFailureRecordFailsTheRun(t *testing.T) {
+	rig := newPumpRig(pumpSelection{
+		Verdict:              verdictBlocked,
+		BlockedActivityID:    "C-TLM",
+		BlockedFailureReason: projectstate.ComponentUnresolved,
+		BlockedReason:        "activity C-TLM names a component not in the committed systemDesign",
+	}, 0, 0)
+	rig.ps.conflictFirst = maxMutateConflictAttempts
+
+	_, err := rig.run(t)
+	if err == nil {
+		t.Fatal("G-P15: a failure record that cannot land must FAIL the pump run; a clean quiet tick is how a blocked frontier goes silent")
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("G-P15: the blocked verdict never continues the cascade: %v", err)
+	}
+	if len(rig.ps.failed) != 0 {
+		t.Fatalf("no record landed, so none may be reported: got %v", rig.ps.failed)
+	}
+}
+
+// G-P17. PARENT_CLOSE_POLICY_ABANDON: the activity is its own durable execution,
+// independent of this pump's continue-as-new chain. Drop it and the pump's own close
+// terminates every in-flight activity — silent, and catastrophic. PARENT_CLOSE appeared in
+// NO test file in this package before the census.
+//
+// RE-ASSERTED STRUCTURALLY BY TASK 12, because the census's own reviewer flagged this pin
+// as weak and stage 4b2 then made the weakness real: the guard now carries a comment that
+// NAMES the policy constant, so the substring check this test used to be would stay GREEN
+// with the assignment deleted. It walks the AST to the ParentClosePolicy key instead —
+// exactly what pumpSweepChildOptionsField does for G-S7 — because the test environment does
+// not surface a child's parent-close policy and the source is the only observer there is.
+func Test_Pump_TheChildIsAbandonedSoThePumpsOwnCloseNeverKillsIt(t *testing.T) {
+	got, found := pumpChildOptionsField(t, "ParentClosePolicy")
+	if !found {
+		t.Fatal("G-P17: the pump's child start sets NO ParentClosePolicy — the default is TERMINATE, " +
+			"so every ContinueAsNew and every pump failure kills the in-flight activity it started")
+	}
+	if got != "enumspb.PARENT_CLOSE_POLICY_ABANDON" {
+		t.Fatalf("G-P17: the pump must start its child ABANDON; got %s", got)
+	}
+}
+
+// G-P21. The eligibility ladder, ARM BY ARM. Rung 1 had a DefaultVersion test; rung 2
+// (design-activities-dispatchable) had none, and a dropped rung silently un-dispatches the
+// three design activities. The rule the pump passed is captured from the selection helper,
+// which is the only place it is observable.
+func Test_Pump_EligibilityRuleLadder_EachFenceArmSelectsItsRule(t *testing.T) {
+	cases := []struct {
+		name string
+		arm  func(*testsuite.TestWorkflowEnvironment)
+		want eligibilityRule
+	}{
+		{"no ledger marker: the pre-D1 rule", func(env *testsuite.TestWorkflowEnvironment) {
+			env.OnGetVersion(changeLedgerPartialResume, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+		}, eligibleNotStarted},
+		{"ledger v1, no design marker", func(env *testsuite.TestWorkflowEnvironment) {
+			env.OnGetVersion(changeDesignActivitiesDispatchable, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+		}, eligibleDispatchable},
+		{"a new run records both markers", nil, eligibleWithDesign},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := pumpRuleUnder(tc.arm)
+			if err != nil {
+				t.Fatalf("pump error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("G-P21: %s must select rule %d, got %d", tc.name, tc.want, got)
+			}
+		})
+	}
+}
+
+// pumpRuleUnder runs one quiescent pump tick under `arm` and reports the eligibilityRule
+// the pump handed its selection helper.
+func pumpRuleUnder(arm func(*testsuite.TestWorkflowEnvironment)) (eligibilityRule, error) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	got := eligibilityRule(-1)
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{}, Review: &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project, rule eligibilityRule) pumpSelection {
+			got = rule
+			return pumpSelection{Verdict: verdictQuiescent}
+		},
+	})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+	if arm != nil {
+		arm(env)
+	}
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+	return got, env.GetWorkflowError()
+}
+
+// failingProjectLister answers ListProjects with a non-retryable fault. ContractMisuse
+// because it is non-retryable under the default Activity options (a Transient error would
+// retry indefinitely) — the same choice Test_Pause_RelayFailsAfterRecord makes.
+type failingProjectLister struct{ fakeProjectLister }
+
+func (failingProjectLister) ListProjects(fwra.Context, projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	return nil, fwra.New(fwra.ContractMisuse, "project catalog unreachable")
+}
+
+// G-S5. A failed enumeration fails the WHOLE tick. The lister fake could not fail before
+// this test, so nothing said what a catalog fault does — and the dangerous answer, a
+// partial fan-out reported as a complete one, looks identical in the result type.
+func Test_PumpSweep_AFailedListProjects_FailsTheWholeTick(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &csFakeProjectState{project: projectstate.Project{ID: "p", Version: 1, Phase: 2}}
+	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	env.RegisterWorkflowWithOptions(wf.PumpSweepWorkflow, workflow.RegisterOptions{Name: executionKindPumpSweep})
+	acts := &genActivities{ProjectState: failingProjectLister{fakeProjectLister{fakeFullProjectState: fakeFullProjectState{ps}}}}
+	env.RegisterActivityWithOptions(acts.ProjectStateListProjects, activity.RegisterOptions{Name: "projectStateAccess.listProjects"})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump sweep did not complete")
+	}
+	if env.GetWorkflowError() == nil {
+		t.Fatal("G-S5: a failed enumeration must fail the tick; a swallowed error is a sweep that silently pumps a subset of the platform")
+	}
+}
+
+// G-S6. The sweep's OwnerScope must be non-empty: projectStateAccess.ListProjects answers
+// ContractMisuse otherwise, and both real catalog implementations then discard the value
+// entirely — so the constant's ONLY contract is that it is not blank.
+func Test_PumpSweep_TheOwnerScopeIsNeverEmpty(t *testing.T) {
+	if strings.TrimSpace(string(pumpSweepOwnerScope)) == "" {
+		t.Fatal("G-S6: an empty OwnerScope is ContractMisuse at the RA — every sweep tick fails platform-wide with a Schedule log as the only symptom")
+	}
+}
+
+// selectorName renders a `pkg.Name` qualified identifier from an AST expression, and ""
+// for anything else. It is the smallest thing that lets a source-shape assertion talk
+// about a named constant without pulling in go/types.
+func selectorName(e ast.Expr) string {
+	sel, ok := e.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	return pkg.Name + "." + sel.Sel.Name
+}
+
+// pumpSweepChildOptionsField reads one field of the workflow.ChildWorkflowOptions literal
+// the sweep starts its child pump with — STRUCTURALLY, by parsing pumpsweep.go, rather
+// than by searching the file for a string.
+//
+// The distinction is load-bearing here in a way it was not for G-P17's substring check: the
+// guard now carries a comment that names the policy constant it sets, so a substring test
+// over this file would stay GREEN with the assignment itself deleted. Parsing is what makes
+// "the comment says ABANDON" and "the child start says ABANDON" two different claims.
+func pumpSweepChildOptionsField(t *testing.T, field string) (string, bool) {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "pumpsweep.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parsing the sweep: %v", err)
+	}
+	var got string
+	var found bool
+	ast.Inspect(f, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok || selectorName(lit.Type) != "workflow.ChildWorkflowOptions" {
+			return true
+		}
+		for _, el := range lit.Elts {
+			kv, isKV := el.(*ast.KeyValueExpr)
+			if !isKV {
+				continue
+			}
+			if key, isIdent := kv.Key.(*ast.Ident); isIdent && key.Name == field {
+				got, found = selectorName(kv.Value), true
+			}
+		}
+		return true
+	})
+	return got, found
+}
+
+// G-S7. PARENT_CLOSE_POLICY_ABANDON on the SWEEP's child pump start — the row Task 1's
+// census missed, and the one its reviewer measured as the most dangerous of the misses:
+// deleting the policy left the ENTIRE delivery package green.
+//
+// It is G-P17 one level up, and the level matters. G-P17 keeps a pump's own
+// continue-as-new from killing the activity it started; G-S7 keeps a 30-second Schedule
+// TICK — which lives for milliseconds, because it waits for the start ack and nothing else
+// (G-S4) — from killing the hours-long cascade it just started. Under the default policy,
+// TERMINATE, every pump the platform starts by itself would die a moment after it was
+// born, and the only symptom would be projects that never move unless an operator presses
+// Begin. That is the platform's whole self-start path, silently.
+//
+// Asserted at the SOURCE because the test environment does not surface a child's
+// parent-close policy on workflow.Info, and there is no other observer of it. Structurally,
+// not by substring — see pumpSweepChildOptionsField.
+func Test_PumpSweep_TheChildPumpIsAbandonedSoTheTickNeverKillsIt(t *testing.T) {
+	got, found := pumpSweepChildOptionsField(t, "ParentClosePolicy")
+	if !found {
+		t.Fatal("G-S7: the sweep's child pump start sets NO ParentClosePolicy — the default is TERMINATE, " +
+			"so every pump the 30s Schedule starts dies when its tick closes and nothing self-starts on this platform")
+	}
+	if got != "enumspb.PARENT_CLOSE_POLICY_ABANDON" {
+		t.Fatalf("G-S7: the sweep must start its child pump ABANDON; got %s — a cascade that runs for hours "+
+			"cannot be a dependent of a tick that closes in milliseconds", got)
+	}
+}
+
+// G-V1. The supervision workflow spends its life parked in pauseCh.Receive, so its
+// sessionState Query handler must be registered BEFORE that block. Read at one
+// millisecond, while it waits; the pause arrives after.
+func Test_Supervision_SessionStateIsQueryableWhileItWaitsForThePause(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
+	wf := csNewWorkflows(wfDeps{
+		Review:       &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{RecordPaused: true}},
+	})
+	registerSupervisionWithBus(env, wf, ps, &csFakePipeline{}, &recordingSignalBus{})
+
+	var view ConstructionSessionView
+	var qerr error
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			qerr = err
+			return
+		}
+		qerr = enc.Get(&view)
+	}, time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, 2*time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("supervision error: %v", err)
+	}
+	if qerr != nil {
+		t.Fatalf("G-V1: the sessionState Query must be served while supervision waits for the pause: %v", qerr)
+	}
+	if view.ProjectID != pid || view.Stage != StageDispatching {
+		t.Fatalf("G-V1: want the waiting project's dispatching stage, got %+v", view)
+	}
+}
+
+// G-V6. The engine's DECIDE step owns whether the pause is RECORDED; the Manager executes
+// the plan and must not record on its own initiative. Every other pause test in this file
+// set RecordPaused true, so the false arm was never honoured under test.
+func Test_Pause_APlanThatDoesNotRecord_WritesNoPause(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
+	pipe := &csFakePipeline{}
+	bus := &recordingSignalBus{}
+	wf := csNewWorkflows(wfDeps{
+		Review: &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{
+			PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: false,
+		}},
+	})
+	registerSupervisionWithBus(env, wf, ps, pipe, bus)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("supervision error: %v", err)
+	}
+	if len(ps.paused) != 0 {
+		t.Fatalf("G-V6: a plan that does not ask for the record must write none, got %v", ps.paused)
+	}
+	if len(bus.targets) != 1 || len(pipe.cancelled) != 1 {
+		t.Fatalf("G-V6: the rest of the branch still runs; got %d relay(s), %d cancel(s)", len(bus.targets), len(pipe.cancelled))
+	}
+}
+
+// ===========================================================================
+// THE LEASE PUMP (stage 4b2 Task 12). The guards this body OWES, beyond the census
+// rows it re-asserts in place.
+// ===========================================================================
+
+// leaseProbeBus is recordingSignalBus with a scripted NotFound after N deliveries, so a
+// case can make an execution "close" underneath the pump between one signal and the next.
+// A single err field could not: the lease cases turn on the DIFFERENCE between a delivery
+// that lands and one that answers NotFound.
+type leaseProbeBus struct {
+	recordingSignalBus
+	notFoundAfter int
+}
+
+func (b *leaseProbeBus) DeliverSignal(rc fwra.Context, target messagebus.ExecutionID, name messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+	_ = b.recordingSignalBus.DeliverSignal(rc, target, name, payload)
+	b.mu.Lock()
+	n := len(b.targets)
+	b.mu.Unlock()
+	if b.notFoundAfter > 0 && n > b.notFoundAfter {
+		return fwra.New(fwra.NotFound, "messagebus: no execution with that id")
+	}
+	return nil
+}
+
+// grants returns the decoded activityLeaseGrant of every grant this bus carried, in order.
+func (b *recordingSignalBus) grants(t *testing.T) []activityLeaseGrant {
+	t.Helper()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []activityLeaseGrant
+	for i, n := range b.names {
+		if string(n) != signalActivityLeaseGranted {
+			continue
+		}
+		var g activityLeaseGrant
+		if err := json.Unmarshal(b.payloads[i].Bytes, &g); err != nil {
+			t.Fatalf("decode a lease grant off the bus: %v", err)
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// twoActivityFrontier is a selection helper with a REAL frontier: it hands back C-ONE
+// until the project snapshot says a pump has opened its row, then C-TWO, then nothing. It
+// reads proj.ActivityExecution deliberately — that is the same fact isActivityDispatchable's
+// PumpWroteRow arm reads, so the frontier loop's local row-marking is exercised rather than
+// substituted for.
+func twoActivityFrontier(proj projectstate.Project, _ eligibilityRule) pumpSelection {
+	for _, id := range []string{"C-ONE", "C-TWO"} {
+		if row, ok := proj.ActivityExecution[id]; ok && row.StartedAt != nil {
+			continue
+		}
+		act := sampleActivity()
+		act.ActivityID = id
+		return pumpSelection{Verdict: verdictDispatch, Activity: act}
+	}
+	return pumpSelection{Verdict: verdictQuiescent}
+}
+
+// newLeasePumpRig is a pump with a two-activity frontier, both children held open, and a
+// bus the case can read the grants off.
+func newLeasePumpRig(bus messagebus.MessageBus, childRun time.Duration) cascadingPumpRig {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID: projectstate.ProjectID(pid), Version: 1, Phase: 2,
+		ActivityExecution: map[string]projectstate.ActivityExecution{},
+	}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{}, NextEligibleActivity: twoActivityFrontier,
+	})
+	registerPumpWithBus(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded}, bus)
+	starts := new(int)
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		After(childRun).
+		Run(func(mock.Arguments) { *starts++ }).
+		Return(nil)
+	return cascadingPumpRig{env: env, pid: pid, ps: ps, childStarts: starts}
+}
+
+// requestLeaseAt sends a child's lease ask to the pump at workflow time `at`.
+func (r cascadingPumpRig) requestLeaseAt(at time.Duration, id ActivityID) {
+	r.env.RegisterDelayedCallback(func() {
+		r.env.SignalWorkflow(signalActivityLeaseRequested, activityLeaseRequest{ActivityID: id})
+	}, at)
+}
+
+// THE INVARIANT, and the only reason the queue exists: at most one activity of a project
+// holds the main-write lease at a time. Both children are in flight and both ask; exactly
+// one grant goes out, and the second waits.
+//
+// This is what REPLACED the ordering child.Get used to buy (see G-P13's note): the pump
+// deliberately dispatches N children at once, so "the pump cannot re-select while a child
+// runs" is gone on purpose, and lease exclusivity is what stands in its place.
+func Test_Pump_GrantsAtMostOneLease(t *testing.T) {
+	bus := &recordingSignalBus{}
+	rig := newLeasePumpRig(bus, 10*time.Minute)
+	rig.requestLeaseAt(time.Minute, "C-ONE")
+	rig.requestLeaseAt(time.Minute, "C-TWO")
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("pump error: %v", err)
+	}
+	if *rig.childStarts != 2 {
+		t.Fatalf("the frontier is two activities and both must have been started, got %d", *rig.childStarts)
+	}
+	got := bus.grants(t)
+	if len(got) != 1 {
+		t.Fatalf("at most ONE lease may be outstanding; the pump handed out %d: %+v", len(got), got)
+	}
+	if got[0].ActivityID != "C-ONE" || got[0].Epoch != 1 {
+		t.Fatalf("want the first asker granted at epoch 1, got %+v", got[0])
+	}
+}
+
+// pumpLeaseWireBytes is a lease message in the form messageBus.deliverSignal ACTUALLY puts
+// on the wire: raw JSON bytes, which the Temporal data converter tags binary/plain. Every
+// other lease test in this file signals a STRUCT, which the converter tags json/plain — and
+// that difference is not cosmetic, it is the difference between the lease working and the
+// lease being inert. See the two tests below.
+func pumpLeaseWireBytes(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("encode the wire form: %v", err)
+	}
+	return b
+}
+
+// THE LEASE MUST SURVIVE THE TRANSPORT IT ACTUALLY RIDES, and before stage 4b2 Task 14 it
+// did not — this test is RED against the committed pump and it is the defect the first
+// capture run found.
+//
+// Every lease test above signals a struct, so the payload is json/plain and Receive into
+// activityLeaseRequest works. PRODUCTION does not do that: the child marshals to []byte and
+// hands it to messageBus.deliverSignal, the client encodes it binary/plain, and the SDK's
+// ByteSlicePayloadConverter can only assign such a payload to a *[]byte. A struct target
+// therefore FAILS to deserialise, and a failed signal assign is invisible to the workflow —
+// the SDK logs "Corrupted signal received on channel activityLeaseRequested" and drops the
+// message. Measured on a real dev server: no request reached the pump, no grant reached a
+// child, every merge tail armed activityLeaseGrantWaitBudget and sat there for two hours of
+// workflow time before running unleased.
+//
+// It failed OPEN, which is why nothing else caught it: the tails ran on the row-level CAS
+// exactly as the documented restart path says they would. Silence was the whole symptom.
+func Test_Pump_ALeaseRequestInTheWireFormTheBusProducesIsNotDropped(t *testing.T) {
+	bus := &recordingSignalBus{}
+	rig := newLeasePumpRig(bus, 10*time.Minute)
+	rig.env.RegisterDelayedCallback(func() {
+		rig.env.SignalWorkflow(signalActivityLeaseRequested,
+			pumpLeaseWireBytes(t, activityLeaseRequest{ActivityID: "C-ONE"}))
+	}, time.Minute)
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("pump error: %v", err)
+	}
+	got := bus.grants(t)
+	if len(got) != 1 {
+		t.Fatalf("a lease request delivered in messageBus.deliverSignal's OWN wire form (binary/plain) "+
+			"must be read: the pump answered %d grant(s), so the whole main-write lease is inert in production", len(got))
+	}
+	if got[0].ActivityID != "C-ONE" || got[0].Epoch != 1 {
+		t.Fatalf("want C-ONE granted at epoch 1, got %+v", got[0])
+	}
+}
+
+// VALIDATION, because Temporal does not authenticate a signaler. An id this pump never
+// started is a CLAIM, not a fact: it is logged and dropped, never granted. Without this a
+// stray signal — a replayed message, a mis-addressed relay, a bug in a sibling Manager —
+// would take a project's one main-write lease and hold it until its deadline.
+func Test_Pump_DropsALeaseRequestForAnUnknownActivity(t *testing.T) {
+	bus := &recordingSignalBus{}
+	rig := newLeasePumpRig(bus, 10*time.Minute)
+	rig.requestLeaseAt(time.Minute, "C-NOBODY-STARTED-THIS")
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("an unknown lease request must be dropped quietly, not fail the run: %v", err)
+	}
+	if got := bus.grants(t); len(got) != 0 {
+		t.Fatalf("an id this pump never started must never be granted, got %+v", got)
+	}
+}
+
+// THE DEADLINE DOES NOT REVOKE. A holder that is still ALIVE past pumpLeaseDeadline is
+// RENEWED — the re-delivery is at the SAME epoch and to the SAME holder — because the
+// merge tail it is holding the lease for contains a HUMAN approval gate, so "held for more
+// than ten minutes" is completely ordinary. A naive timeout would revoke exactly the thing
+// the lease exists to protect and produce the second concurrent main-writer as the direct
+// consequence of the mechanism meant to prevent it.
+func Test_Pump_RenewsALiveHoldersExpiredLease(t *testing.T) {
+	bus := &recordingSignalBus{}
+	rig := newLeasePumpRig(bus, 90*time.Minute)
+	rig.requestLeaseAt(time.Minute, "C-ONE")
+	rig.requestLeaseAt(time.Minute, "C-TWO")
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("pump error: %v", err)
+	}
+	got := bus.grants(t)
+	if len(got) < 2 {
+		t.Fatalf("a lease held past %s must be RENEWED at least once, got %d grant(s): %+v", pumpLeaseDeadline, len(got), got)
+	}
+	for i, g := range got {
+		if g.ActivityID != "C-ONE" || g.Epoch != 1 {
+			t.Fatalf("renewal %d must re-deliver the SAME holder's SAME epoch — a live holder never loses its lease mid-merge; got %+v", i, g)
+		}
+	}
+}
+
+// AND A DEAD HOLDER IS REAPED. The reconcile's liveness probe is the grant's own delivery:
+// a signal to an execution that has CLOSED answers RA NotFound, which is the one fact
+// Temporal gives the pump about a child whose future it no longer holds. The lease is then
+// free and the next asker gets it AT epoch+1 — which is what the epoch is for, since a
+// child revoked underneath itself must be able to refuse the grant it was holding.
+func Test_Pump_ReconcileReleasesALeaseHeldByAClosedExecution(t *testing.T) {
+	// The FIRST delivery lands (C-ONE takes the lease); every one after it answers NotFound,
+	// so the renewal at the deadline finds the holder gone.
+	bus := &leaseProbeBus{notFoundAfter: 1}
+	rig := newLeasePumpRig(bus, 90*time.Minute)
+	rig.requestLeaseAt(time.Minute, "C-ONE")
+	rig.requestLeaseAt(2*time.Minute, "C-TWO")
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("a closed lease holder is reaped, not an error: %v", err)
+	}
+	got := bus.grants(t)
+	if len(got) < 2 {
+		t.Fatalf("want the grant, then the renewal that finds the holder closed, then the re-grant; got %+v", got)
+	}
+	last := got[len(got)-1]
+	if last.ActivityID != "C-TWO" || last.Epoch != 2 {
+		t.Fatalf("the lease must be re-granted to the waiting asker at epoch+1 once the holder is found closed, got %+v", last)
+	}
+}
+
+// G-P6's other half, as its own case: the pump ends when there is nothing in flight, no
+// lease held, no request waiting and nothing eligible. It RETURNS — it does not
+// continue-as-new, which would be an infinite pump — and it does so even though the
+// history budget is crossed, because quiescence is asked BEFORE the continue.
+func Test_Pump_QuiescesWhenNothingIsStartedAndNothingIsEligible(t *testing.T) {
+	rig := newPumpRig(pumpSelection{Verdict: verdictQuiescent}, 0, 0).atItsHistoryBudget()
+
+	res, err := rig.run(t)
+	if err != nil {
+		t.Fatalf("a quiescent pump returns; got %v", err)
+	}
+	if res.Dispatched || *rig.childStarts != 0 {
+		t.Fatalf("nothing eligible means nothing dispatched, got %+v with %d start(s)", res, *rig.childStarts)
+	}
+}
+
+// ONE PLAN DEFECT NO LONGER TAKES THE WHOLE FRONTIER DOWN WITH IT. The serial pump
+// RETURNED on verdictBlocked, so a single unresolvable activity stopped every other
+// dispatchable one until the next tick; the frontier loop records the failure and CARRIES
+// ON. The blocked activity is still recorded LOUDLY and DURABLY (G-P5) and still exactly
+// once (the run's own blocked set — this run holds a snapshot taken before its own write).
+func Test_Pump_OneBlockedActivityDoesNotStopTheFrontier(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID: projectstate.ProjectID(pid), Version: 1, Phase: 2,
+		ActivityExecution: map[string]projectstate.ActivityExecution{},
+	}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry}, Review: &fakeReview{},
+		NextEligibleActivity: func(proj projectstate.Project, _ eligibilityRule) pumpSelection {
+			if row, ok := proj.ActivityExecution["C-BAD"]; !ok || row.FailureReason == projectstate.FailureReasonUnknown {
+				return pumpSelection{
+					Verdict:              verdictBlocked,
+					BlockedActivityID:    "C-BAD",
+					BlockedFailureReason: projectstate.ComponentUnresolved,
+					BlockedReason:        "activity C-BAD names a component not in the committed systemDesign",
+				}
+			}
+			if row, ok := proj.ActivityExecution["C-GOOD"]; ok && row.StartedAt != nil {
+				return pumpSelection{Verdict: verdictQuiescent}
+			}
+			act := sampleActivity()
+			act.ActivityID = "C-GOOD"
+			return pumpSelection{Verdict: verdictDispatch, Activity: act}
+		},
+	})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+	starts := 0
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		Run(func(mock.Arguments) { starts++ }).Return(nil)
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a blocked activity is recorded, not raised: %v", err)
+	}
+	if len(ps.failed) != 1 || ps.failed[0].activityID != "C-BAD" {
+		t.Fatalf("want exactly one durable failure record for C-BAD, got %v", ps.failed)
+	}
+	if starts != 1 {
+		t.Fatalf("the rest of the frontier must still go out: want C-GOOD started once, got %d start(s)", starts)
+	}
+}
+
+// pumpChildOptionsField reads one field of the workflow.ChildWorkflowOptions literal the
+// PUMP starts its activity child with — STRUCTURALLY, by walking the AST, the same way
+// pumpSweepChildOptionsField pins G-S7.
+//
+// THE OLD PIN WAS A SUBSTRING CHECK AND THAT IS NOW A HOLE. G-P17's test used to search
+// pumpnextactivity.go for the text "ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON";
+// stage 4b2 gave the line the COMMENT it never had, and that comment names the constant —
+// so the substring test would stay green with the assignment itself deleted. Parsing is
+// what makes "the comment says ABANDON" and "the child start says ABANDON" two different
+// claims.
+func pumpChildOptionsField(t *testing.T, field string) (string, bool) {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "pumpnextactivity.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parsing the pump: %v", err)
+	}
+	var got string
+	var found bool
+	ast.Inspect(f, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok || selectorName(lit.Type) != "workflow.ChildWorkflowOptions" {
+			return true
+		}
+		for _, el := range lit.Elts {
+			kv, isKV := el.(*ast.KeyValueExpr)
+			if !isKV {
+				continue
+			}
+			if key, isIdent := kv.Key.(*ast.Ident); isIdent && key.Name == field {
+				got, found = selectorName(kv.Value), true
+			}
+		}
+		return true
+	})
+	return got, found
+}
+
+// ---- The child side of the lease -------------------------------------------
+
+// THE MERGE TAIL ASKS FOR THE LEASE, AND IT ASKS THE PUMP. The request goes out on
+// messageBus.deliverSignal addressed to {projectId}:nextActivity — the project's ONE pump
+// — and it goes out BEFORE the tail, which is the whole placement argument: everything
+// above it writes the activity branch or the activity's own row (both already serialised),
+// and everything below it writes MAIN.
+func Test_DeliveryActivity_TheMergeTailAsksThePumpForTheMainWriteLease(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	wf := csNewWorkflows(deps)
+	bus := &recordingSignalBus{}
+	registerDeliveryActivityWithBus(env, wf, ps, pipe, bus)
+	// The grant arrives while the walk is still working, so it is BUFFERED by the SDK and
+	// waiting when the tail asks — which is also the ordering a real pump produces, since
+	// the pump answers within a workflow task of the request.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalActivityLeaseGranted, activityLeaseGrant{ActivityID: "C-Orders", Epoch: 7})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "shape-p", ActivityID: "C-Orders", Activity: sampleActivity(),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var asked, reported bool
+	bus.mu.Lock()
+	for i, n := range bus.names {
+		if bus.targets[i] != messagebus.ExecutionID(pumpWorkflowID("shape-p")) {
+			t.Errorf("the lease is asked of the project's ONE pump; this went to %q", bus.targets[i])
+		}
+		switch string(n) {
+		case signalActivityLeaseRequested:
+			asked = true
+		case signalActivityFinished:
+			reported = true
+		}
+	}
+	bus.mu.Unlock()
+	if !asked {
+		t.Error("the merge tail must ask the pump for the main-write lease before it writes main")
+	}
+	if !reported {
+		t.Error("the walk's terminal must be reported to the pump, or the lease is held by a finished activity until its deadline")
+	}
+}
+
+// AND THE GRANT MUST SURVIVE IT TOO — the child half of the same defect (stage 4b2 Task 14).
+// The pump marshals activityLeaseGrant to bytes and delivers them through
+// messageBus.deliverSignal, so the child's grant channel carries binary/plain; receiving
+// into the struct dropped it, and the tail then waited out the WHOLE
+// activityLeaseGrantWaitBudget before running unleased.
+//
+// THE ASSERTION IS THE CLOCK, because it is the only observable: a dropped grant does not
+// fail anything — the tail eventually runs and the walk completes green, which is exactly
+// how this shipped. The test environment skips time, so two hours of WORKFLOW time pass in
+// milliseconds of wall clock and only env.Now() says so.
+func Test_DeliveryActivity_AGrantInTheWireFormThePumpProducesIsNotDropped(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	wf := csNewWorkflows(deps)
+	registerDeliveryActivityWithBus(env, wf, ps, pipe, &recordingSignalBus{})
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalActivityLeaseGranted,
+			pumpLeaseWireBytes(t, activityLeaseGrant{ActivityID: "C-Orders", Epoch: 7}))
+	}, time.Millisecond)
+	start := env.Now()
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "shape-p", ActivityID: "C-Orders", Activity: sampleActivity(),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if elapsed := env.Now().Sub(start); elapsed >= activityLeaseGrantWaitBudget {
+		t.Fatalf("a grant delivered in the pump's OWN wire form (binary/plain) must be read: the walk spent %s, "+
+			"i.e. it waited out the whole %s budget and ran UNLEASED, which is the lease being inert in production",
+			elapsed, activityLeaseGrantWaitBudget)
+	}
+}
+
+// AND IT FAILS OPEN, DELIBERATELY. With NO pump running the request answers RA NotFound —
+// the ordinary state of a project an operator started by hand — and the tail RUNS ANYWAY.
+// Failing an activity that did all of its work because the admission queue is unreachable
+// would be strictly worse than the state this wave started from, which had no lease at
+// all; and the row CAS plus the branch-file version guard still serialise per row, which
+// is the mechanism the lease sits ON TOP of rather than replaces.
+func Test_DeliveryActivity_NoPumpToLease_TheMergeTailStillRuns(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	wf := csNewWorkflows(deps)
+	registerDeliveryActivityWithBus(env, wf, ps, pipe,
+		&recordingSignalBus{err: fwra.New(fwra.NotFound, "messagebus: no execution with that id")})
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "shape-p", ActivityID: "C-Orders", Activity: sampleActivity(),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("an unreachable admission queue must not fail a completed activity: %v", err)
+	}
+	if !shapeExitedCompleted(ps, "C-Orders") {
+		t.Fatal("the walk must still reach its binary exit unleased")
+	}
+}
+
+// ===========================================================================
+// FIX ROUND 1 — THE FINISH SIGNAL IS NOT A COMPLETION
+// ===========================================================================
+
+// F1, THE BLOCKER, and it defeated the single most important row in the census.
+//
+// finalizeWalk releases the main-write lease from a DEFER, so the release fires on every
+// exit from the merge tail INCLUDING the two that then fail the execution. The release
+// rides activityFinished. So the real sequence on a broken merge tail is: the child
+// reports a finish, and a moment later the child FAILS — and the pump used to answer the
+// finish with markFinished, which DELETES the child's future. pumpReconcile then had
+// nothing to call f.Get on, never saw the error, and the run returned QUIESCENT: G-P12's
+// stated BreaksAs ("the cascade walks past it and builds on a broken dependency"), reached
+// through the one message that was supposed to be the guard's friend.
+//
+// Test_Pump_AFailedChildFailsTheRunAndStopsTheCascade cannot see this: it fails the child
+// with NO finish signal, which is the shape a merge tail never has.
+//
+// THE ORDERING IS DETERMINISTIC AND IS THE CASE: the finish lands at half the child's run
+// time, so it is strictly earlier in history than the child's failure, and the finish arm
+// is added to the selector before any future arm. Without the fix this test goes GREEN on
+// `err == nil` — a failing activity reported as a clean, drained cascade.
+func Test_Pump_AFinishReportFollowedByAChildFailureStillFailsTheRun(t *testing.T) {
+	const childRun = 10 * time.Minute
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
+		},
+	})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+	starts := 0
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		After(childRun).
+		Run(func(mock.Arguments) { starts++ }).
+		Return(errors.New("the merge tail broke after the deferred lease release had already reported a finish"))
+	// THE DEFERRED RELEASE, in the wire form the child sends it: Completed, because that is
+	// what the constant used to be — the case is armed against the OLD lie as well as the
+	// new honesty, so neither end alone can make it pass.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalActivityFinished, activityFinishedSignal{
+			ActivityID: ActivityID(sampleActivity().ActivityID),
+			Outcome:    projectstate.ActivityOutcomeCompleted,
+		})
+	}, childRun/2)
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump did not complete")
+	}
+	err := env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("F1/G-P12: a child that reported a finish and THEN failed must still fail the pump run — a clean completion here is a cascade that walked past a broken merge tail and will build on it")
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("F1/G-P12: the cascade must STOP, not continue: %v", err)
+	}
+	if starts != 1 {
+		t.Fatalf("want the one child, got %d", starts)
+	}
+}
+
+// ===========================================================================
+// FIX ROUND 2 — C1, THE TWO NotFound BACK DOORS
+// ===========================================================================
+
+// C1, AND IT IS F1'S TWIN ONE DOOR ALONG. Fix round 1 made a finish SIGNAL stop discharging
+// a future this run holds, and the rule it established — only a fact the pump settled for
+// itself may call markFinished — left TWO sites still calling it: the grant delivery's
+// NotFound arm and the liveness probe's. A NotFound genuinely IS such a fact, so the LETTER
+// of the rule was honoured and the CONSEQUENCE was the one it exists to prevent.
+//
+// THE SHAPE, and it is the pump's most ordinary failure: a child takes the main-write lease
+// in its merge tail and then failWalks. failWalk sends NO finish, so the lease stays held;
+// after pumpLeaseDeadline the probe answers NotFound; markFinished then DELETED the child's
+// future; pumpReconcile stopped iterating over the id, f.Get was never called, the error was
+// swallowed, and the run reported a clean drained cascade — G-P12's stated BreaksAs, reached
+// through the door fix round 1 did not close.
+//
+// THE CASE IS ARMED ON THE ORDER THAT MAKES THE DEFECT REACHABLE: the probe fires at
+// pumpLeaseDeadline, strictly BEFORE the child's failure lands, because a failure that lands
+// first is read by the reconcile and would pass with or without the fix. Only C-ONE asks for
+// the lease, so C-TWO's grant never answers NotFound and the case turns on one child.
+func Test_Pump_ALeaseHolderFoundGoneStillFailsTheRunWhenItsChildFailed(t *testing.T) {
+	const childRun = 20 * time.Minute // strictly after pumpLeaseDeadline
+	// The grant to C-ONE lands; every delivery after it answers NotFound, so the renewal at
+	// the deadline finds the holder gone while its child is still running here.
+	bus := &leaseProbeBus{notFoundAfter: 1}
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID: projectstate.ProjectID(pid), Version: 1, Phase: 2,
+		ActivityExecution: map[string]projectstate.ActivityExecution{},
+	}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{}, NextEligibleActivity: twoActivityFrontier,
+	})
+	registerPumpWithBus(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded}, bus)
+	// ONE child fails and the other succeeds, which is the whole point: a rig where both fail
+	// goes green on the survivor's future and proves nothing about the lease holder's.
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything,
+		mock.MatchedBy(func(in deliveryActivityInput) bool { return in.ActivityID == "C-ONE" })).
+		After(childRun).
+		Return(errors.New("the merge tail broke after the pump had already found the execution gone"))
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		After(childRun).
+		Return(nil)
+	rig := cascadingPumpRig{env: env, pid: pid, ps: ps, childStarts: new(int)}
+	rig.requestLeaseAt(time.Minute, "C-ONE")
+
+	res, err := rig.run(t)
+	if err == nil {
+		t.Fatalf("C1/G-P12: a lease holder the pump found GONE must still have its future read — "+
+			"the run reported a drained cascade (%+v) while the activity holding the main-write lease failed, "+
+			"which is a cascade free to build on a broken dependency", res)
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("C1/G-P12: the cascade must STOP, not continue: %v", err)
+	}
+	if got := bus.grants(t); len(got) < 2 || got[0].ActivityID != "C-ONE" {
+		t.Fatalf("the case needs the grant to C-ONE and then the renewal that finds it gone, got %+v", got)
+	}
+}
+
+// THE SECOND DOOR, AND IT NEEDS NO FUTURE AT ALL. A child that predates this run's
+// ContinueAsNew has no future here, so when the pump finds its execution GONE the only
+// remaining evidence is its ROW — and a row that carries no terminal either way means the
+// execution died without recording an outcome. Before C1 that child was declared FINISHED on
+// the strength of the NotFound alone, which is the same swallow one continue-as-new older;
+// leaving it in flight instead would hang the pump on a future that will never resolve, so
+// the reconcile answers it.
+func Test_Pump_AVanishedPreContinueChildWithNoTerminalFailsTheRun(t *testing.T) {
+	// Every delivery answers NotFound: there is no execution behind C-OLD at all.
+	bus := &recordingSignalBus{err: fwra.New(fwra.NotFound, "messagebus: no execution with that id")}
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID: projectstate.ProjectID(pid), Version: 1, Phase: 2,
+		ActivityExecution: map[string]projectstate.ActivityExecution{},
+	}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry}, Review: &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
+			return pumpSelection{Verdict: verdictQuiescent}
+		},
+	})
+	registerPumpWithBus(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded}, bus)
+	rig := cascadingPumpRig{env: env, pid: pid, ps: ps, childStarts: new(int)}
+	rig.requestLeaseAt(time.Minute, "C-OLD")
+
+	// C-OLD is Started in the INPUT and has no future in this run — the pre-ContinueAsNew
+	// shape — and it asks for the lease, which is how the pump learns its execution is gone.
+	_, err := rig.runInput(t, pumpInput{ProjectID: pid, Started: []ActivityID{"C-OLD"}})
+	if err == nil {
+		t.Fatal("an activity whose execution is gone and whose row carries no terminal must stop the cascade, " +
+			"not be counted as finished and not be waited on forever")
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("the cascade must STOP, not continue: %v", err)
+	}
+}
+
+// AND THE HONEST HALF OF THE SAME WIRE (F5). releaseMainWriteLease was handed a literal
+// ActivityOutcomeCompleted at its one call site, so the `exited` return and every error
+// return reported a completion that had not happened. ActivityOutcome cannot express
+// "broken tail" — Unknown is also what a clean give-up reports — which is exactly why the
+// pump keys its stop-the-cascade rule on the child's FUTURE and not on this value; the
+// value's job is to stop lying in the ledger and the log.
+func Test_DeliveryActivity_TheMergeTailReportsTheOutcomeItReached(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		exited bool
+		err    error
+		want   projectstate.ActivityOutcome
+	}{
+		{"a clean tail is the only completion", false, nil, projectstate.ActivityOutcomeCompleted},
+		{"a give-up is not a completion", true, nil, projectstate.ActivityOutcomeUnknown},
+		{"a broken tail is not a completion", false, errors.New("mergeAndRecord failed"), projectstate.ActivityOutcomeUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mainWriteTailOutcome(tc.exited, tc.err); got != tc.want {
+				t.Fatalf("want %s, got %s", tc.want.String(), got.String())
+			}
+		})
 	}
 }

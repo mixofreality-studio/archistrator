@@ -64,17 +64,19 @@ func appendAppSideCrossArtifactFindings(proj projectstate.Project, findings []me
 // PlanningAssumptions — the zero-value enum holes that pass every earlier gate and
 // then FAIL the deterministic SDP assembly (found live on gtdapp 2026-07-11: the
 // operationEstimationEngine refused infrastructureKind=Unknown, then the
-// settlementEngine refused revenueShare/computeCost=Unknown; both engines correctly
-// never silently default, so the hole must be caught at draft time instead).
+// settlementEngine refused computeCost=Unknown; both engines correctly never silently
+// default, so the hole must be caught at draft time instead).
 //
 //	PA-INFRA-KIND   (Error)  infrastructureKind is Unknown — every estimate engine
 //	                         needs a concrete launch infrastructure.
 //	PA-TERMS-REGIME (Error)  a settlement PERCENT is authored while its regime KIND
-//	                         enum is Unknown (revenueSharePercent>0 with
-//	                         revenueShare=0, computeMarkupPercent>0 with
-//	                         computeCost=0, or either regime set with schedule=0) —
+//	                         enum is Unknown (computeMarkupPercent>0 with
+//	                         computeCost=0, or the regime set with schedule=0) —
 //	                         the terms fields are kind enums, not amounts, and the
 //	                         settlementEngine refuses Unknown regimes.
+//
+// The revenue-share arm of this rule is GONE with the concept (stage 4b2, founder
+// ruling): a rule cannot catch a hole in a field that does not exist.
 func paEnumHoleFindings(proj projectstate.Project) []methodcheck.Finding {
 	if proj.PlanningAssumptions.Status != projectstate.ReviewCommitted {
 		return nil
@@ -96,16 +98,7 @@ func paEnumHoleFindings(proj projectstate.Project) []methodcheck.Finding {
 	}
 
 	t := pa.Terms
-	regimeAuthored := t.RevenueShare != projectstate.RevenueShareUnknown || t.ComputeCost != projectstate.ComputeCostUnknown
-	if t.RevenueSharePercent > 0 && t.RevenueShare == projectstate.RevenueShareUnknown {
-		out = append(out, methodcheck.Finding{
-			RuleID:   "PA-TERMS-REGIME",
-			Severity: methodcheck.SeverityError,
-			Message: "terms.revenueSharePercent is authored but terms.revenueShare is 0 (unknown) — revenueShare is a KIND enum " +
-				"(1=launchFlat10, 2=negotiatedRate), not an amount; the settlementEngine refuses unknown regimes",
-			Location: &methodcheck.Location{Ordinal: 0, Section: "terms.revenueShare"},
-		})
-	}
+	regimeAuthored := t.ComputeCost != projectstate.ComputeCostUnknown
 	if t.ComputeMarkupPercent > 0 && t.ComputeCost == projectstate.ComputeCostUnknown {
 		out = append(out, methodcheck.Finding{
 			RuleID:   "PA-TERMS-REGIME",

@@ -751,23 +751,6 @@ components:
                 - Name
                 - Fields
             type: object
-        DeliveryCritiqueView:
-            additionalProperties: false
-            properties:
-                role:
-                    type: string
-                round:
-                    type: integer
-                summary:
-                    type: string
-                verdict:
-                    type: string
-            required:
-                - role
-                - verdict
-                - summary
-                - round
-            type: object
         DeliveryDefectView:
             additionalProperties: false
             properties:
@@ -784,6 +767,49 @@ components:
                 - title
                 - severity
                 - note
+            type: object
+        DeliveryDesignArtifactSessionStage:
+            description: 'The stages the DERIVED design-artifact session view can report, and all of them. This is a REPLACEMENT of the eight-member SessionStage, not a renumbering of it: the door is committedSessionView, a projection of one durable ArtifactSlot, so a committed slot reads committed, a withdrawn one withdrawn, and every other terminal-but-uncommitted status reads an honest draftFailed. Drafting, awaitingReview, redrafting and refused had no producer left once stage 4b1 retired the live design rail, and StageDrafting in particular is the value an SPA wedges a spinner on. SessionStageUnknown stays at 0 deliberately: a three-member enum would make the ZERO VALUE mean committed, and a zero-valued view reading as a committed artifact is the same defect class as ArtifactKind''s KindMission == 0.'
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - SessionStageUnknown
+                - StageCommitted
+                - StageWithdrawn
+                - StageDraftFailed
+            x-go-base: int
+        DeliveryDesignArtifactSessionView:
+            additionalProperties: false
+            description: 'The ONE derived session view, for all seventeen artifact kinds (stage 4b2). It is a projection of the durable slot, NOT a live session: its subject is what the slot says now, and the live execution''s view is constructionSession, a different subject with a different lifetime. Eight members were pruned with the type''s rename because nothing in the server could set them once 4b1 retired the live design rail — they were decoded by the SPA and always absent.'
+            properties:
+                artifactKind:
+                    $ref: '#/components/schemas/DeliveryArtifactKind'
+                draft:
+                    $ref: '#/components/schemas/DeliveryDraftModel'
+                failureReason:
+                    type:
+                        - "null"
+                        - string
+                projectId:
+                    $ref: '#/components/schemas/DeliveryProjectID'
+                    x-go-name: ProjectID
+                reviewThread:
+                    items:
+                        $ref: '#/components/schemas/DeliveryReviewCommentView'
+                    type:
+                        - "null"
+                        - array
+                stage:
+                    $ref: '#/components/schemas/DeliveryDesignArtifactSessionStage'
+            required:
+                - projectId
+                - artifactKind
+                - stage
+                - draft
             type: object
         DeliveryDesignHealth:
             additionalProperties: false
@@ -1376,76 +1402,6 @@ components:
                 - ProjectRunning
                 - ProjectPaused
             x-go-base: string
-        DeliveryProjectSessionStage:
-            enum:
-                - 0
-                - 1
-                - 2
-                - 3
-                - 4
-                - 5
-                - 6
-                - 7
-                - 8
-            type: integer
-            x-enum-varnames:
-                - ProjectSessionStageUnknown
-                - ProjectStageDrafting
-                - ProjectStageAssemblingSDP
-                - ProjectStageAwaitingReview
-                - ProjectStageRedrafting
-                - ProjectStageCommitted
-                - ProjectStageWithdrawn
-                - ProjectStageRefused
-                - ProjectStageDraftFailed
-            x-go-base: int
-        DeliveryProjectSessionStateView:
-            additionalProperties: false
-            properties:
-                activeRole:
-                    $ref: '#/components/schemas/DeliveryActiveRole'
-                activeStep:
-                    $ref: '#/components/schemas/DeliveryActiveStep'
-                artifactKind:
-                    $ref: '#/components/schemas/DeliveryArtifactKind'
-                draft:
-                    $ref: '#/components/schemas/DeliveryDraftModel'
-                failureReason:
-                    type:
-                        - "null"
-                        - string
-                findings:
-                    items:
-                        $ref: '#/components/schemas/DeliveryFinding'
-                    type:
-                        - "null"
-                        - array
-                projectId:
-                    $ref: '#/components/schemas/DeliveryProjectID'
-                    x-go-name: ProjectID
-                reviewThread:
-                    items:
-                        $ref: '#/components/schemas/DeliveryReviewCommentView'
-                    type:
-                        - "null"
-                        - array
-                round:
-                    type: integer
-                stage:
-                    $ref: '#/components/schemas/DeliveryProjectSessionStage'
-                stageName:
-                    type: string
-                    x-go-name: StageName
-            required:
-                - projectId
-                - artifactKind
-                - stage
-                - stageName
-                - draft
-                - activeRole
-                - activeStep
-                - round
-            type: object
         DeliveryProjectState:
             additionalProperties: false
             properties:
@@ -1578,10 +1534,6 @@ components:
                         - array
                 kind:
                     $ref: '#/components/schemas/DeliveryProjectViewKind'
-                projectSession:
-                    $ref: '#/components/schemas/DeliveryProjectSessionStateView'
-                    type:
-                        - "null"
                 projects:
                     items:
                         $ref: '#/components/schemas/DeliveryProjectSummary'
@@ -1593,7 +1545,7 @@ components:
                     type:
                         - "null"
                 session:
-                    $ref: '#/components/schemas/DeliverySessionStateView'
+                    $ref: '#/components/schemas/DeliveryDesignArtifactSessionView'
                     type:
                         - "null"
                 summary:
@@ -1897,7 +1849,7 @@ components:
             additionalProperties: false
             properties:
                 kind:
-                    description: What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Today's two writers mint only pullRequest (the rail is live) and artifact (it is not), so commit is the one a future subject-by-sha writer will use.
+                    description: What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Both live rails mint commit (the staged model's sha on the design rail, the pushed work's sha on the construction rail) as of 38fd7f9c; pullRequest is what a reviewer's PR is recorded as, and artifact is the ref of an artifact judged outside either rail.
                     enum:
                         - commit
                         - artifact
@@ -2115,88 +2067,6 @@ components:
             type: object
         DeliverySessionRef:
             type: string
-        DeliverySessionStage:
-            enum:
-                - 0
-                - 1
-                - 2
-                - 3
-                - 4
-                - 5
-                - 6
-                - 7
-            type: integer
-            x-enum-varnames:
-                - SessionStageUnknown
-                - StageDrafting
-                - StageAwaitingReview
-                - StageRedrafting
-                - StageCommitted
-                - StageWithdrawn
-                - StageRefused
-                - StageDraftFailed
-            x-go-base: int
-        DeliverySessionStateView:
-            additionalProperties: false
-            properties:
-                activeRole:
-                    $ref: '#/components/schemas/DeliveryActiveRole'
-                activeStep:
-                    $ref: '#/components/schemas/DeliveryActiveStep'
-                artifactKind:
-                    $ref: '#/components/schemas/DeliveryArtifactKind'
-                critique:
-                    $ref: '#/components/schemas/DeliveryCritiqueView'
-                    type:
-                        - "null"
-                draft:
-                    $ref: '#/components/schemas/DeliveryDraftModel'
-                failureReason:
-                    type:
-                        - "null"
-                        - string
-                failureRunUrl:
-                    type:
-                        - "null"
-                        - string
-                    x-go-name: FailureRunURL
-                findings:
-                    items:
-                        $ref: '#/components/schemas/DeliveryFinding'
-                    type:
-                        - "null"
-                        - array
-                projectId:
-                    $ref: '#/components/schemas/DeliveryProjectID'
-                    x-go-name: ProjectID
-                reviewThread:
-                    items:
-                        $ref: '#/components/schemas/DeliveryReviewCommentView'
-                    type:
-                        - "null"
-                        - array
-                round:
-                    type: integer
-                runUrl:
-                    type:
-                        - "null"
-                        - string
-                    x-go-name: RunURL
-                stage:
-                    $ref: '#/components/schemas/DeliverySessionStage'
-                stageName:
-                    type: string
-                    x-go-name: StageName
-            required:
-                - projectId
-                - artifactKind
-                - stage
-                - stageName
-                - draft
-                - activeRole
-                - activeStep
-                - round
-            type: object
         DeliverySeverity:
             enum:
                 - info
@@ -2264,6 +2134,11 @@ components:
                     type: integer
                 attemptId:
                     type: string
+                detail:
+                    description: The attempt's own render-ready sentence, verbatim. Absent where the attempt recorded none.
+                    type:
+                        - "null"
+                        - string
                 endedAt:
                     format: date-time
                     type:
@@ -2363,6 +2238,11 @@ components:
                 decidedBy:
                     description: Who decided the round. Omitted while it is undecided and on a reconstructed revision.
                     type: string
+                detail:
+                    description: 'The attempt''s own render-ready sentence, verbatim — ''drafted <kind> on <branch>'', ''dispatched <command> for <phase>'', ''asked N question(s) of <role>'', or a failed venue''s whole sentence including its run URL. PRESENT where the revision cites a gate attempt; absent on a reconstructed revision and where no attempt was captured. It exists because the M0 review is a SPEND APPROVAL and the per-family planning-assumption defaulting left no trace on any view: a founder could approve a cost computed on numbers nobody showed them. This is the field that shows them.'
+                    type:
+                        - "null"
+                        - string
                 endedAt:
                     description: Omitted while any attempt of the revision is unresolved.
                     format: date-time
@@ -3692,8 +3572,6 @@ components:
                     type: string
                 projectedMonthlyCost:
                     $ref: '#/components/schemas/ModelMoney'
-                revenueSharePercent:
-                    type: number
                 solutionKind:
                     enum:
                         - mission
@@ -3722,7 +3600,6 @@ components:
                 - compositeRisk
                 - projectedMonthlyCost
                 - expectedPerCycleNet
-                - revenueSharePercent
             type: object
         ModelSdpReview:
             additionalProperties: false
@@ -3749,15 +3626,9 @@ components:
                     type: integer
                 computeMarkupPercent:
                     type: number
-                revenueShare:
-                    type: integer
-                revenueSharePercent:
-                    type: number
                 schedule:
                     type: integer
             required:
-                - revenueShare
-                - revenueSharePercent
                 - computeCost
                 - computeMarkupPercent
                 - schedule
@@ -4908,77 +4779,6 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/DeliveryProjectView'
-                    description: success
-                "400":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/DeliveryErrorResponse'
-                    description: contract misuse
-                "401":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/DeliveryErrorResponse'
-                    description: unauthenticated
-                "403":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/DeliveryErrorResponse'
-                    description: forbidden
-                "404":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/DeliveryErrorResponse'
-                    description: not found
-                "409":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/DeliveryErrorResponse'
-                    description: failed precondition
-                "500":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/DeliveryErrorResponse'
-                    description: internal error
-                "503":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/DeliveryErrorResponse'
-                    description: infrastructure unavailable
-            security:
-                - bearerAuth: []
-    /api/v1/delivery/replan-project/{projectID}:
-        post:
-            operationId: ReplanProject
-            parameters:
-                - in: path
-                  name: projectID
-                  required: true
-                  schema:
-                    $ref: '#/components/schemas/DeliveryProjectID'
-            requestBody:
-                content:
-                    application/json:
-                        schema:
-                            properties:
-                                tickID:
-                                    type: string
-                            required:
-                                - tickID
-                            type: object
-                required: true
-            responses:
-                "200":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/DeliveryReplanSweepResult'
                     description: success
                 "400":
                     content:

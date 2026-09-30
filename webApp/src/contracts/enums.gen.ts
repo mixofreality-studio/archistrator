@@ -785,26 +785,6 @@ export type ProjectRunState = (typeof PROJECT_RUN_STATE_VALUES)[number];
 
 export const PROJECT_RUN_STATE_GO_VARNAMES = ['ProjectRunning', 'ProjectPaused'] as const;
 
-// --- ProjectSessionStage -------------------------------------------------
-// Sources: DeliveryProjectSessionStage
-export const PROJECT_SESSION_STAGE_GO_VARNAMES = [
-  'ProjectSessionStageUnknown',
-  'ProjectStageDrafting',
-  'ProjectStageAssemblingSDP',
-  'ProjectStageAwaitingReview',
-  'ProjectStageRedrafting',
-  'ProjectStageCommitted',
-  'ProjectStageWithdrawn',
-  'ProjectStageRefused',
-  'ProjectStageDraftFailed',
-] as const;
-
-export type ProjectSessionStageGoVarname = (typeof PROJECT_SESSION_STAGE_GO_VARNAMES)[number];
-
-export const PROJECT_SESSION_STAGE_ORDINAL_TO_GO_VARNAME: readonly ProjectSessionStageGoVarname[] =
-  PROJECT_SESSION_STAGE_GO_VARNAMES;
-
-// NOT mechanically derivable to an app string: Since stage 4a the varnames carry a "Project" infix (ProjectStageDrafting, ...) — one Manager namespace publishes BOTH session-stage shapes and the projectDesign rail's consts were prefixed to clear the collision (the ordinals differ, so they could not be folded). "ProjectStage" is not a whole-word run of the local type name "ProjectSessionStage", so nothing strips and the derivation falls through to the full lowerFirst varname ("projectStageDrafting"). enumMappings.ts keeps the short hand forms ("drafting"/"assemblingSdp"/...). Not mechanically derivable.
 // --- ProjectViewKind -----------------------------------------------------
 // Sources: DeliveryProjectViewKind
 // String-valued enum — the wire value is already the app string (no ordinal indirection).
@@ -922,15 +902,11 @@ export const SDP_DECISION_APP_TO_ORDINAL: Readonly<Record<SDPDecision, number>> 
   rejectAll: 2,
 };
 // --- SessionStage --------------------------------------------------------
-// Sources: DeliverySessionStage
+// Sources: DeliveryDesignArtifactSessionStage
 export const SESSION_STAGE_GO_VARNAMES = [
   'SessionStageUnknown',
-  'StageDrafting',
-  'StageAwaitingReview',
-  'StageRedrafting',
   'StageCommitted',
   'StageWithdrawn',
-  'StageRefused',
   'StageDraftFailed',
 ] as const;
 
@@ -941,12 +917,8 @@ export const SESSION_STAGE_ORDINAL_TO_GO_VARNAME: readonly SessionStageGoVarname
 
 export const SESSION_STAGE_APP_STRINGS = [
   'unknown',
-  'drafting',
-  'awaitingReview',
-  'redrafting',
   'committed',
   'withdrawn',
-  'refused',
   'draftFailed',
 ] as const;
 
@@ -956,13 +928,9 @@ export const SESSION_STAGE_ORDINAL_TO_APP: readonly SessionStage[] = SESSION_STA
 
 export const SESSION_STAGE_APP_TO_ORDINAL: Readonly<Record<SessionStage, number>> = {
   unknown: 0,
-  drafting: 1,
-  awaitingReview: 2,
-  redrafting: 3,
-  committed: 4,
-  withdrawn: 5,
-  refused: 6,
-  draftFailed: 7,
+  committed: 1,
+  withdrawn: 2,
+  draftFailed: 3,
 };
 // --- Severity ------------------------------------------------------------
 // Sources: DeliverySeverity

@@ -463,7 +463,7 @@ func (e *fakeBillingEngine) ComputeNet(_ fweng.Context, _ billingengine.CycleRev
 	return e.computeResult, nil
 }
 
-func (e *fakeBillingEngine) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.Context, _ billingengine.ProjectOption) (billingengine.Projection, error) {
+func (e *fakeBillingEngine) ProjectCommitTimeComputeCost(_ fweng.Context, _ billingengine.ProjectOption) (billingengine.Projection, error) {
 	return billingengine.Projection{}, nil
 }
 
