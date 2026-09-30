@@ -21,8 +21,51 @@ Branch `activity-experience-stage4b2` from `main` @`c5851e90`. 16 tasks planned,
 | 12 — THE PUMP: the lease replaces the blocking child wait | `b84098eb`, fix round `aa977ae9` |
 | 14 — the pump's replay fixtures, and the lease wire-form fix | `37b0e768` |
 | 16 — the census's verdicts and its checked numbers | `cb244838` |
+| 15 — the docs: the drain stops contradicting itself, and the spec says what shipped | `a883bcb1` |
+| review fix C1 — a vanished execution is not a finished activity | `d3a4f898` |
+| 17 — the measurement, the ledger reconcile, and the drain note rewritten as ONE procedure | this commit |
 
-Gates at ship (measured at `cb244838`): registered-names golden **133** (134 − `ReplanSweepWorkflow`), frozen workflow names **15**, `Test_Replay_DeliveryHistories` **8/8** + `Test_Replay_PumpHistories` **6/6** = **14 fixtures**, `Test_LifecycleShapes` **11/11**, `make lint` **0 issues**, `fix-check` clean, 9× `gen-*-check` no drift, `encapsulation-check` + `derived-plan-check` green, `validate --root .. --slot System` **43 advisory / 0 errors** (unmoved all wave), `npm run check` **1234/1234**, uitests preview **57 over 23 fixture states**, `systemtests` builds and vets.
+## Gates at ship — re-measured at `d3a4f898`, not transcribed
+
+Every row below was re-run for Task 17 rather than carried from a report. Where an earlier document disagreed, the measurement is what stands and the stale claim is named in the last column.
+
+| Gate | Value | Note |
+|---|---|---|
+| Registered Temporal names (golden) | **133** | The plan predicted **127**. It ends at 133 because Task 13 was BLOCKED and contributed nothing, and 133 = 134 − `ReplanSweepWorkflow` (`f3673fb1`) is the whole of 4b2's movement. Chain, measured from the golden literal across revisions: 231 (`4baed01a`) → 139 (4a) → 141 → **134** (`98e4a906`) → **133**. |
+| Frozen workflow names | **15** | 22 → 15 at `98e4a906`; 15 → 15 at `f3673fb1` (`constructionReplanSweep` out, `constructionPumpSweep` in). |
+| `Test_LifecycleShapes` | **11/11** | 11 subtests, all pass. |
+| `Test_Replay_DeliveryHistories` | **8/8** | the pre-4b2 child histories, untouched by 4b2. |
+| `Test_Replay_PumpHistories` | **6/6** | new at `37b0e768`. **14 replay fixtures in two families.** |
+| Pump guard census | **36 rows**, 47/47 live pins, 3 meta-tests green | 22 + 7 + 7 = 36, and `Test_PumpGuardCensus_TheHeadlineCountsAreTrue` now fails if the doc lies about it. **`progress.md` and `task-1-report.md` said 37; both corrected by Task 17.** |
+| `validate --root .. --slot System` | **43 advisory / 0 errors** | unmoved all wave. |
+| `npm run check` (webApp) | **1234/1234** | |
+| uitests preview | **57 tests, 57 passed**, over **23 fixture states** | See the reconciliation below — one reviewer counted 22, and both numbers are right about different things. |
+| Hand-written `delivery` lines | **20,714** | See the line measurement below. |
+| `make lint`, `fix-check`, 9× `gen-*-check`, `encapsulation-check`, `derived-plan-check`, `systemtests` build+vet | green at ship | re-run by the tasks that touched Go; Task 17 changed no Go. |
+
+**The 22-vs-23 preview-fixture reconciliation, settled.** There are **23 fixture state files** under `uitests/preview-fixtures/web-client/**`. The preview specs contain **22 distinct `openState(page, '<screen>', '<state>')` literal pairs** — which is where the reviewer's 22 came from — but those two 22s are not the same set:
+
+- 21 of the 22 literal pairs name a fixture that exists. The 22nd is `plan / no-such-state`, a **deliberate miss** with no fixture, asserting the honest error page.
+- `activity-experience / service-fork-sent-back` is driven through the `SERVICE` **constant** (`activity-experience.spec.ts:44`), not a literal, so a literal-counting scan cannot see it. It is the most-exercised state in the suite (13 cases).
+- So: 21 literal + 1 via the constant = **22 fixture states exercised**, plus **`deployment-linear.json`, which no preview spec drives at all** — it is validated only by `webApp/scripts/fixture-schema.test.mjs:266`. 22 + 1 = the 23 files.
+
+**New earmark from that count: `deployment-linear.json` is schema-checked and browser-unexercised.** Either give it a case or delete it; a fixture nothing drives is a fixture whose truth nothing checks.
+
+## The line measurement — spec §9's acceptance still holds
+
+Measured at `d3a4f898` with the plan's own recipe (`wc -l server/internal/manager/delivery/*.go`; hand-written = total − `manager_test.go` − the four `*.gen.go`), and **both baselines re-derived from git rather than read out of a document**:
+
+| | Total | `manager_test.go` | the four `*.gen.go` | **Hand-written** | Non-test |
+|---|---|---|---|---|---|
+| Three predecessor packages @ `4baed01a` (`systemdesign` + `projectdesign` + `construction`, top-level `*.go`, `fake/` excluded as the recipe excludes it) | 61,576 | 31,798 | 4,135 | **25,643** | 29,778 |
+| `delivery` @ wave start (`c5851e90` = `bae7681f`) | 46,857 | 25,066 | 2,218 | **19,573** | 21,791 |
+| `delivery` @ `d3a4f898` (HEAD) | 51,560 | 28,675 | 2,171 | **20,714** | 22,885 |
+
+**The recorded predecessor baselines are NOT stale: 25,643 hand-written and 29,778 non-test reproduce exactly from git.** (The floor that was stale is a different number — the plan's own end-of-wave *prediction*.)
+
+**Spec §9's acceptance — "the delivery manager is smaller than the sum of its predecessors" — HOLDS: 20,714 < 25,643 (80.8 %), and 22,885 < 29,778 (76.9 %) on the non-test measure.**
+
+**And the floor moved a long way this wave, which should be said plainly: +1,141 hand-written lines (19,573 → 20,714), where the plan budgeted a REDUCTION.** The wave's own accounting, each figure from the task that produced it: Task 5 was −203; Task 7 was net negative; **Task 12 alone was +851** (`pumpnextactivity.go` 424 → 1,142, at the ~49 % comment ratio the file already had, so ≈ +391 of code and the rest the *why* written at the site); Task 14 was +99 production lines, ~55 of them the wire-form doctrine comment; `d3a4f898` added ~55 more. A prior measurement put HEAD around **20,659** at `37b0e768` — that number was correct then and the last commit is the difference. The acceptance criterion is a ceiling, not a ratchet, and it is met; but nobody should read "§9 holds" as "the manager got smaller this wave". It did not.
 
 Claims below carry the task and the commit that produced them.
 
@@ -30,7 +73,23 @@ Claims below carry the task and the commit that produced them.
 
 ## Deploy note — 4b2 does not deploy, and not alone
 
-The drain sequence is `docs/bugs/2026-09-24-stage3-rail-earmarks.md` and was amended in the same commit as this file. One drain covers stages **3 + 4a + 4b1 + 4b2**, once, before one release. What 4b2 changes in it: the drain now owes **THREE** `temporal schedule delete` calls (`delivery:replanSweep` joins the two abandoned `construction:*` ids) and step 6 confirms **TWO** sweep Schedules, not three. No new workflow TYPE name, no new workflow id family, no state migration. Read the amended note before releasing anything; this paragraph is a summary, not the procedure.
+**The drain procedure is `docs/bugs/2026-09-24-stage3-rail-earmarks.md`, and its six steps were rewritten as ONE current sequence by Task 17** (every number re-measured at `d3a4f898`; the four waves' amendment blocks moved below a rule into an appendix marked as history). One drain covers stages **3 + 4a + 4b1 + 4b2**, once, before one release.
+
+What 4b2 changes in it: the drain owes **THREE** `temporal schedule delete` calls (`delivery:replanSweep` joins the two abandoned `construction:*` ids) and step 6 confirms **TWO** sweep Schedules. No new workflow TYPE name, no new workflow id family, no state migration — but `constructionReplanSweep` becomes the **eighth** retired workflow TYPE that must be terminated by hand, and `{projectId}:replanSweep:{tickId}` / `:all:replanSweep:{tickId}` join the id families to sweep.
+
+**Read the procedure, not this paragraph.** This is a summary; the steps are the instructions, and the one thing in them that is new and dangerous is that the main-write lease has never run in production (§*The lease RUNS FOR THE FIRST TIME* below, and the watch-list in the procedure's *After the release* section).
+
+---
+
+## THE WAVE'S OPEN ITEMS — one ordered list
+
+Five things leave 4b2 unfinished. They are ordered by what they cost while they wait, and each one's full measurement is in its own section below.
+
+1. **🔴 THE LIVE DELINQUENCY DEFECT — a founder decision, and it costs money every day it waits.** `deliverSignal` has a **fifth** production producer outside `delivery`: `billing/shortfallsweep.go:118` sends `applyDelinquencyPolicy` to `{customerId}:delinquency`, and `operations/delinquencyenforcement.go:51` receives it **into a concrete struct** — so the SDK drops it and **no app is ever paused or withdrawn for delinquency**. Worse, the two payload shapes do not match: the producer sends `deliverSignalPayload{CustomerID, PauseNotWithdraw}`, the consumer reads `applyDelinquencySignal{CustomerID, Context}`. **A wire-form fix alone would leave `Context` empty and start pausing or withdrawing on a default — which is worse than blocked.** The founder must say what `Context` is supposed to carry, and whether `PauseNotWithdraw` is that thing under a different name. Nothing else in this list can be fixed without knowing that. → §*THE FIFTH PRODUCER*.
+2. **The ContinueAsNew boundary is entirely unfixtured and CANNOT be captured.** `pump-drain-pause-before-continue-as-new` v1's `GetVersion` fires only past `pumpHistoryBudget` (4000 events), so no history capture can ever reach it — and with it the drain, the carry and the replay of `Carried` are all uncovered by any fixture. **By the pump's own header those are the riskiest ten lines in the file.** One unit mutation covers the drain half; a deterministic harness that forces the budget low enough to cross the boundary is what would buy the rest. → §*The ContinueAsNew boundary*.
+3. **The lease invariant's scope is per pump CHAIN, not per project.** `LeaseHolder` lives only in `pumpState`/`pumpInput`, so it survives a ContinueAsNew and nothing else. Any pump run ending while a lease is held exits with a holder; the 30 s sweep starts a fresh chain with none; two activities can then write main concurrently across that boundary, held only by the row CAS and the branch-file version guard. **"Fails open" is the NORMAL state after any pump restart, not a rare fault path.** The header says so now; the invariant is still narrower than the feature reads. → §*The lease invariant's true scope*.
+4. **The no-failure-row gap: a broken merge tail leaves no red node.** The cascade is safe (the pump stops on the child's future, `aa977ae9`) but head state still reads `Running`, or `Completed` with uncommitted slots, for an activity whose tail broke — so **an operator sees no failed activity**. `finalizeWalk`'s tail errors bypass `failWalk`, so no terminal row is written, and `pumpReconcile`'s "terminal failure row, no finish" arm cannot fire for a tail that outlives its pump run. Routing it through `failWalk` would write `VarianceExhausted` over an already-recorded `Completed` — **a decision about the documented heal-by-re-open path, not a line to add.** → §*Deferred to 4b3*, item 1.
+5. **The deferred contract deltas — four of them, all owed to the next model wave, none of which trips a gate.** `PumpResult.activityIds` (the field does not exist; the frontier rides the Manager-internal `queryPumpDispatch` payload instead, with the exact JSON recorded below); `ReplanSweepResult` as dead contract surface (`contract.gen.go`, `openapi.yaml`, the `systemtests` SDK and `schema.ts` all carry it with no Go caller); the `ActiveRole`/`ActiveStep` `$defs` cascade the provider sweep did not take; and the committed contract note whose stage-3 deferral reason has expired. → §*Deferred to 4b3* items 4 and 5, and §*Doc/model staleness*.
 
 ---
 
@@ -196,7 +255,9 @@ One MODEL-level correction falls out of it and is owed to the next model wave: t
 - **Shape-rig artefact:** `shapeSDPActivity = "P-SDP"` is not a production activity id and mis-classifies (Documentation → no `sdpReview` task → kind nil), so two façade M0 tests and the `projectDesign` shape rig exercise a kind resolution production never takes. Rename to `projectDesign` (it touches several shape cases). The measurement that depends on it: **"`settleThreadsBeforeApprove` has never run at M0" is TRUE of the test rig and FALSE of production** — no downstream plan may assume M0 was ungated since 4b1.
 - **`Test_LifecycleShapes` load-flake, for anyone reading a red run:** it does NOT reproduce serially (0/30 at base); it needs LOAD (3/40 at 8-way concurrency, 7.5%) and it hits `fork-join-service-design-first` as well as `stp-first`. Task 4 fixed the root cause for the declaration-order claim by moving it to `readyTasks` (pure, 100% instead of ~92%), but **a serial CI run understates the class; nobody should declare a future flake "gone" from a serial run.**
 - **Two unrelated pre-existing hangs/flakes seen this wave:** `TestRegisterOperatedSystem_AlreadyRegistered_Conflict` hangs at 10 m under full non-short `./...` (not in `-short`, not touched here); and `golangci-lint cache clean` must run FIRST in any worktree — a stale cache printed 30 phantom issues pointing into a DELETED sibling worktree.
-- **`progress.md` and Task 1's report still say the census holds 37 rows.** It holds **36** (38 − 2), and the census now fails if it lies about its own numbers; the two stale documents do not.
+- **The census row count was wrong in two documents and both are now corrected.** It holds **36** (22 + 7 + 7), measured against `len(pumpGuardCensus())`, and `Test_PumpGuardCensus_TheHeadlineCountsAreTrue` fails if the doc lies about it. `progress.md` line 11 and `task-1-report.md` both said **37**; Task 17 corrected both in place with the correction marked, so the ledger still reads as a record rather than a rewrite.
+- **`uitests/preview-fixtures/**/deployment-linear.json` is driven by no preview spec.** It is validated only by `webApp/scripts/fixture-schema.test.mjs:266`, so its schema is checked and its rendering is not. Every other one of the 23 fixture states is exercised in a browser. Give it a case or delete it.
+- **`cmd/server/hooks_test.go:321-323`'s doc comment still names the Schedules it gates as "pump sweep / replan sweep".** The replan sweep is deleted and the second Schedule is the round sweep. The assertions are correct and pass; only the comment lies. (A code fix, so Task 17 left it — it is a docs-only task.)
 
 ---
 
