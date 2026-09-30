@@ -12887,6 +12887,112 @@ func Test_RoundSweep_AHealedRowIsNotReopenedOnTheNextTick(t *testing.T) {
 	}
 }
 
+// requeueNotes counts the requeue notes on a row — the ledger entry that grows once per heal,
+// and therefore the thing the bound exists to stop growing.
+func requeueNotes(ps *csFakeProjectState, activityID string) int {
+	n := 0
+	for _, note := range ps.execution(activityID).OperatorNotes {
+		if note.Kind == projectstate.NoteRequeue {
+			n++
+		}
+	}
+	return n
+}
+
+// reBreakTheTail replays what a re-run of a DETERMINISTICALLY broken activity leaves behind:
+// the head facts the heal cleared are back, with a NEW exit stamp (which is why the heal's
+// own NoteID dedup cannot see this), the SAME tail detail, and — the fact that matters —
+// NOT ONE newly resolved attempt, because a re-run seeds every task that already passed from
+// the ledger instead of redoing it.
+//
+// resolvedAt, when non-nil, is the opposite case: a re-run that DID work, recorded as one
+// resolved attempt at that time.
+func reBreakTheTail(ps *csFakeProjectState, activityID string, exitedAt time.Time, resolvedAt *time.Time) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	row := ps.project.ActivityExecution[activityID]
+	at := exitedAt
+	row.StartedAt = &at
+	row.CompletedAt = &at
+	row.TailFailureDetail = "the merge tail failed at commitDesignArtifacts: refused"
+	if resolvedAt != nil {
+		ended := *resolvedAt
+		row.Attempts = append(row.Attempts, projectstate.TaskAttempt{
+			AttemptID: activityID + ":srs:1", Task: projectstate.TaskSRS,
+			Attempt: 1, EndedAt: &ended, Outcome: projectstate.OutcomePassed,
+		})
+	}
+	row.Version++
+	ps.project.ActivityExecution[activityID] = row
+}
+
+// A DETERMINISTICALLY BROKEN TAIL IS HEALED ONCE AND THEN LET ALONE — the bound, and the
+// hazard it closes is the one Task 10 named and refused to invent a cap for.
+//
+// The anti-loop property above is about ONE broken landing. This is the next cycle out: the
+// heal re-arms the row, the pump re-runs it, the tail breaks the SAME way, and that mints a
+// NEW exit stamp, hence a NEW NoteID, which the store's dedup therefore never sees. Left
+// alone it is a re-open every 300s for ever, each one appending a note to a row inside a
+// git-as-DB document.
+//
+// The bound is not a magic number: the row is asked whether the last re-open resolved
+// anything. Here it resolved nothing, so the second tick declines — the red node stays red,
+// which is what an operator needs to see, and the note ledger stops at one.
+func Test_RoundSweep_ADeterministicallyBrokenTailIsHealedOnceAndThenLetAlone(t *testing.T) {
+	ps := roundSweepState(notLandedRow("C-ONE"))
+
+	if res := runRoundSweep(t, ps); res.Reopened != 1 {
+		t.Fatalf("the first broken landing IS healed, got %d re-opened", res.Reopened)
+	}
+	reBreakTheTail(ps, "C-ONE", testLedgerClock.Add(time.Hour), nil)
+
+	if res := runRoundSweep(t, ps); res.Reopened != 0 {
+		t.Fatalf("a re-run that resolved nothing must not be re-opened again, got %d re-opened", res.Reopened)
+	}
+	if n := requeueNotes(ps, "C-ONE"); n != 1 {
+		t.Fatalf("the note ledger must stop growing at the heal that changed nothing, got %d requeue notes", n)
+	}
+	if row := ps.execution("C-ONE"); row.CompletedAt == nil || row.TailFailureDetail == "" {
+		t.Fatalf("the refused row keeps its red node so an operator can read it, got %+v", row)
+	}
+	// And a THIRD tick changes nothing either: the bound is a property of the row, not a
+	// one-shot suppression that a later tick forgets.
+	if res := runRoundSweep(t, ps); res.Reopened != 0 {
+		t.Fatalf("the bound holds on every later tick, got %d re-opened", res.Reopened)
+	}
+	if n := requeueNotes(ps, "C-ONE"); n != 1 {
+		t.Fatalf("still one requeue note after a third tick, got %d", n)
+	}
+}
+
+// A RE-RUN THAT GOT FURTHER IS HEALED AGAIN, which is the other half of the bound and the
+// reason it is a question about the row rather than a cap on a counter.
+//
+// Same two ticks as above, with ONE difference: between them a task actually resolved. That
+// is the re-run doing real work, so the landing that broke afterwards is a DIFFERENT broken
+// landing from the one that was healed, and it gets its own heal. A cap on attempts could not
+// tell these two tests apart; this one is what stops the bound from freezing an activity that
+// is genuinely making progress towards landing.
+func Test_RoundSweep_ATailThatResolvedATaskSinceTheHealIsHealedAgain(t *testing.T) {
+	ps := roundSweepState(notLandedRow("C-ONE"))
+
+	if res := runRoundSweep(t, ps); res.Reopened != 1 {
+		t.Fatalf("the first broken landing IS healed, got %d re-opened", res.Reopened)
+	}
+	progressed := testLedgerClock.Add(30 * time.Minute)
+	reBreakTheTail(ps, "C-ONE", testLedgerClock.Add(time.Hour), &progressed)
+
+	if res := runRoundSweep(t, ps); res.Reopened != 1 {
+		t.Fatalf("a re-run that resolved a task is healed again, got %d re-opened", res.Reopened)
+	}
+	if n := requeueNotes(ps, "C-ONE"); n != 2 {
+		t.Fatalf("two heals of two different broken landings file two notes, got %d", n)
+	}
+	if row := ps.execution("C-ONE"); row.CompletedAt != nil || row.TailFailureDetail != "" {
+		t.Fatalf("the second heal must clear the head facts like the first, got %+v", row)
+	}
+}
+
 // roundOutcomeByID reads back what the sweep decided for each round of one row.
 func roundOutcomeByID(ps *csFakeProjectState, activityID string) map[string]projectstate.ReviewRoundOutcome {
 	out := map[string]projectstate.ReviewRoundOutcome{}

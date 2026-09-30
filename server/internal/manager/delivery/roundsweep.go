@@ -1,6 +1,8 @@
 package delivery
 
 import (
+	"time"
+
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -309,14 +311,21 @@ func (wf *csWorkflows) sweepProjectRounds(ctx workflow.Context, in roundSweepInp
 // can still press the button themselves; what may not happen is the platform pressing it
 // behind them.
 //
-// IT CANNOT LOOP. RecordOperatorNote dedups on NoteID before it re-arms, and
-// RequeuedAfterExit requires the newest requeue note to be newer than the newest RESOLVED
-// attempt — so an activity re-opened, re-run and finished again is finished, and its stale
-// requeue note does not re-arm it a second time. The NoteID is reopenNoteID, the operator
-// button's own derivation: it keys on the row's EXIT STAMP, so one broken landing mints one
-// note however many ticks see it, and the heal converges with an operator's rather than
-// filing a second reason against the same terminal. It is derived, never minted — a
+// IT CANNOT LOOP ON ONE BROKEN LANDING. RecordOperatorNote dedups on NoteID before it
+// re-arms, and RequeuedAfterExit requires the newest requeue note to be newer than the newest
+// RESOLVED attempt — so an activity re-opened, re-run and finished again is finished, and its
+// stale requeue note does not re-arm it a second time. The NoteID is reopenNoteID, the
+// operator button's own derivation: it keys on the row's EXIT STAMP, so one broken landing
+// mints one note however many ticks see it, and the heal converges with an operator's rather
+// than filing a second reason against the same terminal. It is derived, never minted — a
 // workflow that generated a random id would be non-deterministic on replay.
+//
+// AND IT CANNOT PING-PONG ACROSS BROKEN LANDINGS EITHER (stage 4b3 Task 11), which is a
+// SECOND and separate claim. Each cycle of heal -> re-run -> break-again is legitimate in
+// isolation and each one has a NEW exit stamp, hence a new NoteID, so the dedup above never
+// sees it: a deterministically broken tail would otherwise be re-opened every 300s for ever,
+// growing a git-as-DB document's note ledger without bound. healWouldRepeatOneThatChangedNothing
+// is that bound, and it is asked BEFORE the per-tick budget so a refused row costs nothing.
 //
 // BOUNDED per tick, the same reason roundSweepMaxPerTick states for the rounds: one Temporal
 // task may not do unbounded work on a project with years of history. The budget is its OWN
@@ -341,6 +350,17 @@ func (wf *csWorkflows) sweepReopenNotLanded(ctx workflow.Context, projectID Proj
 			// Running and NotStarted have nothing to re-open; Done landed; Failed is a
 			// decision about the WORK, and re-running it on a timer would be the platform
 			// overriding a terminal a walk established. Only an operator re-opens those.
+			continue
+		}
+		if healWouldRepeatOneThatChangedNothing(row) {
+			// THE BOUND. Not a cap on a counter — the row itself says the last re-open
+			// produced no work, so pressing the same button again cannot produce any either.
+			// The red node stays red, which is the legible outcome: an operator reading the
+			// activity finds one requeue note, the tail's own detail, and a state that has
+			// stopped flapping.
+			logger.Info("activity completed its work and did not land it, but the last re-open resolved no task; not re-opened again",
+				"projectId", string(projectID), "activityId", activityID,
+				"tailFailure", row.TailFailureDetail)
 			continue
 		}
 		if reopened >= roundSweepMaxPerTick {
@@ -388,6 +408,71 @@ func (wf *csWorkflows) sweepReopenNotLanded(ctx workflow.Context, projectID Proj
 			"tailFailure", row.TailFailureDetail)
 	}
 	return reopened, nil
+}
+
+// healWouldRepeatOneThatChangedNothing reports whether this row has ALREADY been re-opened
+// and the re-open achieved nothing — in which case re-opening it again will achieve nothing
+// either, and the sweep stops.
+//
+// THE HAZARD IT BOUNDS (stage 4b3 Task 11, carried out of Task 10's own concern list). The
+// anti-loop property Task 10 proved is exact and narrow: ONE broken landing is healed once,
+// because the heal clears the fact the sweep keys on and the NoteID is derived from the exit
+// stamp. A DETERMINISTICALLY broken tail defeats it, not by looping on one landing but by
+// producing a new one every cycle: heal -> re-run -> the tail breaks the same way -> a new
+// CompletedAt -> a new reopenNoteID -> heal. Every 300s, for ever, each cycle appending a note
+// to a row inside a git-as-DB document that nothing prunes.
+//
+// WHY NOT AN ATTEMPT CAP. A counter ("heal at most N times") cannot tell the two cases apart:
+// an activity legitimately re-opened three times because each re-run got further is the SAME
+// number as one re-opened three times to no effect, and the honest distinction is not how
+// often the button was pressed but whether pressing it did anything. So this asks the row.
+//
+// "DID ANYTHING" IS THE ATTEMPT LEDGER, and specifically a RESOLVED attempt recorded after the
+// newest requeue note. That is the one measure of progress available and it is the right one:
+//   - CompletedAt cannot serve. It changes on EVERY cycle by construction — a fresh exit stamp
+//     is precisely what makes the ping-pong possible — so "CompletedAt moved" is true of the
+//     pathological case as loudly as of the healthy one.
+//   - TailFailureDetail cannot serve either. Comparing it against the previous note's text
+//     would make the bound depend on a Temporal error string staying byte-identical across
+//     runs, and those carry run ids and timestamps; a detail that varies in its noise would
+//     read as "something changed" and ping-pong exactly as before.
+//   - The attempt ledger is the fact the re-run itself is built on. A re-run seeds every task
+//     that already passed FROM the ledger rather than redoing it (that is what makes the heal
+//     cheap), so a walk whose tasks all passed and whose TAIL broke records no new resolved
+//     attempt at all. Nothing new resolved == the re-run did the same nothing it did last time.
+//
+// IT DOES NOT CARE WHO PRESSED THE BUTTON, and that is deliberate rather than a limitation to
+// route around. OperatorNoteInput carries no author member (the round half's decidedBy is a
+// field; this provenance lives in the note's free TEXT), so a query cannot tell a sweep-heal
+// from an operator's. It does not need to: the reasoning holds for both. A re-open that
+// resolved no task is a re-open that changed nothing, whoever filed it, and the platform
+// declining to repeat a human's ineffective re-open is the same correctness as declining to
+// repeat its own. THE OPERATOR IS NEVER INHIBITED — reopenActivity has no such check and this
+// task did not give it one; a human who wants to try again always can, and their button is the
+// documented way past this bound.
+func healWouldRepeatOneThatChangedNothing(row projectstate.ActivityExecution) bool {
+	var reopenedAt time.Time
+	for _, n := range row.OperatorNotes {
+		if n.Kind == projectstate.NoteRequeue && n.Gate == reopenGateKey && n.RecordedAt.After(reopenedAt) {
+			reopenedAt = n.RecordedAt
+		}
+	}
+	if reopenedAt.IsZero() {
+		// Never re-opened, so this is the FIRST heal of this row and the bound has nothing to
+		// say about it.
+		return false
+	}
+	for _, a := range row.Attempts {
+		if a.Outcome == projectstate.OutcomePending || a.EndedAt == nil {
+			continue
+		}
+		if a.EndedAt.After(reopenedAt) {
+			// A task resolved since the re-open: the re-run did real work, so this broken
+			// landing is a different one from the one that was healed and it gets its own heal.
+			return false
+		}
+	}
+	return true
 }
 
 // sweepReopenNoteText is the requeue note the sweep files, and it has to be two things at

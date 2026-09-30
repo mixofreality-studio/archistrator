@@ -216,6 +216,129 @@ Also not covered, stated in code at `pumpReplayCases`: G-P12's pre-CAN row arm (
 
 ---
 
+## Written by stage 4b3 Task 11 — the correction to R23, and two model-wave carries
+
+### 🔴 R23's remediation for `deliverymanager.go`'s size is FORBIDDEN BY THE STANDARD IT CITES
+
+**R23's remediation row for the 13,535-line file — "split by op family under the existing
+file-layout standard" — is FORBIDDEN BY that standard.** Rule 1 admits one
+contract-implementation file and Rule 4 admits no others; the standard's own text calls large
+files an accepted consequence and names `projectstateaccess.go` as the precedent. The only
+sanctioned reduction is Rule 2's re-homing of workflow-exclusive helpers, which 4b3 did and
+measured. **The real owners of the file-size finding are (a) a platform amendment to the
+standard — a `framework-go` release, i.e. not this programme — or (b) the facet wave, which
+removes RA-shaped code from the Manager rather than re-filing it.** Recording this as "done"
+without saying so would leave the next reader believing a split is available.
+
+(The size figure moves between documents and none of them is wrong: **13,234** at the wave's
+base `8d9604b1`, **13,535** measured at Task 11's HEAD after Tasks 8-10 added to it. The plan's
+acceptance for this task is `TestFileLayout` **green plus an honest number**, never a line
+target — and the number went **up** during the wave, which is what "large files are an accepted
+consequence" means in practice.)
+
+`TestFileLayout` (`internal/arch_test.go:61`, `arch.CheckFileLayout`) has held that at **zero
+waivers since 2026-07-12**, and the allowed set for this package is exactly:
+`deliverymanager.go` (Rule 1) + one file per registered workflow — `deliveryactivity.go`,
+`pumpnextactivity.go`, `pumpsweep.go`, `projectsupervision.go`, `roundsweep.go` (Rule 2) +
+`manager_test.go` (Rule 3) + the four `*.gen.go` (exempt). **A second implementation file is
+not an option**, and never weakening a gate to satisfy a remediation is the standing rule.
+
+### And the measured Rule-2 re-homing is EMPTY — the honest number, with its method
+
+The plan's first-cut scan found **107** candidate symbols by bare-word regex. That number is
+inflated by prose: re-measured with a **go/ast walk** (comments discarded, string literals
+excluded, selector `Sel` idents counted so a method call `wf.foo()` registers as a use), the
+set of top-level symbols declared in `deliverymanager.go`, referenced by **exactly one** other
+hand-written file, and referenced **nowhere inside `deliverymanager.go` itself**, is **82** of
+**688** top-level declarations — **77** toward `deliveryactivity.go` and **5** toward
+`roundsweep.go`. Each file declares exactly one *registered* workflow, so "one other file" and
+"one workflow" coincide here.
+
+**Zero of the 82 moved**, and the per-symbol reasons fall into four buckets, every one of them
+the standard's own or the code's own rather than this task's taste:
+
+1. **Rule 1's enumerated categories (≈40).** Rule 1's colon-list is verbatim Rule 4's
+   forbidden-file list — error mapping, adapters, codecs, git rail/session mechanics, prompt
+   corpora, strategy tables *and strategy implementations*, signal handlers, behavior
+   free-functions — i.e. the code that used to live in `errors.go` / `gitrail.go` /
+   `codec.go` / `strategy.go`. Rule 1's test is **"not specific to one workflow"**, which is
+   semantic; a usage count of one is evidence, not proof. Covers `isConflict`,
+   `isRailAuthFault`, `isRAContractMisuse`, `isDecodeFault`, `deriveFailureReason`,
+   `encodeModel`, `mainBranch`, `activityBranchName`, `prTitle`/`prBody`, `crLabelHints`,
+   `toRail`, the four `railAuthRetry*`/`railCredRenewSkew` constants, `mapCheckState`,
+   `managerPipelinePhase`, `dispatchInputsFor`, `computeProjectPlanSlots`, and the note and
+   round free-functions.
+2. **Seven carry the doc line "Stage 4a: ONE copy now serves the systemDesign +
+   projectDesign (+ construction) rails (byte-identical twins, collapsed by the package
+   merge — `arch.CheckFileLayout` allows…)".** Their own text cites this standard as the
+   reason they sit in the impl file. Moving them would make the code contradict its comment.
+3. **A documented placement, made deliberately and citing the standard by name.**
+   `strandedRounds` says, at its site: *"It is a PURE function of one row (no workflow
+   context), so the file-layout standard puts it here beside `roundGateKey` rather than in
+   `roundsweep.go`, and the sweep's tests can state the rule without a Temporal
+   environment."* That block (`roundSweepDecidedBy`, `strandedRounds`, `sortedActivityIDs`,
+   `deliverymanager.go:9386-9431`) was the single strongest move candidate and its own
+   comment is the refusal.
+4. **Splitting a declared FAMILY, or a symbol whose doc says "the Manager's…".**
+   `roundSweepWorkflowID` is one of four adjacent workflow-id derivations (`:7405-7435`);
+   the six `walkTask*` are an **iota** block under `walkTaskState`, whose ordinals are
+   payload-visible across a ContinueAsNew and therefore under the never-renumber rule; the
+   four `routedKind*` sit under `routedSignal`; the five `gateOutcome*` beside
+   `takeoverGateKey`; `jobModeDraft`/`jobModeCritique` beside the `dispatchInput*` contract
+   with `aiarch-design.yml`. And `csPipelineObservation`, `csPullRequestStatusView`,
+   `proposeReviewSet`, `prTitle`/`prBody` and `managerPipelinePhase` each say *"the
+   Manager's / Manager-local / Manager-neutral"* in their own first line — the brief's
+   "if the Manager plausibly grows a caller, leave it", answered by the code.
+
+**Two measurement caveats the next reader is owed.** (a) **The one-level set is not closed.**
+`seedResumeFromLedger` is a candidate; `seedTaskCount`, which only it calls, is not — because
+its one caller is inside `deliverymanager.go`. Moving the first makes the second a candidate,
+so a maximal re-homing needs a transitive closure this task did not compute and no-one has
+asked for. (b) **A move between files in one package moves no lines out of the package.** The
+hand-written `delivery` total is unchanged by anything Task 11 did or could have done, and
+§9's acceptance is a ceiling, not a ratchet.
+
+### 🟡 Carry for the next MODEL wave: the requeue note cannot say who wrote it
+
+`OperatorNoteInput` (`projectstate/contract.gen.go:558-564`) has **five** members —
+`noteId`, `kind`, `gate`, `text`, `comments` — and **no author member**. The round half of the
+sweep records `decidedBy: "platform-sweep"` as a *field* on the round; the re-open half's
+provenance lives in the note's free **TEXT** (`sweepReopenNoteText`, `roundsweep.go`), so an
+operator reading the notes list can tell a platform heal from their own and **no query can**.
+There are exactly two writers of `NoteRequeue` — `reopenActivity`
+(`deliverymanager.go:6189`) and `sweepReopenNotLanded` (`roundsweep.go`) — and nothing on the
+row distinguishes them.
+
+Not added here: a member on a generated contract type is a model edit, and R13 spends the
+wave's one on Task 8. The exact delta, for the next model wave, on the SHARED
+`OperatorNoteInput` `$def` (it is shared by `activityExecutionAccess` and the deprecated
+`constructionTransitionAccess`, so it reaches both facets' tool schemas, `openapi.yaml`,
+`schema.ts` and the `systemtests` SDK):
+
+```json
+"authoredBy": { "type": "string", "description": "Who filed the note: an operator identity, or the platform component that filed it on its own initiative (e.g. \"platform-sweep\", matching the round ledger's decidedBy). Empty on a note written before the member existed." }
+```
+
+**What it would buy, concretely:** the 4b3 heal bound
+(`healWouldRepeatOneThatChangedNothing`, `roundsweep.go`) deliberately does **not**
+distinguish a platform heal from an operator's, and the reasoning holds for both — a re-open
+that resolved no task changed nothing whoever filed it. With the field, a future wave could
+bound the two differently (e.g. let a human's explicit retry always through while the
+platform's stays bounded) and could *count* platform heals per row, neither of which is
+answerable today.
+
+### 🟡 A pre-existing Rule-1 inversion, found by the same measurement and NOT fixed here
+
+`readProject` is declared in **`pumpnextactivity.go:1538`** and is called by
+`roundsweep.go` as well. The standard's Rule 2 says in as many words: *"Code shared by two or
+more workflows moves up into the contract-implementation file (Rule 1)."* So its home is
+`deliverymanager.go`. `TestFileLayout` does not catch it — the gate checks the FILE SET, not
+which file a shared helper landed in — and the fix's direction (**into** the 13.4k file) is the
+opposite of this task's, which is why it is recorded rather than taken. It belongs with (a) the
+`framework-go` amendment or (b) the facet wave, the same two owners as the size finding itself.
+
+---
+
 ## The deadness-claim lesson — this wave's dominant defect
 
 **"No caller" from a grep was WRONG four times in this wave.** On record: `Solution.ClassRates` ("nothing reads it" — `SolutionView` does), the over-deleted exported `RegisterManagerWorker`/`RegisterSchedules`, the `statuses` channel "measured dead", and `detailPaneState.ts`. Nothing was actually deleted on a false premise — a dedicated verification sweep confirmed that — but only because the reviews caught each one.
