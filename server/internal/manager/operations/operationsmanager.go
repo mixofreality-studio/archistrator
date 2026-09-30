@@ -494,7 +494,19 @@ func (m *operationsManager) ApplyDelinquencyPolicy(rc fwmgr.Context, customerID 
 	}
 
 	wfID := delinquencyWorkflowID(customerID)
-	sig := applyDelinquencySignal{CustomerID: customerID, Context: delinquencyContext}
+	// THE FAÇADE CANNOT SAY "NOBODY SAID", AND THAT IS RECORDED RATHER THAN HIDDEN.
+	// DelinquencyContext.pauseNotWithdraw is a non-pointer bool on the generated REST and MCP
+	// surfaces, so a request body that omits it decodes as false and arrives here
+	// indistinguishable from an explicit withdraw. Mapping it to the enum keeps today's
+	// semantics exactly and moves the three-value vocabulary to where a MISSING payload can
+	// still be caught (the workflow's own decode). Closing the outer half is a $defs change —
+	// pauseNotWithdraw -> a delinquencyAction enum — across the generated surfaces, and it is
+	// earmarked rather than smuggled into a Manager body.
+	action := delinquencyActionWithdraw
+	if delinquencyContext.PauseNotWithdraw {
+		action = delinquencyActionPause
+	}
+	sig := applyDelinquencySignal{CustomerID: customerID, Action: action}
 	opts := client.StartWorkflowOptions{
 		ID:                       wfID,
 		TaskQueue:                TaskQueue,

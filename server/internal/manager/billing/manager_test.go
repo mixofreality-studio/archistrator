@@ -422,20 +422,38 @@ func (g *fakeGateway) ValidateStoredInstrument(_ fwra.Context, _ uuid.UUID, _ st
 
 var _ merchantgateway.MerchantGatewayAccess = (*fakeGateway)(nil)
 
+// deliveredDelinquencySignal is the TEST'S OWN reading of the applyDelinquencyPolicy wire
+// form. It is declared here, in the test, rather than in shortfallsweep.go, because the
+// production mirror is exactly what this change retired: billing writes the shape inline
+// at the one send site, and the cross-package pin lives on the operations side
+// (Test_Delinquency_TheTwoPackagesAgreeOnTheWire). A decode struct in a fake is a reader,
+// not a second source of truth.
+type deliveredDelinquencySignal struct {
+	CustomerID customerID `json:"CustomerID"`
+	Action     int        `json:"Action"`
+}
+
 // fakeMessageBus records delivered signals (decoded from the JSON payload) + registered
 // schedules. Satisfies messagebus.MessageBus.
 type fakeMessageBus struct {
 	mu sync.Mutex
 
-	signals   []deliverSignalPayload
+	signals   []deliveredDelinquencySignal
 	schedules []string
+	// contentTypes counts payloads that arrived with ExecutionPayload.ContentType set. It
+	// must stay ZERO: the field is declared once in the messagebus contract and read by
+	// nothing, so setting it misreports the transport as a serialiser.
+	contentTypes int
 }
 
 func (d *fakeMessageBus) DeliverSignal(_ fwra.Context, _ messagebus.ExecutionID, _ messagebus.SignalName, payload messagebus.ExecutionPayload) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	var p deliverSignalPayload
+	var p deliveredDelinquencySignal
 	_ = json.Unmarshal(payload.Bytes, &p)
+	if payload.ContentType != "" {
+		d.contentTypes++
+	}
 	d.signals = append(d.signals, p)
 	return nil
 }
@@ -983,9 +1001,17 @@ func Test_Sweep_SignalsEachDelinquentCustomer(t *testing.T) {
 	if len(f.messageBus.signals) != 2 {
 		t.Fatalf("want two queued delinquency signals, got %d", len(f.messageBus.signals))
 	}
-	// The BillingTerms-derived enforcement shape is carried on the signal.
-	if !f.messageBus.signals[0].PauseNotWithdraw || f.messageBus.signals[1].PauseNotWithdraw {
+	// The BillingTerms-derived enforcement shape is carried on the signal — as an explicit
+	// ACTION ordinal, not a bool, so a payload that named nothing is distinguishable from
+	// one that named withdraw (the receiver refuses the first; see
+	// operations.runDelinquencyBranch).
+	if f.messageBus.signals[0].Action != delinquencyActionPauseWire ||
+		f.messageBus.signals[1].Action != delinquencyActionWithdrawWire {
 		t.Fatalf("want pause-vs-withdraw carried per customer, got %+v", f.messageBus.signals)
+	}
+	// And no producer may set ContentType — the field is read by nothing.
+	if f.messageBus.contentTypes != 0 {
+		t.Fatalf("the delinquency producer must set no ExecutionPayload.ContentType, got %d", f.messageBus.contentTypes)
 	}
 }
 

@@ -90,13 +90,16 @@ func isRAUnimplemented(err error) bool {
 	return false
 }
 
-// deliverSignalPayload mirrors the applyDelinquencyPolicy payload delivered to
-// operationsManager (the receiving handler dedups; D-DA §9 OQ3). The composition root
-// adapts it onto messagebus.ExecutionPayload.
-type deliverSignalPayload struct {
-	CustomerID       customerID
-	PauseNotWithdraw bool
-}
+// The two wire values billing may send on applyDelinquencyPolicy. They mirror
+// operations.delinquencyAction's ordinals and are pinned against them by
+// Test_Delinquency_TheTwoPackagesAgreeOnTheWire (which lives on the operations side,
+// because that is where the vocabulary is owned). There is deliberately no wire value for
+// the vocabulary's UNKNOWN member: a sweep that cannot say pause-or-withdraw must not
+// send, and the receiver refuses the zero anyway.
+const (
+	delinquencyActionPauseWire    = 1
+	delinquencyActionWithdrawWire = 2
+)
 
 // signalApplyDelinquencyPolicy is the cross-Manager signal name delivered to
 // operationsManager (matches operations.SignalApplyDelinquencyPolicy). Declared here as
@@ -109,14 +112,37 @@ const signalApplyDelinquencyPolicy = "applyDelinquencyPolicy"
 // forget; dedup is the receiving handler's concern (D-DA §9 OQ3). The target is the
 // customer's operations delinquency workflow ({customerId}:delinquency). The payload is
 // JSON-encoded workflow-side (deterministic; replay-safe).
-func (wf *workflows) deliverDelinquencySignal(ctx workflow.Context, customerID customerID, pauseNotWithdraw bool) error {
-	bytes, err := json.Marshal(deliverSignalPayload{CustomerID: customerID, PauseNotWithdraw: pauseNotWithdraw})
+//
+// THE PAYLOAD IS NOT MIRRORED ANY MORE: billing may not import operations (the signal
+// name is a string literal here for exactly that reason), so the shape is written inline
+// and PINNED by a cross-package json-key test rather than by a struct nobody
+// compiler-links. Its keys are the operations-side applyDelinquencySignal's, FLAT, and the
+// action is a small integer whose ZERO value the receiver refuses — so a producer that
+// forgets to set it gets a loud refusal, where the retired bool's zero meant WITHDRAW.
+//
+// NO ContentType. messagebus.ExecutionPayload.ContentType is declared once and read by
+// NOTHING (contract.gen.go:23; DeliverSignal passes payload.Bytes alone, messagebus.go:162,
+// and the utility's own header says it is a transport, not a serialiser). A producer that
+// sets it is telling its reader the transport serialises for them, which is the belief
+// that dropped every lease message for a whole wave.
+//
+// The parameter is `cid`, not `customerID`, because the inline payload shape names the
+// TYPE customerID and a same-named parameter shadows it.
+func (wf *workflows) deliverDelinquencySignal(ctx workflow.Context, cid customerID, pauseNotWithdraw bool) error {
+	action := delinquencyActionWithdrawWire
+	if pauseNotWithdraw {
+		action = delinquencyActionPauseWire
+	}
+	bytes, err := json.Marshal(struct {
+		CustomerID customerID `json:"CustomerID"`
+		Action     int        `json:"Action"`
+	}{CustomerID: cid, Action: action})
 	if err != nil {
 		return err
 	}
-	targetWorkflowID := fmt.Sprintf("%s:delinquency", customerID)
+	targetWorkflowID := fmt.Sprintf("%s:delinquency", cid)
 	return wf.Acts.MessageBusDeliverSignal(ctx,
 		messagebus.ExecutionID(targetWorkflowID),
 		messagebus.SignalName(signalApplyDelinquencyPolicy),
-		messagebus.ExecutionPayload{Bytes: bytes, ContentType: "application/json"})
+		messagebus.ExecutionPayload{Bytes: bytes})
 }

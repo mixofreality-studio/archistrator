@@ -49,6 +49,9 @@ package operations
 //   F1  queued signal resumes branch → pause recordDelinquencyAction; no runtime
 //       publish yet (no replica-override input to assembleDesiredState — follow-up)
 //   F2  withdraw-terms branch → withdraw runtime + recordDelinquencyAction
+//   F3  a payload that names NO action is REFUSED, not silently withdrawn
+//   F4  both wire forms decode — raw bytes (the bus) and a struct (the façade)
+//   F5  the two packages agree on the wire (cross-package shape pin)
 //
 // G. §6.5 Conflict discipline (workflow_test.go):
 //   G1  recordPublishDesiredState returns Conflict twice → re-read→re-apply converges
@@ -63,9 +66,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1430,7 +1438,7 @@ func Test_Delinquency_PauseTerms_RecordsPaused(t *testing.T) {
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalApplyDelinquencyPolicy, applyDelinquencySignal{
-			CustomerID: cid, Context: DelinquencyContext{PauseNotWithdraw: true},
+			CustomerID: cid, Action: delinquencyActionPause,
 		})
 	}, time.Millisecond)
 
@@ -1463,7 +1471,7 @@ func Test_Delinquency_WithdrawTerms_WithdrawsAndRecordsWithdrawn(t *testing.T) {
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalApplyDelinquencyPolicy, applyDelinquencySignal{
-			CustomerID: cid, Context: DelinquencyContext{PauseNotWithdraw: false},
+			CustomerID: cid, Action: delinquencyActionWithdraw,
 		})
 	}, time.Millisecond)
 
@@ -1477,6 +1485,223 @@ func Test_Delinquency_WithdrawTerms_WithdrawsAndRecordsWithdrawn(t *testing.T) {
 	}
 	if len(os.delinquency) != 1 || os.delinquency[0] != operatedsystemstate.DelinquencyActionWithdrawn {
 		t.Fatalf("want one recordDelinquencyAction(Withdrawn), got %v", os.delinquency)
+	}
+}
+
+// F3: Test_Delinquency_AnUnsaidActionIsRefusedRatherThanWithdrawn is the whole point of
+// the vocabulary change. Before it, applyDelinquencySignal's zero value decoded to
+// DelinquencyContext{PauseNotWithdraw:false}, runDelinquencyBranch read that as
+// DelinquencyActionWithdrawn, and withdrawRuntime removed the runtime of EVERY in-flight
+// app of the customer — so "nobody said" and "withdraw" were the same value. A bool
+// cannot express the difference; a three-member vocabulary can, and the enforcement
+// branch refuses the unknown member instead of acting on it.
+//
+// The payload here is the exact shape a producer that forgets the field sends: raw JSON
+// bytes carrying the customer and NO action member at all.
+func Test_Delinquency_AnUnsaidActionIsRefusedRatherThanWithdrawn(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	deps, os, rt, us, ar := baseDeps()
+	cid := uuid.New()
+	os.inFlight = []operatedsystemstate.OperatedSystemSummary{{ID: uuid.New(), Version: 1}}
+	wf := newWorkflows(deps)
+	registerDelinquency(env, wf, os, rt, us, ar)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalApplyDelinquencyPolicy,
+			[]byte(`{"CustomerID":"`+cid.String()+`"}`))
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindDelinquency, delinquencyInput{CustomerID: cid})
+
+	// The assertion the whole change exists for, and it is FIRST because it is the fact
+	// that matters: the destructive arm never ran. Under the retired bool it ran here.
+	if len(rt.withdraws) != 0 {
+		t.Errorf("an unsaid action must withdraw NOTHING, got %d withdraw(s)", len(rt.withdraws))
+	}
+	if len(os.delinquency) != 0 {
+		t.Errorf("an unsaid action must record nothing, got %v", os.delinquency)
+	}
+	err := env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("an action nobody named must REFUSE; got a clean completion")
+	}
+	if !strings.Contains(err.Error(), cid.String()) {
+		t.Errorf("the refusal must name the customer it refused for; got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "named no action") {
+		t.Errorf("the refusal must say what was missing; got %q", err.Error())
+	}
+}
+
+// F4: Test_Delinquency_TheBusWireFormIsDecoded pins the half the SDK drops today. The
+// billing sweep delivers through messageBus.deliverSignal, which hands the client a bare
+// []byte, so the default converter tags the payload binary/plain and
+// ByteSlicePayloadConverter can assign it to nothing but a *[]byte. The receive therefore
+// decodes into `any` FIRST and normalises both forms — the pumpReceiveSignal pattern,
+// which this package did not inherit when it was written.
+func Test_Delinquency_TheBusWireFormIsDecoded(t *testing.T) {
+	cid := uuid.New()
+	cases := []struct {
+		name    string
+		payload any
+	}{
+		// The bus form: raw bytes, binary/plain. A concrete-struct receive holds this
+		// not at all — the SDK logs "Corrupted signal received on channel" and DROPS it.
+		{"busRawBytes", []byte(`{"CustomerID":"` + cid.String() + `","Action":1}`)},
+		// The façade form: a struct through SignalWithStartWorkflow, json/plain.
+		{"facadeStruct", applyDelinquencySignal{CustomerID: cid, Action: delinquencyActionPause}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
+
+			deps, os, rt, us, ar := baseDeps()
+			os.inFlight = []operatedsystemstate.OperatedSystemSummary{{ID: uuid.New(), Version: 1}}
+			wf := newWorkflows(deps)
+			registerDelinquency(env, wf, os, rt, us, ar)
+
+			env.RegisterDelayedCallback(func() {
+				env.SignalWorkflow(signalApplyDelinquencyPolicy, tc.payload)
+			}, time.Millisecond)
+
+			env.ExecuteWorkflow(executionKindDelinquency, delinquencyInput{CustomerID: cid})
+
+			if err := env.GetWorkflowError(); err != nil {
+				t.Fatalf("workflow error: %v", err)
+			}
+			if len(rt.withdraws) != 0 {
+				t.Fatalf("a pause must NOT withdraw, got %d", len(rt.withdraws))
+			}
+			if len(os.delinquency) != 1 || os.delinquency[0] != operatedsystemstate.DelinquencyActionPaused {
+				t.Fatalf("want one recordDelinquencyAction(Paused), got %v", os.delinquency)
+			}
+		})
+	}
+}
+
+// producerWireShape is what F5 can learn about a producer from its SOURCE, since nothing
+// compiler-links the two packages: the json keys it writes, the integer constants it
+// declares, and every site where it sets a ContentType.
+type producerWireShape struct {
+	jsonTags         map[string]bool
+	constVals        map[string]int
+	contentTypeSites []string
+}
+
+func readProducerWireShape(fset *token.FileSet, file *ast.File) producerWireShape {
+	shape := producerWireShape{jsonTags: map[string]bool{}, constVals: map[string]int{}}
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.StructType:
+			shape.collectJSONTags(v)
+		case *ast.ValueSpec:
+			shape.collectIntConsts(v)
+		case *ast.KeyValueExpr:
+			if key, ok := v.Key.(*ast.Ident); ok && key.Name == "ContentType" {
+				shape.contentTypeSites = append(shape.contentTypeSites, fset.Position(v.Pos()).String())
+			}
+		}
+		return true
+	})
+	return shape
+}
+
+func (s producerWireShape) collectJSONTags(st *ast.StructType) {
+	for _, f := range st.Fields.List {
+		if f.Tag == nil {
+			continue
+		}
+		tag, err := strconv.Unquote(f.Tag.Value)
+		if err != nil {
+			continue
+		}
+		if key := reflect.StructTag(tag).Get("json"); key != "" {
+			s.jsonTags[key] = true
+		}
+	}
+}
+
+func (s producerWireShape) collectIntConsts(spec *ast.ValueSpec) {
+	for i, name := range spec.Names {
+		if i >= len(spec.Values) {
+			continue
+		}
+		lit, ok := spec.Values[i].(*ast.BasicLit)
+		if !ok || lit.Kind != token.INT {
+			continue
+		}
+		iv, err := strconv.Atoi(lit.Value)
+		if err != nil {
+			continue
+		}
+		s.constVals[name.Name] = iv
+	}
+}
+
+// F5: Test_Delinquency_TheTwoPackagesAgreeOnTheWire is the gate the hand-mirrored payload
+// never had. billing may not import operations (the signal name is a string literal over
+// there for exactly that reason), so the two shapes are linked by nothing but this
+// assertion: it PARSES billing/shortfallsweep.go and compares the json keys and the two
+// wire ordinals it finds there with operations' own struct tags and constants. The
+// retired mirror was the anomaly the file's own readDelinquent comment boasts about not
+// having ("the workflow speaks the generated billingstate contract types directly — no
+// Manager-local mirror"), and this is what makes the remaining inline shape honest.
+//
+// It parses rather than greps deliberately: the third assertion is that the producer sets
+// no ExecutionPayload.ContentType, and the file's own comment EXPLAINS why it does not —
+// a text search would read that explanation as the violation it warns against.
+func Test_Delinquency_TheTwoPackagesAgreeOnTheWire(t *testing.T) {
+	const producer = "../billing/shortfallsweep.go"
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, producer, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", producer, err)
+	}
+
+	shape := readProducerWireShape(fset, file)
+
+	// 1. The json keys. They are read off THIS package's struct by reflection, so a rename
+	//    here that billing does not follow is what reddens.
+	for _, field := range []string{"CustomerID", "Action"} {
+		sf, ok := reflect.TypeFor[applyDelinquencySignal]().FieldByName(field)
+		if !ok {
+			t.Fatalf("operations.applyDelinquencySignal lost its %s field", field)
+		}
+		key := sf.Tag.Get("json")
+		if key == "" {
+			t.Fatalf("operations.applyDelinquencySignal.%s has no json tag to pin", field)
+		}
+		if !shape.jsonTags[key] {
+			t.Errorf("%s carries no json key %q; operations decodes that key", producer, key)
+		}
+	}
+
+	// 2. The two wire ordinals. billing may send only these, and they are operations'.
+	for _, want := range []struct {
+		name string
+		val  delinquencyAction
+	}{
+		{"delinquencyActionPauseWire", delinquencyActionPause},
+		{"delinquencyActionWithdrawWire", delinquencyActionWithdraw},
+	} {
+		got, ok := shape.constVals[want.name]
+		if !ok {
+			t.Errorf("%s declares no %s; operations.%v has nothing pinning it", producer, want.name, want.val)
+			continue
+		}
+		if got != int(want.val) {
+			t.Errorf("%s has %s = %d; operations.%v is %d", producer, want.name, got, want.val, int(want.val))
+		}
+	}
+
+	// 3. No ContentType. messagebus.ExecutionPayload.ContentType is declared once and read
+	//    by NOTHING, so a producer that sets it is telling its reader the transport
+	//    serialises for them — the belief that dropped every lease message for a wave.
+	if len(shape.contentTypeSites) != 0 {
+		t.Errorf("%s sets ExecutionPayload.ContentType at %v; the field is read by nothing and its presence misreports the transport", producer, shape.contentTypeSites)
 	}
 }
 
