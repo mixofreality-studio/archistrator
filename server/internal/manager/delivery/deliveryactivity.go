@@ -2921,9 +2921,16 @@ func (wf *csWorkflows) decideTaskGate(
 	// measured one is a decision recorded before the field existed — and is ACCEPTED. A non-zero
 	// one that does not match the gate's own round is a decision about an artifact this gate is
 	// no longer judging: a redraft withdrew the round the reviewer read and opened the next one.
-	// The gate keeps awaiting, and the reviewer is told the artifact moved and which revision is
-	// current, because "your approve was ignored" without that sentence is indistinguishable
-	// from a lost signal.
+	// The decision is REFUSED and the gate keeps awaiting the current round.
+	//
+	// 🔴 AND THE REVIEWER IS NOT TOLD — HALF OF THIS DEFECT IS STILL OPEN. This comment used to
+	// say the reviewer "is told the artifact moved and which revision is current". Nothing
+	// reaches them. What follows is a workflow log line and `done=false`: no operator note on the
+	// row, no view member a gate card could render, no notification. A human who approves a
+	// superseded round sees only that their submission did not land, which is exactly the
+	// "indistinguishable from a lost signal" case the sentence claimed to have closed. The
+	// REFUSAL is correct and pinned; the operator-facing half needs a surfaced fact and is
+	// carried in docs/bugs/2026-09-29-stage4b3-earmarks.md.
 	//
 	// IT IS NOT A FORK PROBLEM AND NO STAGE CHECK COULD HAVE CAUGHT IT. The façade's
 	// requireOpenRound asks whether a round is OPEN; so did this function, two arms below, when it

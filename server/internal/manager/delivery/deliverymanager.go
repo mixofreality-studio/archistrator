@@ -9524,11 +9524,23 @@ func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, res
 // holds two at once, and the single answer this replaced was whichever the view's projection
 // happened to name.
 //
-// The merge hold and an escalation are excluded by shape rather than by the activity's
-// stage: both name a gate CLASS that is not their task's id (mergeGateKey, takeoverGateKey),
-// and neither is a phase gate. Reading the stage instead — as the single-valued version did
-// — lost a live phase gate whenever a SIBLING branch had escalated, because the stage is one
-// activity-level value and the escalation wrote it last.
+// The merge hold and an escalation are excluded BY NAME rather than by the activity's
+// stage: neither is a phase gate. Reading the stage instead — as the single-valued version
+// did — lost a live phase gate whenever a SIBLING branch had escalated, because the stage is
+// one activity-level value and the escalation wrote it last.
+//
+// 🔴 BY NAME, AND NOT BY SHAPE, AND THAT IS A FIX. This filter was written as
+// `if g.Gate != g.TaskID { continue }` — "a gate whose class is not its own task id is not a
+// phase gate" — which is TRUE of an escalation (keyed by the task that escalated, waiting at
+// "takeover") and FALSE of the merge hold, because `mergeGateTaskID == mergeGateKey ==
+// "merge"`: its Gate and its TaskID are the same string, so the shape filter never skipped it
+// and a probe of the result returned {designReview, merge}. It was inert only because no
+// lifecycle task is named "merge" — name one and `evidenceState` rule 1 would read the merge
+// hold as that task awaiting a human. A filter that keys on two fields DIFFERING is silently
+// dead wherever they are equal, and nothing in the type system or the linters can see that;
+// the two keys are therefore named, and Test_LiveApprovalGates_TheMergeHoldIsNotAPhaseGate
+// pins it. The shape filter is KEPT beside them, because it is still the honest statement for
+// any FUTURE non-phase gate class that follows the escalation's pattern.
 //
 // 🔴 THE KEYS ARE GATE TASK IDS, AND FIXING THAT IS PART OF THIS CHANGE. Until stage 4b3
 // every consumer below compared the session's gate against a lifecycle PHASE id (`ph.ID`,
@@ -9550,8 +9562,11 @@ func liveApprovalGates(live *ConstructionSessionView) map[string]time.Time {
 	}
 	out := make(map[string]time.Time, len(live.AwaitingTasks))
 	for _, g := range live.AwaitingTasks {
-		if g.Gate != g.TaskID {
+		if g.Gate == mergeGateKey || g.Gate == takeoverGateKey {
 			continue // the merge hold and an escalation: neither is a phase gate
+		}
+		if g.Gate != g.TaskID {
+			continue // any future gate class that is not its task's own id
 		}
 		out[g.TaskID] = g.AwaitingSince
 	}
@@ -13195,16 +13210,18 @@ type taskViewState struct {
 	awaitingUntil *time.Time
 	// gate is the gate CLASS name this occurrence waits at — a lifecycle task id for a phase
 	// approval, mergeGateKey for the merge hold, takeoverGateKey for an escalation. It is
-	// NOT the map key and it is not redundant with it: an escalation is keyed by the TASK
-	// that escalated and waits at "takeover", so the key cannot answer for it.
+	// NOT the map key and it is not redundant with it FOR AN ESCALATION, which is keyed by
+	// the TASK that escalated and waits at "takeover", so the key cannot answer for it. For
+	// the MERGE HOLD it IS redundant with the key — `mergeGateTaskID == mergeGateKey` — and
+	// that equality is exactly why liveApprovalGates could not tell the merge hold apart by
+	// shape and now names it (see there).
 	//
 	// It OUTLIVED the flat wire member it was introduced to reproduce. Stage 4b3 deleted
 	// ConstructionSessionView.awaitingGate, but two live readers want the class rather than
 	// the key: leaveHumanStage tags construction_gate_wait with humanGateClass(gate) — which
 	// was recording the SIBLING's class on a fork until the map was keyed by task — and
-	// liveApprovalGates tells a phase gate from the merge hold and an escalation by asking
-	// whether the class is the task's own id. It travels on AwaitingTaskGate for that second
-	// reader.
+	// liveApprovalGates excludes the two non-phase gate classes by name. It travels on
+	// AwaitingTaskGate for that second reader.
 	gate string
 }
 

@@ -1,0 +1,72 @@
+// THE BLOCK-SCOPE DEFEAT, found by a review that wrote it into PRODUCTION code and
+// watched this gate stay green.
+//
+// wireEnv opens a lexical scope for a *ast.FuncLit and for nothing else, so two
+// blocks of one function body — an if/else, two switch cases, two select comm
+// clauses, a workflow.GetVersion's two arms — shared one scope key, and e.decls was
+// last-write-wins. okReceiveTarget reads that map AFTER index() has finished, so the
+// declared type it judged a receive by was the LAST `var <name>` in the body, not the
+// one in scope at the receive.
+//
+// ShadowedSilencer is the reviewer's shape, transcribed from the production file it
+// was written into (manager/delivery/projectsupervision.go:55, this gate's own
+// mutation-1 site): a struct receive target, and four lines later, inside an `if`, a
+// `var raw any` that names the same local and is used for nothing. It compiled, it
+// vetted, it linted, and the gate reported "12 channels (6 bus), 5 producers, 9
+// receive targets" — the vacuity log unchanged — while the operator-pause receive it
+// exists to guard dropped every relayed message.
+//
+// TwoArmedFence is the same hole written by ACCIDENT rather than on purpose, and it
+// is why this fixture is not a curiosity: it is the natural two-arm GetVersion shape,
+// a pre-change arm holding a struct and a new arm normalising into `var raw any` of
+// the same name. Stage 4b3 Task 3 discharged the last of those fences; a future wave
+// will add one back, and under the old map the NEW arm would have silenced the OLD
+// one — the exact instance bad_fenced.go.txt exists to keep red.
+//
+// THREE findings, and the third is the FIX'S OWN COST, pinned here rather than left
+// to be discovered. declare() now resolves a same-name conflict toward NOT-`any`, so
+// TwoArmedFence's two receives are BOTH judged against operatorPauseSignal: the
+// pre-change arm truly (it is a struct target), and the new arm SPURIOUSLY, because
+// the gate cannot tell the two locals apart. That false positive is the price of
+// being construct-blind instead of enumerating block kinds, it is remedied by
+// renaming one local, and it is the direction this file resolves every uncertainty
+// in — see blind spot 4 in signalwire_arch_test.go's header.
+package badshadowed
+
+const signalOperatorPauseRequested = "operatorPauseRequested"
+
+type operatorPauseSignal struct {
+	ProjectID string
+	Reason    string
+}
+
+func ShadowedSilencer(ctx workflow.Context) (string, bool) {
+	pauseCh := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
+	var raw operatorPauseSignal
+	pauseCh.Receive(ctx, &raw) // WANT: flagged — a struct target, silenced by the block below
+	reason, decoded := raw.Reason, raw.Reason != ""
+	if !decoded {
+		var raw any
+		_ = raw
+	}
+	return reason, decoded
+}
+
+func TwoArmedFence(ctx workflow.Context) (string, bool) {
+	ch := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
+	if workflow.GetVersion(ctx, "a-future-fence", workflow.DefaultVersion, 1) < 1 {
+		// The PRE-CHANGE arm, written first, as a real fence is.
+		var raw operatorPauseSignal
+		ch.Receive(ctx, &raw) // WANT: flagged — a struct target the new arm used to silence
+		return raw.Reason, raw.Reason != ""
+	}
+	// The NEW arm, correct on its own terms.
+	var raw any
+	ch.Receive(ctx, &raw) // WANT: flagged SPURIOUSLY — the documented cost, see the header
+	return normaliseShadowed(raw)
+}
+
+func normaliseShadowed(raw any) (string, bool) {
+	s, ok := raw.(string)
+	return s, ok
+}

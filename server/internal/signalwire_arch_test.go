@@ -54,7 +54,14 @@ package internal_test
 // manager/operations, and a package test in manager/delivery cannot see either.
 //
 // WHAT THIS GATE CANNOT SEE — the honest limits, written here rather than left to be
-// discovered. The first three are BLIND SPOTS; the rest are deliberate scope.
+// discovered. The first four are BLIND SPOTS; the rest are deliberate scope.
+//
+// THIS LIST WAS INCOMPLETE ONCE, and the omitted entry was the only one that failed
+// GREEN. A review defeated the gate in production code with two same-named locals in
+// two blocks of one function (see blind spot 4 and testdata/wireform/bad_shadowed.go.txt),
+// and the shape passed every gate in the wave. The list is a claim about coverage, so
+// an addition to it is a change to the gate: an entry is earned by MEASUREMENT, and
+// each one below now states which way it resolves.
 //
 //  1. THE CORPUS IS server/internal, NON-TEST, NON-GENERATED. A receive in a
 //     *_test.go or a *.gen.go, or anywhere outside server/internal, is not checked.
@@ -72,6 +79,21 @@ package internal_test
 //     Two methods of one name in one package BOTH receive the taint. That
 //     over-approximates toward red and never away from it, but it can name a second,
 //     innocent site in a finding.
+//  4. A LOCAL'S SCOPE IS ITS FUNCTION OR ITS FuncLit, NOT ITS BLOCK. Two `var x T` of
+//     one name in two blocks of one body — an if/else, two switch cases, two select
+//     comm clauses, a workflow.GetVersion's two arms — share one key in the declared-
+//     type map, and the gate cannot tell them apart. Until this commit that was a hole
+//     that failed GREEN (last write won, so a `var raw any` written anywhere later in
+//     the body cleared a struct receive four lines earlier — a review shipped exactly
+//     that into projectsupervision.go and the gate did not move). declare() now
+//     resolves a same-name conflict toward NOT-`any`, which INVERTS the blind spot:
+//     the gate still cannot tell the two locals apart, but it now judges both by the
+//     stricter declaration, so a legitimate `any` receive can be reddened by an
+//     unrelated struct of the same name. A false positive, remedied by renaming one
+//     local; testdata/wireform/bad_shadowed.go.txt pins both the defeat and the cost.
+//
+// Every one of the four now over-approximates toward RED, which is the property the
+// paragraph after this list asserts. Blind spot 4 is the only one that ever did not.
 //
 // Deliberately out of scope:
 //
@@ -83,7 +105,9 @@ package internal_test
 //   - A CHANNEL NAME THAT IS NOT A STRING LITERAL. Also a finding, not a skip: the
 //     producer gate's own rule restated on the consumer side.
 //   - AN UNKNOWN RECEIVE TARGET reads as NOT-`any`, i.e. as a finding. Every
-//     uncertainty in this file is resolved toward red on purpose.
+//     uncertainty in this file is resolved toward red on purpose — including the
+//     AMBIGUOUS one blind spot 4 describes, which was resolved the other way until
+//     the commit that added that entry.
 //
 // NO ALLOWLIST AND NO SANCTIONED-EXCEPTION SHAPE. R4 reserved one exception — a
 // pre-change arm behind a workflow.GetVersion fence — and stage 4b3 Task 3 discharged
@@ -213,6 +237,7 @@ func TestSignalWireFormConsumers_IsRedOnEveryKnownInstance(t *testing.T) {
 		"bad_receiveasync.go.txt": 1, // FORM 2: ReceiveAsync into a struct
 		"bad_addreceive.go.txt":   1, // FORM 3: the AddReceive closure's param
 		"bad_fenced.go.txt":       1, // the GetVersion pre-change arm, NOT sanctioned
+		"bad_shadowed.go.txt":     3, // the block-scope defeat: 2 real targets + 1 documented false positive
 		"bad_unanalysable.go.txt": 2, // returned out of the corpus; handed to an unresolvable callee
 		"good_normalised.go.txt":  0, // every shape production uses, all silent
 	}
@@ -851,12 +876,17 @@ func (g *wireGraph) absorb(dst, src wireSeeds) bool {
 // lexical scopes, declared types — is rebuilt per pass and is cheap; the only state
 // that crosses functions is the graph's paramTaint and fieldTaint.
 //
-// SCOPES ARE LEXICAL, and that is not a nicety. pumpPark binds THREE AddReceive
+// SCOPES ARE PER-FuncLit, and that is not a nicety. pumpPark binds THREE AddReceive
 // closures whose parameter is called `c` and whose bodies declare `var raw any`,
 // `var req activityLeaseRequest` and `var fin activityFinishedSignal`. A flat
 // name→type map would let the last `var raw any` answer for all three, and the gate
 // would clear a struct target it is looking straight at. Scope 0 is the function
 // body; each FuncLit gets its own, chained to its parent.
+//
+// THEY ARE NOT FULLY LEXICAL: a plain BLOCK opens no scope, so two blocks of one body
+// still share one key. That was a hole that failed green until declare() was given its
+// conflict rule; the rule, and why it was preferred to a scope per block, are in
+// declare's own comment, and the residual imprecision is blind spot 4 in the header.
 type wireEnv struct {
 	g  *wireGraph
 	fi *wireFuncInfo
@@ -976,13 +1006,58 @@ func (e *wireEnv) declareStmt(n ast.Node, scope int) {
 	}
 }
 
+// declare records the syntactic type of one name in one scope, and NEVER lets a
+// later declaration of that name ERASE an earlier stricter one.
+//
+// THE DEFEAT THIS CLOSES, which a review found by writing it in production code.
+// The scopes above are opened for a FuncLit and for nothing else, so two blocks of
+// one function body — an if/else, two switch cases, two select comm clauses, a
+// GetVersion's two arms — share one scope key. The map was last-write-wins, so:
+//
+//	var raw operatorPauseSignal   // the receive target, a struct: the defect
+//	pauseCh.Receive(ctx, &raw)
+//	if !decoded { var raw any; _ = raw }   // silences the gate, four lines later
+//
+// compiled, vetted, linted, and left this gate GREEN with its vacuity log unchanged,
+// because okReceiveTarget reads e.decls AFTER index() has finished and saw only the
+// LAST `var raw`. The natural two-arm workflow.GetVersion shape — a pre-change arm's
+// struct and a new arm's `var raw any`, same local name — is that shape written by
+// accident, which is exactly the shape Task 3 removed and a future wave will re-add.
+//
+// WHY THE CONFLICT RULE AND NOT PER-BLOCK SCOPES. Opening a scope for every
+// *ast.BlockStmt / CaseClause / CommClause was the other candidate. It is the more
+// faithful model and it is the one that is easier to get WRONG later, for two
+// measured reasons. First, it is an ENUMERATION, and the enumeration is already
+// incomplete: `if x := T{}; ok {…}` and `for x := T{}; …` declare into the statement's
+// own implicit scope, which is not a BlockStmt, so two such statements side by side in
+// one block would still collide — the same hole, one construct over, and every future
+// construct is another chance to miss one. Second, scopeOf drives the TAINT binds as
+// well as the declarations, so narrowing it would make `ch = …` inside an if-block
+// bind into a scope that dies at the closing brace — a channel that flows OUT of a
+// block would lose its taint, which is a NEW way to go quiet. The conflict rule is
+// construct-blind: it holds for every block shape there is and every one there will
+// be, and it moves in one direction only.
+//
+// THE COST, stated rather than hidden: two genuinely different locals of one name in
+// one function, one of them `any`, now answer as the stricter one, so a legitimate
+// `any` receive can be reddened by an unrelated struct named the same. That is a
+// FALSE POSITIVE, remedied by renaming one local, and it is the direction this file
+// resolves every uncertainty in — see blind spot 4 in the header.
 func (e *wireEnv) declare(scope int, name string, typ ast.Expr) {
 	if name == "" || name == "_" || typ == nil {
 		return
 	}
-	e.decls[scopeKey(scope, name)] = typ
+	key := scopeKey(scope, name)
+	// Resolve toward NOT-`any`: a lenient declaration may be replaced, a strict one
+	// never is.
+	if prev, ok := e.decls[key]; ok && !wireDeclClearsAReceive(prev) {
+		return
+	}
+	e.decls[key] = typ
 	if tn := wireTypeName(typ); tn != "" {
 		e.types[scopeKey(scope, name)] = tn
+	} else {
+		delete(e.types, scopeKey(scope, name))
 	}
 }
 
@@ -1213,6 +1288,20 @@ func (e *wireEnv) okReceiveTarget(arg ast.Expr) bool {
 		return ok && wireIsAnyOrBytes(star.X)
 	}
 	return false
+}
+
+// wireDeclClearsAReceive reports whether a DECLARED type is one that okReceiveTarget
+// would clear — `any`/[]byte (passed as &v) or a pointer to one (passed as v). It is
+// the leniency half of declare's conflict rule, and it must stay the exact inverse of
+// what okReceiveTarget flags: if it called something lenient that okReceiveTarget
+// clears, a `var p *any` could pin the key and a later struct of the same name would
+// be silenced — the defeat, re-opened one indirection down.
+func wireDeclClearsAReceive(t ast.Expr) bool {
+	if wireIsAnyOrBytes(t) {
+		return true
+	}
+	star, ok := t.(*ast.StarExpr)
+	return ok && wireIsAnyOrBytes(star.X)
 }
 
 func wireIsAnyOrBytes(t ast.Expr) bool {

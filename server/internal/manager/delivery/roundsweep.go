@@ -441,6 +441,30 @@ func (wf *csWorkflows) sweepReopenNotLanded(ctx workflow.Context, projectID Proj
 //     cheap), so a walk whose tasks all passed and whose TAIL broke records no new resolved
 //     attempt at all. Nothing new resolved == the re-run did the same nothing it did last time.
 //
+// WHAT THIS ACTUALLY BOUNDS, corrected 2026-09-30 after a review walked the paths. The clause
+// above is the RATIONALE, and the rationale is wrong in the direction that matters: it reads as
+// though a re-run that made progress would record a resolved attempt and be healed again. It
+// would not. A review walked eight paths — the merge tail, commitDesignArtifacts, the variance
+// loop, gate re-entry and the rest — and found that NO path records a resolved attempt on a
+// re-run; RecordAttemptOutcome replaying the same id+outcome even returns nil untouched, so not
+// a single EndedAt moves, not even under Temporal retry. And the target case's repair work is
+// COMMITTING SLOTS, which records zero attempts by construction. So this predicate returns true
+// on the second sweep of a row whether or not the re-run got further: a requirements activity
+// that commits mission and glossary on run 2 and fails on volatilities has made real progress
+// and this function cannot see any of it.
+//
+// THE TRUE PROPERTY IS "AT MOST ONE AUTOMATIC HEAL PER ROW, EVER" — not one per unit of
+// measurable progress. That is STRONGER than advertised and it fails CLOSED: the row keeps its
+// red node, the operator's button is never inhibited (see below), and nothing is lost but a
+// second free retry. The behaviour is therefore deliberately UNCHANGED; only this statement of
+// it is. The measure that would actually tell the two cases apart is uncommittedSlotsOf
+// shrinking between ticks, earmarked in docs/bugs/2026-09-29-stage4b3-earmarks.md rather than
+// built here, because Task 11 rejected the slot set as the TRIGGER's key and re-opening that for
+// the BOUND is a design decision. Note also that
+// Test_RoundSweep_ATailThatResolvedATaskSinceTheHealIsHealedAgain pins the progress arm with a
+// HAND-BUILT resolved attempt that the production path cannot produce in that state — a true
+// statement about this predicate, not about any reachable run.
+//
 // IT DOES NOT CARE WHO PRESSED THE BUTTON, and that is deliberate rather than a limitation to
 // route around. OperatorNoteInput carries no author member (the round half's decidedBy is a
 // field; this provenance lives in the note's free TEXT), so a query cannot tell a sweep-heal

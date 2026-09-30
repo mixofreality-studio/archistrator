@@ -12840,12 +12840,32 @@ func notLandedRow(activityID string) projectstate.ActivityExecution {
 // The second half of the case is what makes the first falsifiable: the SAME row on the SAME
 // store is healed the moment the pause is lifted, so the refusal above is the pause and not
 // the shape.
+//
+// THE THIRD ROW IS THE OTHER HALF OF THE INVARIANT, added by the fix round after a review
+// found it unpinned: this test asserted only that nothing was HEALED, which a sweep that
+// refused the whole project would also satisfy. C-TWO carries a stranded round on the same
+// paused project, and the ROUND half must still stamp it — the round half corrects a record
+// that is already wrong and dispatches nothing, so a pause has no claim on it. Without this
+// assertion "paused ⇒ the round sweep still runs" is a sentence in a comment and nothing else.
 func Test_RoundSweep_APausedProjectIsNotHealedBehindTheOperator(t *testing.T) {
-	ps := roundSweepState(notLandedRow("C-ONE"))
+	ps := roundSweepState(
+		notLandedRow("C-ONE"),
+		roundSweepRow("C-TWO",
+			pendingRound("r1", "construction-review", nil, 1),
+			pendingRound("r2", "construction-review", nil, 2),
+		),
+	)
 	ps.project.OperatorPaused = true
 
-	if res := runRoundSweep(t, ps); res.Reopened != 0 {
+	res := runRoundSweep(t, ps)
+	if res.Reopened != 0 {
 		t.Fatalf("a paused project must not be healed behind the operator, got %d re-opened", res.Reopened)
+	}
+	if res.Stamped != 1 {
+		t.Fatalf("a paused project still gets its ordinary round sweep: want the superseded round stamped, got %d", res.Stamped)
+	}
+	if got := roundOutcomeByID(ps, "C-TWO"); got["r1"] != projectstate.RoundWithdrawn || got["r2"] != projectstate.RoundPending {
+		t.Fatalf("the round half must withdraw the superseded round and leave the latest alone, got %+v", got)
 	}
 	if row := ps.execution("C-ONE"); row.CompletedAt == nil || row.TailFailureDetail == "" {
 		t.Fatalf("the paused project's red node must still be there for the operator to read, got %+v", row)
@@ -17267,6 +17287,42 @@ func avCheckLiveGateRevisions(t *testing.T, gate []TaskRevisionView, since time.
 	}
 	if r2.Outcome != TaskRevisionAwaitingHuman || r2.StartedAt == nil || !r2.StartedAt.Equal(since) {
 		t.Errorf("revision 2 = %+v, want awaitingHuman since %v", r2, since)
+	}
+}
+
+// Test_LiveApprovalGates_TheMergeHoldAndATakeoverAreNotPhaseGates pins the exclusion a
+// review found DEAD, and it is pinned here rather than through a workflow because the
+// defect was invisible end to end: `evidenceState` rule 1 only fires for a gate task, and
+// no lifecycle task is named "merge", so the leak had nothing to land on TODAY.
+//
+// THE DEFEAT IT PINS. The filter read `if g.Gate != g.TaskID { continue }` — "a gate whose
+// class is not its own task id is not a phase gate". That is true of a takeover, which is
+// keyed by the task that escalated and waits at "takeover". It is FALSE of the merge hold,
+// because `mergeGateTaskID == mergeGateKey == "merge"`: its two fields hold the same string,
+// the inequality never held, and the merge hold rode straight into the live-gate map. Name a
+// lifecycle task "merge" and the merge hold starts reading as that task awaiting a human.
+//
+// Revert the two name exclusions in liveApprovalGates and the `mergeGateKey` sub-case below
+// goes red; the shape filter alone cannot make it green.
+func Test_LiveApprovalGates_TheMergeHoldAndATakeoverAreNotPhaseGates(t *testing.T) {
+	since := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	live := ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingTasks: []AwaitingTaskGate{
+		{TaskID: "designReview", Gate: "designReview", AwaitingSince: since},
+		{TaskID: mergeGateTaskID, Gate: mergeGateKey, AwaitingSince: since},
+		{TaskID: "detailedDesign", Gate: takeoverGateKey, AwaitingSince: since},
+	}}
+
+	got := liveApprovalGates(&live)
+
+	if len(got) != 1 {
+		t.Fatalf("only the phase gate is a live approval gate, got %v", slices.Sorted(maps.Keys(got)))
+	}
+	if _, ok := got["designReview"]; !ok {
+		t.Fatalf("the phase gate must survive the filter, got %v", slices.Sorted(maps.Keys(got)))
+	}
+	if _, ok := got[mergeGateKey]; ok {
+		t.Fatalf("the merge hold is not a phase gate, and its Gate EQUALS its TaskID — the shape "+
+			"filter cannot exclude it and the name exclusion must, got %v", slices.Sorted(maps.Keys(got)))
 	}
 }
 
@@ -28197,12 +28253,18 @@ func pumpGuardDocHeadlineCounts(t *testing.T, doc string) map[string]int {
 //
 // The other two meta-tests check the row SET and the PinnedBy column. Neither reads a
 // NUMBER, so "| Guard rows total | **38** |" and "## `pumpnextactivity.go` — 22 guards"
-// both stayed green while wrong — and the total was in fact wrong for two tasks (Task 1's
-// report and progress.md still say 37; the truth is 36 = 38 − 2 after Task 11 discharged
-// the two replansweep.go rows). THAT IS THE ONE FIGURE A READER USES TO NOTICE A MISSING
-// ROW: a reader who is told 36 and counts 35 goes looking, and a reader who is told nothing
-// trustworthy does not. Both halves are checked against pumpGuardCensus() itself, so the
-// document cannot describe a census the code does not have.
+// both stayed green while wrong, and the total was wrong in two documents for two tasks.
+// THAT IS THE ONE FIGURE A READER USES TO NOTICE A MISSING ROW: a reader who is told the
+// total and counts one fewer goes looking, and a reader who is told nothing trustworthy
+// does not. Both halves are checked against pumpGuardCensus() itself, so the document
+// cannot describe a census the code does not have.
+//
+// NO NUMBER IS WRITTEN IN THIS COMMENT ANY MORE, and that is the point of it. This comment
+// used to narrate "the truth is 36 = 38 − 2", which was a THIRD transcribed copy of the
+// figure — green, because the test computes len(census), and stale by stage 4b3, whose
+// Task 12 corrected the same number to 33 in two documents. A meta-test whose subject is
+// transcribed numbers must not itself transcribe one; the count lives in pumpGuardCensus()
+// and in the document this test compares against it, and nowhere else.
 func Test_PumpGuardCensus_TheHeadlineCountsAreTrue(t *testing.T) {
 	raw, err := os.ReadFile(pumpGuardCensusDoc)
 	if err != nil {
