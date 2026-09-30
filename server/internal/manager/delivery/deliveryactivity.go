@@ -2893,6 +2893,25 @@ func (wf *csWorkflows) decideTaskGate(
 	gate *gateLedger, sig *taskDecisionSignal, redraft *int,
 ) (walkTaskState, bool, error) {
 	activityType := in.Activity.activityTypeName()
+	// THE ROUND IDENTITY CHECK (stage 4b3 Task 6). A zero Round means the sender had no round
+	// identity to carry — see taskDecisionSignal.Round for the three, of which the live and
+	// measured one is a decision recorded before the field existed — and is ACCEPTED. A non-zero
+	// one that does not match the gate's own round is a decision about an artifact this gate is
+	// no longer judging: a redraft withdrew the round the reviewer read and opened the next one.
+	// The gate keeps awaiting, and the reviewer is told the artifact moved and which revision is
+	// current, because "your approve was ignored" without that sentence is indistinguishable
+	// from a lost signal.
+	//
+	// IT IS NOT A FORK PROBLEM AND NO STAGE CHECK COULD HAVE CAUGHT IT. The façade's
+	// requireOpenRound asks whether a round is OPEN; so did this function, two arms below, when it
+	// re-read the thread. Both answers go true again the instant n+1 opens.
+	if sig.Round != 0 && sig.Round != gate.number {
+		workflow.GetLogger(ctx).Warn("delivery.gate.decisionNamesASupersededRound",
+			"activityId", in.ActivityID, "taskId", t.ID,
+			"decidedRound", sig.Round, "currentRound", gate.number,
+			"consequence", "the decision is not applied; the gate keeps awaiting the current round")
+		return walkTaskFailed, false, nil
+	}
 	switch sig.Decision {
 	case ReviewApprove:
 		// THE TOCTOU RE-CHECK (fix round 2, review finding F1). The façade refuses an approve while

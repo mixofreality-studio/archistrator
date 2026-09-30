@@ -6759,14 +6759,22 @@ func (m *constructionManager) SubmitTaskDecision(
 	// THE PER-TASK HALF. The merge hold opens no round (see requireOpenRound), so it — and only
 	// it — keeps the view check the rest of the gates gave up: after the join there is exactly
 	// one human stage live, so the single-valued pair names it correctly.
+	//
+	// `round` stays 0 for the merge arm, and 0 means "no round identity" rather than round zero
+	// — the child's refusal is written for exactly that (decideTaskGate).
+	round := 0
 	if taskID == mergeGateKey {
 		if view.Stage != StageAwaitingApproval || gateNameOf(view) != mergeGateKey {
 			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 				"activity %s is at %s/%s, not holding for a merge approval",
 				activityID, sessionStageName(view.Stage), gateNameOf(view)))
 		}
-	} else if err := m.requireOpenRound(ctx, projectID, activityID, taskID, kind); err != nil {
-		return err
+	} else {
+		open, err := m.requireOpenRound(ctx, projectID, activityID, taskID, kind)
+		if err != nil {
+			return err
+		}
+		round = open
 	}
 	// THE APPROVE'S THREAD SETTLEMENT: an open CHANGE REQUEST refuses it, and every ANSWERED
 	// thread is swept resolved. Both halves read ONE round, which is why they are one call —
@@ -6783,7 +6791,19 @@ func (m *constructionManager) SubmitTaskDecision(
 	// that carries a CHOICE beside its verdict — which of the four project-design options the
 	// founder bought — and the child's gate stamps it on the round it decides. Every other gate
 	// passes nil, and the child ignores it for a task that names no option.
-	sig := taskDecisionSignal{TaskID: taskID, Decision: decision, OptionID: option, Feedback: feedback, DecidedBy: decidedByOperator}
+	//
+	// THE ROUND THE MANAGER VALIDATED TRAVELS WITH THE DECISION (stage 4b3 Task 6). Without it
+	// the child can only ask "is a round open", which is true again the moment a redraft opens
+	// n+1 — so an approve cast against n was applied to n+1, a different artifact judged by
+	// nobody. taskDecisionSignal is Manager-INTERNAL, so carrying it costs no contract delta.
+	//
+	// WHAT THIS DOES NOT CLOSE, stated because the fix reads bigger than it is: the round is the
+	// one the MANAGER resolved at submit time, not the one the HUMAN read in the browser. A
+	// redraft between the render and the click still slips through, and closing that means
+	// SubmitTaskDecision taking a round parameter — a contract change across eight surfaces.
+	// TaskRevisionView.round is already on the wire, so the client half is a one-line read.
+	sig := taskDecisionSignal{TaskID: taskID, Decision: decision, OptionID: option,
+		Feedback: feedback, DecidedBy: decidedByOperator, Round: round}
 	return m.signalActivity(ctx, projectID, activityID, signalTaskDecision, sig)
 }
 
@@ -6908,7 +6928,9 @@ func (m *constructionManager) RedraftTask(
 	if err := precheckTaskDecision(view, activityID, taskID, ReviewDecisionUnknown); err != nil {
 		return "", err
 	}
-	if err := m.requireOpenRound(ctx, projectID, activityID, taskID, nil); err != nil {
+	// The round it validated is discarded here on purpose: a redraft WITHDRAWS whatever round is
+	// open rather than deciding one, so there is no verdict for a round identity to protect.
+	if _, err := m.requireOpenRound(ctx, projectID, activityID, taskID, nil); err != nil {
 		return "", err
 	}
 	sig := redraftSignal{TaskID: taskID, Feedback: feedback}
@@ -7047,33 +7069,45 @@ func precheckTaskDecision(v ConstructionSessionView, activityID ActivityID, task
 // settleThreadsBeforeApprove — which is two git reads on the product's hottest write. The fix
 // is to READ ONCE and pass the row through; it is recorded rather than taken because it
 // changes both functions' signatures, and stage 4b2 Task 4 was already changing one of them.
+//
+// IT RETURNS THE ROUND NUMBER IT FOUND OPEN (stage 4b3 Task 6), because the caller is about
+// to send a FIRE-AND-FORGET signal and the child must be able to tell "the round I checked"
+// from "a round that is open". Those are two different questions and only the second one was
+// being asked, on both sides — so a redraft that withdrew round n and opened n+1 between the
+// two checks had the reviewer's approve applied to n+1. Zero on every error path: there is no
+// round to name when the check failed, and a caller that ignored the error would stamp a
+// nonsense identity rather than none.
+//
+// It returns THAT round — the first PENDING one in ledger order — and not a recomputed
+// maximum, because roundsAtTask can answer with several when two artifact kinds share a gate
+// task, and the façade must stamp the round the check actually validated.
 func (m *constructionManager) requireOpenRound(
 	ctx context.Context, projectID ProjectID, activityID ActivityID, taskID string, kind *projectstate.ArtifactKind,
-) error {
+) (int, error) {
 	row, err := m.activityExecution.ReadActivityExecution(fwra.Context{Context: ctx},
 		projectstate.ProjectID(projectID), string(activityID))
 	if err != nil {
 		if isRANotFound(err) {
-			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			return 0, newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 				"activity %s has no execution row: nothing has been dispatched, so %s has no round to decide", activityID, taskID))
 		}
-		return mapRAError(err, "activityExecutionAccess.ReadActivityExecution")
+		return 0, mapRAError(err, "activityExecutionAccess.ReadActivityExecution")
 	}
 	rounds := roundsAtTask(row, taskID, kind)
 	if len(rounds) == 0 {
-		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+		return 0, newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 			"task %s of activity %s has no review round: there is no gate open to decide", taskID, activityID))
 	}
 	var latest projectstate.ReviewRound
 	for _, r := range rounds {
 		if r.Outcome == projectstate.RoundPending {
-			return nil
+			return int(r.Round), nil
 		}
 		if r.Round >= latest.Round {
 			latest = r
 		}
 	}
-	return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+	return 0, newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 		"round %d of %s is already decided %q by %s — there is no open gate left to answer",
 		latest.Round, taskID, latest.Outcome, latest.DecidedBy))
 }
@@ -8398,6 +8432,21 @@ type taskDecisionSignal struct {
 	// AcknowledgeStale is the reviewer confirming they judged a basis that has since moved.
 	// Read by Task 12, which owns the acknowledgeStaleBasis verb.
 	AcknowledgeStale bool
+	// Round is the round number the Manager VALIDATED open when it accepted this decision
+	// (stage 4b3 Task 6, appended). The gate refuses a decision that names a round it is no
+	// longer judging, because this signal is fire-and-forget: between requireOpenRound and
+	// decideTaskGate a redraft can withdraw round n and open n+1, and the child's own
+	// re-check asks whether a round is OPEN rather than whether it is the SAME round.
+	//
+	// ZERO MEANS "NO ROUND IDENTITY", NOT ROUND ZERO, and three senders carry none. The merge
+	// hold opens no ledger round at all, so SubmitTaskDecision has nothing to stamp for it.
+	// An escalation waits for an OVERRIDE rather than a verdict, so a decision that arrives
+	// there is deferred and re-offered rather than judged. And — the one that is live and
+	// MEASURED — a decision recorded in a history or a walkSnapshot written before this field
+	// existed has no JSON key for it and decodes to zero: dropping the zero arm reddens three
+	// of the eight child replay fixtures. The gate accepts all three rather than refusing a
+	// decision whose sender could not have stamped one.
+	Round int
 }
 
 func (s *constructState) view() (ConstructionSessionView, error) {

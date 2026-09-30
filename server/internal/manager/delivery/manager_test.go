@@ -17828,6 +17828,11 @@ type shapeRig struct {
 	// ladder — since stage 4b1 Task 11 the real dispatch strategy runs these cases, so the
 	// pacing belongs to the venue double and not to a substituted strategy.
 	branchCompletesFirst projectstate.MethodTask
+	// logs is what the WORKFLOW logged, because one case's claim is about LEGIBILITY rather
+	// than about state (see shapeLogSink). It lives on the rig and not in a driver because a
+	// Temporal test logger can only be set on the SUITE, before the environment exists. Nil on
+	// the `requirements` arm, whose rig is built elsewhere.
+	logs *shapeLogSink
 }
 
 // forkWinner tells the venue double which branch of the srsReview fan-out finishes first: the
@@ -17859,10 +17864,16 @@ func (r *shapeRig) forkWinner(winner projectstate.MethodTask, laggingPolls int) 
 func (r *shapeRig) reenter(t *testing.T) *shapeRig {
 	t.Helper()
 	var ts testsuite.WorkflowTestSuite
+	// The SAME sink as run 1, for the reason the recorder is shared: a continued walk is ONE
+	// walk, so its log is one log.
+	if r.logs != nil {
+		ts.SetLogger(r.logs)
+	}
 	next := &shapeRig{
 		env: ts.NewTestWorkflowEnvironment(), rec: r.rec,
 		cs: r.cs, cswf: r.cswf, pipe: r.pipe,
 		branchCompletesFirst: r.branchCompletesFirst,
+		logs:                 r.logs,
 	}
 	next.register = func(env *testsuite.TestWorkflowEnvironment) {
 		registerDeliveryActivity(env, next.cswf, next.cs, next.pipe)
@@ -17889,7 +17900,9 @@ const (
 func newShapeRig(t *testing.T, typeKey string) *shapeRig {
 	t.Helper()
 	var ts testsuite.WorkflowTestSuite
-	rig := &shapeRig{env: ts.NewTestWorkflowEnvironment(), rec: newShapeRecorder()}
+	sink := newShapeLogSink()
+	ts.SetLogger(sink)
+	rig := &shapeRig{env: ts.NewTestWorkflowEnvironment(), rec: newShapeRecorder(), logs: sink}
 	switch typeKey {
 	case "deployment", "service":
 		ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
@@ -18091,6 +18104,23 @@ func lifecycleShapeCases() []lifecycleShapeCase {
 			// ROUTINE approval path rather than an override.
 			name: "fork-view-names-both-gates", typeKey: "service",
 			drive: driveForkViewNamesBothGates, wantToday: shapePassesToday,
+		},
+		{
+			// A LATE APPROVE LANDS ON A ROUND NOBODY READ. The THIRTEENTH case (stage 4b3 Task 6).
+			// The defect is pre-existing and a STAGE check never could have closed it:
+			// SubmitTaskDecision validates that a round is open and then fires a FIRE-AND-FORGET
+			// signal, so between the façade's check and the child's consumption a redraft can
+			// withdraw round n and open n+1 — and the child's own re-check asks whether a round is
+			// OPEN, not whether it is THE SAME ROUND. So the approve a human cast against revision
+			// n lands on n+1, which is a different artifact judged by nobody.
+			//
+			// This half is the CHILD's: taskDecisionSignal is Manager-internal, so carrying the
+			// round the Manager validated costs no contract change. The window between the RENDER
+			// and the CLICK is NOT closed here — the round stamped is the one the Manager resolved
+			// at submit time, not the one the browser showed — and closing that means
+			// SubmitTaskDecision growing a round parameter across eight surfaces.
+			name: "late-approve-to-a-superseded-round-is-refused", typeKey: "service",
+			drive: driveLateApproveToASupersededRound, wantToday: shapePassesToday,
 		},
 	}
 }
@@ -18408,6 +18438,15 @@ func assertShape(t *testing.T, name string, got shapeOutcome) {
 		// which shapeOutcome cannot carry, so the driver asserts it where it reads it
 		// (assertShapeForkGatePair).
 		assertShapeForkOverlap(t, name, got)
+	case "late-approve-to-a-superseded-round-is-refused":
+		// The ledger-shaped half: the redraft withdrew round 1 and re-opened ONLY the judged
+		// pair, and the approve that named the CURRENT round passed it. The refusal's own claim
+		// is a mid-run reading, asserted where the driver takes it
+		// (assertShapeLateApproveRefused).
+		shapeWantOrder(t, name, "Reopened", got.Reopened, []string{string(projectstate.TaskDetailedDesign)})
+		shapeWantRound(t, name, got.RoundsDecided, shapeServiceID+":designReview:1", string(projectstate.RoundWithdrawn))
+		shapeWantRound(t, name, got.RoundsDecided, shapeServiceID+":designReview:2", string(projectstate.RoundPassed))
+		shapeWantAdvanced(t, name, got.PhaseAdvanced)
 	default:
 		t.Fatalf("no assertion is written for shape case %q; a case without one would pass by saying nothing", name)
 	}
@@ -18979,6 +19018,7 @@ const (
 	shapeSTPTask          = "stp"
 	shapeSRSTask          = "srs"
 	shapeConstructionTask = "construction"
+	shapeCodeReviewTask   = "codeReview"
 )
 
 // (stubStrategy and stubStrategies stood here until stage 4b1 Task 11. They filled the
@@ -19061,6 +19101,86 @@ func shapeReject(env *testsuite.TestWorkflowEnvironment, taskID, notes string) f
 			Feedback: &ReviewFeedback{Notes: notes},
 		})
 	}
+}
+
+// shapeApproveAtRound is shapeApprove carrying the ROUND the reviewer judged (stage 4b3 Task
+// 6). shapeApprove itself leaves Round at its zero value, which is "no round identity" and not
+// round zero — the arm the merge hold, an escalation and a pre-field snapshot all travel on —
+// so every other case in this table exercises that arm by construction. This helper is what
+// lets one case name a round and be judged on the naming.
+func shapeApproveAtRound(env *testsuite.TestWorkflowEnvironment, taskID string, round int) func() {
+	return func() {
+		env.SignalWorkflow(signalTaskDecision, taskDecisionSignal{
+			TaskID: taskID, Decision: ReviewApprove, DecidedBy: gateActorOperator, Round: round,
+		})
+	}
+}
+
+// shapeRedraft asks for a re-draft of ONE task — the signal DispatchActivityTask sends. At a
+// gate it WITHDRAWS the round nobody judged and re-opens the judged pair at revision n+1,
+// which is how the late-approve case acquires a round for an earlier one to be stale against.
+func shapeRedraft(env *testsuite.TestWorkflowEnvironment, taskID string) func() {
+	return func() {
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{TaskID: taskID})
+	}
+}
+
+// shapeLogSink captures what the WORKFLOW logged. It exists because one of the table's claims
+// is about LEGIBILITY rather than about state: a refused decision that leaves no trace is
+// indistinguishable from a signal that was never delivered, and an operator told only that
+// their approve did not land cannot tell those apart or act on either.
+//
+// It satisfies the Temporal SDK's log.Logger structurally, so no import is owed for it, and it
+// TEES to stderr rather than swallowing: installing it replaces the test suite's own logger for
+// every shape case, and a case that fails must still print what the walk said.
+type shapeLogSink struct {
+	mu   sync.Mutex
+	out  *slog.Logger
+	recs []string
+}
+
+func newShapeLogSink() *shapeLogSink {
+	return &shapeLogSink{out: slog.New(slog.NewTextHandler(os.Stderr, nil))}
+}
+
+func (s *shapeLogSink) Debug(msg string, kv ...any) { s.add(msg, kv); s.out.Debug(msg, kv...) }
+func (s *shapeLogSink) Info(msg string, kv ...any)  { s.add(msg, kv); s.out.Info(msg, kv...) }
+func (s *shapeLogSink) Warn(msg string, kv ...any)  { s.add(msg, kv); s.out.Warn(msg, kv...) }
+func (s *shapeLogSink) Error(msg string, kv ...any) { s.add(msg, kv); s.out.Error(msg, kv...) }
+
+// add flattens the message and its key/value tail into one line, because the assertion asks
+// whether a NAMED line carried two NAMED numbers and a substring match over the flattened
+// pair is what states that without depending on the SDK's own tag order.
+func (s *shapeLogSink) add(msg string, kv []any) {
+	var line strings.Builder
+	line.WriteString(msg)
+	for _, v := range kv {
+		fmt.Fprintf(&line, " %v", v)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.recs = append(s.recs, line.String())
+}
+
+func (s *shapeLogSink) lines() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.recs...)
+}
+
+// shapeRoundOutcomesAt snapshots the execution row's round outcomes mid-run, keyed by round
+// number, in the same posture shapeQuerySessionAt reads the session in: a delayed callback,
+// never a t.Fatalf from inside one. It answers "is the round the reviewer never saw still
+// undecided", which the END state cannot — the case approves that round later on purpose, so
+// the walk reaches a terminal and fails on its own assertion rather than on a timeout.
+func shapeRoundOutcomesAt(rig *shapeRig, activityID string, at time.Duration) *map[int]string {
+	out := map[int]string{}
+	rig.env.RegisterDelayedCallback(func() {
+		for _, r := range rig.cs.execution(activityID).Reviews {
+			out[int(r.Round)] = string(r.Outcome)
+		}
+	}, at)
+	return &out
 }
 
 // shapeOverride sends an operator override naming ONE task.
@@ -19329,6 +19449,92 @@ func assertShapeForkGatePair(t *testing.T, held ConstructionSessionView, heldErr
 	}
 	if survivor.ReviewSet == nil {
 		t.Fatalf("the surviving gate %q lost its roster when its SIBLING was decided", sibling)
+	}
+}
+
+// driveLateApproveToASupersededRound holds `designReview` at its gate, asks for a RE-DRAFT so
+// the round the reviewer read is withdrawn and round 2 opens, and only THEN delivers the
+// approve that reviewer cast — carrying round 1.
+//
+// WHY THE REDRAFT AND NOT A SEND-BACK. Both withdraw the judged round and re-open the pair, but
+// a send-back is itself a decision the reviewer made, so the case would have two decisions from
+// one human and the staleness would read as a double-click. A redraft is somebody ELSE moving
+// the artifact out from under the reviewer, which is the defect's actual shape.
+//
+// THE THIRD SIGNAL IS THE NON-REGRESSION. After the stale approve is refused the case approves
+// the CURRENT round, so the table pins both arms of the check in one walk: round 1 at a gate
+// judging round 2 is refused, round 2 at that same gate passes. Without it a condition that
+// refused EVERYTHING would satisfy every assertion up to the terminal — and then hang, which is
+// a failure that does not say why.
+func driveLateApproveToASupersededRound(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.cs.project.ReviewPolicy = replayGatedOn(projectstate.MethodPhaseDetailedDesign)
+	// stp LAGS well past the whole exchange, so designReview is the only gate live while the
+	// staleness is being manufactured and the assertion cannot be satisfied by a sibling.
+	rig.forkWinner(projectstate.TaskDetailedDesign, 20)
+	rig.register(rig.env)
+	// t=30s — THE REDRAFT. Round 1 is withdrawn (nobody judged it) and the judged pair re-opens,
+	// so designReview's gate comes back at round 2: an artifact the reviewer has never read.
+	rig.env.RegisterDelayedCallback(shapeRedraft(rig.env, shapeDesignReviewTask), 30*time.Second)
+	// t=90s — THE LATE APPROVE. The façade validated round 1 open before the redraft and the
+	// signal is fire-and-forget, so it arrives against round 2. It must be REFUSED.
+	rig.env.RegisterDelayedCallback(shapeApproveAtRound(rig.env, shapeDesignReviewTask, 1), 90*time.Second)
+	// t=95s — the two reads that judge the refusal, taken while the walk is still live.
+	rounds := shapeRoundOutcomesAt(rig, shapeServiceID, 95*time.Second)
+	after, afterErr := shapeQuerySessionAt(rig, 95*time.Second)
+	// t=120s — the CURRENT round's approve, which must pass.
+	rig.env.RegisterDelayedCallback(shapeApproveAtRound(rig.env, shapeDesignReviewTask, 2), 120*time.Second)
+
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	assertShapeLateApproveRefused(t, *rounds, *after, *afterErr, rig.logs.lines())
+	return rig.csOutcome(shapeServiceID)
+}
+
+// assertShapeLateApproveRefused is the late-approve refusal's oracle, held apart from
+// assertShape for the reason assertShapeForkGatePair is: what it judges is a MID-RUN reading —
+// two of them and the workflow's log — and shapeOutcome carries only the recorder's end state.
+func assertShapeLateApproveRefused(t *testing.T, rounds map[int]string,
+	after ConstructionSessionView, afterErr error, logged []string,
+) {
+	t.Helper()
+	if afterErr != nil {
+		t.Fatalf("the mid-run session read must be served: %v", afterErr)
+	}
+	// THE CLAIM. Five simulated seconds after an approve that named round 1, the round the
+	// reviewer never saw is still undecided.
+	if got := rounds[2]; got != string(projectstate.RoundPending) {
+		t.Fatalf("round 2 of %q is %q after an approve that named round 1 — a decision cast against a "+
+			"WITHDRAWN revision was applied to one nobody has read. taskDecisionSignal carries the round "+
+			"the Manager validated for exactly this reason, and the gate must compare it with its own. rounds=%v",
+			shapeDesignReviewTask, got, rounds)
+	}
+	// AND THE GATE IS STILL THERE. "Not decided" alone would also be true of a gate the refusal
+	// had torn down, which is the one wrong way to refuse: the reviewer's next click must land.
+	if after.Stage != StageAwaitingApproval || after.AwaitingGate == nil || *after.AwaitingGate != shapeDesignReviewTask {
+		t.Fatalf("after refusing a superseded decision the gate must KEEP awaiting %q; the session reports %s/%s (%+v)",
+			shapeDesignReviewTask, sessionStageName(after.Stage), gateNameOf(after), after)
+	}
+	// AND THE REFUSAL IS LEGIBLE. A silent drop is indistinguishable from a lost signal, and
+	// "ignored" without the two numbers does not tell the operator which revision to go and read.
+	line := ""
+	for _, l := range logged {
+		if strings.Contains(l, "delivery.gate.decisionNamesASupersededRound") {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("the refusal must be named in the workflow log — a dropped decision that says nothing is a "+
+			"lost signal as far as anyone reading can tell. Captured %d lines: %v", len(logged), logged)
+	}
+	for _, want := range []string{"decidedRound 1", "currentRound 2"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("the refusal names BOTH rounds so the reviewer knows which revision is current; %q is "+
+				"missing from %q", want, line)
+		}
 	}
 }
 
@@ -21687,6 +21893,114 @@ func Test_Facade_ConstructionSignalsReachASiblingBranchesOpenGate(t *testing.T) 
 			}
 			if want := deliveryActivityWorkflowID("p", "A"); fc.lastWorkflowID != want || fc.lastSignalName != c.signal {
 				t.Fatalf("%s signalled %q/%q, want %q/%q", c.name, fc.lastWorkflowID, fc.lastSignalName, want, c.signal)
+			}
+		})
+	}
+}
+
+// task6RoundsStore is task12RoundStore with a ROUND HISTORY: rounds 1..n-1 WITHDRAWN and round
+// n PENDING, which is what a task the operator has re-drafted twice really holds. A store with
+// only round 1 in it cannot tell "the façade stamps the round it validated" from "the façade
+// stamps 1", and that is the whole assertion.
+func task6RoundsStore(taskID, judged projectstate.MethodTask, rounds int) *csFakeProjectState {
+	ps := task12RoundStore(taskID, judged, projectstate.RoundPending, nil)
+	row := ps.project.ActivityExecution["A"]
+	for n := 2; n <= rounds; n++ {
+		row.Reviews[n-2].Outcome = projectstate.RoundWithdrawn
+		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
+			RoundID: projectstate.AttemptID("A", taskID, n), TaskID: taskID, Reviews: judged,
+			Round: int64(n), Outcome: projectstate.RoundPending,
+			SubjectRef: projectstate.SubjectRef{Ref: "sha"},
+		})
+	}
+	ps.project.ActivityExecution["A"] = row
+	return ps
+}
+
+// task6PendingBehindAHigherRound is the ledger shape a shared gate task produces: round 2 of one
+// artifact kind DECIDED and listed first, round 1 of another still PENDING behind it. The
+// pending round is not the highest, so "the round the check validated" and "the highest round at
+// the task" are two different numbers and the stamp can be judged on which one it is.
+func task6PendingBehindAHigherRound(taskID, judged projectstate.MethodTask) *csFakeProjectState {
+	ps := task12RoundStore(taskID, judged, projectstate.RoundPending, nil)
+	row := ps.project.ActivityExecution["A"]
+	kind := projectstate.KindSystem
+	row.Reviews = append([]projectstate.ReviewRound{{
+		RoundID: projectstate.AttemptID("A", taskID, 2), TaskID: taskID, Reviews: judged,
+		ArtifactKind: &kind, Round: 2, Outcome: projectstate.RoundPassed,
+		SubjectRef: projectstate.SubjectRef{Ref: "sha"},
+	}}, row.Reviews...)
+	ps.project.ActivityExecution["A"] = row
+	return ps
+}
+
+// THE DECISION NAMES THE ROUND IT JUDGED (stage 4b3 Task 6), at the façade.
+//
+// SubmitTaskDecision validates that a round is open and then fires a FIRE-AND-FORGET signal, so
+// between those two moments a redraft can withdraw round n and open n+1 — and the child's own
+// re-check asks whether a round is OPEN rather than whether it is the SAME round. The Manager's
+// half is to stamp what it validated; the gate's half is the thirteenth shape case.
+//
+// Asserted on the PAYLOAD and not on the absence of an error, because a façade that validated
+// the round and then failed to carry it is exactly the state the defect was already in.
+func Test_Facade_TaskDecisionNamesTheRoundItValidated(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		taskID  string
+		session ConstructionSessionView
+		ps      *csFakeProjectState
+		want    int
+	}{
+		{
+			// THE ORDINARY APPROVE. Two withdrawn rounds precede the open one, so the stamp is
+			// the round the ledger says is pending and not the first row in the list.
+			name:   "an ordinary approve stamps the round the check found open",
+			taskID: shapeDesignReviewTask, session: awaitingAt(shapeDesignReviewTask),
+			ps:   task6RoundsStore(shapeDesignReviewTask, projectstate.TaskDetailedDesign, 3),
+			want: 3,
+		},
+		{
+			// TWO ARTIFACT KINDS SHARE ONE GATE TASK (stage 4b1 Task 3), so roundsAtTask answers with
+			// SEVERAL rounds and the one that is PENDING need not be the highest-numbered. The stamp
+			// must be the round the check validated — the first pending in ledger order — because a
+			// recomputed maximum would stamp a round the check never looked at, and the gate would
+			// then refuse the decision the façade had just accepted. `codeReview` is the task that
+			// makes the case reachable: its judged task names no artifact kind, so the caller resolves
+			// kindless and roundsAtTask stops filtering.
+			name:   "the stamp is the round the check validated, not the highest at the task",
+			taskID: shapeCodeReviewTask, session: awaitingAt(shapeCodeReviewTask),
+			ps:   task6PendingBehindAHigherRound(shapeCodeReviewTask, projectstate.TaskConstruction),
+			want: 1,
+		},
+		{
+			// THE MERGE HOLD STAMPS NOTHING, and that is the reason the gate's refusal is written
+			// `sig.Round != 0 && …`: holdForMergeApproval enters its human stage directly and opens
+			// NO ledger round, so there is no identity to carry and 0 means "nothing to compare"
+			// rather than "round zero". A stamp here would be an invented number, and the gate
+			// would then refuse the one decision a merge accepts.
+			name:   "the merge hold carries no round, because it opens none",
+			taskID: mergeGateKey, session: awaitingAt(mergeGateKey),
+			ps:   task6RoundsStore(shapeDesignReviewTask, projectstate.TaskDetailedDesign, 1),
+			want: 0,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fc := &fakeTemporalClient{session: c.session}
+			if err := task12Manager(fc, c.ps).SubmitReviewDecision(testCtx(), "p", "A", c.taskID,
+				ReviewDecisionInput{Decision: ReviewApprove}, nil); err != nil {
+				t.Fatalf("the approve must be accepted: %v", err)
+			}
+			if fc.lastSignalName != signalTaskDecision {
+				t.Fatalf("want a %q signal, got %q", signalTaskDecision, fc.lastSignalName)
+			}
+			sig, ok := fc.lastSignalArg.(taskDecisionSignal)
+			if !ok {
+				t.Fatalf("the decision payload must be a taskDecisionSignal, got %T", fc.lastSignalArg)
+			}
+			if sig.Round != c.want {
+				t.Fatalf("the decision carries round %d, want %d — the gate compares this number with its own, "+
+					"so a wrong one either applies a verdict to an artifact nobody read or refuses one that is current",
+					sig.Round, c.want)
 			}
 		})
 	}
