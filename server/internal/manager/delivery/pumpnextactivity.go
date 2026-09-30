@@ -340,6 +340,11 @@ type pumpState struct {
 	// RecordActivityFailed takes the activity out of NotStarted in the STORE, but this run
 	// holds a snapshot read before the write.
 	blocked map[string]bool
+
+	// vanished is the set of activity ids whose EXECUTION a delivery answered NotFound for —
+	// the pump's one positive fact that a child is gone. It is a note for the NEXT
+	// pumpReconcile and NOT a terminal: see markVanished.
+	vanished map[ActivityID]bool
 }
 
 func pumpStateFrom(in pumpInput) *pumpState {
@@ -351,6 +356,7 @@ func pumpStateFrom(in pumpInput) *pumpState {
 		LeaseGrantedAt: in.LeaseGrantedAt,
 		futures:        map[ActivityID]workflow.ChildWorkflowFuture{},
 		blocked:        map[string]bool{},
+		vanished:       map[ActivityID]bool{},
 	}
 }
 
@@ -427,6 +433,37 @@ func (st *pumpState) markFinished(id ActivityID) {
 		st.Finished = append(st.Finished, id)
 	}
 	delete(st.futures, id)
+	st.releaseLease(id)
+}
+
+// markVanished is what BOTH NotFound arms of the lease do, and it is deliberately not
+// markFinished — which is what they were, and which left G-P12 with two back doors that
+// fix round 1 did not close (fix round 2, C1).
+//
+// THE DEFECT, and it is F1's twin one door along. A child takes the lease in its merge tail
+// and then failWalks: failWalk sends NO finish, so the lease stays held, and after
+// pumpLeaseDeadline the liveness probe answers NotFound. markFinished then DISCHARGED THE
+// FUTURE, pumpReconcile stopped iterating over the id, f.Get was never called, the error was
+// swallowed and the run went QUIESCENT with the cascade free to build on a broken
+// dependency. A NotFound genuinely IS a fact the pump established for itself, so the LETTER
+// of applyFinish's rule was kept — but "the execution is gone" is not "the activity
+// SUCCEEDED", and only the future (or the row) can tell those two apart.
+//
+// SO A VANISHED EXECUTION RELEASES ITS ADMISSION AND NOTHING ELSE. releaseLease is exactly
+// what both sites need — the lease must not be held by a corpse, and a gone child's other
+// queued asks must not be answered — and the verdict is left to the next pumpReconcile,
+// which reads the FUTURE for a child of this run and a FRESH head-state row for one that
+// predates a ContinueAsNew. Deferring is not laziness: the row this run already holds was
+// read before the child closed, and judging a vanished child off a stale snapshot is how a
+// completed activity gets called broken.
+//
+// AND THE NOTE IS WHY IT IS A SET AND NOT JUST A RELEASE. A child that is gone, holds no
+// future here and never recorded a terminal would otherwise sit in inFlight forever — the
+// pump would never quiesce and never end. The mark is what lets pumpReconcile answer that
+// case instead of waiting on it. It is RUN-LOCAL, like futures and blocked: across a
+// ContinueAsNew it degrades to the row-only reconcile that pre-CAN children already get.
+func (st *pumpState) markVanished(id ActivityID) {
+	st.vanished[id] = true
 	st.releaseLease(id)
 }
 
@@ -894,16 +931,18 @@ func (wf *csWorkflows) pumpGrantLease(ctx workflow.Context, in pumpInput, st *pu
 }
 
 // pumpDeliverGrant bumps the epoch and hands the lease over. A grant whose delivery
-// answers NotFound is a grant to an execution that is GONE: the requester is treated as
-// finished and the lease is not held by a corpse.
+// answers NotFound is a grant to an execution that is GONE: the lease is NOT handed to a
+// corpse (this returns before LeaseHolder is set) and the requester's other queued asks go
+// with it — but the activity is NOT declared over here. Whether it succeeded or broke is a
+// question only its future or its row can answer; see markVanished.
 func (wf *csWorkflows) pumpDeliverGrant(ctx workflow.Context, in pumpInput, st *pumpState, id ActivityID) error {
 	epoch := st.LeaseEpoch + 1
 	err := wf.pumpSignalChild(ctx, in.ProjectID, id, activityLeaseGrant{ActivityID: id, Epoch: epoch})
 	switch {
 	case isSignalTargetNotFound(err):
-		workflow.GetLogger(ctx).Info("pump: the activity that asked for the lease is already gone; treating it as finished",
+		workflow.GetLogger(ctx).Info("pump: the activity that asked for the lease is already gone; its ask is dropped and the reconcile will say whether it finished or broke",
 			"projectId", string(in.ProjectID), "activityId", string(id))
-		st.markFinished(id)
+		st.markVanished(id)
 		return nil
 	case err != nil:
 		return err
@@ -939,9 +978,9 @@ func (wf *csWorkflows) pumpCheckLease(ctx workflow.Context, in pumpInput, st *pu
 	err := wf.pumpSignalChild(ctx, in.ProjectID, holder, activityLeaseGrant{ActivityID: holder, Epoch: st.LeaseEpoch})
 	switch {
 	case isSignalTargetNotFound(err):
-		workflow.GetLogger(ctx).Error("pump: the main-write lease holder's execution has closed; revoking and re-granting at the next epoch",
+		workflow.GetLogger(ctx).Error("pump: the main-write lease holder's execution has closed; revoking and re-granting at the next epoch — and the reconcile, not this probe, says whether it finished or broke",
 			"projectId", string(in.ProjectID), "activityId", string(holder), "epoch", st.LeaseEpoch)
-		st.markFinished(holder)
+		st.markVanished(holder)
 		return nil
 	case err != nil:
 		return err
@@ -986,7 +1025,9 @@ func (wf *csWorkflows) pumpSignalChild(ctx workflow.Context, projectID ProjectID
 // That answers three failure modes at once: a lost signal costs at most one tick; a child
 // that dies between finishing and signalling is found terminal in its row; a child that
 // dies holding the lease is found gone by the lease's own liveness check and the lease is
-// re-granted at epoch+1.
+// re-granted at epoch+1 — while THE VERDICT ON THAT CHILD IS STILL TAKEN HERE, off its
+// future or its row, because "the execution is gone" says nothing about whether it worked
+// (fix round 2, C1; see markVanished).
 //
 // G-P12 AND WHAT IT COSTS TO KEEP IT. A failed child FAILS THE PUMP RUN — that is how a
 // cascade STOPS on a broken activity instead of marching down the frontier — and nothing
@@ -1023,10 +1064,11 @@ func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pum
 			st.markFinished(id)
 			continue
 		}
-		row, exists := proj.ActivityExecution[string(id)]
-		if !exists {
-			continue
-		}
+		// The ZERO ROW IS READ, not skipped: "started, no future, no row at all" is exactly
+		// the shape a child that vanished without recording anything has, and the arm below is
+		// the only thing that answers it. A missing row's zero value is Unknown/nil, so the two
+		// terminal arms behave as they did when this was guarded by an existence check.
+		row := proj.ActivityExecution[string(id)]
 		switch {
 		case row.FailureReason != projectstate.FailureReasonUnknown:
 			// No future, a terminal FAILURE row, and no finish signal ever arrived (a finish
@@ -1040,6 +1082,19 @@ func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pum
 			logger.Info("pump: an activity started before this run's continue-as-new is complete in head-state",
 				"projectId", string(in.ProjectID), "activityId", string(id))
 			st.markFinished(id)
+		case st.vanished[id]:
+			// THE VANISHED ARM (fix round 2, C1). The pump found this execution GONE — a lease
+			// delivery answered NotFound — it holds no future for it, and the head-state read at
+			// the top of THIS iteration, taken after the execution closed, shows no terminal
+			// either way. A closed execution has finished writing, so this is not a race: it is
+			// an activity that died without recording an outcome, which is a broken child by
+			// every rule this file has. It stops the cascade, and it is also what keeps the pump
+			// from waiting on a future that will never resolve.
+			logger.Error("pump: an activity's execution is GONE and it recorded no terminal — stopping the cascade",
+				"projectId", string(in.ProjectID), "activityId", string(id))
+			return temporal.NewNonRetryableApplicationError(
+				"the pump's cascade stops: activity "+string(id)+"'s execution is gone and it recorded no terminal",
+				"ActivityChildVanished", nil)
 		}
 	}
 	return nil

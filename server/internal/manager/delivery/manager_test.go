@@ -28546,6 +28546,109 @@ func Test_Pump_AFinishReportFollowedByAChildFailureStillFailsTheRun(t *testing.T
 	}
 }
 
+// ===========================================================================
+// FIX ROUND 2 — C1, THE TWO NotFound BACK DOORS
+// ===========================================================================
+
+// C1, AND IT IS F1'S TWIN ONE DOOR ALONG. Fix round 1 made a finish SIGNAL stop discharging
+// a future this run holds, and the rule it established — only a fact the pump settled for
+// itself may call markFinished — left TWO sites still calling it: the grant delivery's
+// NotFound arm and the liveness probe's. A NotFound genuinely IS such a fact, so the LETTER
+// of the rule was honoured and the CONSEQUENCE was the one it exists to prevent.
+//
+// THE SHAPE, and it is the pump's most ordinary failure: a child takes the main-write lease
+// in its merge tail and then failWalks. failWalk sends NO finish, so the lease stays held;
+// after pumpLeaseDeadline the probe answers NotFound; markFinished then DELETED the child's
+// future; pumpReconcile stopped iterating over the id, f.Get was never called, the error was
+// swallowed, and the run reported a clean drained cascade — G-P12's stated BreaksAs, reached
+// through the door fix round 1 did not close.
+//
+// THE CASE IS ARMED ON THE ORDER THAT MAKES THE DEFECT REACHABLE: the probe fires at
+// pumpLeaseDeadline, strictly BEFORE the child's failure lands, because a failure that lands
+// first is read by the reconcile and would pass with or without the fix. Only C-ONE asks for
+// the lease, so C-TWO's grant never answers NotFound and the case turns on one child.
+func Test_Pump_ALeaseHolderFoundGoneStillFailsTheRunWhenItsChildFailed(t *testing.T) {
+	const childRun = 20 * time.Minute // strictly after pumpLeaseDeadline
+	// The grant to C-ONE lands; every delivery after it answers NotFound, so the renewal at
+	// the deadline finds the holder gone while its child is still running here.
+	bus := &leaseProbeBus{notFoundAfter: 1}
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID: projectstate.ProjectID(pid), Version: 1, Phase: 2,
+		ActivityExecution: map[string]projectstate.ActivityExecution{},
+	}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{}, NextEligibleActivity: twoActivityFrontier,
+	})
+	registerPumpWithBus(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded}, bus)
+	// ONE child fails and the other succeeds, which is the whole point: a rig where both fail
+	// goes green on the survivor's future and proves nothing about the lease holder's.
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything,
+		mock.MatchedBy(func(in deliveryActivityInput) bool { return in.ActivityID == "C-ONE" })).
+		After(childRun).
+		Return(errors.New("the merge tail broke after the pump had already found the execution gone"))
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		After(childRun).
+		Return(nil)
+	rig := cascadingPumpRig{env: env, pid: pid, ps: ps, childStarts: new(int)}
+	rig.requestLeaseAt(time.Minute, "C-ONE")
+
+	res, err := rig.run(t)
+	if err == nil {
+		t.Fatalf("C1/G-P12: a lease holder the pump found GONE must still have its future read — "+
+			"the run reported a drained cascade (%+v) while the activity holding the main-write lease failed, "+
+			"which is a cascade free to build on a broken dependency", res)
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("C1/G-P12: the cascade must STOP, not continue: %v", err)
+	}
+	if got := bus.grants(t); len(got) < 2 || got[0].ActivityID != "C-ONE" {
+		t.Fatalf("the case needs the grant to C-ONE and then the renewal that finds it gone, got %+v", got)
+	}
+}
+
+// THE SECOND DOOR, AND IT NEEDS NO FUTURE AT ALL. A child that predates this run's
+// ContinueAsNew has no future here, so when the pump finds its execution GONE the only
+// remaining evidence is its ROW — and a row that carries no terminal either way means the
+// execution died without recording an outcome. Before C1 that child was declared FINISHED on
+// the strength of the NotFound alone, which is the same swallow one continue-as-new older;
+// leaving it in flight instead would hang the pump on a future that will never resolve, so
+// the reconcile answers it.
+func Test_Pump_AVanishedPreContinueChildWithNoTerminalFailsTheRun(t *testing.T) {
+	// Every delivery answers NotFound: there is no execution behind C-OLD at all.
+	bus := &recordingSignalBus{err: fwra.New(fwra.NotFound, "messagebus: no execution with that id")}
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID: projectstate.ProjectID(pid), Version: 1, Phase: 2,
+		ActivityExecution: map[string]projectstate.ActivityExecution{},
+	}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry}, Review: &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
+			return pumpSelection{Verdict: verdictQuiescent}
+		},
+	})
+	registerPumpWithBus(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded}, bus)
+	rig := cascadingPumpRig{env: env, pid: pid, ps: ps, childStarts: new(int)}
+	rig.requestLeaseAt(time.Minute, "C-OLD")
+
+	// C-OLD is Started in the INPUT and has no future in this run — the pre-ContinueAsNew
+	// shape — and it asks for the lease, which is how the pump learns its execution is gone.
+	_, err := rig.runInput(t, pumpInput{ProjectID: pid, Started: []ActivityID{"C-OLD"}})
+	if err == nil {
+		t.Fatal("an activity whose execution is gone and whose row carries no terminal must stop the cascade, " +
+			"not be counted as finished and not be waited on forever")
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("the cascade must STOP, not continue: %v", err)
+	}
+}
+
 // AND THE HONEST HALF OF THE SAME WIRE (F5). releaseMainWriteLease was handed a literal
 // ActivityOutcomeCompleted at its one call site, so the `exited` return and every error
 // return reported a completion that had not happened. ActivityOutcome cannot express
