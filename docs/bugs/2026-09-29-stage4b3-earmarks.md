@@ -369,3 +369,41 @@ There is also **no chart in this repository** — no `Chart.yaml`, no `values*.y
 ### One operational consequence of the fix itself, expected and not a regression
 
 The live-gate derivation was comparing a gate **task** id against a lifecycle **phase** id, so two rules had never fired in production. **The first run on this image will show `awaitingHuman` task states the previous image could not produce.** That is the fix working.
+
+---
+
+## The cutover actually ran — 2026-09-30. What it proved, and the one thing it found
+
+**Deployed.** `ghcr.io/mixofreality-studio/archistrator-server:0.8.114` + `archistrator-webapp:0.6.96`, pinned in `davidmarne/aiarchmultiplatform` @ `d0acf14a` (`k8s/argocd/applications/archistrator-{server,webapp}.yaml`) and synced by ArgoCD. Production had been on **0.8.88 / 0.6.66 since 2026-08-11** — stages 3, 4a, 4b1, 4b2 and 4b3 all undeployed at once.
+
+**Production was already broken when we arrived, and the cause is worth keeping.** The state repo IS `mixofreality-studio/archistrator`, so stage 3's `.activityConstruction` → `.activityExecution` rename landed in production's data the moment stage 3 merged — while production ran an image with no reader for it. 0.8.88 therefore saw **every activity as `NotStarted`** and re-dispatched; `archistrator:requirements` was wedged retrying `gitActivityStatusAccess.recordActivityStarted` at attempt 14 with `MaximumAttempts 0`. **The rollback note's hazard had been live in the forward direction for days, and nobody was watching.** Deploying was the fix, not the risk.
+
+### The drain, as run
+1. `operatorPaused: true` committed to the state repo, so the new image came up paused.
+2. **Five stranded executions terminated** — `constructionConstructActivity`, `constructionPumpNextActivity`, `systemDesignPhase`, two `systemDesignCoAuthor` (two had already self-completed). Every one a type 4b1 retired.
+3. **`construction:pumpSweep` and `construction:replanSweep` deleted by id.** `delivery:replanSweep` did not exist to delete — 4a never reached production, which is why the plan's "three deletions" was two in practice.
+4. Tags bumped, ArgoCD synced, both rollouts completed.
+
+### Step 8, checked by id — and the corrected step was right
+`delivery:pumpSweep` (30 s) and `delivery:roundSweep` (300 s) **present**; `construction:*` and `delivery:replanSweep` **absent**; `operations:operatedStateReconcile` and `shortfallSweep` **untouched**. **Four schedules on a healthy deploy** — the old "expect exactly TWO, three is wrong" would have read this correct state as broken, one step after deleting Schedules by id.
+
+**While paused, the round sweep ran and healed nothing** — Task 10's paused-project guard, working in production on its first outing, and the implementer extended that scope on its own authority.
+
+### 🔴 THE FINDING: the state-repo clone cannot carry the parallel pump
+
+On unpause the pump dispatched **three `deliveryActivity` children at once** — 4b2's parallel pump doing exactly what it was built to do, in production, for the first time. All three then wedged on the same activity:
+
+```
+activityExecutionAccess.openActivity — attempt 9, MaximumAttempts 0
+resourceaccess: github.GitStore.clone: Post
+  https://github.com/mixofreality-studio/archistrator.git/git-upload-pack:
+  context deadline exceeded
+```
+
+A **full clone of the state repo per activity, three concurrently**, over the activity's StartToClose budget. This is precisely the earmark the 2026-08-11 OOM fix left open: `listProjects` went depth-1, **`GitBlobStore` did not**, and the repo-growth driver was never addressed. The cost was always there; **the parallel pump is simply the first caller to ask for three clones at once**, so a latent per-clone cost became a wedge the moment concurrency arrived.
+
+Retries are unbounded and each one re-clones, so waiting compounds it. **Re-paused and the four executions terminated.** Not a rollback: the image is correct, the state is correct, and the containment is the pause.
+
+**This is a serialisation-vs-clone-cost question, not a bug in the cutover.** The candidate fixes, cheapest first: a shallow/partial clone in `GitStore.clone` (what `listProjects` already got); a per-pod clone cache reused across activities; a StartToClose budget that matches a real clone of this repo; or admitting fewer children concurrently. The first is almost certainly right, and it is the same fix the OOM wave deferred.
+
+**Production is stable, on the new image, paused, with no in-flight work.** Unpausing again without a clone fix reproduces the wedge.
