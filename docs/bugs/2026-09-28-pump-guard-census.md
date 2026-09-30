@@ -431,6 +431,18 @@ are the shape of what a green replay run does *not* mean:
   needs a child that predates a CAN, which needs a CAN — see the first bullet.
 - **A child failure stopping the cascade** (G-P12's future arm). No fixture fails a child.
 
+## The head-line CITATIONS are a navigation aid with no net — a standing decision, recorded 2026-09-30
+
+**This is settled, not open. Nobody should re-measure the `Verdict` column's line citations by hand again without shipping the gate that would keep them true.**
+
+The `Verdict` cell of each `pumpnextactivity.go` row carries a `file:line` for the shipped guard. **There are about thirty of them, they are stale by ±7 and worse (G-P16 cites `:1391`; the line is at `:1398`), and NOTHING GATES THEM.** They went stale inside stage 4b2 (`d3a4f898` added ~55 net lines and left 21 of 22 wrong) and again inside stage 4b3 (Task 2 +18 lines, Task 3 −18). **Three separate stage-4b3 tasks — 3, 7 and 11 — each opened this file, each read this problem, and each declined to re-measure by hand.** That is now the decision, and its reason is measured rather than argued:
+
+- **A hand re-measure fixes the citations for exactly one commit.** The next edit to the pump makes them wrong again and **every test stays green**, because the two meta-tests compare the ID set and the `PinnedBy` cell, and the `Line` column they do match is `pumpGuard.Site` — the *pre-wave provenance* line, which by design does not move. A fix with no gate is a fix with a one-commit half-life, and doing it a fourth time buys the same nothing three times over.
+- **The obvious gate — extract the `` `:N-M` `` tokens and check they are in range — FAILS ON THE LIVE FAILURE.** Measured: `:1337` was in range in a 1,375-line file while pointing at the wrong construct entirely (G-P17 pointed at a `Reason` type assertion while its subject had moved). **A gate that passes on the failure it exists to catch is worse than no gate**, because it converts an acknowledged aid into a claimed guarantee.
+- **The two designs that would work both have a real cost, and neither has been chosen.** (a) Give every row an `AtHead` field naming a short literal the cited line must CONTAIN — 33 rows × one string, **and the field then becomes the thing that drifts**. (b) Assert a recorded content hash of each cited file — cheap, correct, and **noisy by construction**: any edit to the pump turns this doc red and demands a re-measurement. **(b) is the honest one; it needs a founder's tolerance for a doc test that goes red on unrelated code edits.**
+
+**Until one of those ships, read the `Verdict` citation as a HUMAN-NAVIGATION AID with no net, deliberately** — the ID is the stable handle, `PinnedBy` is the load-bearing cell, and the line number is a hint that was true once. **That is a smaller claim than the citations look like they are making, and it is the true one.**
+
 ## The headline numbers were unchecked, and now are not
 
 Task 4's review found the last hole in the meta-tests: the two of them check the row SET and
