@@ -836,8 +836,9 @@ export function mapSessionState(
 
 // The project-design session mapper is DELETED (stage 4b2 Task 5). `projectSession` is never
 // set on the wire again: mapSessionState answers for all seventeen artifact kinds, because
-// the two derived views were the same projection of the same slot into two types. schema.ts
-// still generates DeliveryProjectSessionStateView; the wave's one model edit removes it.
+// the two derived views were the same projection of the same slot into two types. The model
+// edit landed (Task 7, `ebfc1a42`), so `DeliveryProjectSessionStateView` is gone from
+// schema.ts and from openapi.yaml — there is no wire type left for a mapper to take.
 
 // --- construction session --------------------------------------------------
 

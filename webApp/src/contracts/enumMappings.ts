@@ -120,8 +120,9 @@ export function pipelinePhaseFromOrdinal(ordinal: number): PipelinePhase {
 // one member that made this enum differ from SessionStage — ProjectStageAssemblingSDP — was
 // emitted by a workflow stage 4b1 deleted. `session` now answers for all seventeen artifact
 // kinds through sessionStageFromOrdinal, so the mapping table below it had nothing left to
-// map. enums.gen.ts still generates PROJECT_SESSION_STAGE_ORDINAL_TO_GO_VARNAME; the wave's
-// one model edit removes the $defs entry that generates it.
+// map. The model edit landed (Task 7, `ebfc1a42`) and took the `$defs` entry with it, so
+// enums.gen.ts no longer generates PROJECT_SESSION_STAGE_ORDINAL_TO_GO_VARNAME — nothing
+// remains for this mapping to be derived from.
 
 // --- RuntimeStatusSeam ---------------------------------------------------
 // Mechanical derivation gives ("unknown"/"pending"/"healthy"/"degraded"/
