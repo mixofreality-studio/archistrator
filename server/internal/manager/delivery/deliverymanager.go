@@ -9538,8 +9538,8 @@ func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, res
 // lifecycle task is named "merge" — name one and `evidenceState` rule 1 would read the merge
 // hold as that task awaiting a human. A filter that keys on two fields DIFFERING is silently
 // dead wherever they are equal, and nothing in the type system or the linters can see that;
-// the two keys are therefore named, and Test_LiveApprovalGates_TheMergeHoldIsNotAPhaseGate
-// pins it. The shape filter is KEPT beside them, because it is still the honest statement for
+// the two keys are therefore named, and
+// Test_LiveApprovalGates_TheMergeHoldAndATakeoverAreNotPhaseGates pins it. The shape filter is KEPT beside them, because it is still the honest statement for
 // any FUTURE non-phase gate class that follows the escalation's pattern.
 //
 // 🔴 THE KEYS ARE GATE TASK IDS, AND FIXING THAT IS PART OF THIS CHANGE. Until stage 4b3

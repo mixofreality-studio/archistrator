@@ -441,17 +441,24 @@ func (wf *csWorkflows) sweepReopenNotLanded(ctx workflow.Context, projectID Proj
 //     cheap), so a walk whose tasks all passed and whose TAIL broke records no new resolved
 //     attempt at all. Nothing new resolved == the re-run did the same nothing it did last time.
 //
-// WHAT THIS ACTUALLY BOUNDS, corrected 2026-09-30 after a review walked the paths. The clause
-// above is the RATIONALE, and the rationale is wrong in the direction that matters: it reads as
-// though a re-run that made progress would record a resolved attempt and be healed again. It
-// would not. A review walked eight paths — the merge tail, commitDesignArtifacts, the variance
-// loop, gate re-entry and the rest — and found that NO path records a resolved attempt on a
-// re-run; RecordAttemptOutcome replaying the same id+outcome even returns nil untouched, so not
-// a single EndedAt moves, not even under Temporal retry. And the target case's repair work is
-// COMMITTING SLOTS, which records zero attempts by construction. So this predicate returns true
-// on the second sweep of a row whether or not the re-run got further: a requirements activity
-// that commits mission and glossary on run 2 and fails on volatilities has made real progress
-// and this function cannot see any of it.
+// WHAT THIS ACTUALLY BOUNDS, corrected 2026-09-30 after two review rounds. The clause above is
+// the RATIONALE, and the rationale reads as though a re-run that made progress would record a
+// resolved attempt and be healed again. It would not — but NOT because nothing records one.
+// Three writers do, with fresh ids: recordTaskAttempt (deliveryactivity.go:3309),
+// resolveWorkAttempt (:5027) and passGateAttempt (:5150). A first correction of this comment
+// said "no path records a resolved attempt on a re-run"; that was over-broad and is itself
+// corrected here.
+//
+// THE REASON THE PROPERTY HOLDS IS REACHABILITY, NOT ABSENCE. In the state this sweep heals,
+// every task of the walk already passed and only the main-writing TAIL broke. seedWalkFromLedger
+// (:3189) marks every such task walkTaskPassed from the ledger, and finalizeWalk's precondition
+// (:3377) is that every task in the lifecycle passed — so the re-run runs NO task, and all three
+// writers above are unreachable. What is left is the tail: a merge and, for a design activity,
+// N slot commits, which record zero attempts by construction.
+//
+// SO THE PREDICATE RETURNS TRUE ON THE SECOND SWEEP OF A ROW WHETHER OR NOT THE RE-RUN GOT
+// FURTHER. A requirements activity holding four slots whose run 2 commits mission and glossary
+// and fails on volatilities has made real progress, and this function cannot see any of it.
 //
 // THE TRUE PROPERTY IS "AT MOST ONE AUTOMATIC HEAL PER ROW, EVER" — not one per unit of
 // measurable progress. That is STRONGER than advertised and it fails CLOSED: the row keeps its

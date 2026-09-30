@@ -66,6 +66,32 @@ func TwoArmedFence(ctx workflow.Context) (string, bool) {
 	return normaliseShadowed(raw)
 }
 
+// ClosureSilencer is THE SAME DEFEAT ONE CONSTRUCT FURTHER OUT, and it survived the first
+// fix. declare's conflict rule holds within one scope KEY, and index() opens a scope per
+// *ast.FuncLit — so the outer struct and the inner `any` are two keys, never a collision,
+// and lookupDecl's innermost-first walk let the inner one answer. It built, vetted, linted
+// clean and left the gate PASS with its vacuity log unchanged at 12/6/5/9 when written into
+// projectsupervision.go. The `workflow.Go(ctx, func(gctx workflow.Context) {…})` spelling
+// silences it identically, and was measured to.
+//
+// Go's own scoping is what makes this a true defeat and not a curiosity: the inner `raw`
+// comes into force only AFTER its ValueSpec, so `&raw` at the Receive genuinely is the outer
+// struct, and the message is genuinely dropped in production.
+//
+// lookupDecl now returns the STRICTEST declaration on the chain rather than the innermost,
+// which is declare's rule stated ALONG the chain instead of across one scope. Revert either
+// half and this fixture goes quiet.
+func ClosureSilencer(ctx workflow.Context) (string, bool) {
+	ch := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
+	var raw operatorPauseSignal
+	func() {
+		ch.Receive(ctx, &raw) // WANT: flagged — &raw is the OUTER struct, whatever the line below says
+		var raw any
+		_ = raw
+	}()
+	return raw.Reason, raw.Reason != ""
+}
+
 func normaliseShadowed(raw any) (string, bool) {
 	s, ok := raw.(string)
 	return s, ok

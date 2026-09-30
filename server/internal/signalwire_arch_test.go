@@ -56,12 +56,20 @@ package internal_test
 // WHAT THIS GATE CANNOT SEE — the honest limits, written here rather than left to be
 // discovered. The first four are BLIND SPOTS; the rest are deliberate scope.
 //
-// THIS LIST WAS INCOMPLETE ONCE, and the omitted entry was the only one that failed
-// GREEN. A review defeated the gate in production code with two same-named locals in
-// two blocks of one function (see blind spot 4 and testdata/wireform/bad_shadowed.go.txt),
-// and the shape passed every gate in the wave. The list is a claim about coverage, so
-// an addition to it is a change to the gate: an entry is earned by MEASUREMENT, and
-// each one below now states which way it resolves.
+// THIS LIST WAS INCOMPLETE TWICE, IN TWO CONSECUTIVE ROUNDS, and both omitted cases were
+// the same kind: a same-name local shadowing a receive target, failing GREEN. Round 1
+// found it across two BLOCKS of one body; round 2 found it across a FuncLit boundary,
+// where the fix for round 1 does not reach and where a sentence added in round 1 said it
+// could not happen. Both are blind spot 4, both are pinned in
+// testdata/wireform/bad_shadowed.go.txt, and both were defeats written into real
+// production code that built, vetted, linted clean and moved the vacuity log not at all.
+//
+// THE LESSON IS ABOUT THIS LIST, NOT ABOUT THAT BUG. The list is a claim about coverage,
+// and a coverage claim is the one kind of sentence in this file that cannot be checked by
+// running it. An entry is earned by MEASUREMENT — a shape written into production code and
+// watched — and a claim of COMPLETENESS is earned by nothing at all, so this file no longer
+// makes one. Each entry below states which way it resolves; none of them says the list is
+// finished.
 //
 //  1. THE CORPUS IS server/internal, NON-TEST, NON-GENERATED. A receive in a
 //     *_test.go or a *.gen.go, or anywhere outside server/internal, is not checked.
@@ -79,21 +87,25 @@ package internal_test
 //     Two methods of one name in one package BOTH receive the taint. That
 //     over-approximates toward red and never away from it, but it can name a second,
 //     innocent site in a finding.
-//  4. A LOCAL'S SCOPE IS ITS FUNCTION OR ITS FuncLit, NOT ITS BLOCK. Two `var x T` of
-//     one name in two blocks of one body — an if/else, two switch cases, two select
-//     comm clauses, a workflow.GetVersion's two arms — share one key in the declared-
-//     type map, and the gate cannot tell them apart. Until this commit that was a hole
-//     that failed GREEN (last write won, so a `var raw any` written anywhere later in
-//     the body cleared a struct receive four lines earlier — a review shipped exactly
-//     that into projectsupervision.go and the gate did not move). declare() now
-//     resolves a same-name conflict toward NOT-`any`, which INVERTS the blind spot:
-//     the gate still cannot tell the two locals apart, but it now judges both by the
-//     stricter declaration, so a legitimate `any` receive can be reddened by an
-//     unrelated struct of the same name. A false positive, remedied by renaming one
-//     local; testdata/wireform/bad_shadowed.go.txt pins both the defeat and the cost.
+//  4. TWO LOCALS OF ONE NAME ARE NOT TOLD APART. A block opens no scope at all (so an
+//     if/else, two switch cases, two select comm clauses and a workflow.GetVersion's two
+//     arms all share one key), and a FuncLit opens one that a naive lookup would let
+//     answer for its parent. Both shapes failed GREEN, in two consecutive review rounds,
+//     each written into projectsupervision.go and each leaving this gate PASS with its
+//     vacuity log unchanged at 12/6/5/9.
 //
-// Every one of the four now over-approximates toward RED, which is the property the
-// paragraph after this list asserts. Blind spot 4 is the only one that ever did not.
+//     THE RULE THAT REPLACED BOTH: the declared type a receive is judged by is the
+//     STRICTEST declaration of that name visible in the enclosing chain — declare()
+//     across one scope, lookupDecl() along the chain. That INVERTS the blind spot rather
+//     than removing it: the gate still cannot tell the two locals apart, but it now
+//     judges both by the stricter one, so a legitimate `any` receive can be reddened by
+//     an unrelated struct of the same name, across a block OR a closure boundary. A false
+//     positive, remedied by renaming one local; bad_shadowed.go.txt pins three defeats
+//     and the cost, as its fourth expected finding.
+//
+// All four over-approximate toward RED as this file stands, and that is a MEASUREMENT of
+// the four, not a claim that there is no fifth. Blind spot 4 is the only one that has ever
+// resolved the other way, and it did so twice before anyone wrote it down.
 //
 // Deliberately out of scope:
 //
@@ -105,9 +117,10 @@ package internal_test
 //   - A CHANNEL NAME THAT IS NOT A STRING LITERAL. Also a finding, not a skip: the
 //     producer gate's own rule restated on the consumer side.
 //   - AN UNKNOWN RECEIVE TARGET reads as NOT-`any`, i.e. as a finding. Every
-//     uncertainty in this file is resolved toward red on purpose — including the
-//     AMBIGUOUS one blind spot 4 describes, which was resolved the other way until
-//     the commit that added that entry.
+//     uncertainty this file KNOWS ABOUT is resolved toward red on purpose — including
+//     the AMBIGUOUS one blind spot 4 describes, which resolved the other way in two
+//     shapes before either was written down. "Every uncertainty" is a statement about
+//     the four entries above and not a guarantee about the fifth nobody has found.
 //
 // NO ALLOWLIST AND NO SANCTIONED-EXCEPTION SHAPE. R4 reserved one exception — a
 // pre-change arm behind a workflow.GetVersion fence — and stage 4b3 Task 3 discharged
@@ -237,7 +250,7 @@ func TestSignalWireFormConsumers_IsRedOnEveryKnownInstance(t *testing.T) {
 		"bad_receiveasync.go.txt": 1, // FORM 2: ReceiveAsync into a struct
 		"bad_addreceive.go.txt":   1, // FORM 3: the AddReceive closure's param
 		"bad_fenced.go.txt":       1, // the GetVersion pre-change arm, NOT sanctioned
-		"bad_shadowed.go.txt":     3, // the block-scope defeat: 2 real targets + 1 documented false positive
+		"bad_shadowed.go.txt":     4, // the two shadowing defeats: 3 real targets + 1 documented false positive
 		"bad_unanalysable.go.txt": 2, // returned out of the corpus; handed to an unresolvable callee
 		"good_normalised.go.txt":  0, // every shape production uses, all silent
 	}
@@ -883,10 +896,13 @@ func (g *wireGraph) absorb(dst, src wireSeeds) bool {
 // would clear a struct target it is looking straight at. Scope 0 is the function
 // body; each FuncLit gets its own, chained to its parent.
 //
-// THEY ARE NOT FULLY LEXICAL: a plain BLOCK opens no scope, so two blocks of one body
-// still share one key. That was a hole that failed green until declare() was given its
-// conflict rule; the rule, and why it was preferred to a scope per block, are in
-// declare's own comment, and the residual imprecision is blind spot 4 in the header.
+// THEY ARE NOT FULLY LEXICAL, AND THE GAP BIT TWICE. A plain BLOCK opens no scope, so two
+// blocks of one body share one key; and a FuncLit's own scope, walked innermost-first,
+// would answer for its parent. Each failed GREEN in its own review round. Neither is closed
+// by narrowing scopeOf — see declare's comment for why that was the wrong trade — but by
+// one rule stated in two places: the declared type a receive is judged by is the STRICTEST
+// declaration of that name in the enclosing chain (declare across a scope, lookupDecl along
+// the chain). The residual imprecision is blind spot 4 in the header.
 type wireEnv struct {
 	g  *wireGraph
 	fi *wireFuncInfo
@@ -1038,11 +1054,19 @@ func (e *wireEnv) declareStmt(n ast.Node, scope int) {
 // construct-blind: it holds for every block shape there is and every one there will
 // be, and it moves in one direction only.
 //
+// THIS IS HALF THE RULE. It resolves a conflict ACROSS one scope key, and a FuncLit
+// opens a key of its own, so an outer struct and an inner `any` never reach it at all —
+// which a second review then defeated. lookupDecl carries the same rule ALONG the scope
+// chain, and the two together are the property worth remembering: the declared type a
+// receive is judged by is the STRICTEST declaration of that name visible in the enclosing
+// chain. Changing either half alone re-opens one of the two shapes in
+// testdata/wireform/bad_shadowed.go.txt.
+//
 // THE COST, stated rather than hidden: two genuinely different locals of one name in
 // one function, one of them `any`, now answer as the stricter one, so a legitimate
 // `any` receive can be reddened by an unrelated struct named the same. That is a
 // FALSE POSITIVE, remedied by renaming one local, and it is the direction this file
-// resolves every uncertainty in — see blind spot 4 in the header.
+// resolves every uncertainty it knows about — see blind spot 4 in the header.
 func (e *wireEnv) declare(scope int, name string, typ ast.Expr) {
 	if name == "" || name == "_" || typ == nil {
 		return
@@ -1131,13 +1155,53 @@ func (e *wireEnv) lookupLocal(scope int, name string) wireSeeds {
 	return nil
 }
 
+// lookupDecl answers okReceiveTarget's ONE question — what type is this receive target
+// declared as — and it answers with the STRICTEST declaration of that name on the scope
+// chain, not the innermost one.
+//
+// THE SECOND DEFEAT, one construct further out than the first. declare's conflict rule
+// (see there) holds within ONE scope key, and index() opens a scope per *ast.FuncLit, so
+// an outer struct and an inner `any` are never a collision — they are two keys. An
+// innermost-first walk then let the inner one answer for a receive that is genuinely
+// bound to the outer one:
+//
+//	var raw operatorPauseSignal      // the receive target: a struct, and dropped in production
+//	func() {
+//	    pauseCh.Receive(ctx, &raw)   // &raw is the OUTER raw; the inner one is not in force yet
+//	    var raw any
+//	    _ = raw
+//	}()
+//
+// which built, vetted, linted clean and left this gate PASS with its vacuity log unchanged
+// at 12/6/5/9. The `workflow.Go` spelling silences it identically. Go's own scoping is what
+// makes it a true defeat rather than a curiosity: the inner `raw` comes into force only
+// AFTER its ValueSpec, so `&raw` at the Receive really is the struct.
+//
+// THE RULE, stated once for both halves: the declared type a receive is judged by is the
+// strictest declaration of that name visible anywhere in the enclosing chain — declare
+// makes that true ACROSS one scope, this makes it true ALONG the chain. It is
+// construct-blind (no node kind is enumerated, so no future one can be missed), it is
+// one-directional (it can only redden), and it does NOT narrow scopeOf, so it costs
+// nothing in taint: a channel flowing out of a block still keeps it.
+//
+// The cost is the same false positive declare already documents, now reachable across a
+// closure boundary: an inner `var raw any` that legitimately shadows an unrelated outer
+// struct of the same name reads as the struct. Rename one local. See blind spot 4.
 func (e *wireEnv) lookupDecl(scope int, name string) ast.Expr {
+	var lenient ast.Expr
 	for s := scope; s >= 0; s = e.scopePar[s] {
-		if v, ok := e.decls[scopeKey(s, name)]; ok {
-			return v
+		v, ok := e.decls[scopeKey(s, name)]
+		if !ok {
+			continue
+		}
+		if !wireDeclClearsAReceive(v) {
+			return v // a strict declaration anywhere on the chain is the answer
+		}
+		if lenient == nil {
+			lenient = v // remember the innermost lenient one, in case nothing stricter exists
 		}
 	}
-	return nil
+	return lenient
 }
 
 func (e *wireEnv) lookupType(scope int, name string) string {

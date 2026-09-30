@@ -12,7 +12,7 @@ Stage 3 shipped: the `activityExecutionAccess` facet (12 verbs, additive), the `
 
 **One release, one drain.** Stages 3, 4a, 4b1, 4b2 **and 4b3** merge together, drain once, release once. None of the five deploys alone: 4a shrank the registered activity-name set by 92 names, 4b1 deleted seven workflow TYPE names, and 4b2 deleted an eighth and a Schedule. A release between any two of them buys a second drain for nothing.
 
-**AMENDED 2026-09-30 (stage 4b3): 4b3 IS the wave the drain and the release ride, and it adds no NAME to the six steps — but it does add one id FAMILY, and that correction is the finding.** Measured at `48fb184a`, every fact in §0 below is **unmoved**: golden **133**, frozen **15**, so 4b3 registers no name and retires none; **no new workflow TYPE, no new workflow id family, no new task queue owner and no new Schedule** (`temporal schedule list` must still show TWO); and **no state migration** — `tailFailureDetail` is an `omitempty` addition and every pre-existing row reads as absent. Stage 4b3's re-open sweep is a second STEP inside `RoundSweepWorkflow`'s existing single-project arm, so `{projectId}:roundSweep:{tickId}` was already in step 2's scope.
+**AMENDED 2026-09-30 (stage 4b3): 4b3 IS the wave the drain and the release ride, and it adds no NAME to the six steps — but it does add one id FAMILY, and that correction is the finding.** Measured at `48fb184a`, every fact in §0 below is **unmoved**: golden **133**, frozen **15**, so 4b3 registers no name and retires none; **no new workflow TYPE, no new workflow id family, no new task queue owner and no new Schedule** (4b3 ADDS none — which is not the same as the namespace holding two; see §0's correction and step 6, which check Schedules by id and not by count); and **no state migration** — `tailFailureDetail` is an `omitempty` addition and every pre-existing row reads as absent. Stage 4b3's re-open sweep is a second STEP inside `RoundSweepWorkflow`'s existing single-project arm, so `{projectId}:roundSweep:{tickId}` was already in step 2's scope.
 
 **CORRECTED 2026-09-30, same day, by the fix round.** The sentence that stood here said the only 4b3 change was in *After the release*. That was wrong, and wrong in the direction that ships: Task 1 changed the `applyDelinquencyPolicy` signal's JSON shape with **no `GetVersion` fence**, and the affected id family — `{customerId}:delinquency`, on the **`operations`** task queue, which the `delivery:` prefix sweep never reaches — was in no step at all. It is now the fifth bullet of step 2's *Id families this image creates*, with the measurement of who can produce one and why draining alone is insufficient. *After the release* item 5 still closes and the second first-run still appears beside the lease; that part of the old sentence holds. Stage 6 lands afterwards as an ordinary post-deploy wave.
 
@@ -20,17 +20,24 @@ Stage 3 shipped: the `activityExecutionAccess` facet (12 verbs, additive), the `
 
 | Fact | Value now | Where it lives |
 |---|---|---|
-| Temporal task queues with a worker | exactly one: **`delivery`** | `server/internal/manager/delivery/worker.gen.go:13` |
+| Temporal task queues with a worker | **THREE: `billing`, `delivery`, `operations`** — corrected 2026-09-30, see the note below the table | `main.gen.go:593` (`billing`, unconditional), `:606` (`delivery`), `:622` (`operations`); both registration gates `return true` at `hooks.go:1250`, `:1254` |
 | Task queues with **no** worker any more | `system-design`, `project-design`, `construction` | retired in 4a |
 | Registered Temporal names (golden) | **133** | `server/internal/registered_names_test.go` |
 | Frozen externally-held workflow TYPE names | **15** | same file, `TestRegisteredTemporalNamesGolden_FrozenWorkflowNames` |
-| Sweep Schedules this image registers | exactly **two** — `delivery:pumpSweep` (30 s → type `constructionPumpSweep`), `delivery:roundSweep` (300 s → type `deliveryRoundSweep`) | `deliverymanager.go:8487`, `:8495`, `:12944-12959`; intervals `pumpSweepIntervalSecs = 30`, `roundSweepIntervalSecs = 5 * 60` |
+| Schedules this image registers | **FOUR fixed ids plus a per-customer family** — corrected 2026-09-30. THIS WAVE'S TWO: `delivery:pumpSweep` (30 s → type `constructionPumpSweep`), `delivery:roundSweep` (300 s → type `deliveryRoundSweep`). NOT THIS WAVE'S, AND EXPECTED: `operations:operatedStateReconcile`, `shortfallSweep` (hourly), and one `closeBillingCycle:{customerId}` per customer | `deliverymanager.go:8630`, `:8638`; `operationsmanager.go:1231`; `billingmanager.go:792`, `:788`. All four fixed ids are registered at startup by their Manager's `RegisterSchedules` — `main.gen.go:600`, `:613`, `:629` |
 | Workflow id families this image creates | `{projectId}:nextActivity` (the one pump), `{projectId}:activity:{activityId}` (the one child), `{projectId}:roundSweep:{tickId}`, `{projectId}:construction` (supervision) | `pumpWorkflowID`, `deliveryActivityWorkflowID`, `roundSweepWorkflowID`, `pauseTargetWorkflowID` — `deliverymanager.go:7316`, `:7338`, `:7326`, `:7346` |
 | Retired workflow TYPE names, unresumable | **eight** — see step 3 | no worker registers them |
 | State migration | stage 3's `.activityExecution` move, owed on any state that predates stage 3 — and it is **one-way** | step 4, which also says why "does the live image predate stage 3" is the one unverified fact here |
 | New workflow TYPE names or id families in 4b2 | **none** | 4b2 changed the pump's history shape, not its name |
 
-`temporal` CLI used for the two Schedule steps: 1.7.0 against Server 1.31.0 here. It is also a hard dependency of the replay-capture tooling and is named in no README — see the 4b2 earmarks.
+**CORRECTED 2026-09-30 by the fix round, and this is the one correction in this document that would have done operational damage.** Two rows of this table were false, in the direction that makes a correct deploy look wrong:
+
+- **"exactly one task queue with a worker"** — there are **three**. `billing` registers unconditionally; `delivery` and `operations` are behind composition-root gates that both `return true`. An operator told to expect one queue and shown three has no way to tell a healthy image from a broken one.
+- **"exactly two Schedules"** — there are **four registered ids plus a per-customer family**. `operations:operatedStateReconcile`, `shortfallSweep` and every `closeBillingCycle:{customerId}` are registered at startup by their own Managers and are **expected on a correct deploy**. They are simply not this wave's business.
+
+Both rows said "re-confirmed unmoved at `48fb184a`", which is how a number survives being wrong: it was re-confirmed against the previous copy of itself rather than against the code. Every citation in the two corrected rows was re-read at the file and line given. **The consequence for the procedure is in step 5's sibling instruction, not in the deletions:** step 5's three `temporal schedule delete` calls are unchanged and were not disputed — those three ids are genuinely retired — but any instruction that told an operator to COUNT the schedules was counting the wrong set.
+
+`temporal` CLI used for the Schedule steps: 1.7.0 against Server 1.31.0 here. It is also a hard dependency of the replay-capture tooling and is named in no README — see the 4b2 earmarks.
 
 ## Step 1 — Pause every project
 
@@ -144,15 +151,23 @@ Schedules are the one part of this cutover that is **not** one-way: a rollback r
 Release the image, then confirm before unpausing:
 
 ```
-temporal schedule list        # expect exactly TWO sweep Schedules
+temporal schedule list        # read it as PRESENT / ABSENT, never as a COUNT — see below
 temporal schedule describe --schedule-id delivery:pumpSweep
 temporal schedule describe --schedule-id delivery:roundSweep
 ```
 
-- `temporal schedule list` must show exactly **TWO**: `delivery:pumpSweep` (30 s) and `delivery:roundSweep` (300 s).
-- `temporal schedule describe` must show each one's action on task queue **`delivery`**.
-- **THREE would be wrong, and `delivery:replanSweep` is the one that must NOT be there.** Its workflow type is deleted, so a surviving Schedule under that id fires into a type no worker serves. Step 5's third delete is what removes it; this listing is how you find out that delete was skipped.
-- Neither `construction:pumpSweep` nor `construction:replanSweep` may appear.
+**CORRECTED 2026-09-30. This step used to say "expect exactly TWO" and "THREE would be wrong". Both were false, and on a correct deploy you will see FOUR OR MORE.** A count is the wrong question here: three Managers register Schedules at startup, and only two of the ids are this wave's. Check presence and absence by id:
+
+- **MUST BE PRESENT**, and `temporal schedule describe` must show each one's action on task queue **`delivery`**:
+  - `delivery:pumpSweep` — 30 s, type `constructionPumpSweep`
+  - `delivery:roundSweep` — 300 s, type `deliveryRoundSweep`
+- **MUST BE ABSENT — these are step 5's three deletions, and this listing is how you find out a delete was skipped:**
+  - `delivery:replanSweep` — its workflow type is deleted, so a surviving Schedule under that id fires into a type no worker serves.
+  - `construction:pumpSweep` and `construction:replanSweep` — abandoned ids firing into a task queue no worker polls.
+- **EXPECTED, AND NOT THIS WAVE'S BUSINESS.** Do not delete these and do not read them as a defect:
+  - `operations:operatedStateReconcile` — registered by `operations.RegisterSchedules` (`operationsmanager.go:1231`).
+  - `shortfallSweep` — hourly, registered by `billing.RegisterSchedules` (`billingmanager.go:792`).
+  - `closeBillingCycle:{customerId}` — **one per customer**, so this family alone makes the total unbounded and is the single clearest reason the old "exactly TWO" could never have been right.
 
 Then unpause every project (`SetProjectRunState` with `runState: "running"`), and watch the first cascade — see *After the release* below, which is not optional reading this time.
 

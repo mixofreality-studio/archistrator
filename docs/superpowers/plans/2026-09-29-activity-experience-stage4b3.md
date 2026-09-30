@@ -1783,7 +1783,7 @@ So a grant at epoch **0** is a message the child is **required** to ignore, by a
   GOWORK=off make lint fix-check sumtype-check vet
   GOWORK=off go test ./internal/ -run TestRegisteredTemporalNamesGolden -count=1
   ```
-  Expected: **golden 133 UNMOVED** (no new workflow type — that is the scope decision, and the golden is how it is checked), frozen 15, shapes 15/15, **replay 8/8 + 6/6 unmoved** (no replay fixture records `deliveryRoundSweep`), census 33, validate 43/0, npm unchanged, preview 57/23. **No new Schedule: `temporal schedule list` must still show TWO after the release, and Task 13 Step 5 confirms it.**
+  Expected: **golden 133 UNMOVED** (no new workflow type — that is the scope decision, and the golden is how it is checked), frozen 15, shapes 15/15, **replay 8/8 + 6/6 unmoved** (no replay fixture records `deliveryRoundSweep`), census 33, validate 43/0, npm unchanged, preview 57/23. **No new Schedule — 4b3 REGISTERS none.** (Corrected 2026-09-30: that is not the same as the namespace holding two. It holds four fixed ids plus one `closeBillingCycle:*` per customer. Task 13 Step 8 checks by id, not by count.)
   ```bash
   git add server/internal/manager/delivery
   git commit -F - <<'MSG'
@@ -2085,11 +2085,15 @@ So a grant at epoch **0** is a message the child is **required** to ignore, by a
 - [ ] **Step 8: DEPLOY, then confirm, then unpause.**
   Deploy the new server and webApp images per the procedure's **Step 6**, then:
   ```
-  temporal schedule list        # expect exactly TWO
+  temporal schedule list        # read as PRESENT / ABSENT by id — NOT as a count
   temporal schedule describe --schedule-id delivery:pumpSweep      # 30s, queue `delivery`
   temporal schedule describe --schedule-id delivery:roundSweep     # 300s, queue `delivery`
   ```
-  - [ ] **Exactly TWO.** Three is wrong and `delivery:replanSweep` is the one that must not be there — its workflow type is deleted, so a surviving Schedule fires into a type no worker serves, and this listing is how you find out step 5 was skipped. Neither `construction:*` id may appear.
+  - [ ] **CORRECTED 2026-09-30 — this step used to say "expect exactly TWO" and "three is wrong". Both were false: on a CORRECT deploy you will see FOUR OR MORE.** Three Managers register Schedules at startup, and `closeBillingCycle:{customerId}` is one per customer, so the total is unbounded. Check by id, never by count:
+    - **PRESENT**, each with its action on task queue `delivery`: `delivery:pumpSweep` (30 s, `constructionPumpSweep`) and `delivery:roundSweep` (300 s, `deliveryRoundSweep`).
+    - **ABSENT** — step 5's three deletions, and this listing is how you find out step 5 was skipped: `delivery:replanSweep` (its workflow type is deleted, so a survivor fires into a type no worker serves) and both `construction:*` ids.
+    - **EXPECTED, not this wave's business, DO NOT DELETE:** `operations:operatedStateReconcile`, `shortfallSweep`, and every `closeBillingCycle:*`.
+  - [ ] Also expect **THREE task queues with a worker** — `billing`, `delivery`, `operations` (`main.gen.go:593/606/622`; both gates `return true` at `hooks.go:1250/1254`). The procedure's §0 said "exactly one" until the same fix round; one queue would be the broken image, not the healthy one.
   - [ ] Then unpause every project (`SetProjectRunState` with `runState: "running"`).
 
 - [ ] **Step 9: Watch the first cascade DELIBERATELY. This is not optional reading.**

@@ -28259,12 +28259,14 @@ func pumpGuardDocHeadlineCounts(t *testing.T, doc string) map[string]int {
 // does not. Both halves are checked against pumpGuardCensus() itself, so the document
 // cannot describe a census the code does not have.
 //
-// NO NUMBER IS WRITTEN IN THIS COMMENT ANY MORE, and that is the point of it. This comment
-// used to narrate "the truth is 36 = 38 − 2", which was a THIRD transcribed copy of the
-// figure — green, because the test computes len(census), and stale by stage 4b3, whose
-// Task 12 corrected the same number to 33 in two documents. A meta-test whose subject is
-// transcribed numbers must not itself transcribe one; the count lives in pumpGuardCensus()
-// and in the document this test compares against it, and nowhere else.
+// THIS COMMENT ASSERTS NO CURRENT NUMBER, and that is the point of it. It used to narrate
+// "the truth is 36 = 38 − 2" — a THIRD transcribed copy of the total, green because the test
+// computes len(census), and already stale by stage 4b3, whose Task 12 corrected the same
+// figure again in two documents. A meta-test whose subject is transcribed numbers must not
+// itself transcribe one: the count lives in pumpGuardCensus() and in the document this test
+// compares against it, and nowhere else. The three figures quoted above are QUOTATIONS of
+// what the document once said while wrong, which is the evidence, and they cannot go stale
+// because nothing claims they are true.
 func Test_PumpGuardCensus_TheHeadlineCountsAreTrue(t *testing.T) {
 	raw, err := os.ReadFile(pumpGuardCensusDoc)
 	if err != nil {
