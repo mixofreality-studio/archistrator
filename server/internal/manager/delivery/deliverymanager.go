@@ -6169,8 +6169,15 @@ func (m *constructionManager) reopenActivity(ctx context.Context, projectID Proj
 		// row that is simply still running. The store's Conflict stays the backstop for the genuine
 		// race (an activity that exits between this read and the write); this is the honest answer
 		// for the case the operator is actually in.
+		//
+		// completedNotLanded JOINS THE TWO TERMINALS (stage 4b3 Task 9), and this is the one
+		// caller gochecksumtype could NOT have named — it is an `if` over three members, not a
+		// switch, so the new member arrived here silently and refused the exact row the re-open
+		// exists for. It matches reopenTerminalRow's own arm, which must: a precheck stricter
+		// than the store it is protecting is a guard that only ever produces a false refusal.
 		if phase := projectstate.CoarsePhaseFor(row, nil); phase != projectstate.ActivityConstructionDone &&
-			phase != projectstate.ActivityConstructionFailed {
+			phase != projectstate.ActivityConstructionFailed &&
+			phase != projectstate.ActivityConstructionCompletedNotLanded {
 			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 				"constructionManager.OverrideActivity: activity %s is %v, not finished — a requeue re-arms an activity that already exited, and re-arming a live one would hand a second child the row this one is writing",
 				activityID, phase))

@@ -87,5 +87,15 @@
     },
     "projectPhase": 2,
     "expect": true
+  },
+  {
+    "name": "completed-not-landed",
+    "activities": ["A", "B"],
+    "rows": {
+      "A": { "phase": 2, "buildStatus": 2 },
+      "B": { "phase": 4, "buildStatus": 3 }
+    },
+    "projectPhase": 2,
+    "expect": false
   }
 ]

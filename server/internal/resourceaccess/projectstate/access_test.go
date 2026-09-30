@@ -11166,6 +11166,111 @@ func TestRecordActivityOutcome_FoldsExitedAndFailed(t *testing.T) {
 	}
 }
 
+// A SECOND TERMINAL DOES NOT OVERWRITE THE FIRST. These three tests are where the contract
+// note's write-once promise stops being a claim (stage 4b3 Task 9). Measured before the fix:
+// only CompletedAt was guarded (stampExit no-ops when set) and this verb assigned
+// FailureReason and FailureDetail unconditionally — so "a second terminal cannot overwrite
+// the first" was true of one field out of four.
+//
+// The two arms are DIFFERENT RULES over the same guard, which is why neither is enough alone:
+// a failure arriving at a row that recorded a COMPLETION is a broken merge tail and gets the
+// third head fact; a failure arriving at a row that recorded a FAILURE keeps the first cause,
+// because the second describes what the run did after it had already broken.
+//
+// Its three arms are three FUNCTIONS rather than three t.Run blocks: as one func the
+// assertion density put it past gocyclo's 15, and splitting it is what the linter is for.
+func TestRecordActivityOutcome_ABrokenTailOverACompletedRow(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	v, err := a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X",
+		ActivityOutcomeCompleted, FailureReasonUnknown, "", cred, fwra.IdempotencyKey("t9a"))
+	if err != nil {
+		t.Fatalf("the first terminal: %v", err)
+	}
+	completed := readConstruction(t, store, id, cred, "C-X")
+
+	if _, err = a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X",
+		ActivityOutcomeUnknown, PipelineFailed, "the merge tail failed at commitDesignArtifacts: boom",
+		cred, fwra.IdempotencyKey("t9b")); err != nil {
+		t.Fatalf("recording a tail failure must SUCCEED — a Temporal retry may not be failed by a write-once rule: %v", err)
+	}
+	row := readConstruction(t, store, id, cred, "C-X")
+
+	// THE EXIT THE WALK ESTABLISHED IS UNTOUCHED, all three facts of it.
+	if row.CompletedAt == nil || !row.CompletedAt.Equal(*completed.CompletedAt) {
+		t.Fatalf("CompletedAt moved: %v → %v", completed.CompletedAt, row.CompletedAt)
+	}
+	if row.FailureReason != FailureReasonUnknown || row.FailureDetail != "" {
+		t.Fatalf("the tail must not claim the activity failed; got %v / %q", row.FailureReason, row.FailureDetail)
+	}
+	// AND THE THIRD FACT CARRIES THE CAUSE, with the red node DERIVED from it.
+	if row.TailFailureDetail != "the merge tail failed at commitDesignArtifacts: boom" {
+		t.Fatalf("the tail detail must land verbatim; got %q", row.TailFailureDetail)
+	}
+	if got := coarsePhaseOf(row); got != ActivityConstructionCompletedNotLanded {
+		t.Fatalf("phase = %v, want completedNotLanded", got)
+	}
+	// Not BuildIntegrated, which is what the phase set alone would have answered for a walk
+	// whose every gate passed — a green chip beside the red node.
+	if got := buildStatusOf(row); got != BuildFailed {
+		t.Fatalf("build status = %v, want failed", got)
+	}
+	// AND IT IS ITSELF WRITE-ONCE: the first tail failure is the one that stands.
+	if _, err = a.RecordActivityOutcome(execRC(), id, v+1, NoActivityVersionExpectation, "C-X",
+		ActivityOutcomeUnknown, VarianceExhausted, "a later, different tail fault", cred, fwra.IdempotencyKey("t9c")); err != nil {
+		t.Fatalf("the third record: %v", err)
+	}
+	if got := readConstruction(t, store, id, cred, "C-X").TailFailureDetail; got != row.TailFailureDetail {
+		t.Fatalf("the FIRST tail failure stands; got %q", got)
+	}
+}
+
+// A SECOND FAILURE OVER A FAILED ROW KEEPS THE FIRST CAUSE — the second describes what the
+// run did after it had already broken. See the header above.
+func TestRecordActivityOutcome_ASecondFailureKeepsTheFirstCause(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	v, err := a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X",
+		ActivityOutcomeUnknown, PipelineFailed, "the pipeline died", cred, fwra.IdempotencyKey("t9d"))
+	if err != nil {
+		t.Fatalf("the first terminal: %v", err)
+	}
+	if _, err = a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X",
+		ActivityOutcomeUnknown, VarianceExhausted, "and then the budget ran out", cred, fwra.IdempotencyKey("t9e")); err != nil {
+		t.Fatalf("the second terminal: %v", err)
+	}
+	row := readConstruction(t, store, id, cred, "C-X")
+	if row.FailureReason != PipelineFailed || row.FailureDetail != "the pipeline died" {
+		t.Fatalf("the FIRST cause stands; got %v / %q", row.FailureReason, row.FailureDetail)
+	}
+	// And the tail fact is NOT reached on this path: the row never held a completion, so
+	// there is no established success for a tail failure to sit beside.
+	if row.TailFailureDetail != "" {
+		t.Fatalf("a failure over a failure is not a broken tail; got %q", row.TailFailureDetail)
+	}
+}
+
+// AND A FIRST TERMINAL OVER A RUNNING ROW IS UNCHANGED, which is what keeps the two rules
+// above from being a behaviour change dressed as a guard. See the header above.
+func TestRecordActivityOutcome_AFirstTerminalIsUnchanged(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	if _, err := a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X",
+		ActivityOutcomeUnknown, PipelineFailed, "the pipeline died", cred, fwra.IdempotencyKey("t9f")); err != nil {
+		t.Fatalf("RecordActivityOutcome: %v", err)
+	}
+	row := readConstruction(t, store, id, cred, "C-X")
+	if row.FailureReason != PipelineFailed || row.FailureDetail != "the pipeline died" || row.CompletedAt == nil {
+		t.Fatalf("an ordinary failure must land exactly as before; got %+v", row)
+	}
+	if row.TailFailureDetail != "" {
+		t.Fatalf("an ordinary failure writes no tail fact; got %q", row.TailFailureDetail)
+	}
+	if got := coarsePhaseOf(row); got != ActivityConstructionFailed {
+		t.Fatalf("phase = %v, want failed", got)
+	}
+}
+
 // TestRecordOperatorNote_FoldsTheDeliveryStamp — the retired pair (RecordOperatorNote +
 // RecordOperatorNoteDelivered) is one verb: recording a note already addressed to an
 // attempt costs one commit, not two.
@@ -12326,8 +12431,13 @@ func TestRecordOperatorNote_RequeueReArmsATerminalActivity(t *testing.T) {
 // everything a later read has to be able to interpret still there.
 func assertRequeuedRow(t *testing.T, row ActivityExecution) {
 	t.Helper()
-	if row.StartedAt != nil || row.CompletedAt != nil || row.FailureReason != FailureReasonUnknown || row.FailureDetail != "" {
-		t.Fatalf("the requeue must clear exactly the four sticky head facts, got %+v", row)
+	// FIVE STICKY HEAD FACTS SINCE STAGE 4b3, not four. TailFailureDetail joins them because
+	// the re-open is the ONLY thing that clears it (the field's own contract), and a re-armed
+	// row that kept it would derive completedNotLanded over a walk that has restarted — which
+	// is the interaction TASK 10's heal rests on.
+	if row.StartedAt != nil || row.CompletedAt != nil || row.FailureReason != FailureReasonUnknown ||
+		row.FailureDetail != "" || row.TailFailureDetail != "" {
+		t.Fatalf("the requeue must clear exactly the five sticky head facts, got %+v", row)
 	}
 	if PumpWroteRow(row) {
 		t.Fatal("clearing StartedAt is the load-bearing part: PumpWroteRow must answer false or the pump refuses the row for ever")

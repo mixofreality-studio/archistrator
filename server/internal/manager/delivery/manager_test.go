@@ -10503,11 +10503,17 @@ type csFakeProjectState struct {
 	// re-read→re-apply loop.
 	conflictFirst int
 
-	reviewed  []string
-	exited    []exitCall
-	failed    []failCall
-	paused    []string
-	phaseDone []phaseCompletedCall
+	reviewed []string
+	exited   []exitCall
+	failed   []failCall
+	// tailFailed is the THIRD terminal log (stage 4b3 Task 9): a RecordActivityOutcome that
+	// arrived at an already-completed row and therefore recorded a broken merge tail rather
+	// than a failure. It is separate from `failed` for the same reason TailFailureDetail is
+	// separate from FailureDetail — the activity did not fail, and a test counting failures
+	// must not find one here.
+	tailFailed []failCall
+	paused     []string
+	phaseDone  []phaseCompletedCall
 
 	version projectstate.Version
 
@@ -11265,13 +11271,29 @@ func (f csFakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstat
 // the retired verbs fed. Deliberately: the fold's whole point is that it records the same
 // two facts those three verbs did, so a test asking "did the activity exit completed"
 // must get the same answer whichever rail the run was on.
+//
+// IT MIRRORS THE STORE'S WRITE-ONCE RULES, and it must (stage 4b3 Task 9). The production
+// verb keeps the FIRST terminal — a failure over an already-recorded completion becomes the
+// third head fact TailFailureDetail, and a failure over an already-recorded failure keeps the
+// first cause — so a double that overwrote would let the broken-tail case assert a red node
+// this store can produce and production cannot. The rule lives in
+// projectstateaccess.go's RecordActivityOutcome; this is its shadow, not a second opinion.
 func (f csFakeActivityExecution) RecordActivityOutcome(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	tailFailure := false
 	v, err := f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
+		if row.CompletedAt != nil && row.FailureReason == projectstate.FailureReasonUnknown &&
+			reason != projectstate.FailureReasonUnknown {
+			tailFailure = true
+			if row.TailFailureDetail == "" {
+				row.TailFailureDetail = detail
+			}
+			return
+		}
 		if row.CompletedAt == nil {
 			t := testLedgerClock
 			row.CompletedAt = &t
 		}
-		if reason != projectstate.FailureReasonUnknown {
+		if reason != projectstate.FailureReasonUnknown && row.FailureReason == projectstate.FailureReasonUnknown {
 			row.FailureReason, row.FailureDetail = reason, detail
 		}
 	})
@@ -11280,6 +11302,14 @@ func (f csFakeActivityExecution) RecordActivityOutcome(_ fwra.Context, _ project
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if tailFailure {
+		// NEITHER LOG. The activity did not fail (failed) and it did not exit here (exited) —
+		// it exited on the call before this one, and both logs already carry that. Appending to
+		// either would make a broken tail look like a second terminal to every test that counts
+		// them, which is the exact confusion the third head fact exists to prevent.
+		f.tailFailed = append(f.tailFailed, failCall{activityID: activityID, reason: reason, detail: detail})
+		return v, nil
+	}
 	if reason != projectstate.FailureReasonUnknown {
 		f.failed = append(f.failed, failCall{activityID: activityID, reason: reason, detail: detail})
 		return v, nil
@@ -11420,7 +11450,10 @@ func (f csFakeActivityExecution) RecordOperatorNote(_ fwra.Context, _ projectsta
 				return nil // a replay: the first delivery already re-armed the row
 			}
 			switch phase := projectstate.CoarsePhaseFor(row, nil); phase {
-			case projectstate.ActivityConstructionDone, projectstate.ActivityConstructionFailed:
+			case projectstate.ActivityConstructionDone, projectstate.ActivityConstructionFailed,
+				projectstate.ActivityConstructionCompletedNotLanded:
+				// completedNotLanded joins the terminals here for the same reason it joins them in
+				// reopenTerminalRow: it is the one state the heal exists for (stage 4b3 Task 9).
 				return nil
 			case projectstate.ActivityConstructionNotStarted, projectstate.ActivityConstructionRunning:
 				// CONFLICT, mirroring the store since Task 12 round 3 (minor (e)): the refusal is
@@ -11439,6 +11472,9 @@ func (f csFakeActivityExecution) RecordOperatorNote(_ fwra.Context, _ projectsta
 			if _, replay := noteByID(*row, note.NoteID); !replay {
 				row.StartedAt, row.CompletedAt = nil, nil
 				row.FailureReason, row.FailureDetail = projectstate.FailureReasonUnknown, ""
+				// The FIFTH head fact clears with the other four, mirroring reopenTerminalRow: a
+				// re-armed row that kept it would derive a red node over a walk that has restarted.
+				row.TailFailureDetail = ""
 			}
 		}
 		row.OperatorNotes = append(row.OperatorNotes, projectstate.OperatorNote{
@@ -22463,6 +22499,96 @@ func Test_Reopen_RefusesAnActivityThatHasNotExited(t *testing.T) {
 	}
 }
 
+// Test_Walk_ABrokenMergeTailLeavesARedNode is the case whose subject is an INVISIBLE
+// failure, so it is built the expensive way ON PURPOSE. It drives the real walk to its real
+// tail with a commitDesignArtifacts double that ERRORS after finalizeActivity has already
+// recorded the binary exit — the exact sequence the earmark at deliveryactivity.go's
+// finalizeWalk described — and then asserts through the same derivation the SPA reads.
+//
+// IT IS NOT ASSERTED OVER A HAND-BUILT ROW. 4b2's roundRevisions fix passed a round with no
+// attempts supplied and thereby CERTIFIED a shape that could never match; the commit message,
+// the comment at the site and the test's own doc were all false for the one gate they named.
+// A hand-built row here would prove the derivation and not the write.
+//
+// It is a standalone case rather than a fifteenth Test_LifecycleShapes row because its claim
+// is not about the DAG's walk order — the shape table's subject — but about what the tail
+// records when it breaks. The rig it needs is the design rig the post-exit commit window
+// already has (Test_Reopen_HealsTheDesignSlotCommitWindow, directly below), and the two read
+// as a pair: this one is the fact, that one is the heal.
+func Test_Walk_ABrokenMergeTailLeavesARedNode(t *testing.T) {
+	rig, _ := designShapeRig(t, projectstate.ReviewPresetVibes)
+	designPlanStore(rig.cs)
+	rig.cs.mu.Lock()
+	rig.cs.commitFailKinds = map[projectstate.ArtifactKind]bool{projectstate.KindCoreUseCases: true}
+	rig.cs.mu.Unlock()
+	pipe := newDesignJobPipeline(rig.cs, rig.rec)
+	rig.pipe = nil
+	rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, rig.cswf, rig.cs, pipe) }
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: "requirements",
+		Activity: designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	// THE CAUSE REACHES THE CALLER UNCHANGED, the way failWalk's does: the pump keys its
+	// stop-the-cascade rule on the child's future, so a tail that swallowed its error into a
+	// summary would hand the pump a different fault than the one that happened.
+	err := rig.env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("a failed slot commit must surface as the walk's error; this case needs the window it names")
+	}
+	if !strings.Contains(err.Error(), "coreUseCases") {
+		t.Fatalf("the ORIGINAL cause must reach the caller unchanged, got %v", err)
+	}
+
+	row := rig.cs.execution("requirements")
+	// 1. THE RECORDED COMPLETION IS UNTOUCHED. The walk did complete its work; writing
+	//    VarianceExhausted over that would destroy a fact the walk genuinely established.
+	if row.CompletedAt == nil {
+		t.Fatalf("the case's premise is a recorded exit, got %+v", row)
+	}
+	if row.FailureReason != projectstate.FailureReasonUnknown || row.FailureDetail != "" {
+		t.Fatalf("a broken tail must NOT claim the activity failed; got %v / %q", row.FailureReason, row.FailureDetail)
+	}
+	// 2. THE THIRD HEAD FACT NAMES THE FAILING STEP, so an operator reading the row learns
+	//    which half of the tail broke rather than only that something did.
+	if !strings.Contains(row.TailFailureDetail, "commitDesignArtifacts") {
+		t.Fatalf("the tail failure must name the step that broke; got %q", row.TailFailureDetail)
+	}
+	if !strings.Contains(row.TailFailureDetail, "coreUseCases") {
+		t.Fatalf("the tail failure must carry the cause; got %q", row.TailFailureDetail)
+	}
+	// 3. THE RED NODE, through the derivation the SPA reads — not through the stored fact.
+	if got := projectstate.CoarsePhaseFor(row, nil); got != projectstate.ActivityConstructionCompletedNotLanded {
+		t.Fatalf("the operator's node must derive completedNotLanded, got %v", got)
+	}
+	if got := activityViewState(projectstate.CoarsePhaseFor(row, nil), nil); got != ActivityViewFailed {
+		t.Fatalf("the Activity Experience must show a RED node, got %v", got)
+	}
+	rig.cs.mu.Lock()
+	proj := rig.cs.project
+	rig.cs.mu.Unlock()
+	// 3b. OVER THE ROW'S REAL RESOLVED PHASE SET, which is the half a hand-built fixture
+	//     cannot reach: EVERY gate of this walk passed, so without CoarseBuildStatusFor's own
+	//     arm the build lens answers BuildIntegrated and the screen draws a green "Integrated"
+	//     chip beside the red node. This is the production shape; the store-level case's empty
+	//     phase set can only ever produce the milder BuildInReview.
+	item, ok := committedActivityItem(proj, "requirements")
+	if !ok {
+		t.Fatal("the committed plan must hold requirements for the derivation to resolve its phases")
+	}
+	phase, build := projectstate.EffectiveConstructionPhase(row, item)
+	if phase != projectstate.ActivityConstructionCompletedNotLanded || build != projectstate.BuildFailed {
+		t.Fatalf("over the resolved phase set: phase/build = %v/%v, want completedNotLanded/failed", phase, build)
+	}
+	// 4. AND THE PLAN DOES NOT ADVANCE, asked through the PUMP's own selection rather than
+	//    inferred. "The node is red but its dependents started" is the worst available
+	//    outcome; it does not happen because AllDepsSatisfied requires the dependency to
+	//    resolve Done and completedNotLanded is not Done.
+	if sel := nextEligibleActivity(proj, eligibleWithDesign); sel.Verdict == verdictDispatch {
+		t.Fatalf("a dependent of a not-landed activity must stay blocked; the pump selected %+v", sel)
+	}
+}
+
 // THE POST-EXIT COMMIT WINDOW SELF-HEALS THROUGH A RE-OPEN (controller carry 4). The walk
 // records the activity's binary exit and THEN commits its slots, so a failed commit leaves a
 // Completed activity with an AwaitingReview slot. A re-open plus a re-run repairs it — and it
@@ -22494,6 +22620,13 @@ func Test_Reopen_HealsTheDesignSlotCommitWindow(t *testing.T) {
 	if slotStatusOf(rig.cs, projectstate.KindCoreUseCases) == projectstate.ReviewCommitted {
 		t.Fatal("the case needs coreUseCases UNCOMMITTED — the commit double did not refuse")
 	}
+	// AND SINCE STAGE 4b3 THE WINDOW IS VISIBLE: the row carries the third head fact, so the
+	// activity an operator must re-open reads completedNotLanded instead of a green Done. The
+	// re-open below has to accept THAT phase — the precheck and the store both had to learn it
+	// — and it has to clear the fact, which assertReArmed's fifth condition is the pin for.
+	if row.TailFailureDetail == "" {
+		t.Fatal("the broken tail must be recorded, or the operator has no red node to act on")
+	}
 
 	if err := newFacadeConstructionManager(task12NoSession(), rig.cs).
 		OverrideActivity(testCtx(), shapeProjectID, "requirements", reopenOverride("the commit faulted; land the slots")); err != nil {
@@ -22513,6 +22646,7 @@ func Test_Reopen_HealsTheDesignSlotCommitWindow(t *testing.T) {
 	if !dispatchableNow(t, rig.cs, "requirements") {
 		t.Fatal("a re-opened activity must be dispatchable; the repair below only runs because the PUMP selects it")
 	}
+	assertReArmed(t, rig.cs, "requirements")
 
 	next := rig.reenter(t)
 	next.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, next.cswf, next.cs, pipe) }
@@ -22555,8 +22689,13 @@ func slotStatusOf(ps *csFakeProjectState, kind projectstate.ArtifactKind) projec
 func assertReArmed(t *testing.T, ps *csFakeProjectState, activityID string) {
 	t.Helper()
 	row := ps.execution(activityID)
-	if row.StartedAt != nil || row.CompletedAt != nil || row.FailureReason != projectstate.FailureReasonUnknown {
-		t.Fatalf("the re-open must clear exactly the four head facts, got %+v", row)
+	// FIVE HEAD FACTS SINCE STAGE 4b3, not four. TailFailureDetail is asserted here — and not
+	// only in the broken-tail case that writes it — because the clear is what TASK 10's heal
+	// rests on: a re-armed row that kept it would derive completedNotLanded over a walk that
+	// has restarted, and the operator would press the button to no visible effect.
+	if row.StartedAt != nil || row.CompletedAt != nil || row.FailureReason != projectstate.FailureReasonUnknown ||
+		row.TailFailureDetail != "" {
+		t.Fatalf("the re-open must clear exactly the five head facts, got %+v", row)
 	}
 	if len(row.Attempts) == 0 {
 		t.Fatal("the re-open must PRESERVE the attempt ledger — it is what the re-run seeds from")

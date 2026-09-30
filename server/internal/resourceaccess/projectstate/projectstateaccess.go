@@ -7724,10 +7724,15 @@ type ActivityExecution struct {
 	// node is DERIVED from it (ActivityConstructionCompletedNotLanded), never stored:
 	// derived-not-stored is the spec's own rule for anything a ledger can answer.
 	//
-	// STAGE 4b3 TASK 8 ADDS THE MEMBER AND WRITES IT NOWHERE. Task 9 is the writer and the
-	// deriver; the member exists here first because one wave gets one model edit — and
-	// because, measured, this struct is hand-written rather than generated (the contract
-	// binds it through x-go-type, not a $def), so it could not have ridden that edit at all.
+	// STAGE 4b3 TASK 8 ADDED THE MEMBER; TASK 9 IS THE WRITER AND THE DERIVER. The member
+	// landed a task early because one wave gets one model edit — and because, measured, this
+	// struct is hand-written rather than generated (the contract binds it through x-go-type,
+	// not a $def), so it could not have ridden that edit at all.
+	//
+	// EXACTLY ONE WRITER: RecordActivityOutcome's broken-tail arm, reached from the child's
+	// recordTailFailure. Exactly one clearer: reopenTerminalRow. A third site touching this
+	// field is a defect — the whole reason it is a separate fact is that nobody may re-label
+	// a terminal somebody else established.
 	TailFailureDetail string `json:"tailFailureDetail,omitempty"`
 	// Attempts is the APPEND-ONLY Figure A-1 task ledger — the record of what happened.
 	// Every lifecycle-phase completion is derived from it (phaseCompleteFromAttempts).
@@ -8012,6 +8017,15 @@ func CoarsePhaseFor(r ActivityExecution, phases []PhaseCompletion) ActivityConst
 	if r.FailureReason != FailureReasonUnknown {
 		return ActivityConstructionFailed
 	}
+	// COMPLETED ITS WORK AND FAILED TO LAND IT (stage 4b3 Task 9). Checked BEFORE Done,
+	// because the row genuinely holds a completion and the honest reading is neither Running
+	// nor Failed. It is DERIVED from the third head fact rather than stored, so nothing can
+	// drift out of step with it — and because it is not Done, AllDepsSatisfied keeps the
+	// activity's dependents blocked, which is what stops "the node is red but the plan
+	// advanced".
+	if r.CompletedAt != nil && r.TailFailureDetail != "" {
+		return ActivityConstructionCompletedNotLanded
+	}
 	if r.CompletedAt != nil {
 		return ActivityConstructionDone
 	}
@@ -8031,6 +8045,14 @@ func CoarsePhaseFor(r ActivityExecution, phases []PhaseCompletion) ActivityConst
 // a stored BuildInReview and is now derived from the same two facts that produced it.
 func CoarseBuildStatusFor(r ActivityExecution, phases []PhaseCompletion) ActivityBuildStatus {
 	if r.FailureReason != FailureReasonUnknown {
+		return BuildFailed
+	}
+	// A BROKEN TAIL IS BuildFailed, AND THIS ARM IS LOAD-BEARING (stage 4b3 Task 9). Every
+	// gate of a walk whose tail broke DID pass, so without it CoarseBuildStatus(phases) below
+	// answers BuildIntegrated — a green "Integrated" chip beside the red node, on an activity
+	// whose work never landed. It is asked off the same third head fact CoarsePhaseFor reads,
+	// so the chip and the node can never disagree.
+	if r.CompletedAt != nil && r.TailFailureDetail != "" {
 		return BuildFailed
 	}
 	status := CoarseBuildStatus(phases)
@@ -8829,6 +8851,13 @@ func PumpWroteRow(r ActivityExecution) bool {
 // requeue note must be NEWER than the newest RESOLVED attempt. The second half is what keeps
 // this from admitting a row whose requeue predates its last run — an activity re-opened, re-run
 // and finished again is finished, and its stale requeue note must not re-arm it a second time.
+//
+// IT DOES NOT TEST TailFailureDetail, AND THAT IS A DECISION (stage 4b3 Task 9). There are now
+// FIVE head facts, not four, and the obvious move is a fifth condition here. It would add
+// nothing: reopenTerminalRow clears TailFailureDetail with the other four, so a row that
+// satisfies the three tests below has already had it cleared — and a fifth condition is a fifth
+// thing that has to stay in step with that clear for ever. The clear is the rule; this reads its
+// consequence.
 func RequeuedAfterExit(r ActivityExecution) bool {
 	if r.StartedAt != nil || r.CompletedAt != nil || r.FailureReason != FailureReasonUnknown {
 		return false
@@ -10223,7 +10252,14 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 			// requeue mints a new execution: it does not, and it has not since the re-open
 			// landed. The ledgers below are KEPT across a requeue, which is what lets the
 			// re-run seed its passed tasks instead of re-doing them.
-			if exited := CoarsePhaseFor(*cs, nil); exited == ActivityConstructionDone || exited == ActivityConstructionFailed {
+			//
+			// completedNotLanded IS AN EXIT TOO (stage 4b3 Task 9), and this test is an `if`
+			// rather than a `switch`, so gochecksumtype could not name it: the new member would
+			// have slipped past and let a birth resurrect a row that had plainly terminated. It
+			// is the same three-member set reopenTerminalRow switches on, and it must stay that
+			// way — the refusal here and the re-arm there are the two halves of one rule.
+			if exited := CoarsePhaseFor(*cs, nil); exited == ActivityConstructionDone ||
+				exited == ActivityConstructionFailed || exited == ActivityConstructionCompletedNotLanded {
 				refused = fwra.New(fwra.Conflict, fmt.Sprintf(
 					"projectstate.OpenActivity: activity %s already exited (%v); a finished activity is not re-opened in place", activityID, exited))
 				return
@@ -10703,16 +10739,57 @@ func producedArtifactPresent(held []ProducedArtifact, in ProducedArtifact) bool 
 // and the failure. A non-zero reason IS the failure arm — the closed FailureReason
 // vocabulary is what lets the console explain why an activity is no longer pending
 // instead of leaving it stuck Running forever.
+//
+// A SECOND TERMINAL DOES NOT OVERWRITE THE FIRST, and THIS IS WHERE THE CONTRACT NOTE'S
+// WRITE-ONCE PROMISE STOPS BEING A CLAIM (stage 4b3 Task 9). The facet's note has said
+// StartedAt/CompletedAt/FailureReason/FailureDetail are write-once since stage 3, and
+// measured, only CompletedAt was guarded — stampExit no-ops when it is already set, while
+// this verb assigned the other two unconditionally. So "a second terminal cannot overwrite
+// the first" was true of one field out of four. Both rules below make it true of the rest,
+// and each is mutation-checked.
+//
+// FIRST WRITE WINS, AND THE VERB STILL SUCCEEDS. The second value is dropped rather than
+// refused with an error, because every caller is a Temporal workflow whose retry must be
+// able to land on an already-written row without failing an activity that did its work —
+// which is exactly the shape stampExit already had, and is why the row's own doc calls
+// these facts write-once rather than single-call.
 func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, outcome ActivityOutcome, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if outcome == ActivityOutcomeUnknown && reason == FailureReasonUnknown {
 		return 0, execMisuse("RecordActivityOutcome", "neither an outcome nor a failure reason — an activity does not exit for no stated cause")
 	}
 	now := a.store.now()
 	return a.onActivity(rc, "RecordActivityOutcome", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+		// THE BROKEN MERGE TAIL. The row already holds a NON-FAILURE terminal, so the walk
+		// COMPLETED ITS WORK; what failed is the tail that had to land it. Recording
+		// VarianceExhausted over that would destroy a fact the walk genuinely established,
+		// which is the rule 4b2 ruled on the lease when it split markFinished from
+		// releaseLease: a fact may only be asserted by whoever established it.
+		//
+		// So the honest statement — "completed its work and failed to land it" — gets its own
+		// field, and the operator's red node is DERIVED from it (CoarsePhaseFor's
+		// completedNotLanded), never stored. Derived-not-stored is spec 5.3's own rule.
+		//
+		// Outcome, CompletedAt, FailureReason and FailureDetail are left EXACTLY as the walk
+		// left them. The arm is inside the store rather than in the caller because three
+		// callers reach this verb and none of them should have to know which terminal the row
+		// is already holding.
+		if cs.CompletedAt != nil && cs.FailureReason == FailureReasonUnknown && reason != FailureReasonUnknown {
+			if cs.TailFailureDetail == "" {
+				cs.TailFailureDetail = detail
+			}
+			return nil
+		}
 		stampExit(cs, now)
 		if reason != FailureReasonUnknown {
-			cs.FailureReason = reason
-			cs.FailureDetail = detail
+			// WRITE-ONCE, ENFORCED. A row that already carries a failure keeps the FIRST cause:
+			// a second, later reason describes what the run did after it had already broken, and
+			// overwriting would leave the console explaining the consequence instead of the
+			// cause. (The arm above has already taken every row whose recorded terminal was a
+			// COMPLETION, so what reaches here is either a fresh row or one that already failed.)
+			if cs.FailureReason == FailureReasonUnknown {
+				cs.FailureReason = reason
+				cs.FailureDetail = detail
+			}
 			return nil
 		}
 		switch outcome {
@@ -10786,8 +10863,9 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 // (stage 4b1 task 12).
 //
 // WHY THE ROW NEEDED THIS AT ALL. Terminal was terminal and nothing could undo it: OpenActivity
-// refuses an exited row in so many words, StartedAt/CompletedAt/FailureReason are write-once,
-// and the pump's eligibility refuses any row a pump has written. So a failed walk, a spent
+// refuses an exited row in so many words, the head facts are write-once (a promise that was a
+// CONTRACT NOTE until stage 4b3 Task 9 enforced it in RecordActivityOutcome), and the pump's
+// eligibility refuses any row a pump has written. So a failed walk, a spent
 // variance budget, or an operator's own Skip left an activity NOTHING could ever re-run — the
 // operator's only recovery was an amendment to the committed activity list minting a NEW activity
 // id, which throws away the ledger that says what already passed.
@@ -10801,8 +10879,9 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 // the audit entry and the re-arm ONE COMMIT — so a crash can no longer leave a re-armed activity
 // with nobody's name on it, which two ops could.
 //
-// WHAT IT CLEARS, AND WHAT IT MUST NOT. Exactly the four STICKY HEAD FACTS — StartedAt,
-// CompletedAt, FailureReason, FailureDetail. Everything below them is the record of work that
+// WHAT IT CLEARS, AND WHAT IT MUST NOT. Exactly the STICKY HEAD FACTS — StartedAt,
+// CompletedAt, FailureReason, FailureDetail and, since stage 4b3, TailFailureDetail.
+// Everything below them is the record of work that
 // really happened and is KEPT: both append-only ledgers, the lifecycle pin, the classified
 // (type, variant), the produced artifacts and the notes. That is what makes the next walk
 // re-seed the tasks that PASSED and re-dispatch only what did not, with its per-dispatch counter

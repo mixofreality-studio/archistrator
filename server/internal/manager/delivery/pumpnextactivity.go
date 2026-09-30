@@ -1165,6 +1165,26 @@ func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pum
 				"the pump's cascade stops: activity "+string(id)+" failed before this run and never reported a terminal",
 				"ActivityChildFailed", nil)
 		case row.CompletedAt != nil:
+			// STILL FINISHED, EVEN WHEN THE TAIL DID NOT LAND (stage 4b3 Task 9). The child is
+			// not coming back, and leaving it in flight would wedge the pump on an activity
+			// nothing will ever finish. The heal is an operator re-open, not a pump decision, so
+			// NOTHING is added to the control flow here — only the log, because a broken tail
+			// that reads like an ordinary completion in the pump's own trace is the class of
+			// silence this whole task is about.
+			//
+			// AND IT DOES NOT UNBLOCK ITS DEPENDENTS, which is the half that had to be decided
+			// rather than left to follow. markFinished is about THIS PUMP RUN's in-flight set;
+			// eligibility is a separate question answered by AllDepsSatisfied over the ROW, and
+			// a not-landed row derives completedNotLanded rather than Done, so every dependent
+			// stays blocked until the re-open lands the work. "The node is red but the plan
+			// advanced" is the worst available outcome and it is ruled out at the derivation,
+			// not here.
+			if row.TailFailureDetail != "" {
+				logger.Error("pump: an activity completed its work and FAILED TO LAND IT; it is finished here and needs a re-open",
+					"projectId", string(in.ProjectID), "activityId", string(id), "detail", row.TailFailureDetail)
+				st.markFinished(id)
+				continue
+			}
 			logger.Info("pump: an activity started before this run's continue-as-new is complete in head-state",
 				"projectId", string(in.ProjectID), "activityId", string(id))
 			st.markFinished(id)

@@ -3411,22 +3411,59 @@ func (wf *csWorkflows) finalizeWalk(
 		// landed.
 		return nil
 	}
-	// EARMARK, RECORDED RATHER THAN FIXED (fix round 1, F1's second half). An error from
-	// either call below returns straight through walkTasks WITHOUT passing through failWalk,
-	// so no terminal FAILURE row is written: the activity is left reading Running (or, if
-	// finalizeActivity already recorded the binary exit and only commitDesignArtifacts broke,
-	// Completed with uncommitted slots — the state the commitDesignArtifacts header already
-	// documents as heal-by-re-open). The pump now STOPS on this error via the child's future,
-	// which is the protection that was missing; what is still owed is the durable row, and
-	// with it pumpReconcile's pre-ContinueAsNew arm ("terminal failure row, no finish
-	// reported") for a child that outlives its pump run. Routing the tail through failWalk
-	// would write VarianceExhausted over an already-recorded Completed, so it is a decision
-	// about that heal path and not a line to add here in a fix round.
+	// THE TAIL'S FAILURE IS RECORDED, AND IT DOES NOT CLAIM THE ACTIVITY FAILED (stage 4b3
+	// Task 9; the earmark this replaces was written here in 4b2's fix round). An error from
+	// either call below used to return straight through walkTasks without passing failWalk,
+	// so no row was written at all and head state read Running — or Completed with
+	// uncommitted slots — for an activity whose tail broke. The pump stops the cascade on the
+	// child's future, which is safe; what was missing was the DURABLE record an operator can
+	// see.
+	//
+	// recordTailFailure writes the third head fact through the verb that already exists. On a
+	// row with no terminal yet it is an ORDINARY failure and lands as one; on a row that
+	// already recorded its binary exit the store keeps the exit and records the tail detail
+	// beside it. Neither arm is a decision taken here — the store owns it, which is why the
+	// rule is written there and not in two callers.
 	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred,
 		reconcileTargetOf(lc)); err != nil {
-		return err
+		return wf.recordTailFailure(ctx, in, state, "finalizeActivity", err)
 	}
-	return wf.commitDesignArtifacts(ctx, in, lc, ws, state)
+	if err := wf.commitDesignArtifacts(ctx, in, lc, ws, state); err != nil {
+		return wf.recordTailFailure(ctx, in, state, "commitDesignArtifacts", err)
+	}
+	return nil
+}
+
+// recordTailFailure records that an activity's MERGE TAIL broke, and RETURNS THE ORIGINAL
+// ERROR UNCHANGED — the way failWalk returns its cause. The caller and the pump must see the
+// real fault, not a summary of it: the pump's stop-the-cascade rule keys on the child's
+// future, and a wrapped or replaced error would hand it a different failure than the one that
+// happened.
+//
+// IT DOES NOT DECIDE WHICH TERMINAL THIS IS. Both reachable states go through the one verb:
+// on a row whose exit was never recorded (finalizeActivity broke before it wrote one) this is
+// an ordinary PipelineFailed terminal and the activity really did fail; on a row that already
+// recorded a completion, the store's broken-tail arm keeps that completion and records the
+// detail beside it as the third head fact. Which one applies is a question about the ROW, and
+// the row is the store's.
+//
+// A FAILED RECORD IS LOGGED AND SWALLOWED, exactly as failWalk does it: the walk is already
+// returning a failure, and replacing the operator's real cause with "the record could not be
+// written" would lose the only information anybody needs.
+func (wf *csWorkflows) recordTailFailure(
+	ctx workflow.Context, in deliveryActivityInput, state *constructState, step string, cause error,
+) error {
+	detail := "the merge tail failed at " + step + ": " + cause.Error()
+	if err := wf.recordExecutionOutcome(ctx, in.csIn(), state, &state.walk.headVersion, state.walk.cred,
+		projectstate.ActivityOutcomeUnknown, projectstate.PipelineFailed, detail); err != nil {
+		workflow.GetLogger(ctx).Error("the merge tail's failure could not be recorded",
+			"activityId", in.ActivityID, "step", step, "err", err.Error())
+	}
+	state.stage = StageExited
+	workflow.GetLogger(ctx).Error("delivery.tail.failed",
+		"activityId", in.ActivityID, "step", step, "err", cause.Error(),
+		"consequence", "the activity completed its work and FAILED TO LAND IT; its node reads completedNotLanded until an operator re-opens it")
+	return cause
 }
 
 // mainWriteTailOutcome is what the merge tail tells the pump it reached. Completed is
