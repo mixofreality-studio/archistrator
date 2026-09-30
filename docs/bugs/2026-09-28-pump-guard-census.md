@@ -30,7 +30,7 @@ census disagree about the ID set, so the two halves cannot drift.
 |---|---|
 | **ID** | the stable handle. **Bolded, in the first cell, at the start of the line** — that shape is what `Test_PumpGuardCensus_TheDocAndTheCodeAgree` reads as a ROW, so a mention in prose is not one. |
 | **Line** | at `c5851e90`. Task 12 moves these; the ID is the stable handle, not the number. |
-| **Verdict (Task 16)** | what the SHIPPED code does with this guard, and WHERE. One of **RE-ASSERTED** (with its new `file:line`), **DELETED WITH ITS SUBJECT** (with the reason), **LOST** (a blocker, never a note) — or, for exactly one row, **RE-ASSERTED IN REDUCED FORM**, which is the fourth verdict Task 16 had to invent and defends in the closing section. The line numbers in this cell are relative to the row's own file, like the `Line` column. **They are RE-MEASURED at `d3a4f898`, the wave's last code commit** — Task 16 wrote them at `cb244838` and the commit after it added ~55 net lines to `pumpnextactivity.go`, which left 21 of these 22 rows pointing at the wrong line (G-P17 pointed at a `Reason` type assertion, so the row read as though `PARENT_CLOSE_POLICY_ABANDON` had been deleted). **NOTHING GATES THIS CELL'S CITATION.** The two meta-tests compare the ID set and the `PinnedBy` cell; the `Line` column matches `pumpGuard.Site`, which is the *pre-wave* provenance line and does not move. The next commit that touches these files makes this cell stale again and every test stays green — see the earmark in `2026-09-28-stage4b2-earmarks.md`. |
+| **Verdict (Task 16)** | what the SHIPPED code does with this guard, and WHERE. One of **RE-ASSERTED** (with its new `file:line`), **DELETED WITH ITS SUBJECT** (with the reason), **LOST** (a blocker, never a note) — or, for exactly one row, **RE-ASSERTED IN REDUCED FORM**, which is the fourth verdict Task 16 had to invent and defends in the closing section. The line numbers in this cell are relative to the row's own file, like the `Line` column. **They are RE-MEASURED at `d3a4f898`, the wave's last code commit** — Task 16 wrote them at `cb244838` and the commit after it added ~55 net lines to `pumpnextactivity.go`, which left 21 of these 22 rows pointing at the wrong line (G-P17 pointed at a `Reason` type assertion, so the row read as though `PARENT_CLOSE_POLICY_ABANDON` had been deleted). **NOTHING GATES THIS CELL'S CITATION.** The two meta-tests compare the ID set and the `PinnedBy` cell; the `Line` column matches `pumpGuard.Site`, which is the *pre-wave* provenance line and does not move. The next commit that touches these files makes this cell stale again and every test stays green — see the earmark in `2026-09-28-stage4b2-earmarks.md`. **AND IT DID: stage 4b3 has moved `pumpnextactivity.go` twice (Task 2 +18 lines, Task 3 −18), so the `pumpnextactivity.go` table's Verdict citations are stale by roughly ±7 — G-P16 cites `:1391` and the line is at `:1398`. They were NOT re-measured by Task 3, deliberately: that table has ~30 citations woven into prose and a wrong "fix" is worse than a uniformly stale provenance. The `projectsupervision.go` six WERE re-measured (Task 2 moved them and left the doc; see that section's note).** |
 | **Guard** | the line, and what it refuses / gates / orders / versions |
 | **What it protects** | the concrete failure it prevents — never a restatement of the code |
 | **BreaksAs** | the observable symptom if the new pump does not re-assert it |
@@ -44,32 +44,37 @@ is the one place the row SHAPE is written down.
 
 ## Headline counts
 
-**THE TOTAL IS 36, NOT 37.** Task 1's report and `progress.md` both say 37, and both are
-stale by one: they were written before Task 11 discharged `replansweep.go`'s two rows and
-before Task 4 added `G-S7`, and 38 − 2 = 36. The arithmetic that settles it is the
-per-file line below — 22 + 7 + 7 — and `pumpGuardCensus()` returns exactly that many, which
-is the number Task 16 walks.
+**THE TOTAL IS 32.** The arithmetic, in the order it happened: Task 1 wrote 37 rows, Task 4
+added `G-S7` (38), Task 11 discharged `replansweep.go`'s two rows with the workflow (36),
+and **stage 4b3 Task 3 discharged the four that hung off the pump's `GetVersion` fences** —
+G-P18, G-P19, G-P20, G-P21 — leaving **32**. The line that settles it is the per-file split
+below, **18 + 7 + 7**, and `pumpGuardCensus()` returns exactly that many. (Task 1's report
+and `progress.md` still say 37; they were stale from the day Task 4 landed.)
 
 | | |
 |---|---:|
-| Guard rows total | **36** |
-| `pumpnextactivity.go` | 22 |
+| Guard rows total | **32** |
+| `pumpnextactivity.go` | 18 |
 | `pumpsweep.go` | 7 |
 | `projectsupervision.go` | 7 |
 | Rows the 4b2 plan's brief names | 12 |
-| **Rows this census found that the brief does not name** | **24** |
-| **Rows NOTHING armed before the census** | **14** |
-| Rows armed by a test written for the census | 14 |
+| **Rows this census found that the brief does not name** | **20** |
+| **Rows NOTHING armed before the census** | **13** |
+| Rows armed by a test written for the census | 13 |
 | Rows with no pin | **0** |
+
+**The four discharged ids are NOT reused.** A census id is a name, not an index, and the
+gap where G-P18…G-P21 used to be is the record that four guards were deliberately retired
+rather than quietly renumbered away.
 
 **`replansweep.go`'s two rows, G-R1 and G-R2, are DISCHARGED and gone (Task 11).** They were
 listed to be shown to protect nothing that survives, and they were: both pinning tests ran
 green, the all-projects arm had no reachable caller over either transport, and the workflow
-they guarded is deleted. The counts above are the census's post-discharge shape — 38 - 2 —
-because a row whose subject no longer exists is not a guard, and `Test_PumpGuardCensus_-
+they guarded is deleted. The counts above are the census's post-discharge shape — 38 − 2 − 4
+— because a row whose subject no longer exists is not a guard, and `Test_PumpGuardCensus_-
 TheDocAndTheCodeAgree` fails a doc row the code no longer knows.
 
-**One of the fourteen is not Task 1's.** `G-S7` — `PARENT_CLOSE_POLICY_ABANDON` on the
+**One of the thirteen is not Task 1's.** `G-S7` — `PARENT_CLOSE_POLICY_ABANDON` on the
 SWEEP's child pump start — was missed by the census and found by its reviewer, who
 measured that deleting the policy leaves the **entire delivery package GREEN**. Stage 4b2
 Task 4 added the row, the pin and the code comment the line never had. A census that can
@@ -78,9 +83,11 @@ would be worse.
 
 ## THE UNARMED LIST — the census's whole point
 
-These fourteen guards had **no test at all** before they were pinned. Each is a line whose
+These thirteen guards had **no test at all** before they were pinned. Each is a line whose
 removal the entire suite would have accepted in silence — the exact shape of the eight 4b1
-lost. Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
+lost. Eight of them live in `pumpnextactivity.go`, the body Task 12 rewrites. (It was
+fourteen: **G-P21**, the eligibility ladder's second rung, left the list with its fence in
+stage 4b3 Task 3.)
 
 | ID | The guard nothing armed | Why the silence is dangerous |
 |---|---|---|
@@ -93,7 +100,6 @@ lost. Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
 | **G-P14** | the 1 s pace between cascade iterations | An unpaced pump busy-spins ContinueAsNew. The constant appeared in **zero** test files. |
 | **G-P17** | `PARENT_CLOSE_POLICY_ABANDON` on the child start | `PARENT_CLOSE` appears in **no** test file in the package. The pump's own close (or ContinueAsNew) killing every in-flight activity is a silent, catastrophic regression. |
 | **G-S7** | `PARENT_CLOSE_POLICY_ABANDON` on the **SWEEP's** child pump start | **The row the census itself missed.** Measured by Task 1's reviewer: removing the policy leaves the entire delivery package GREEN. It is G-P17 one level up, and the level is what makes it worse — a sweep tick lives for *milliseconds* (it waits for the start ack alone, G-S4) and the pump it starts runs for hours, so the default TERMINATE kills **every pump the platform starts by itself** a moment after it is born. The platform's whole self-start path, with no symptom but pumps that vanish. |
-| **G-P21** | the eligibility ladder's **second** rung (`design-activities-dispatchable`) | Rung 1 has a DefaultVersion test; rung 2 has none. A dropped rung silently un-dispatches the three design activities. |
 | **G-S5** | `ListProjects`'s error arm — the whole sweep tick fails, no partial fan-out | The lister fake could not fail. A swallowed enumeration error is a sweep that silently pumps a subset of the platform. |
 | **G-S6** | `pumpSweepOwnerScope` is non-empty | An empty scope is `fwra.ContractMisuse` at the RA: every sweep tick fails, platform-wide, and the only symptom is a Schedule log. |
 | **G-V1** | supervision's `querySessionState` handler is registered **before** the blocking `Receive` | Same class as G-P1, on the other long-lived workflow. |
@@ -101,7 +107,7 @@ lost. Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
 
 ---
 
-## `pumpnextactivity.go` — 22 guards
+## `pumpnextactivity.go` — 18 guards
 
 | ID | Line | Verdict (Task 16) | Guard | What it protects | BreaksAs | PinnedBy |
 |---|---|---|---|---|---|---|
@@ -122,11 +128,33 @@ lost. Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
 | **G-P15** | `:164-166` | **RE-ASSERTED** · `:874` via `:775-777` | the failure record's own error arm — a failed `RecordActivityFailed` **fails the run** | G-P5's loudness is not best-effort: if the durable record cannot land, the run must not report a clean quiet tick. | A blocked frontier with a write failure becomes exactly the silent quiescent pump G-P5 exists to end. | `Test_Pump_BlockedActivity_AFailedFailureRecordFailsTheRun` |
 | **G-P16** | `:386` | **RE-ASSERTED** · `:1391` | the child is addressed by `deliveryActivityWorkflowID(projectID, id)` — **idempotency / dedup** | A redundant tick collapses onto the running child instead of starting a second one. A hand-built id is how the pump and the façade disagree about which execution to signal. | Two executions for one activity, both writing the same row. | `Test_Pump_StartsOneChildAndNamesNoActivityType` |
 | **G-P17** | `:387` | **RE-ASSERTED**, pin strengthened · `:1392` | `ParentClosePolicy: PARENT_CLOSE_POLICY_ABANDON`. **Task 12 re-asserted it STRUCTURALLY** (`pumpChildOptionsField` walks the AST to the key) because the pin was a substring check and the line now carries a comment naming the constant — the old test would have stayed green with the assignment deleted | The activity is its own durable execution, independent of this pump's continue-as-new chain. | Drop it and the pump's own close — every ContinueAsNew, every failure — terminates every in-flight activity. Silent, and catastrophic. | `Test_Pump_TheChildIsAbandonedSoThePumpsOwnCloseNeverKillsIt` |
-| **G-P18** | `:268-273` | **RE-ASSERTED**, NOT discharged · `:1266` (`:798`, `:1194`) | `pumpPausedBehindGate`'s `GetVersion` fence — **two change ids through one func** (`pump-pause-before-dispatch`, `pump-drain-pause-before-continue-as-new`). Default ⇒ skip the check entirely | A pre-change execution keeps its recorded command sequence; taking the new arm on replay is a non-determinism panic on the project's ONE pump. | A parked pump wedges at the deploy and the project stops. | `Test_Pump_PreDispatchGate_DefaultVersion_KeepsOldDispatch` (and `Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew`) |
-| **G-P19** | `:284-293` | **RE-ASSERTED**, NOT discharged · `:1281-1290` (three arms) | `changePumpHonorsRecordedPause`, **three arms** (Default ⇒ no gate; v1 ⇒ only a non-operator-driven pump; v2 ⇒ every pump) | The semantics changed twice and local histories recorded each. | Same wedge as G-P18, plus a resumed project that will not pump. | `Test_Pump_RecordedPauseGate_DefaultVersion_StillDispatches`, `Test_Pump_OperatorDriven_RecordedPause_StillDispatches` (v1), `Test_Pump_V2_RecordedPauseBindsAnOperatorDrivenPump` (v2) |
-| **G-P20** | `:301-310` | **RE-ASSERTED**, NOT discharged · `:1299` | `"pump-pause-decode-any"` — Default keeps the old struct decode | The old decode silently drops a relayed binary pause; replaying a pre-change history through the new decode takes the quiet branch where the history recorded a dispatch. | Non-determinism on the one pump. | `Test_Pump_DecodeGate_DefaultVersion_KeepsOldStructDecode` |
-| **G-P21** | `:362-370` | **RE-ASSERTED**, NOT discharged · `:1359-1367` | the eligibility ladder: **two fences, three arms** (`ledger-partial-resume` ⇒ `eligibleNotStarted`; `design-activities-dispatchable` ⇒ `eligibleDispatchable`; else `eligibleWithDesign`), and the rules are CUMULATIVE | A recorded history that walked past `requirements` and dispatched a construction activity would, replayed under the newer rule, select a DIFFERENT child id. | Non-determinism on replay; or, with a rung dropped, the three design activities silently stop being dispatchable. | `Test_Pump_EligibilityRuleLadder_EachFenceArmSelectsItsRule` (all three arms) + `Test_Pump_LedgerPartialResume_DefaultVersion_KeepsTheOldSelection` (the selection consequence) |
 | **G-P22** | `:398-403` | **RE-ASSERTED** · `:1404-1407` | `nextEligible`: a nil `NextEligibleActivity` helper ⇒ `verdictQuiescent` | An unwired pump dispatches NOTHING rather than panicking or dispatching arbitrarily — fail-safe by construction. | A wiring regression becomes a nil-deref inside the project's one pump. | `Test_Pump_NoEligibleActivity_QuietTick` |
+
+**FOUR ROWS USED TO FOLLOW G-P17 AND ARE DISCHARGED (stage 4b3 Task 3).** G-P18
+(`pumpPausedBehindGate`'s fence, two change ids through one func), G-P19
+(`pump-honors-recorded-pause`, three arms), G-P20 (`pump-pause-decode-any`) and G-P21 (the
+eligibility ladder's two rungs) each guarded a `DefaultVersion` arm that **only a
+pre-change execution could take**. There are none: the founder has ruled there are **no
+production users**, and the one drain this release rides kills every `{p}:nextActivity`
+execution that could hold a recorded marker. The four rows and the **five**
+`…_DefaultVersion_…` tests that were their only pin went in one commit, because a guard for
+an arm that cannot exist is a test nobody can make fail honestly.
+
+**The two measurements that travel with that, because the obvious argument is the wrong
+one.** (1) **A replay fixture does NOT pin a `GetVersion` rung**: deleting the
+`changeDesignActivitiesDispatchable` rung left **all six** pump fixtures GREEN — the SDK
+tolerates a recorded `Version` marker the replayed code never asks for — whereas deleting
+the pace `Sleep` gives `[TMPRL1100] a matching Timer command was expected in history event
+position 34` on 2 of 6. **Fixtures pin COMMANDS.** So "replay is 14/14" was never evidence
+about a fence and may not be used as such. (2) **No capture can ever produce a
+`DefaultVersion` history**, because `GetVersion` returns `maxSupported` on a new execution
+— which is why those five tests existed and why nothing replaced them. The ids are not
+reused; the gap is the record.
+
+One consequence beyond hygiene: **G-P20's `DefaultVersion` arm received a relayed pause
+into a concrete struct ON PURPOSE**, and it was the consumer wire-form rule's only live
+production exception. It is gone, so the arch gate that rule is owed lands over a corpus
+with no sanctioned exception in it at all.
 
 ---
 
@@ -171,15 +199,23 @@ This file is in the census because `relayPauseToPump` is **the one existing exam
 out-of-band signal reaching the pump** — it is the shape a react-by-signal pump copies, and
 G-V5 is precisely the "guaranteed delivery" hole that shape inherits.
 
+**SIX OF THESE SEVEN `Line` CELLS WERE STALE AND SAID SO IN THEIR OWN VERDICT.** Stage 4b3
+Task 2 added 18 lines above them (the `operatorPauseRequested` receive) and re-measured the
+anchors in `pumpGuardCensusSupervision()` without touching this table, so the doc read
+"line unmoved" about six lines that had moved. The cells below are the **re-measured**
+anchors at `6ece6bae` and they agree with the code's `Site` again. **G-V1 genuinely did not
+move.** Nothing gates this cell — see the `Line` note in "What a row means" — which is
+exactly why a task that moves these files has to carry it by hand.
+
 | ID | Line | Verdict (Task 16) | Guard | What it protects | BreaksAs | PinnedBy |
 |---|---|---|---|---|---|---|
-| **G-V1** | `:40-44` | **RE-ASSERTED**, line unmoved · `:40-44` | `SetQueryHandler(querySessionState)` registered BEFORE the blocking `pauseCh.Receive`; its `err` arm returns | The project-level session Query must be answerable for the whole life of a long-lived workflow that spends it parked. | A project-scope `GetSessionState` fails for every unpaused project. | `Test_Supervision_SessionStateIsQueryableWhileItWaitsForThePause` |
-| **G-V2** | `:74` | **RE-ASSERTED**, line unmoved · `:74` | `GetVersion("pause-relays-to-pump")` — Default keeps main's cancel→record with NO relay | A supervision run already inside this branch at deploy replays its recorded sequence. | Non-determinism on the project's supervision workflow. | `Test_Pause_RelayGate_DefaultVersion_CancelThenRecord_NoRelay` |
-| **G-V3** | `:84-92` | **RE-ASSERTED**, line unmoved · `:84-92` | **RECORD → RELAY → CANCEL**, in that order | RECORD FIRST makes the pause durable before anything else, so a pump the 30 s sweep restarts *inside the relay window* reads it at G-P4 and goes quiet. | A pump started in the relay window dispatches through an operator halt. | `Test_Pause_RecordsBeforeRelayingToPump` |
-| **G-V4** | `:84-92` | **RE-ASSERTED**, line unmoved · `:84-92` | each step's `err` arm ABORTS the rest — and the pause **STAYS recorded** | A failure after the record must not un-record the pause; the sweep keeps honouring it. | A half-applied pause that the next sweep tick overrides. | `Test_Pause_RelayFailsAfterRecord_PausedStaysRecorded_WorkflowFails` |
-| **G-V5** | `:152-155` | **RE-ASSERTED**, line unmoved · `:152-155` | only `isSignalTargetNotFound` is tolerated; **every other delivery failure propagates** | No pump running is the normal case for a project paused between cascades. **This is also the react-by-signal hole:** a completion signal to a dead pump is silently dropped, so Task 12 needs signal-with-start or the 30 s sweep as its backstop. | Tolerate too much and a pause is lost with no trace; tolerate too little and every between-cascades pause fails. | `Test_Pause_NoRunningPump_NotFoundTolerated` |
-| **G-V6** | `:125-127` | **RE-ASSERTED**, line unmoved · `:125-127` | `!plan.RecordPaused` ⇒ **no** head-state write | The engine's DECIDE step owns whether the pause is recorded; the Manager EXECUTES the plan and must not record on its own initiative. | A policy that says "do not record" records anyway, and a project is paused in head-state that the engine never paused. | `Test_Pause_APlanThatDoesNotRecord_WritesNoPause` |
-| **G-V7** | `:66` | **RE-ASSERTED**, line unmoved · `:66` | `Policy: wf.InterventionPolicy` is threaded into `ApplyPausePolicy` | The retired adapter omitted it, which made the real engine reject EVERY pause with "unknown policy mode". | Every pause fails at the engine. | `Test_ApplyPausePolicy_ZeroValuePolicy_IsTheOldBug` |
+| **G-V1** | `:40-44` | **RE-ASSERTED**, line genuinely unmoved · `:40-44` | `SetQueryHandler(querySessionState)` registered BEFORE the blocking `pauseCh.Receive`; its `err` arm returns | The project-level session Query must be answerable for the whole life of a long-lived workflow that spends it parked. | A project-scope `GetSessionState` fails for every unpaused project. | `Test_Supervision_SessionStateIsQueryableWhileItWaitsForThePause` |
+| **G-V2** | `:92` | **RE-ASSERTED**, re-measured `:74` → `:92` | `GetVersion("pause-relays-to-pump")` — Default keeps main's cancel→record with NO relay | A supervision run already inside this branch at deploy replays its recorded sequence. | Non-determinism on the project's supervision workflow. | `Test_Pause_RelayGate_DefaultVersion_CancelThenRecord_NoRelay` |
+| **G-V3** | `:102-110` | **RE-ASSERTED**, re-measured `:84-92` → `:102-110` | **RECORD → RELAY → CANCEL**, in that order | RECORD FIRST makes the pause durable before anything else, so a pump the 30 s sweep restarts *inside the relay window* reads it at G-P4 and goes quiet. | A pump started in the relay window dispatches through an operator halt. | `Test_Pause_RecordsBeforeRelayingToPump` |
+| **G-V4** | `:102-110` | **RE-ASSERTED**, re-measured `:84-92` → `:102-110` | each step's `err` arm ABORTS the rest — and the pause **STAYS recorded** | A failure after the record must not un-record the pause; the sweep keeps honouring it. | A half-applied pause that the next sweep tick overrides. | `Test_Pause_RelayFailsAfterRecord_PausedStaysRecorded_WorkflowFails` |
+| **G-V5** | `:170-173` | **RE-ASSERTED**, re-measured `:152-155` → `:170-173` | only `isSignalTargetNotFound` is tolerated; **every other delivery failure propagates** | No pump running is the normal case for a project paused between cascades. **This is also the react-by-signal hole:** a completion signal to a dead pump is silently dropped, so Task 12 needs signal-with-start or the 30 s sweep as its backstop. | Tolerate too much and a pause is lost with no trace; tolerate too little and every between-cascades pause fails. | `Test_Pause_NoRunningPump_NotFoundTolerated` |
+| **G-V6** | `:143-145` | **RE-ASSERTED**, re-measured `:125-127` → `:143-145` | `!plan.RecordPaused` ⇒ **no** head-state write | The engine's DECIDE step owns whether the pause is recorded; the Manager EXECUTES the plan and must not record on its own initiative. | A policy that says "do not record" records anyway, and a project is paused in head-state that the engine never paused. | `Test_Pause_APlanThatDoesNotRecord_WritesNoPause` |
+| **G-V7** | `:84` | **RE-ASSERTED**, re-measured `:66` → `:84` | `Policy: wf.InterventionPolicy` is threaded into `ApplyPausePolicy` | The retired adapter omitted it, which made the real engine reject EVERY pause with "unknown policy mode". | Every pause fails at the engine. | `Test_ApplyPausePolicy_ZeroValuePolicy_IsTheOldBug` |
 
 ---
 
@@ -230,10 +266,15 @@ in a new body. G-P9, G-P10 and G-P13 are the three rows that say so.
   each be either re-asserted or explicitly discharged by the drain** — a marker whose other
   arm names something the build no longer has compiles, records a version, and then panics
   differently (the `changeGenericActivityChild` lesson, `pumpnextactivity.go:374-380`).
+  **SETTLED: Task 12 re-asserted all five; stage 4b3 Task 3 DISCHARGED all five, and it was
+  five over SIX change ids, not four — `pumpPausedBehindGate` carries two and the ladder
+  carries two, which is where the older count lost one.**
 - **Task 14** — the pump replay fixtures must cover one run per fence ARM, not one per
   workflow: G-P18's two ids, G-P19's three arms, G-P20 and G-P21's ladder. A pump run that
   quiesces immediately records ~10 events and fails `deliveryReplayMinEvents = 20`, so a
-  pump fixture must dispatch.
+  pump fixture must dispatch. **SUPERSEDED for the fences (4b3 Task 3): there are no fence
+  arms left to cover, and the six fixtures stayed green when the rungs went — which is the
+  measurement that a fixture pins commands, not version rungs. The dispatch floor stands.**
 - **Task 16** — walk this table. A row whose PinnedBy test was deleted, or whose guard has no
   counterpart in the new body, is a finding. `Test_PumpGuardCensus_EveryGuardIsPinned` and
   `Test_PumpGuardCensus_TheDocAndTheCodeAgree` keep the two halves honest between now and
@@ -272,11 +313,18 @@ empty verdict, or a **LOST** that this tally still reports as zero.
 
 | verdict | rows |
 |---|---:|
-| **RE-ASSERTED** | 35 |
+| **RE-ASSERTED** | 31 |
 | **RE-ASSERTED IN REDUCED FORM** | 1 |
 | **DELETED WITH ITS SUBJECT** | 0 |
 | **LOST** | 0 |
-| Verdict rows total | 36 |
+| Verdict rows total | 32 |
+
+**It read 35 / 1 / 0 / 0 / 36 when Task 16 closed.** The four rows stage 4b3 Task 3
+discharged were all **RE-ASSERTED**, so the whole movement is in that first line. A
+discharged row is NOT recorded here as *DELETED WITH ITS SUBJECT*: that verdict is for a
+guard whose subject the code no longer has, and these four subjects were deliberately
+removed by a later task with a ruling behind it, which is a different fact and belongs in
+the note under the `pumpnextactivity.go` table.
 
 The one **RE-ASSERTED IN REDUCED FORM** is G-P13, and the closing carry says why.
 
@@ -317,6 +365,14 @@ census made the finding cheap; it did not make it automatic, and it is worth say
 
 ## THE ONE THING TASK 16 REFUSED TO DO: no fence was discharged
 
+> **SETTLED BY STAGE 4b3 TASK 3 — all five ARE discharged now, and reason (1) below still
+> stands exactly as written.** What changed is reason (2), and only its second half: the
+> founder has ruled there are **no production users**, so there is no in-flight execution
+> for a fence to protect and the drain's purpose is gone. The discharge was done as its own
+> commit, by a task whose job was not to verify the census, which is what reason (2)'s first
+> half asked for. **Reason (1) is the part a later reader must not lose: a green replay run
+> is not, and never was, an argument about a fence.**
+
 Task 12's carry and Task 14's carry both offer the five `GetVersion` fences
 (**G-P18** ×2, **G-P19**, **G-P20**, **G-P21** ×2) for retirement, on the argument that the
 required drain kills every `{p}:nextActivity` execution so no recorded history will ever
@@ -343,18 +399,25 @@ that matters:
 Task 14 recorded these in code at `pumpReplayCases`. They belong on the census because they
 are the shape of what a green replay run does *not* mean:
 
-- **`pump-drain-pause-before-continue-as-new` v1 is unreachable by any capture.** Its
-  `GetVersion` fires only once `pumpShouldContinueAsNew` is already true — past
-  `pumpHistoryBudget` (4000 events) — so **the entire ContinueAsNew boundary is unfixtured**:
-  the drain, the carry and the replay of `Carried`, which the pump's own header calls "the
-  wave's riskiest ten lines". Held by `Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew`,
+- **THE CONTINUE-AS-NEW BOUNDARY, whole, is unreachable by any capture.** It is only
+  crossed past `pumpHistoryBudget` (4000 events, hours of cascade), so **the drain, the
+  carry and the replay of `Carried` — what the pump's own header calls "the wave's riskiest
+  ten lines" — are unfixtured.** Held by
   `Test_Pump_DrainPause_StopsTheCascadeInsteadOfContinuing`,
   `Test_Pump_ContinueAsNewPayloadIsBoundedByThePlan` and the `continue-as-new-loses-no-signal`
-  shape case — and by nothing that replays a real history.
-- **Every fence's `DefaultVersion` arm.** `GetVersion` returns `maxSupported` on a new
-  execution, so **no capture can ever produce a DefaultVersion history.** Those arms exist
-  for executions already in flight; their DefaultVersion tests are their only pin. This is
-  the mechanical reason (1) above is not a preference.
+  shape case — and by nothing that replays a real history. (It used to be held by the
+  `pump-drain-pause-before-continue-as-new` `DefaultVersion` test too; that fence and that
+  test are discharged, and the drain-gate case above was rebuilt to reach the boundary the
+  way a real cascade does — a run whose frontier is already started never touches the
+  pre-dispatch gate, so the pause is still buffered when `pumpContinueAsNew` asks.)
+- **A `DefaultVersion` arm, for as long as the code has one.** `GetVersion` returns
+  `maxSupported` on a new execution, so **no capture can ever produce a DefaultVersion
+  history**; such an arm exists for executions already in flight and a DefaultVersion test
+  is its only possible pin. This is the mechanical reason (1) above is not a preference —
+  and it is also why, with no in-flight executions left to protect, the pump's five arms
+  were retired rather than left as branches nothing could honestly test. **The delivery
+  CHILD still has fences** (`changeActivityMainWriteLease`, `changeRowConflictReread`,
+  `changeOperatorNoteDelivery`, `changeExecutionLedger`) and this bullet is live for them.
 - **The transition itself** (old pump → new pump). The required drain is what makes that
   acceptable.
 - **G-P12's pre-ContinueAsNew row arm** (a terminal failure row with no finish report): it
@@ -426,12 +489,16 @@ enforcing the *consumer* needs dataflow from a `GetSignalChannel(ctx, name)` to 
 `Receive`/`ReceiveAsync` target across struct fields (`pumpChannels`), closure params
 (`AddReceive(ch, func(c …))`) and helper funcs (`pumpReceiveSignal`) — go/types work that
 belongs beside `framework-go`'s other gates. It also needs two exceptions stated rather than
-waived, and both are real:
+waived, and both were real when this was written:
 
-- **`pumpPausedAtRunStart`'s `DefaultVersion` arm** (`pumpnextactivity.go:1247`) receives into
-  a struct **on purpose** — it is the pre-change body, preserved verbatim behind
-  `pump-pause-decode-any` so a recorded history keeps its sequence. A gate that forbade it
-  would force retiring the fence, which is exactly what must not happen.
+- ~~**`pumpPausedAtRunStart`'s `DefaultVersion` arm** receives into a struct **on purpose** —
+  it is the pre-change body, preserved verbatim behind `pump-pause-decode-any` so a recorded
+  history keeps its sequence. A gate that forbade it would force retiring the fence, which is
+  exactly what must not happen.~~ **GONE (stage 4b3 Task 3): the fence WAS retired, on the
+  founder's no-production-users ruling, and the struct arm went with it.** This was the
+  gate's ONLY live production exception, so the rule now holds over this package with none —
+  and a gate that has to carry no exception at all is a stronger gate than the one this
+  paragraph was budgeting for.
 - **`ProjectSupervisionWorkflow`'s `pauseCh.Receive(ctx, &sig)`** (`projectsupervision.go:48`)
   receives into `operatorPauseSignal`, and it is **correct today and latently wrong**: the
   channel's one producer is `client.SignalWithStartWorkflow` with a struct (`json/plain`), so
@@ -439,16 +506,23 @@ waived, and both are real:
   `relayPauseToPump` delivers as raw bytes to a *different* execution id. The day anything
   relays a pause to `{p}:construction` through the bus, supervision drops it silently. A
   name-keyed gate flags this; an execution-id-keyed gate does not; and which of those is the
-  right rule is the first thing the gate's author has to decide. **Carry for 4b3.**
+  right rule is the first thing the gate's author has to decide. ~~**Carry for 4b3.**~~
+  **The RECEIVE is fixed — stage 4b3 Task 2 changed it to `var raw any` + `pauseSignalReason`,
+  so the latent drop is gone.** What is NOT settled, and is still the gate author's first
+  decision, is whether the rule keys on the signal NAME or the execution id; that stays
+  4b3's, and so does the exception policy this section budgets for.
 
 ## Carries out of Task 16
 
 - **4b3 — the signal-wire-form arch gate** (above), and the `projectsupervision.go:48`
   latent receive that is the first thing it should be pointed at.
-- **The five fences are still live and still owed a deliberate discharge**, AFTER the drain
+- ~~**The five fences are still live and still owed a deliberate discharge**, AFTER the drain
   that covers 3 + 4a + 4b, as one edit that deletes each fence, its census row's arm and its
-  `…_DefaultVersion_…` test together. `pump-drain-pause-before-continue-as-new` is the one
-  no fixture can ever hold.
+  `…_DefaultVersion_…` test together.~~ **DONE, stage 4b3 Task 3, and in exactly that shape:
+  one commit, five fences, four rows, five tests.** The licence was not the drain but the
+  founder's ruling that there are **no production users**, so there is no in-flight
+  execution any of them protected. It was five call sites over **SIX** change ids, not four
+  — `pumpPausedBehindGate` carried two and the ladder carried two.
 - **G-P13 stays the wave's one non-parity verdict.** Half A (two children write main at once)
   is pinned within ONE pump chain and by the row-level CAS across a chain boundary; half B
   (the same activity dispatched twice) is pinned only by an assertion whose own comment flags

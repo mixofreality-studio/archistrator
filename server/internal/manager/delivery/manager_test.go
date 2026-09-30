@@ -9586,12 +9586,13 @@ func Test_NextEligible_M0IsSatisfiedByTheBackfilledProjectDesignRow(t *testing.T
 		t.Fatalf("want C-TLM dispatched behind a satisfied M0, got %+v", sel)
 	}
 	// On eligibleWithDesign the SAME state picks `requirements` instead — it is declaration
-	// index 0 and it has no row — which is precisely the selection change
-	// changeDesignActivitiesDispatchable fences: a recorded history that dispatched C-TLM
-	// must not replay into a different child.
-	if fenced := nextEligibleActivity(done, eligibleWithDesign); fenced.Activity.ActivityID != "requirements" {
+	// index 0 and it has no row. That difference is why the design rung once needed a version
+	// fence of its own (a recorded history that dispatched C-TLM must not replay into a
+	// different child); the fence is discharged (stage 4b3 Task 3) and the difference between
+	// the two rules is not, which is what this asserts.
+	if widened := nextEligibleActivity(done, eligibleWithDesign); widened.Activity.ActivityID != "requirements" {
 		t.Errorf("under eligibleWithDesign the same state selects %q, want requirements — "+
-			"if this stops being true the version fence's reason has moved", fenced.Activity.ActivityID)
+			"the two rules must stay genuinely different rules", widened.Activity.ActivityID)
 	}
 
 	// Without that one attempt M0 is unsatisfied and the pump has nothing to do — which is
@@ -10559,7 +10560,7 @@ type csFakeProjectState struct {
 	// failDelay holds RecordActivityFailed open for this long AFTER it has appended to
 	// `failed` and released the lock (stage 4b2 Task 14). It exists for exactly ONE
 	// consumer and it is a CAPTURE knob, not a behaviour knob: the pump's pause check at
-	// dispatch gate 2 (pump-pause-before-dispatch) consumes a pause that was buffered
+	// dispatch gate 2 (pumpPausedBehindGate, pre-dispatch) consumes a pause that was buffered
 	// while the run was inside some Activity, and on a real dev server the only way to
 	// deliver a signal INTO that window is to make the Activity slow. verdictBlocked's
 	// record is the right Activity to widen, because it is the one blocking call that sits
@@ -10572,8 +10573,8 @@ type csFakeProjectState struct {
 // setOperatorPaused records the project's pause the way the real store's
 // RecordOperatorPaused does, from OUTSIDE a workflow — the capture driver's way of making
 // a pump that is already cascading meet a RECORDED pause on its next wake-up
-// (changePumpHonorsRecordedPause v2). It is a store write, not a signal, which is the
-// whole distinction that gate tells apart.
+// (pumpHonorsRecordedPause). It is a store write, not a signal, which is the whole
+// distinction that gate tells apart.
 func (f *csFakeProjectState) setOperatorPaused(reason string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -14432,13 +14433,16 @@ func deliveryReplayDirs() []string { return []string{deliveryReplayDir, pumpRepl
 // pins the TRANSITION itself. The drain this wave already requires is what makes that
 // acceptable, and it is stated here rather than hidden.
 //
-// A FRESH CAPTURE CAN ONLY RECORD THE HIGHEST ARM OF EVERY FENCE. GetVersion on a new
-// execution returns maxSupported, so no capture can ever produce a DefaultVersion history —
-// those arms exist for the histories already in flight and are pinned by the census's
-// DefaultVersion tests, not by a fixture. "One driver per fence arm" therefore means: one
-// driver per fence's CURRENT arm, and per BRANCH TAKEN inside it, because two runs at the
-// same version that take different branches record different command sequences. What is NOT
-// covered is named at pumpReplayCases.
+// A FRESH CAPTURE COULD ONLY EVER RECORD THE HIGHEST ARM OF EVERY FENCE. GetVersion on a
+// new execution returns maxSupported, so no capture can produce a DefaultVersion history —
+// those arms existed for the histories already in flight and were pinned by the census's
+// DefaultVersion tests, never by a fixture. STAGE 4b3 TASK 3 DISCHARGED THE PUMP'S FIVE
+// FENCES (no production users, and the release's drain kills every {p}:nextActivity run),
+// so the pump's fixtures below now record command sequences with no Version marker asked for
+// at all — and that changed NOTHING about which of them are green, which is itself the
+// measurement: a fixture pins COMMANDS, not version rungs. The CHILD's fences are untouched,
+// and the eight deliveryActivity histories still replay against them. What is NOT covered is
+// named at pumpReplayCases.
 // ===========================================================================
 
 // pumpReplayDir is the pump's own fixture directory. It is a SECOND directory rather than
@@ -14650,30 +14654,33 @@ func pumpReplayAwaitChildDone(
 	return run
 }
 
-// pumpReplayCases is every captured pump/supervision history, one per fence arm the pump can
-// still record plus the supervision branch plus the child half of the lease.
+// pumpReplayCases is every captured pump/supervision history, one per branch the pump can
+// take, plus the supervision branch, plus the child half of the lease.
 //
 // WHAT IS NOT COVERED, stated rather than implied:
 //
-//   - "pump-drain-pause-before-continue-as-new" v1. Its GetVersion is called only once
-//     pumpShouldContinueAsNew is already true, i.e. past pumpHistoryBudget (4000 events). No
-//     capture can reach it — 4000 events is hours of cascade — so that fence is pinned by
-//     Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew and
-//     Test_Pump_DrainPause_StopsTheCascadeInsteadOfContinuing and by nothing here. The whole
-//     ContinueAsNew boundary is therefore unfixtured, which is the shape's riskiest ten
-//     lines: carry for Task 16.
-//   - Every fence's DefaultVersion arm, for the reason in the section header.
+//   - THE CONTINUE-AS-NEW BOUNDARY, whole. pumpShouldContinueAsNew is only true past
+//     pumpHistoryBudget (4000 events), and 4000 events is hours of cascade, so no capture
+//     reaches the drain, the carry or the replay of Carried — the shape's riskiest ten
+//     lines. It is pinned by Test_Pump_DrainPause_StopsTheCascadeInsteadOfContinuing,
+//     Test_Pump_ContinueAsNewPayloadIsBoundedByThePlan and the continue-as-new-loses-no-signal
+//     shape case, and by nothing here.
+//   - The transition from the pre-4b3 pump, which carried five GetVersion fences these
+//     histories still hold markers for. Task 3 discharged the fences; the markers in the
+//     recorded histories are simply never asked for, which the SDK tolerates, and that is
+//     the measurement behind "a fixture pins COMMANDS, not version rungs".
 func pumpReplayCases() []pumpReplayCase {
 	return []pumpReplayCase{
 		{
 			// THE WHOLE FRONTIER, THEN QUIESCENCE. Two independent rows go out in ONE pass (the
 			// property that replaced the serial cascade), both children run their merge tail
 			// through the lease, and the pump reconciles both off their FUTURES and returns
-			// quiet. It records: the eligibility ladder at changeLedgerPartialResume v1 +
-			// changeDesignActivitiesDispatchable v1, changePumpHonorsRecordedPause v2 on its
-			// FALSE arm, pump-pause-decode-any v1 and pump-pause-before-dispatch v1 both with
-			// nothing pending, the selector park, the reconcile, and the lease granted → released
-			// → re-granted. It is the only fixture that records the lease invariant at all.
+			// quiet. It records: the recorded-pause gate on its FALSE arm, the run-start and
+			// pre-dispatch pause checks with nothing pending, the selector park, the reconcile,
+			// and the lease granted → released → re-granted. It is the only fixture that records
+			// the lease invariant at all. (It ALSO holds five Version markers from the fences
+			// stage 4b3 Task 3 discharged; the replayed code no longer asks for them and the
+			// fixture stayed green, which is what "a fixture pins COMMANDS" means.)
 			name: "pump-dispatch-then-quiesce",
 			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
 				return pumpReplayPumpRig(c, pumpReplayProject(
@@ -14689,9 +14696,9 @@ func pumpReplayCases() []pumpReplayCase {
 		},
 		{
 			// A RECORDED PAUSE MET BY A PUMP THAT IS ALREADY CASCADING —
-			// changePumpHonorsRecordedPause v2's TRUE arm. The pause is a STORE write, not a
-			// signal, which is exactly the distinction that gate tells apart from the other
-			// three pause checks.
+			// the recorded-pause gate's TRUE arm. The pause is a STORE write, not a signal,
+			// which is exactly the distinction that gate tells apart from the other three
+			// pause checks.
 			//
 			// THE 20-EVENT FLOOR IS WHY IT IS DRIVEN THIS WAY. A pump that meets a recorded
 			// pause on its FIRST wake-up records ~10 events and would fail the floor, so this
@@ -14716,8 +14723,8 @@ func pumpReplayCases() []pumpReplayCase {
 			},
 		},
 		{
-			// A PAUSE SIGNAL CONSUMED AT DISPATCH GATE 2 — pump-pause-before-dispatch v1's TRUE
-			// arm, the one arm no other fixture takes. The pause is delivered while the pump is
+			// A PAUSE SIGNAL CONSUMED AT DISPATCH GATE 2 — the pre-dispatch gate's TRUE arm, the
+			// one branch no other fixture takes. The pause is delivered while the pump is
 			// inside a verdictBlocked record, i.e. after readProject and INSIDE the frontier
 			// loop, which is precisely the window that gate covers: "a pause DELIVERED BEFORE
 			// the dispatching workflow task starts". NO child is started, and that absence is
@@ -24609,85 +24616,31 @@ func Test_Pump_PauseDuringReadProject_NoNewDispatch(t *testing.T) {
 	}
 }
 
-// M1 (version gate "pump-pause-before-dispatch", DefaultVersion branch). A pre-change
-// execution keeps the old sequence: it dispatches straight after readProject even with
-// a pause buffered (the post-child drain, at its current version, then quiets it).
-func Test_Pump_PreDispatchGate_DefaultVersion_KeepsOldDispatch(t *testing.T) {
-	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute)
-	rig.env.OnGetVersion("pump-pause-before-dispatch", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
-	rig.pauseAt(t, time.Minute)
-
-	res, err := rig.run(t)
-	if err != nil {
-		t.Fatalf("want the drain to quiet the run after the old-sequence dispatch, got %v", err)
-	}
-	if !res.Dispatched || *rig.childStarts != 1 {
-		t.Fatalf("a pre-change execution must dispatch as it always did, got %+v with %d child start(s)", res, *rig.childStarts)
-	}
-}
-
-// M1 (version gate "pump-drain-pause-before-continue-as-new", DefaultVersion branch). A
-// pre-change execution SKIPS the pre-ContinueAsNew pause drain entirely and continues as
-// new with the pause still buffered, exactly as its history recorded.
+// THE DRAIN GATE, which is the one pause check the other three cannot stand in for: a
+// pause that is BUFFERED when the run reaches its ContinueAsNew boundary must stop the
+// cascade, because ContinueAsNew discards the buffer and the next run would dispatch.
 //
-// THE RIG CHANGED WITH THE PUMP'S SHAPE, and it is worth saying how. The old pump reached
-// this gate once per dispatched activity, so a 10-minute child and a pause at one minute
-// were enough to sit on it. The lease pump continues as new only at its HISTORY BUDGET, so
-// the budget is what puts the run on the boundary; and the pause has to survive to the
-// boundary, which means it must land after the run-start check (readDelay holds the read)
-// and past the pre-dispatch gate (pinned to its own DefaultVersion arm here). What is
-// asserted is unchanged: with this gate at DefaultVersion the buffered pause is NOT
-// consumed and the run continues.
-func Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew(t *testing.T) {
-	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute).atItsHistoryBudget()
-	rig.env.OnGetVersion("pump-pause-before-dispatch", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
-	rig.env.OnGetVersion("pump-drain-pause-before-continue-as-new", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
-	rig.pauseAt(t, time.Minute)
-
-	_, err := rig.run(t)
-	if !isContinueAsNew(err) {
-		t.Fatalf("a pre-change execution must continue-as-new (no drain), got %v", err)
-	}
-	if *rig.childStarts != 1 {
-		t.Fatalf("want the one child, got %d", *rig.childStarts)
-	}
-}
-
-// THE OTHER ARM, and it is the one the gate exists for: at v1 the pre-ContinueAsNew drain
-// DOES see the buffered pause and the run goes quiet instead of continuing. Same rig, one
-// GetVersion stub fewer — so the two cases differ in exactly the fact under test.
+// THE RIG HAD TO CHANGE WHEN THE FENCES WENT (stage 4b3 Task 3), and how it changed is the
+// interesting part. It used to reach the boundary with a pause pending by pinning the
+// PRE-DISPATCH gate to its DefaultVersion arm, so the pause sailed past it; with that fence
+// discharged there is no such arm and the pre-dispatch gate would eat the pause first. The
+// honest way to the boundary is the one a real cascade takes: a run whose frontier is
+// ALREADY STARTED (Started rides across a ContinueAsNew) never reaches the pre-dispatch
+// gate at all — pumpStartFrontier returns at st.isStarted — so a pause delivered while
+// readProject is in flight is still buffered when pumpContinueAsNew asks.
 func Test_Pump_DrainPause_StopsTheCascadeInsteadOfContinuing(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute).atItsHistoryBudget()
-	rig.env.OnGetVersion("pump-pause-before-dispatch", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
 	rig.pauseAt(t, time.Minute)
 
-	res, err := rig.run(t)
+	_, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, Started: []ActivityID{"C-XYZ"}})
+	if isContinueAsNew(err) {
+		t.Fatal("the buffered pause must STOP the cascade: a continue-as-new here discards it and the next run dispatches")
+	}
 	if err != nil {
 		t.Fatalf("a pause drained at the continue-as-new boundary must end the run quietly, got %v", err)
 	}
-	if !res.Dispatched || *rig.childStarts != 1 {
-		t.Fatalf("the run dispatched before the pause and must report it, got %+v with %d child start(s)", res, *rig.childStarts)
-	}
-}
-
-// M1/M2 (version gate "pump-pause-decode-any", DefaultVersion branch). A pre-change
-// execution keeps the OLD struct decode at run start, which drops a binary/plain
-// (relayed) pause — ReceiveAsync consumes it as corrupted — so the run dispatches and
-// continues-as-new exactly as its history recorded.
-func Test_Pump_DecodeGate_DefaultVersion_KeepsOldStructDecode(t *testing.T) {
-	rig := newCascadingPumpRig(10*time.Minute, 0)
-	rig.env.OnGetVersion("pump-pause-decode-any", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
-	rig.pauseAt(t, 0)
-
-	res, err := rig.run(t)
-	if err != nil {
-		t.Fatalf("a pre-change execution must not see the byte pause (old struct decode), got %v", err)
-	}
-	// The consequence the gate buys: the run DISPATCHES, where the new decode would have
-	// quieted it at run start. (It no longer continues as new to prove that — the lease pump
-	// drains to quiet instead — so the dispatch itself is the observable.)
-	if !res.Dispatched || *rig.childStarts != 1 {
-		t.Fatalf("want the old-sequence dispatch of one child, got %+v with %d start(s)", res, *rig.childStarts)
+	if *rig.childStarts != 0 {
+		t.Fatalf("the frontier was already in flight, so nothing new may start; got %d child start(s)", *rig.childStarts)
 	}
 }
 
@@ -24747,23 +24700,6 @@ func Test_Pump_SweepStarted_RecordedPause_BlockedFrontier_NoFailureRecord(t *tes
 	}
 }
 
-// I2 test 4, PINNED AT v1. An execution that recorded pump-honors-recorded-pause v1 keeps
-// the I2 semantics: an OPERATOR-driven pump (Begin, before B1.7) ignores the recorded
-// pause and dispatches as usual. v2 removes the exemption
-// (Test_Pump_V2_RecordedPauseBindsAnOperatorDrivenPump).
-func Test_Pump_OperatorDriven_RecordedPause_StillDispatches(t *testing.T) {
-	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
-	rig.env.OnGetVersion(changePumpHonorsRecordedPause, workflow.DefaultVersion, 2).Return(workflow.Version(1))
-
-	res, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
-	if err != nil {
-		t.Fatalf("an operator-driven pump must dispatch through a recorded pause, got %v", err)
-	}
-	if !res.Dispatched || *rig.childStarts != 1 {
-		t.Fatalf("want the one dispatched child, got %+v with %d start(s)", res, *rig.childStarts)
-	}
-}
-
 // I2 test 5. ContinueAsNew must carry the WHOLE input: a Begin-started cascade that
 // dropped OperatorDriven would honour the recorded pause on its second iteration and
 // stop after one activity.
@@ -24787,22 +24723,6 @@ func Test_Pump_ContinueAsNew_CarriesOperatorDriven(t *testing.T) {
 	// most once, and Started is where that is remembered.
 	if len(next.Started) != 1 || next.Started[0] != "C-XYZ" {
 		t.Fatalf("ContinueAsNew must carry the started set, got %v", next.Started)
-	}
-}
-
-// I2 test 8 (version gate "pump-honors-recorded-pause", DefaultVersion branch). A
-// pre-change pump execution keeps the old sequence: no recorded-pause gate, so it
-// dispatches even with the pause recorded.
-func Test_Pump_RecordedPauseGate_DefaultVersion_StillDispatches(t *testing.T) {
-	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
-	rig.env.OnGetVersion(changePumpHonorsRecordedPause, workflow.DefaultVersion, 2).Return(workflow.DefaultVersion)
-
-	res, err := rig.run(t)
-	if err != nil {
-		t.Fatalf("a pre-change pump must dispatch as it always did, got %v", err)
-	}
-	if !res.Dispatched || *rig.childStarts != 1 {
-		t.Fatalf("want the old-sequence dispatch of one child, got %+v with %d start(s)", res, *rig.childStarts)
 	}
 }
 
@@ -25149,7 +25069,7 @@ func Test_PumpSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst(t *test
 // the property that replaced the serial cascade and an assertion that ignored it would
 // pass a pump that had quietly gone back to one-at-a-time.
 func Test_Pump_IntegrationPendingRow_DispatchesOnlyItsIntegration(t *testing.T) {
-	got := d1PumpRun(t, nil)
+	got := d1PumpRun(t)
 	var forP []agenticjob.PipelineSpec
 	sawO := false
 	for _, s := range got {
@@ -25168,30 +25088,22 @@ func Test_Pump_IntegrationPendingRow_DispatchesOnlyItsIntegration(t *testing.T) 
 	}
 }
 
-// DefaultVersion (a pump that recorded the pre-D1 selection): O, from its first phase.
-func Test_Pump_LedgerPartialResume_DefaultVersion_KeepsTheOldSelection(t *testing.T) {
-	got := d1PumpRun(t, func(env *testsuite.TestWorkflowEnvironment) {
-		env.OnGetVersion(changeLedgerPartialResume, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
-	})
-	if len(got) == 0 || got[0].ActivityID != "O" {
-		t.Fatalf("DefaultVersion must keep the old choice, O; got %v", got)
-	}
-}
-
 // ===========================================================================
 // B1.2 — THE SESSION VIEW REPORTS THE HUMAN STAGE (plan B1.2).
 // ===========================================================================
 
-// Test_Pump_V2_RecordedPauseBindsAnOperatorDrivenPump: at v2 even a pump started
-// operator-driven (a pre-B1.7 caller's input) honours the recorded pause.
-func Test_Pump_V2_RecordedPauseBindsAnOperatorDrivenPump(t *testing.T) {
+// Test_Pump_RecordedPauseBindsAnOperatorDrivenPump: EVERY pump honours the recorded pause,
+// a Begin-started one included. This used to be the v2 arm of a three-armed GetVersion
+// ladder whose v1 exempted an operator-driven pump; stage 4b3 Task 3 discharged the ladder,
+// so what was the last reachable arm is now the whole rule and this is its only pin.
+func Test_Pump_RecordedPauseBindsAnOperatorDrivenPump(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
 	res, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
 	if err != nil {
 		t.Fatalf("a paused project's pump must go quiet (no ContinueAsNew), got %v", err)
 	}
 	if res.Dispatched || *rig.childStarts != 0 {
-		t.Fatalf("at v2 the recorded pause binds every pump, got %+v with %d child start(s)", res, *rig.childStarts)
+		t.Fatalf("the recorded pause binds EVERY pump, operator-driven included, got %+v with %d child start(s)", res, *rig.childStarts)
 	}
 }
 
@@ -25247,8 +25159,10 @@ func newPumpRig(sel pumpSelection, childRun, readDelay time.Duration, opts ...fu
 }
 
 // d1PumpRun runs one pump over replayPartialRowProject (D Done, P integration-pending, O
-// not started) and returns the agent dispatches its child made.
-func d1PumpRun(t *testing.T, setup func(*testsuite.TestWorkflowEnvironment)) []agenticjob.PipelineSpec {
+// not started) and returns the agent dispatches its child made. It took a `setup` hook for
+// the one caller that pinned the eligibility ladder's DefaultVersion arm; that fence and
+// that caller are gone (stage 4b3 Task 3).
+func d1PumpRun(t *testing.T) []agenticjob.PipelineSpec {
 	t.Helper()
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -25258,9 +25172,6 @@ func d1PumpRun(t *testing.T, setup func(*testsuite.TestWorkflowEnvironment)) []a
 	pipe := csNewFakePipeline()
 	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}, NextEligibleActivity: nextEligibleActivity})
 	registerPump(env, wf, ps, pipe)
-	if setup != nil {
-		setup(env)
-	}
 	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: "p-d1"})
 	return pipe.submitted
 }
@@ -26833,7 +26744,9 @@ func pumpGuardCensus() []pumpGuard {
 	return append(out, pumpGuardCensusSupervision()...)
 }
 
-// pumpGuardCensusPump is the 22 guards of pumpnextactivity.go — the body Task 12 deletes.
+// pumpGuardCensusPump is pumpnextactivity.go's guards — 22 when stage 4b2 Task 1 took them
+// out of the body Task 12 rewrote, 18 since stage 4b3 Task 3 discharged the four that hung
+// off the version fences.
 func pumpGuardCensusPump() []pumpGuard {
 	return []pumpGuard{
 		{"G-P1", "pumpnextactivity.go:61-66", "the dispatch Query handler is registered BEFORE any blocking call",
@@ -26887,18 +26800,21 @@ func pumpGuardCensusPump() []pumpGuard {
 		{"G-P17", "pumpnextactivity.go:387", "PARENT_CLOSE_POLICY_ABANDON on the child start",
 			"the pump's own close — every ContinueAsNew, every failure — terminates every in-flight activity",
 			"Test_Pump_TheChildIsAbandonedSoThePumpsOwnCloseNeverKillsIt"},
-		{"G-P18", "pumpnextactivity.go:268-273", "pumpPausedBehindGate's GetVersion fence, TWO change ids through one func; Default skips the check entirely",
-			"a pump parked across the deploy replays a recorded command sequence into a new arm — a non-determinism panic on the project's ONE pump",
-			"Test_Pump_PreDispatchGate_DefaultVersion_KeepsOldDispatch"},
-		{"G-P19", "pumpnextactivity.go:284-293", "changePumpHonorsRecordedPause's THREE arms (no gate / operator-driven exempt / binds every pump)",
-			"the same replay wedge, plus a resumed project that will not pump",
-			"Test_Pump_RecordedPauseGate_DefaultVersion_StillDispatches"},
-		{"G-P20", "pumpnextactivity.go:301-310", "the pump-pause-decode-any fence: Default keeps the old struct decode",
-			"replaying a pre-change history takes the quiet branch where the history recorded a dispatch",
-			"Test_Pump_DecodeGate_DefaultVersion_KeepsOldStructDecode"},
-		{"G-P21", "pumpnextactivity.go:362-370", "the eligibility ladder: two fences, three CUMULATIVE arms",
-			"non-determinism on replay, or a dropped rung that silently un-dispatches the three design activities",
-			"Test_Pump_EligibilityRuleLadder_EachFenceArmSelectsItsRule"},
+		// G-P18, G-P19, G-P20 and G-P21 ARE DISCHARGED AND GONE (stage 4b3 Task 3). They were
+		// the four rows that hung off the pump's five GetVersion fences — pumpPausedBehindGate's
+		// two change ids, changePumpHonorsRecordedPause's three arms, pump-pause-decode-any and
+		// the eligibility ladder's two rungs — and every one of them guarded a DefaultVersion
+		// arm that only a PRE-CHANGE execution could take. The founder has ruled there are no
+		// production users, so no such execution exists; the drain this release rides kills
+		// every {p}:nextActivity run that could hold a recorded marker. The five
+		// …_DefaultVersion_… tests that were these rows' ONLY pin went in the same commit,
+		// because a guard for an arm that cannot exist is a test nobody can make fail honestly.
+		//
+		// WHAT DID NOT LICENSE IT: a replay fixture does NOT pin a GetVersion rung. Deleting the
+		// changeDesignActivitiesDispatchable rung left all six pump fixtures GREEN — the SDK
+		// tolerates a recorded Version marker the replayed code never asks for — while deleting
+		// the pace Sleep fails 2 of 6 at a named event position. Fixtures pin COMMANDS.
+		// The ids are NOT reused and the gap they leave is the record.
 		{"G-P22", "pumpnextactivity.go:398-403", "a nil NextEligibleActivity helper is a quiet tick, never a dispatch",
 			"a wiring regression becomes a nil-deref inside the project's one pump",
 			"Test_Pump_NoEligibleActivity_QuietTick"},
@@ -27830,40 +27746,27 @@ func Test_Pump_TheChildIsAbandonedSoThePumpsOwnCloseNeverKillsIt(t *testing.T) {
 	}
 }
 
-// G-P21. The eligibility ladder, ARM BY ARM. Rung 1 had a DefaultVersion test; rung 2
-// (design-activities-dispatchable) had none, and a dropped rung silently un-dispatches the
-// three design activities. The rule the pump passed is captured from the selection helper,
-// which is the only place it is observable.
-func Test_Pump_EligibilityRuleLadder_EachFenceArmSelectsItsRule(t *testing.T) {
-	cases := []struct {
-		name string
-		arm  func(*testsuite.TestWorkflowEnvironment)
-		want eligibilityRule
-	}{
-		{"no ledger marker: the pre-D1 rule", func(env *testsuite.TestWorkflowEnvironment) {
-			env.OnGetVersion(changeLedgerPartialResume, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
-		}, eligibleNotStarted},
-		{"ledger v1, no design marker", func(env *testsuite.TestWorkflowEnvironment) {
-			env.OnGetVersion(changeDesignActivitiesDispatchable, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
-		}, eligibleDispatchable},
-		{"a new run records both markers", nil, eligibleWithDesign},
+// THE RULE THE PUMP ASKS FOR, and there is exactly one left to ask for. This was G-P21's
+// arm-by-arm walk of a two-fence, three-rung GetVersion ladder; stage 4b3 Task 3 discharged
+// both fences and the row with them, and what survives is the half of the guard that is
+// still about the running system rather than about replay: the pump must hand its selection
+// helper eligibleWithDesign, because any lower rung silently un-dispatches the three design
+// activities. The rule is captured from the helper, which is the only place it is
+// observable.
+func Test_Pump_TheSelectionRuleAdmitsTheDesignActivities(t *testing.T) {
+	got, err := pumpRuleUnder()
+	if err != nil {
+		t.Fatalf("pump error: %v", err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := pumpRuleUnder(tc.arm)
-			if err != nil {
-				t.Fatalf("pump error: %v", err)
-			}
-			if got != tc.want {
-				t.Fatalf("G-P21: %s must select rule %d, got %d", tc.name, tc.want, got)
-			}
-		})
+	if got != eligibleWithDesign {
+		t.Fatalf("the pump must select rule %d (eligibleWithDesign); got %d — a lower rung stops "+
+			"requirements/architecture/projectDesign being dispatchable at all", eligibleWithDesign, got)
 	}
 }
 
-// pumpRuleUnder runs one quiescent pump tick under `arm` and reports the eligibilityRule
-// the pump handed its selection helper.
-func pumpRuleUnder(arm func(*testsuite.TestWorkflowEnvironment)) (eligibilityRule, error) {
+// pumpRuleUnder runs one quiescent pump tick and reports the eligibilityRule the pump
+// handed its selection helper.
+func pumpRuleUnder() (eligibilityRule, error) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	pid := ProjectID(uuid.NewString())
@@ -27877,9 +27780,6 @@ func pumpRuleUnder(arm func(*testsuite.TestWorkflowEnvironment)) (eligibilityRul
 		},
 	})
 	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
-	if arm != nil {
-		arm(env)
-	}
 	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
 	return got, env.GetWorkflowError()
 }

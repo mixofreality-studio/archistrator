@@ -7555,9 +7555,12 @@ type pumpSelection struct {
 }
 
 // eligibilityRule is which activities the pump's selection may pick. It is chosen by the
-// pump's GetVersion(changeLedgerPartialResume) — never by the selection itself — so a
-// pump replaying a history recorded under the old rule re-selects exactly what it chose
-// then (architect (D), D.2).
+// CALLER and never by the selection itself (architect (D), D.2). It used to be chosen by
+// pumpEligibilityRule's GetVersion ladder, so that a pump replaying a history recorded under
+// an older rule re-selected exactly what it chose then; stage 4b3 Task 3 discharged that
+// ladder with the pump's other fences, and the pump now always asks for eligibleWithDesign.
+// The lower rungs remain the rules eligibleUnder is layered on and the rules
+// nextEligibleActivity's tests walk.
 type eligibilityRule int
 
 const (
@@ -7574,7 +7577,9 @@ const (
 	// execution row, so a recorded pump history that walked past them and dispatched a
 	// construction activity would, under the new rule, select `requirements` (declaration
 	// index 0) instead — a DIFFERENT child id, which is a non-determinism error on replay.
-	// The same reason changeLedgerPartialResume is version-gated.
+	// That was the reason for its own change id, and for changeLedgerPartialResume's; the
+	// pump's two rungs are discharged (stage 4b3 Task 3, no production users) and this is the
+	// one rule the pump asks for.
 	eligibleWithDesign
 )
 
@@ -7615,9 +7620,11 @@ func isDesignLifecycle(typ projectstate.ActivityType) bool {
 	return false
 }
 
-// changeLedgerPartialResume is the ONE change id guarding D1 in both csWorkflows: the pump's
-// widened selection and the construct workflow's ledger-aware start seed. A v1 pump only
-// ever starts a v1 child, so every execution is wholly old or wholly new.
+// changeLedgerPartialResume guards D1's ledger-aware start seed in the delivery CHILD
+// (deliveryActivity). It used to guard the pump's widened selection too — one change id for
+// both halves, so that a v1 pump only ever started a v1 child — and the pump's rung is
+// discharged (stage 4b3 Task 3). The child's stays: EIGHT captured deliveryActivity
+// histories replay against that body, and a fence there is not this task's to touch.
 const changeLedgerPartialResume = "ledger-partial-resume"
 
 // nextEligibleActivity resolves the next eligible construction activity for a project

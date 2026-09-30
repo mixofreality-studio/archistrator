@@ -560,7 +560,7 @@ func (wf *csWorkflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInp
 	// activity whose completion it is holding in its own input.
 	st.replayCarried(ctx, in)
 
-	if reason, paused := pumpPausedAtRunStart(ctx, pauseCh); paused {
+	if reason, paused := pumpPausedAtRunStart(pauseCh); paused {
 		logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
 			"projectId", string(in.ProjectID), "reason", reason)
 		dispatch = pumpDispatch{Decided: true, Dispatched: false}
@@ -704,7 +704,7 @@ func (wf *csWorkflows) pumpWakeUp(
 	// the relay window sees the recorded pause here and goes quiet — no dispatch, no
 	// ContinueAsNew, and no blocked-activity failure record. Placed after the frontier it
 	// would still act on it.
-	if pumpHonorsRecordedPause(ctx, in, proj) {
+	if pumpHonorsRecordedPause(proj) {
 		logger.Info("pump honours the recorded operator pause — going quiet without continue-as-new",
 			"projectId", string(in.ProjectID), "reason", proj.PauseReason)
 		if iteration == 0 {
@@ -760,7 +760,7 @@ func (wf *csWorkflows) pumpStartFrontier(
 	ctx workflow.Context, in pumpInput, st *pumpState, proj *projectstate.Project, pauseCh workflow.ReceiveChannel,
 ) (started []ActivityID, quiet bool, err error) {
 	logger := workflow.GetLogger(ctx)
-	rule := pumpEligibilityRule(ctx)
+	rule := pumpEligibilityRule()
 	for {
 		sel := wf.nextEligible(*proj, rule)
 		switch sel.Verdict {
@@ -793,9 +793,8 @@ func (wf *csWorkflows) pumpStartFrontier(
 		// must not dispatch a NEW activity: nothing would cancel it — the pause plan's
 		// PipelinesToCancel is empty because InFlightPipelines is never populated. THE BOUND:
 		// this honours a pause DELIVERED BEFORE the dispatching workflow task starts. A pause
-		// arriving DURING that task is honoured at the drain gate or at the selector. GetVersion
-		// pins pre-change executions to the old sequence.
-		if reason, paused := pumpPausedBehindGate(ctx, "pump-pause-before-dispatch", pauseCh); paused {
+		// arriving DURING that task is honoured at the drain gate or at the selector.
+		if reason, paused := pumpPausedBehindGate(pauseCh); paused {
 			logger.Info("pump cascade paused by operator signal before dispatch — going quiet without continue-as-new",
 				"projectId", string(in.ProjectID), "activityId", sel.Activity.ActivityID, "reason", reason)
 			return started, true, nil
@@ -1189,9 +1188,8 @@ func (wf *csWorkflows) pumpContinueAsNew(
 	}
 	// DRAIN BEFORE THE HAND-OFF, pause first (the gate this file has always had). A pause
 	// that arrived while this run was parked sits in the buffer ContinueAsNew discards, so
-	// honour it here: no further child starts. GetVersion pins pre-change executions to the
-	// old command sequence.
-	if reason, paused := pumpPausedBehindGate(ctx, "pump-drain-pause-before-continue-as-new", chans.pause); paused {
+	// honour it here: no further child starts.
+	if reason, paused := pumpPausedBehindGate(chans.pause); paused {
 		workflow.GetLogger(ctx).Info("pump cascade paused by operator signal before continue-as-new — going quiet",
 			"projectId", string(in.ProjectID), "reason", reason)
 		return pumpDispatchedResult(frontier), true, nil
@@ -1252,58 +1250,47 @@ func pumpShouldContinueAsNew(ctx workflow.Context) bool {
 }
 
 // ---------------------------------------------------------------------------
-// The version fences, unchanged. Five of them over four change ids, and they are kept
-// rather than discharged: the drain this wave requires kills every {p}:nextActivity
-// execution, but the fences cost nothing and their DefaultVersion arms are what four
-// census rows (G-P18, G-P19, G-P20, G-P21) are pinned on.
+// THE VERSION FENCES ARE GONE (stage 4b3 Task 3). There were FIVE GetVersion call
+// sites over SIX change ids — the header here used to say "five over four", which was
+// wrong — and every one existed to keep a pre-change execution's recorded command
+// sequence replayable. There are no such executions: the founder has ruled there are no
+// production users, and the one drain this release rides kills every {p}:nextActivity
+// execution that could hold a recorded marker.
+//
+// WHAT DID NOT LICENSE THIS, and the distinction matters because the obvious argument is
+// the wrong one: a replay fixture does NOT pin a GetVersion rung. Deleting the
+// changeDesignActivitiesDispatchable rung left all six pump fixtures GREEN, because the
+// SDK tolerates a recorded Version marker the replayed code never asks for; deleting the
+// pace Sleep, by contrast, fails 2 of 6 at a named event position. Fixtures pin COMMANDS.
+// The four census rows that hung off these arms, and the five …_DefaultVersion_… tests
+// that were those rows' ONLY pin, are deleted in this same commit for the same reason —
+// an arm that cannot exist needs no guard, and a guard for it is a test nobody can ever
+// make fail honestly.
 // ---------------------------------------------------------------------------
 
-// pumpPausedBehindGate is a signal pause check (2: pre-dispatch, 3: pre-ContinueAsNew)
-// behind its OWN GetVersion change id. Pre-change executions (DefaultVersion) skip the
-// check entirely, keeping their recorded command sequence. GetVersion is always called
-// first, so the marker is recorded deterministically on every new run.
-func pumpPausedBehindGate(ctx workflow.Context, changeID string, ch workflow.ReceiveChannel) (reason string, paused bool) {
-	if workflow.GetVersion(ctx, changeID, workflow.DefaultVersion, 1) < 1 {
-		return "", false
-	}
+// pumpPausedBehindGate is a signal pause check (2: pre-dispatch, 3: pre-ContinueAsNew). It
+// was named for the GetVersion fence it sat behind — one func, two change ids — and the
+// fence is discharged, so the check is all there is: both sites now run on every execution.
+func pumpPausedBehindGate(ch workflow.ReceiveChannel) (reason string, paused bool) {
 	return pumpPauseRequested(ch)
 }
 
-// changePumpHonorsRecordedPause versions the recorded-pause gate. Bumped to 2 by plan
-// B1.7 (the semantics changed, not in place: local histories recorded v1).
-const changePumpHonorsRecordedPause = "pump-honors-recorded-pause"
-
-// pumpHonorsRecordedPause reports whether this run must go quiet on the project's
-// RECORDED pause. GetVersion is always called, so a new run records v2:
-//   - DefaultVersion (pre-I2 executions): no gate;
-//   - v1 (I2 ruling): only a pump the operator did NOT start honours it;
-//   - v2 (B1.7): every pump honours it — ResumeProject is the one way back.
-func pumpHonorsRecordedPause(ctx workflow.Context, in pumpInput, proj projectstate.Project) bool {
-	switch workflow.GetVersion(ctx, changePumpHonorsRecordedPause, workflow.DefaultVersion, 2) {
-	case workflow.DefaultVersion:
-		return false
-	case 1:
-		return !in.OperatorDriven && proj.OperatorPaused
-	default:
-		return proj.OperatorPaused
-	}
+// pumpHonorsRecordedPause reports whether this run must go quiet on the project's RECORDED
+// pause. EVERY pump honours it — ResumeProject is the one way back. The three-armed
+// GetVersion ladder that used to stand here (no gate / operator-driven exempt / binds every
+// pump) is discharged with the other fences; only its last arm was ever reachable on a new
+// execution, and it is now the whole rule.
+func pumpHonorsRecordedPause(proj projectstate.Project) bool {
+	return proj.OperatorPaused
 }
 
-// pumpPausedAtRunStart is pause check 1, with the decode change version-gated. The
-// pre-change body received into an operatorPauseSignal struct, which silently drops a
-// relayed (binary/plain) pause; pumpPauseRequested counts it. Replaying a pre-change
-// history that buffered such a pause through the new decode would take the quiet-return
-// branch where the history recorded a dispatch — a non-determinism error — so
-// pre-change executions keep the old struct decode.
-func pumpPausedAtRunStart(ctx workflow.Context, ch workflow.ReceiveChannel) (reason string, paused bool) {
-	if workflow.GetVersion(ctx, "pump-pause-decode-any", workflow.DefaultVersion, 1) >= 1 {
-		return pumpPauseRequested(ch)
-	}
-	var sig operatorPauseSignal
-	if ch.ReceiveAsync(&sig) {
-		return sig.Reason, true
-	}
-	return "", false
+// pumpPausedAtRunStart is pause check 1. Its pre-change body received into an
+// operatorPauseSignal struct, which silently DROPS a relayed (binary/plain) pause; that arm
+// lived behind the pump-pause-decode-any fence and is discharged with it. It was also the
+// consumer wire-form rule's one live production exception, so the rule now holds over this
+// package with no exception at all.
+func pumpPausedAtRunStart(ch workflow.ReceiveChannel) (reason string, paused bool) {
+	return pumpPauseRequested(ch)
 }
 
 // pumpPauseRequested drains one pending operatorPauseRequested signal, non-blocking,
@@ -1366,28 +1353,23 @@ func pauseSignalReason(raw any) (reason string, decoded bool) {
 	}
 }
 
-// changeDesignActivitiesDispatchable versions the DESIGN admission (stage 4b1 Task 10).
-// It is its own change id rather than a bump of changeLedgerPartialResume because the two
-// rules answer different questions and a shared id would pin them together forever.
-const changeDesignActivitiesDispatchable = "design-activities-dispatchable"
-
-// pumpEligibilityRule is the selection rule this pump run uses: the pre-D1
-// eligibleNotStarted for an execution that recorded no changeLedgerPartialResume marker,
-// then eligibleDispatchable, then eligibleWithDesign once the design activities have a child
-// to run on. GetVersion is always called at every rung, so the markers are recorded
-// deterministically on every new run and a recorded history resolves the ladder it recorded.
+// pumpEligibilityRule is the selection rule this pump run uses, and there is now only one.
 //
-// WHY THE DESIGN RUNG NEEDS A FENCE AT ALL, measured: this repo's committed slot 9 opens with
-// requirements/architecture/projectDesign and none of the three has an execution row, so a
-// pump history that walked past them and dispatched a construction activity would — replayed
-// under eligibleWithDesign — select `requirements` instead and start a DIFFERENT child id.
-func pumpEligibilityRule(ctx workflow.Context) eligibilityRule {
-	if workflow.GetVersion(ctx, changeLedgerPartialResume, workflow.DefaultVersion, 1) < 1 {
-		return eligibleNotStarted
-	}
-	if workflow.GetVersion(ctx, changeDesignActivitiesDispatchable, workflow.DefaultVersion, 1) < 1 {
-		return eligibleDispatchable
-	}
+// It used to be a TWO-FENCE, THREE-ARM LADDER — eligibleNotStarted for an execution that
+// recorded no ledger-partial-resume marker, then eligibleDispatchable for one that recorded
+// no design-activities-dispatchable marker, then eligibleWithDesign — because the rungs
+// genuinely change WHICH activity a tick picks on state that already exists: this repo's
+// committed slot 9 opens with requirements/architecture/projectDesign and none of the three
+// has an execution row, so a history that walked past them and dispatched a construction
+// activity would, replayed under eligibleWithDesign, select `requirements` and start a
+// DIFFERENT child id. Both rungs are discharged with the other fences (see the section
+// header): with no pre-change execution left to replay there is no history that recorded a
+// lower rung, and a rung nothing can select is a branch that cannot be tested honestly.
+//
+// eligibleNotStarted and eligibleDispatchable SURVIVE as rules — eligibleUnder is written
+// as a ladder (`rule >= eligibleDispatchable`) and nextEligibleActivity's own tests walk all
+// three — but the pump no longer has a way to ask for either.
+func pumpEligibilityRule() eligibilityRule {
 	return eligibleWithDesign
 }
 
