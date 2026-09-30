@@ -276,8 +276,10 @@ const ROLE_LABEL: Readonly<Record<string, string>> = {
 /**
  * The generating scene's role line for a CONSTRUCTION dispatch — the caller-side
  * counterpart of the design rail's `roleLineFor` (components/design/roleLine.ts),
- * which cannot serve here: its `ActiveRole`/`ActiveStep` wire enums carry no
- * worker class, so a construction task has no live sub-step to restate. What it
+ * which cannot serve here: the `ActiveRole`/`ActiveStep` wire enums it named carried no
+ * worker class, so a construction task has no live sub-step to restate. (Those two enums
+ * were DELETED by stage 4b3's model edit — unreferenced in both Go modules and in this
+ * one — which does not change the argument: there is still no live sub-step.) What it
  * DOES know for certain is who was dispatched and on what, which is what this
  * says — and nothing more. No phase, no percentage, no timer.
  *

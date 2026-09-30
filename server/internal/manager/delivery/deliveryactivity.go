@@ -2275,7 +2275,28 @@ func (wf *csWorkflows) runGate(
 ) (walkTaskState, error) {
 	set, err := wf.proposeReviewSet(in.csIn(), tc.Phase, policy, state)
 	if err != nil {
-		return walkTaskFailed, err
+		// THE ENGINE'S REFUSAL IS SURFACED, NOT FATAL — and this is the producer
+		// reviewSetError never had. Until stage 4b3 this arm failed the task, so the member
+		// the contract describes ("a defect in the Manager's call or in the engine, never an
+		// operator error, and the gate itself is unaffected — Approve and SendBack work"),
+		// which the MCP tool text documents and which the Activity Experience's reviewers
+		// strip renders, was written as "" at every site in the package. The code and the
+		// contract disagreed, and the code was the one that was wrong: failing the activity
+		// because nobody could be ASKED throws away work that is done and judged by nobody.
+		//
+		// So the gate opens with an EMPTY roster and the reason in its place, and a human
+		// decides it. No autogate is passed: a policy this call could not read is not a
+		// policy that said nobody has to look.
+		workflow.GetLogger(ctx).Error("delivery.gate.reviewSetRefused",
+			"activityId", in.ActivityID, "taskId", t.ID, "err", err.Error(),
+			"consequence", "the gate opens with no roster and waits for a human")
+		var refused gateLedger
+		if oerr := wf.openRound(ctx, in, t, tc, judgedSubject(ws, t), roundArtifactKind(lc, t), ReviewSet{}, state, &refused); oerr != nil {
+			return walkTaskFailed, oerr
+		}
+		state.surfaceReviewSetRefusal(t.ID, err.Error())
+		state.stage = StageAwaitingApproval
+		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &refused, inbox, nil)
 	}
 	// The round's SUBJECT and its KIND both come from the task this review JUDGES, not
 	// from the review task itself.
@@ -2489,11 +2510,13 @@ func (wf *csWorkflows) openRound(
 	}
 	state.walk.headVersion = v
 	state.rowAdvanced()
-	// THE ROUND NUMBER GOES ON THE TASK'S VIEW STATE, because "which round is live at this
-	// task" is per task exactly as the gate is (stage 4b3 Task 5). Task 6 reads it: the
-	// late-approve refusal compares the round a decision judged against the round that is
-	// live, and on a fork there is one of those per branch.
-	state.setTaskView(t.ID, func(v *taskViewState) { v.round = gate.number })
+	// NO ROUND IS MIRRORED ONTO THE TASK'S VIEW STATE, and that is stage 4b3 Task 8 undoing
+	// Task 5's speculative member rather than shipping it. Task 5 added taskViewState.round
+	// for Task 6's late-approve refusal; Task 6 read gate.number instead — the same number by
+	// construction, written from `n` in the same statement, and already a parameter at the
+	// only site that needs it — which left a field written on every round and read by nobody.
+	// It does not reach the wire either: TaskRevisionView.round already carries the round a
+	// client reads, so a second per-task copy would be a member with no reader on both sides.
 	return nil
 }
 

@@ -313,13 +313,12 @@ export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
     /** @enum {integer} */
-    DeliveryActiveRole: 0 | 1 | 2;
-    /** @enum {integer} */
-    DeliveryActiveStep: 0 | 1 | 2 | 3;
-    /** @enum {integer} */
     DeliveryActivityBuildStatus: 0 | 1 | 2 | 3;
-    /** @enum {integer} */
-    DeliveryActivityConstructionPhase: 0 | 1 | 2 | 3;
+    /**
+     * @description The coarse per-activity construction lifecycle, DERIVED from the row's head facts and its resolved phase completions — never stored. Member 4 (completedNotLanded) is APPENDED: ordinals 0-3 are wire values in every committed project and this model renumbers nothing.
+     * @enum {integer}
+     */
+    DeliveryActivityConstructionPhase: 0 | 1 | 2 | 3 | 4;
     DeliveryActivityConstructionStatus: {
       ActivityID: string;
       /** @description The coarse build status. Meaningless when hasBuildEvidence is false (or classified is false): its zero value names InConstruction, which on such a row reports nothing, not work in progress. Read it only when both flags are true. */
@@ -397,6 +396,16 @@ export interface components {
       | 'sentBack'
       | 'failed';
     DeliveryActivityTaskView: {
+      /**
+       * Format: date-time
+       * @description When THIS occurrence of the task's human stage began, in workflow time. A send-back's redraft re-enters the gate with a new awaitingSince, so the pair (task id, awaitingSince) identifies one gate occurrence. Omitted whenever the task is not awaiting a human.
+       */
+      awaitingSince?: string;
+      /**
+       * Format: date-time
+       * @description When an escalation on this task stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and for an escalation that waits indefinitely.
+       */
+      awaitingUntil?: string;
       /** @description The task ids that must pass before this one may start. Two tasks that share a predecessor run in parallel; a task with several waits for all of them. */
       dependsOn: string[];
       /** @description The task id within the lifecycle (a Figure A-1 task id for a construction activity). */
@@ -404,6 +413,12 @@ export interface components {
       kind: components['schemas']['DeliveryActivityTaskKind'];
       /** @description The id of the lifecycle phase this task belongs to. */
       phase: string;
+      /** @description True when THIS task's gate can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate occurrence; false whenever the task has no live gate. */
+      redraftExhausted?: boolean;
+      /** @description Who reviews the artifact at THIS task's gate. Present only while this task is awaiting a human decision. On a fork two tasks are awaiting at once and the review engine answers each separately, so the roster is a per-task fact: it was on the activity until stage 4b3, where it could only ever describe whichever gate was entered last. */
+      reviewSet?: components['schemas']['DeliveryReviewSet'];
+      /** @description Why reviewSet is absent at this task's live gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted when the engine answered or this task has no live gate. */
+      reviewSetError?: string;
       /** @description For a review task, the dispatch task it judges — the pair a send-back re-opens. Omitted on a dispatch task. */
       reviews?: string;
       /** @description Oldest first. A dispatch task and the review task that judges it share revision numbers. */
@@ -422,12 +437,8 @@ export interface components {
       name: string;
       /** @description The lifecycle phases (Figure A-2) in lifecycle order. */
       phases: components['schemas']['DeliveryActivityLifecyclePhase'][];
-      /** @description Who reviews the artifact at the gate the activity is waiting at. Present only while its live session awaits approval at a lifecycle-phase gate. */
-      reviewSet?: components['schemas']['DeliveryReviewSet'];
-      /** @description Why reviewSet is absent at a live gate: the review engine refused the proposal. Omitted when the engine answered or no gate is live. */
-      reviewSetError?: string;
       state: components['schemas']['DeliveryActivityViewState'];
-      /** @description Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet. */
+      /** @description Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet. The reviewer roster and the awaiting facts live HERE, on the task, since stage 4b3: a fork has two gates open at once and an activity-level answer could only ever name one of them. */
       tasks: components['schemas']['DeliveryActivityTaskView'][];
       /** @description The activity type's wire name: service, frontend, testing, deployment, documentation, uiDesign or integration. */
       type: string;
@@ -481,6 +492,29 @@ export interface components {
       generator?: string;
       origin: string;
     };
+    /** @description ONE task's live human gate, as the activity's own execution sees it. It is the plural replacement for ConstructionSessionView's six flat gate members: those described an ACTIVITY while the facts are per TASK, so on a fork — where a service activity holds detailed_design and test_plan at once — they could only ever name whichever gate was entered last, and two stage 4b2 call sites read them and got the fork wrong. The key IS the task: there is one entry per task awaiting a human right now, and none at all when nobody is being waited on. */
+    DeliveryAwaitingTaskGate: {
+      /**
+       * Format: date-time
+       * @description When THIS occurrence of the task's human stage began, in workflow time. A send-back's redraft re-enters the gate with a new awaitingSince, so the pair (taskId, awaitingSince) identifies one occurrence.
+       */
+      awaitingSince: string;
+      /**
+       * Format: date-time
+       * @description When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for a phase approval gate and for the merge hold.
+       */
+      awaitingUntil?: string;
+      /** @description The gate CLASS this occurrence waits at: the task's own id for a phase approval, "merge" for the merge hold, "takeover" for an escalation. It is NOT redundant with taskId — an escalation is keyed by the task that escalated and waits at "takeover". */
+      gate: string;
+      /** @description True when this gate can take no further SendBack redraft: its human-paced budget is spent, so approve it or steer the activity with OverrideActivity. Recomputed on entry to every gate occurrence; false at the merge hold and at an escalation. */
+      redraftExhausted: boolean;
+      /** @description Who reviews the artifact at this task's gate. Absent when no roster went up: an escalation and the merge hold ask no reviewer set, and a refusal explains itself in reviewSetError. */
+      reviewSet?: components['schemas']['DeliveryReviewSet'];
+      /** @description Why reviewSet is absent at this gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered. */
+      reviewSetError?: string;
+      /** @description The lifecycle task id this entry is about, or "merge" for the local merge hold. It is the key a decision must address. */
+      taskId: string;
+    };
     /** @enum {integer} */
     DeliveryCICheckState: 0 | 1 | 2;
     DeliveryCheckItem: {
@@ -504,25 +538,10 @@ export interface components {
       attempt: number;
       /** @description How many supervision attempts the activity gets before it fails with VarianceExhausted, so a client never hardcodes the number. 0 on the project-level view. */
       attemptBudget: number;
-      /** @description The gate this activity is waiting at, set only while stage is awaitingApproval or awaitingTakeover: a lifecycle phase's wire name (requirements, detailed_design, test_plan, construction or integration) for a phase approval gate, "merge" for the local merge hold, or "takeover" for an escalation. It is the key a decision must address. Omitted in every other stage and on the project-level view. */
-      awaitingGate?: string;
-      /**
-       * Format: date-time
-       * @description When this occurrence of the human stage began, in workflow time. A send-back's redraft re-enters its gate with a new awaitingSince, so the pair (awaitingGate, awaitingSince) identifies one gate occurrence. Omitted whenever awaitingGate is.
-       */
-      awaitingSince?: string;
-      /**
-       * Format: date-time
-       * @description When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and the merge hold, and for an escalation that waits indefinitely.
-       */
-      awaitingUntil?: string;
+      /** @description Every task this activity is awaiting a human at right now, sorted by task id so a replayed query reproduces it. Empty when nobody is being waited on. It REPLACES the six flat gate members (reviewSet, reviewSetError, awaitingGate, awaitingSince, awaitingUntil, redraftExhausted), which named one gate for a whole activity and were therefore wrong on any fork. */
+      awaitingTasks?: components['schemas']['DeliveryAwaitingTaskGate'][];
       pipelinePhase?: components['schemas']['DeliveryPipelinePhase'];
       projectId: components['schemas']['DeliveryProjectID'];
-      /** @description True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation. */
-      redraftExhausted: boolean;
-      reviewSet?: components['schemas']['DeliveryReviewSet'];
-      /** @description Why reviewSet is absent at a gate: the review engine refused to propose reviewers. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered. */
-      reviewSetError?: string;
       stage: components['schemas']['DeliveryConstructionStage'];
       variance?: components['schemas']['DeliveryFlaggedVariance'];
     };
@@ -840,7 +859,10 @@ export interface components {
       projectId?: null | string;
     };
     DeliveryPumpResult: {
+      /** @description DEPRECATED, and populated with the FIRST element of activityIds. A parallel pump dispatches a whole frontier in one tick, so one id is a lie about N; read activityIds. Kept because a reader written against the singular field still gets a true answer about one of the activities that started. */
       activityId?: components['schemas']['DeliveryActivityID'];
+      /** @description Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight). */
+      activityIds?: components['schemas']['DeliveryActivityID'][];
       dispatched: boolean;
     };
     /** @description Whether the project's one construction pump is running now. It is one fact, deliberately separate from the recorded operator pause and from any activity's live session: a client combines them. */
@@ -852,9 +874,6 @@ export interface components {
        * @description When the pump's CURRENT run started. A cascading pump starts a new run for every activity it dispatches, so this is the current run's start, not the cascade's. Omitted when the pump is not open.
        */
       runStartedAt?: string;
-    };
-    DeliveryReplanSweepResult: {
-      flaggedVariances?: null | components['schemas']['DeliveryFlaggedVariance'][];
     };
     DeliveryResearchInput: {
       sources: null | components['schemas']['DeliveryResearchSource'][];
@@ -1654,8 +1673,13 @@ export interface components {
       ProjectedMonthlyCost: components['schemas']['OperationsMoney'];
       ScaleWhatIfCurve: components['schemas']['OperationsWhatIfCurve'];
     };
+    /**
+     * @description What a delinquency directive asks for. The UNKNOWN member is the point: it is the zero value, so a request body that omits the action decodes as unknown and is REFUSED by the enforcement branch instead of taking the only arm that acts. The varnames are deliberately NOT identical to operatedSystemStateAccess.DelinquencyAction's (Paused/Withdrawn) — that enum records what was DONE, this one names what was ASKED.
+     * @enum {integer}
+     */
+    OperationsDelinquencyAction: 0 | 1 | 2;
     OperationsDelinquencyContext: {
-      pauseNotWithdraw: boolean;
+      action: components['schemas']['OperationsDelinquencyAction'];
     };
     OperationsDeployResult: {
       published: boolean;

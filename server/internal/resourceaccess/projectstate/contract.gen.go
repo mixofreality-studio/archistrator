@@ -20,10 +20,11 @@ const (
 type ActivityConstructionPhase int
 
 const (
-	ActivityConstructionNotStarted ActivityConstructionPhase = 0
-	ActivityConstructionRunning    ActivityConstructionPhase = 1
-	ActivityConstructionDone       ActivityConstructionPhase = 2
-	ActivityConstructionFailed     ActivityConstructionPhase = 3
+	ActivityConstructionNotStarted         ActivityConstructionPhase = 0
+	ActivityConstructionRunning            ActivityConstructionPhase = 1
+	ActivityConstructionDone               ActivityConstructionPhase = 2
+	ActivityConstructionFailed             ActivityConstructionPhase = 3
+	ActivityConstructionCompletedNotLanded ActivityConstructionPhase = 4
 )
 
 type ActivityDiagram struct {

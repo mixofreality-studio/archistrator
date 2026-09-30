@@ -28,6 +28,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -8067,9 +8068,35 @@ func (e encodedJSON) Get(valuePtr any) error {
 	return json.Unmarshal(b, valuePtr)
 }
 
-// awaitingAt is the session view of an activity waiting at gate key.
+// avLiveGate is the deriveTaskViews live-gate set for ONE gate task, with a zero instant:
+// every caller that cares about the TIME builds the set itself. Keyed by the GATE TASK id,
+// which is what the child writes (see liveApprovalGates).
+func avLiveGate(taskIDs ...string) map[string]time.Time {
+	out := make(map[string]time.Time, len(taskIDs))
+	for _, id := range taskIDs {
+		out[id] = time.Time{}
+	}
+	return out
+}
+
+// awaitingAt is the session view of an activity waiting at ONE gate. Since stage 4b3 the
+// view carries a per-task ARRAY, so this is the single-entry case: the key is both the task
+// and the gate class, which is what a phase approval and the merge hold both look like.
+//
+// The key is the GATE TASK ("designReview"), never its phase ("detailed_design") — that is
+// what the child writes, and a fixture carrying the phase is what hid the derivation defect
+// liveApprovalGates documents.
 func awaitingAt(key string) ConstructionSessionView {
-	return ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: &key}
+	return ConstructionSessionView{Stage: StageAwaitingApproval,
+		AwaitingTasks: []AwaitingTaskGate{{TaskID: key, Gate: key}}}
+}
+
+// awaitingTakeoverOn is the session view of an activity ESCALATED on taskID. It is the one
+// shape where the entry's task and its gate CLASS differ: an escalation is keyed by the task
+// that escalated and waits at takeoverGateKey.
+func awaitingTakeoverOn(taskID string) ConstructionSessionView {
+	return ConstructionSessionView{Stage: StageAwaitingTakeover,
+		AwaitingTasks: []AwaitingTaskGate{{TaskID: taskID, Gate: takeoverGateKey}}}
 }
 
 func (f *fakeTemporalClient) SignalWorkflow(_ context.Context, workflowID string, _ string, signalName string, arg any) error {
@@ -14225,7 +14252,8 @@ func deliveryReplayAwaitDone(ctx context.Context, t *testing.T, run client.Workf
 func deliveryReplayReleaseMergeGate(ctx context.Context, t *testing.T, c client.Client, wfID string) {
 	t.Helper()
 	replayAwaitView(ctx, t, c, wfID, "the local merge hold", func(v ConstructionSessionView) bool {
-		return v.AwaitingGate != nil && *v.AwaitingGate == mergeGateTaskID
+		_, holding := awaitingTaskGate(v, mergeGateTaskID)
+		return holding
 	})
 	deliveryReplaySignalDecision(ctx, t, c, wfID, mergeGateTaskID, ReviewApprove, "")
 }
@@ -14233,7 +14261,7 @@ func deliveryReplayReleaseMergeGate(ctx context.Context, t *testing.T, c client.
 // deliveryReplayAwaitRound waits until the ledger holds a PENDING round numbered `round` at
 // taskID. It reads the STORE and not a query, deliberately: the worker and its fakes run in
 // this process, and the round is the durable fact the next command belongs after — the
-// session query's AwaitingGate reports a stage, which cannot distinguish round 1's gate from
+// session query's awaiting set reports a stage, which cannot distinguish round 1's gate from
 // round 2's after a send-back.
 func deliveryReplayAwaitRound(t *testing.T, ps *csFakeProjectState, activityID, taskID string, round int64) {
 	t.Helper()
@@ -15147,7 +15175,7 @@ func b13Mock(view ConstructionSessionView, queryErr error, signal bool) *tempora
 // open 4b1 fork defect, so a case that pinned the stage-worded refusal was pinning the bug.
 func TestOverrideActivity_Precheck_OnlyAnEscalationIsSteerable(t *testing.T) {
 	retry := ActivityOverride{Kind: OverrideRetry, Notes: "the server was down"}
-	mc := b13Mock(ConstructionSessionView{Stage: StageAwaitingTakeover, AwaitingGate: ptrTo(takeoverGateKey)}, nil, true)
+	mc := b13Mock(awaitingTakeoverOn("detailedDesign"), nil, true)
 	if err := newFacadeConstructionManager(mc, escalatedRowStore("C-Orders", projectstate.TaskDetailedDesign)).
 		OverrideActivity(testCtx(), "proj-1", "C-Orders", retry); err != nil {
 		t.Fatalf("an override at a takeover must be signalled, got %v", err)
@@ -15305,7 +15333,7 @@ func Test_OverrideActivity_RefusesWhenTheLedgerNamesNoEscalatedTask(t *testing.T
 		"the merge hold":     awaitingAt(mergeGateKey),
 		"a running pipeline": {Stage: StagePipelineRunning},
 		"an exited activity": {Stage: StageExited},
-		"a takeover":         {Stage: StageAwaitingTakeover, AwaitingGate: ptrTo(takeoverGateKey)},
+		"a takeover":         awaitingTakeoverOn("detailedDesign"),
 	} {
 		mc := b13Mock(view, nil, false)
 		err := newFacadeConstructionManager(mc, forkLedgerStore("C-Orders", "")).
@@ -16001,7 +16029,7 @@ func TestDeriveTaskViews_StatesAndRevisions(t *testing.T) {
 		name     string
 		attempts []projectstate.TaskAttempt
 		notes    []projectstate.OperatorNote
-		liveGate string
+		liveGate map[string]time.Time
 		want     map[string]string   // task id → state
 		revs     map[string][]string // task id → revision outcomes
 	}{
@@ -16050,7 +16078,7 @@ func TestDeriveTaskViews_StatesAndRevisions(t *testing.T) {
 		{
 			name:     "a live gate: the review task awaits the human",
 			attempts: with(avObserved(projectstate.TaskDetailedDesign, 1, passed), avObserved(projectstate.TaskDesignReview, 1, pending)),
-			liveGate: "detailed_design",
+			liveGate: avLiveGate("designReview"),
 			want:     map[string]string{"detailedDesign": taskPassed, "designReview": taskAwaitingHuman},
 			revs:     map[string][]string{"designReview": {revAwaitingHuman}},
 		},
@@ -16109,7 +16137,7 @@ func TestDeriveTaskViews_RevisionMembersNoteAndProvenance(t *testing.T) {
 	matched := avSendBack("construction", "handle the nil map",
 		projectstate.NoteComment{JSONPath: "$.ops[0]", Text: "nil map"}, projectstate.NoteComment{JSONPath: "$.ops[1]", Text: "no test"})
 	elsewhere := avSendBack("detailed_design", "another gate's note")
-	views := deriveTaskViews(avServiceLifecycle(), attempts, []projectstate.OperatorNote{older, elsewhere, matched}, nil, "")
+	views := deriveTaskViews(avServiceLifecycle(), attempts, []projectstate.OperatorNote{older, elsewhere, matched}, nil, nil)
 
 	avCheckWorkRevisions(t, t0, avTask(t, views, "construction").Revisions)
 	avCheckGateRevisions(t, avTask(t, views, "codeReview").Revisions)
@@ -16134,7 +16162,7 @@ func Test_Revision_CarriesTheDecisiveAttemptsDetail(t *testing.T) {
 	decisive.Detail = sentence
 	quiet := avObserved(projectstate.TaskCodeReview, 1, projectstate.OutcomePassed)
 
-	views := deriveTaskViews(avServiceLifecycle(), []projectstate.TaskAttempt{first, decisive, quiet}, nil, nil, "")
+	views := deriveTaskViews(avServiceLifecycle(), []projectstate.TaskAttempt{first, decisive, quiet}, nil, nil, nil)
 
 	work := avTask(t, views, "construction").Revisions
 	if len(work) != 1 {
@@ -16190,7 +16218,7 @@ func Test_ReviewRevision_CarriesTheGateAttemptsOwnDetail(t *testing.T) {
 	work := avObserved(projectstate.TaskConstruction, 1, projectstate.OutcomePassed)
 
 	views := deriveTaskViews(avServiceLifecycle(),
-		[]projectstate.TaskAttempt{work, first, second}, nil, nil, "")
+		[]projectstate.TaskAttempt{work, first, second}, nil, nil, nil)
 
 	gate := avTask(t, views, "codeReview").Revisions
 	if len(gate) != 2 {
@@ -16212,7 +16240,7 @@ func Test_ReviewRevision_CarriesTheGateAttemptsOwnDetail(t *testing.T) {
 	}
 	quiet := avObserved(projectstate.TaskCodeReview, 1, projectstate.OutcomePassed)
 	quietViews := deriveTaskViews(avServiceLifecycle(),
-		[]projectstate.TaskAttempt{work, quiet}, nil, nil, "")
+		[]projectstate.TaskAttempt{work, quiet}, nil, nil, nil)
 	if got := revisionViews(avTask(t, quietViews, "codeReview").Revisions); got[0].Detail != nil {
 		t.Errorf("a gate attempt that said nothing must OMIT detail, got %q", *got[0].Detail)
 	}
@@ -16321,7 +16349,8 @@ func TestNormalizeAttempts_ALiveGateIsAPendingGateAttempt(t *testing.T) {
 	// the row's lifecycle inventory now that no phase set is stored.
 	row := projectstate.ActivityExecution{ActivityID: "C-X", Attempts: []projectstate.TaskAttempt{
 		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed)}}
-	live := &ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: ptrTo("detailed_design"), AwaitingSince: &since}
+	live := &ConstructionSessionView{Stage: StageAwaitingApproval,
+		AwaitingTasks: []AwaitingTaskGate{{TaskID: "designReview", Gate: "designReview", AwaitingSince: since}}}
 	got := normalizeAttempts("C-X", row, avResolved(row), nil, live)
 	gate := got[len(got)-1]
 	if len(got) != 2 || gate.AttemptID != "C-X:designReview:1" || gate.Outcome != projectstate.OutcomePending ||
@@ -16433,7 +16462,7 @@ func TestNormalizeAttempts_APreLedgerNoteSortsBeforeTheLedgersGateAttempts(t *te
 		},
 	}
 	attempts := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
-	v := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, nil, ""), "designReview")
+	v := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, nil, nil), "designReview")
 	if want := []string{revSentBack, revSentBack, revPassed}; !slices.Equal(avOutcomes(v), want) {
 		t.Fatalf("designReview revisions = %v, want %v (the pre-ledger note is the OLDEST revision):\n%s", avOutcomes(v), want, avDump(attempts))
 	}
@@ -16579,7 +16608,7 @@ func TestDeriveTaskViews_PersistedRoundsWin(t *testing.T) {
 		avObserved(projectstate.TaskDetailedDesign, 2, projectstate.OutcomePassed),
 		avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomePassed),
 	)
-	view := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, ""), "designReview")
+	view := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, nil), "designReview")
 	if got := avOutcomes(view); !slices.Equal(got, []string{revSentBack, revPassed}) {
 		t.Fatalf("the persisted rounds are the revisions; got %v", got)
 	}
@@ -16616,7 +16645,7 @@ func TestDeriveTaskViews_PersistedRoundsWin(t *testing.T) {
 func TestDeriveTaskViews_PreLedgerRowStillReconstructs(t *testing.T) {
 	notes := []projectstate.OperatorNote{avSendBack("detailed_design", "tighten it")}
 	attempts := append(slices.Clone(avSRSPassed), avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected))
-	views := deriveTaskViews(avServiceLifecycle(), attempts, notes, nil, "")
+	views := deriveTaskViews(avServiceLifecycle(), attempts, notes, nil, nil)
 	rev := avTask(t, views, "designReview").Revisions[0]
 	if rev.Outcome != revSentBack || rev.Note != "tighten it" {
 		t.Fatalf("reconstruction must survive for pre-ledger rows; got %+v", rev)
@@ -16643,7 +16672,7 @@ func TestDeriveTaskViews_RoundsBeatNotesPerGate(t *testing.T) {
 		avSendBack("construction", "the only record this gate has"),
 	}
 	rounds := []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundPassed)}
-	views := deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, "")
+	views := deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, nil)
 	if got := avOutcomes(avTask(t, views, "designReview")); !slices.Equal(got, []string{revPassed}) {
 		t.Fatalf("designReview has a round and reads it alone; got %v", got)
 	}
@@ -16672,7 +16701,7 @@ func TestDeriveTaskViews_DesignRoundsAreReadWithoutParsingTheirIDs(t *testing.T)
 		round("system", 2, projectstate.RoundPassed),
 		round("operationalConcepts", 1, projectstate.RoundPassed),
 	}
-	views := deriveTaskViews(avArchitectureLifecycle(), nil, nil, rounds, "")
+	views := deriveTaskViews(avArchitectureLifecycle(), nil, nil, rounds, nil)
 	gate := avTask(t, views, "architectureReview")
 	if got := avOutcomes(gate); !slices.Equal(got, []string{revSentBack, revPassed, revPassed}) {
 		t.Fatalf("three rounds, three revisions in stored order; got %v", got)
@@ -16706,14 +16735,15 @@ func TestDeriveTaskViews_APendingRoundWithNoGateAttemptIsTheRevision(t *testing.
 			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed)),
 		Reviews: []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundPending)},
 	}
-	live := &ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: strPtrOrNil("detailed_design")}
+	live := &ConstructionSessionView{Stage: StageAwaitingApproval,
+		AwaitingTasks: []AwaitingTaskGate{{TaskID: "designReview", Gate: "designReview"}}}
 	attempts := normalizeAttempts("C-X", row, avResolved(row), nil, live)
 	for _, a := range attempts {
 		if a.Task == projectstate.TaskDesignReview {
 			t.Fatalf("the pending ROUND is the record; N4 must not add a gate attempt beside it:\n%s", avDump(attempts))
 		}
 	}
-	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, row.Reviews, "detailed_design"), "designReview")
+	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, row.Reviews, avLiveGate("designReview")), "designReview")
 	if got := avOutcomes(gate); !slices.Equal(got, []string{revAwaitingHuman}) {
 		t.Fatalf("one pending round at the live gate = one awaitingHuman revision; got %v", got)
 	}
@@ -16721,7 +16751,7 @@ func TestDeriveTaskViews_APendingRoundWithNoGateAttemptIsTheRevision(t *testing.
 		t.Fatalf("an undecided round has not ended; got %v", gate.Revisions[0].EndedAt)
 	}
 	// The same round, with the session gone: still one revision, no longer at a human.
-	away := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, row.Reviews, ""), "designReview")
+	away := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, row.Reviews, nil), "designReview")
 	if got := avOutcomes(away); !slices.Equal(got, []string{revRunning}) {
 		t.Fatalf("a pending round off the live gate is running; got %v", got)
 	}
@@ -16740,7 +16770,7 @@ func TestDeriveTaskViews_ARecordedAttemptBelowTheFirstRoundSurvives(t *testing.T
 	)
 	notes := []projectstate.OperatorNote{avSendBack("detailed_design", "the send-back the ledger recorded before rounds existed")}
 	rounds := []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 2, projectstate.RoundPassed)}
-	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, ""), "designReview")
+	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, nil), "designReview")
 	if got := avOutcomes(gate); !slices.Equal(got, []string{revSentBack, revPassed}) {
 		t.Fatalf("the pre-round rejection is revision 1 and the round is revision 2; got %v", got)
 	}
@@ -16771,7 +16801,7 @@ func TestDeriveTaskViews_TheSplitIsANoOpWhenNothingPrecedesTheRounds(t *testing.
 		avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
 	)
 	rounds := []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundSentBack)}
-	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, nil, rounds, ""), "designReview")
+	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, nil, rounds, nil), "designReview")
 	if got := avOutcomes(gate); !slices.Equal(got, []string{revSentBack}) {
 		t.Fatalf("attempt 1 IS round 1 — one revision, not two; got %v", got)
 	}
@@ -16867,7 +16897,7 @@ func TestQueryActivityView_NotStarted_ReturnsTheWholeLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if v.State != ActivityViewNotStarted || v.Type != "service" || v.Name != "A" || v.ReviewSet != nil {
+	if v.State != ActivityViewNotStarted || v.Type != "service" || v.Name != "A" || avAnyRoster(v) {
 		t.Fatalf("view = %+v, want a not-started service activity with no review set", v)
 	}
 	if len(v.Phases) != 5 || len(v.Tasks) != 10 {
@@ -16919,9 +16949,9 @@ func TestQueryActivityView_LiveGate_AfterASendBack(t *testing.T) {
 		{EpisodeID: "ep-1", TargetRef: "A:detailedDesign:1", StartedAt: t0, EndedAt: t0.Add(10 * time.Minute)},
 		{EpisodeID: "ep-2", TargetRef: "A:detailedDesign:2", StartedAt: t0.Add(21 * time.Minute), EndedAt: t0.Add(30 * time.Minute)},
 	}}
-	live := awaitingAt("detailed_design")
-	live.AwaitingSince = &since
-	live.ReviewSet = &ReviewSet{Reviewers: []Reviewer{{Role: "architect", Perspective: "architecture", MayAmend: true}}}
+	live := awaitingAt("designReview")
+	live.AwaitingTasks[0].AwaitingSince = since
+	live.AwaitingTasks[0].ReviewSet = &ReviewSet{Reviewers: []Reviewer{{Role: "architect", Perspective: "architecture", MayAmend: true}}}
 	mc := &temporalmocks.Client{}
 	mc.On("QueryWorkflow", mock.Anything, deliveryActivityWorkflowID("p", "A"), "", querySessionState).Return(encodedJSON{v: live}, nil)
 
@@ -16932,18 +16962,48 @@ func TestQueryActivityView_LiveGate_AfterASendBack(t *testing.T) {
 	if eps.lastQuery.TargetRef == nil || *eps.lastQuery.TargetRef != "A" {
 		t.Fatalf("episodes must be listed for the activity, got %+v", eps.lastQuery)
 	}
-	if v.State != ActivityViewAwaitingHuman || v.ReviewSet == nil || len(v.ReviewSet.Reviewers) != 1 {
-		t.Fatalf("state=%s reviewSet=%+v, want awaitingHuman with the live review set", v.State, v.ReviewSet)
-	}
-	if v.ReviewSetError != nil {
-		t.Fatalf("the engine answered, so nothing explains an absent set; got reviewSetError=%q", *v.ReviewSetError)
-	}
 	byID := map[string]ActivityTaskView{}
 	for _, task := range v.Tasks {
 		byID[task.ID] = task
 	}
+	// THE ROSTER IS ON THE TASK (stage 4b3). It used to be copied onto the ACTIVITY, so a
+	// fork showed one branch's reviewers beside both gates; the join is by task id now.
+	gateTask := byID["designReview"]
+	if v.State != ActivityViewAwaitingHuman || gateTask.ReviewSet == nil || len(gateTask.ReviewSet.Reviewers) != 1 {
+		t.Fatalf("state=%s designReview.reviewSet=%+v, want awaitingHuman with the live review set", v.State, gateTask.ReviewSet)
+	}
+	if gateTask.ReviewSetError != nil {
+		t.Fatalf("the engine answered, so nothing explains an absent set; got reviewSetError=%q", *gateTask.ReviewSetError)
+	}
+	if gateTask.AwaitingSince == nil || !gateTask.AwaitingSince.Equal(since) {
+		t.Fatalf("designReview.awaitingSince = %v, want the session's %v", gateTask.AwaitingSince, since)
+	}
+	if byID["stp"].ReviewSet != nil || byID["stp"].AwaitingSince != nil {
+		t.Fatalf("a task the session is NOT awaiting at carries none of the gate facts, got %+v", byID["stp"])
+	}
 	avCheckLiveGateStates(t, byID)
 	avCheckLiveGateRevisions(t, byID["designReview"].Revisions, since)
+}
+
+// avAnyRoster reports whether ANY task of the view carries a reviewer roster. Since stage
+// 4b3 the roster is per task, so "the view has no review set" is a claim about every task.
+func avAnyRoster(v ActivityView) bool {
+	for _, t := range v.Tasks {
+		if t.ReviewSet != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// avTaskRefusal is one task's reviewSetError, or nil when the task carries none.
+func avTaskRefusal(v ActivityView, taskID string) *string {
+	for _, t := range v.Tasks {
+		if t.ID == taskID {
+			return t.ReviewSetError
+		}
+	}
+	return nil
 }
 
 // avSentBackAtTheDesignGate is a Running service activity whose requirements phase is
@@ -17000,26 +17060,29 @@ func TestQueryActivityView_LiveGate_CarriesTheEngineRefusal(t *testing.T) {
 		live    ConstructionSessionView
 		wantErr bool
 	}{
-		{"at the gate", awaitingAt("detailed_design"), true},
+		{"at the gate", awaitingAt("designReview"), true},
 		{"no gate is live", ConstructionSessionView{Stage: StagePipelineRunning}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			live := c.live
-			live.ReviewSetError = &refusal
+			for i := range live.AwaitingTasks {
+				live.AwaitingTasks[i].ReviewSetError = &refusal
+			}
 			mc := &temporalmocks.Client{}
 			mc.On("QueryWorkflow", mock.Anything, deliveryActivityWorkflowID("p", "A"), "", querySessionState).Return(encodedJSON{v: &live}, nil)
 			v, err := avManager(mc, avSentBackAtTheDesignGate(t0), &fakeEpisodes{}).QueryActivityView(testCtx(), "p", "A")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if v.ReviewSet != nil {
-				t.Fatalf("a refused proposal leaves no set, got %+v", v.ReviewSet)
+			if avAnyRoster(v) {
+				t.Fatalf("a refused proposal leaves no set, got %+v", v.Tasks)
 			}
-			if got := v.ReviewSetError != nil; got != c.wantErr {
-				t.Fatalf("reviewSetError present = %v, want %v (%+v)", got, c.wantErr, v.ReviewSetError)
+			got := avTaskRefusal(v, "designReview")
+			if (got != nil) != c.wantErr {
+				t.Fatalf("designReview.reviewSetError present = %v, want %v (%v)", got != nil, c.wantErr, got)
 			}
-			if c.wantErr && *v.ReviewSetError != refusal {
-				t.Fatalf("reviewSetError = %q, want the engine's reason %q", *v.ReviewSetError, refusal)
+			if c.wantErr && *got != refusal {
+				t.Fatalf("reviewSetError = %q, want the engine's reason %q", *got, refusal)
 			}
 		})
 	}
@@ -17035,7 +17098,7 @@ func TestQueryActivityView_RunningWithNoSession_StillReads(t *testing.T) {
 	mc.On("QueryWorkflow", mock.Anything, deliveryActivityWorkflowID("p", "A"), "", querySessionState).
 		Return(nil, serviceerror.NewNotFound("workflow not found"))
 	v, err := avManager(mc, proj, &fakeEpisodes{}).QueryActivityView(testCtx(), "p", "A")
-	if err != nil || v.State != ActivityViewRunning || v.ReviewSet != nil {
+	if err != nil || v.State != ActivityViewRunning || avAnyRoster(v) {
 		t.Fatalf("view=%+v err=%v, want a running view with no review set", v, err)
 	}
 }
@@ -19480,14 +19543,14 @@ func shapeQuerySessionAt(rig *shapeRig, at time.Duration) (*ConstructionSessionV
 // changes and the query is what a caller sees; a test that read the field it had just moved
 // would prove the move rather than the fix.
 //
-// WHY TWO READS RATHER THAN ONE NAMING BOTH. ConstructionSessionView is still SINGLE-VALUED
-// at this task — the per-task members move onto ActivityTaskView and leave the wire at stage
-// 4b3 Task 8, which is the wave's one model edit — so no single answer can name two gates.
-// What the pair of reads states instead is the same fact the wire will state directly: each
-// task carries its OWN occurrence. Read one names a gate with its own awaitingSince and its
-// own roster; deciding it leaves the SIBLING's gate standing, with a DIFFERENT awaitingSince
-// and a roster of its own. Under the defect the second read names nothing at all, because one
-// leaveHumanStage cleared the one triple both gates were sharing.
+// ONE READ NAMES BOTH GATES, WHICH IS WHAT THE WIRE MOVE BOUGHT. Stage 4b3 Task 5 could only
+// make this claim across TWO reads, because ConstructionSessionView was single-valued: the
+// six gate members described an ACTIVITY while the facts are per TASK, so no single answer
+// could name two gates and the case had to say "deciding one leaves the other standing"
+// instead. Task 8 deleted those six and put an ARRAY in their place, so read one now asserts
+// the thing directly — both task ids, each with its own awaitingSince and its own roster.
+// The second read is kept: it is the other half of the same fact, that deciding one gate
+// takes down ITS occurrence and not its sibling's, which is the defect the per-task key fixed.
 //
 // The pacing: srs succeeds at t=15 and the fork opens; detailedDesign takes one Running poll
 // and its gate opens at t=30; stp lags three and its gate opens at t=60. Both are therefore
@@ -19500,12 +19563,11 @@ func driveForkViewNamesBothGates(t *testing.T, rig *shapeRig) shapeOutcome {
 	rig.register(rig.env)
 
 	held, heldErr := shapeQuerySessionAt(rig, 90*time.Second)
-	// DECIDE THE GATE THE PROJECTION NAMED, whichever it is. The case does not script which
-	// one that is: the derived flat member answers with the most recently entered task, and
-	// pinning that here would assert the tie-break rather than the per-task state.
+	// DECIDE THE FIRST GATE THE VIEW LISTS, whichever it is. The list is sorted by task id, so
+	// this is deterministic without the case scripting which branch wins the fork.
 	rig.env.RegisterDelayedCallback(func() {
-		if held.AwaitingGate != nil && *held.AwaitingGate != "" {
-			shapeApprove(rig.env, *held.AwaitingGate)()
+		if len(held.AwaitingTasks) > 0 {
+			shapeApprove(rig.env, held.AwaitingTasks[0].TaskID)()
 		}
 	}, 95*time.Second)
 	survivor, survivorErr := shapeQuerySessionAt(rig, 120*time.Second)
@@ -19537,42 +19599,52 @@ func assertShapeForkGatePair(t *testing.T, held ConstructionSessionView, heldErr
 	if heldErr != nil || survivorErr != nil {
 		t.Fatalf("both mid-run session reads must be served: held=%v survivor=%v", heldErr, survivorErr)
 	}
-	gates := map[string]string{shapeDesignReviewTask: shapeSTPReviewTask, shapeSTPReviewTask: shapeDesignReviewTask}
-	if held.AwaitingGate == nil {
-		t.Fatalf("with both fork branches at a gate the session must name one of them; it named none (%+v)", held)
+	// THE CLAIM THE WIRE MOVE MAKES POSSIBLE: one read, both gates, sorted.
+	want := []string{shapeDesignReviewTask, shapeSTPReviewTask}
+	slices.Sort(want)
+	var got []string
+	for _, g := range held.AwaitingTasks {
+		got = append(got, g.TaskID)
 	}
-	sibling, ok := gates[*held.AwaitingGate]
-	if !ok {
-		t.Fatalf("the session named gate %q; the two gates held at t=90s are %v", *held.AwaitingGate, slices.Sorted(maps.Keys(gates)))
+	if !slices.Equal(got, want) {
+		t.Fatalf("with both fork branches at a gate the session must name BOTH, sorted; it named %v (%+v)", got, held)
 	}
-	if held.ReviewSet == nil {
-		t.Fatalf("the gate %q is held for a human, so its roster must be on the view", *held.AwaitingGate)
-	}
-	// THE CLAIM. The decided gate's sibling is still open, and the view still says so.
-	if survivor.AwaitingGate == nil {
-		t.Fatalf("deciding %q left %q open, and the session named NO gate — the six view facts are keyed by "+
-			"ACTIVITY and written per GATE, so one leaveHumanStage cleared the pair both branches shared (%+v)",
-			*held.AwaitingGate, sibling, survivor)
-	}
-	if *survivor.AwaitingGate != sibling {
-		t.Fatalf("after deciding %q the session must name the sibling %q; it named %q", *held.AwaitingGate, sibling, *survivor.AwaitingGate)
-	}
-	if survivor.Stage != StageAwaitingApproval {
-		t.Fatalf("the surviving gate %q is a human stage; the session reports stage %s", sibling, sessionStageName(survivor.Stage))
+	first, second := held.AwaitingTasks[0], held.AwaitingTasks[1]
+	for _, g := range held.AwaitingTasks {
+		if g.ReviewSet == nil {
+			t.Fatalf("the gate %q is held for a human, so its own roster is on its own entry (%+v)", g.TaskID, g)
+		}
+		if g.Gate != g.TaskID {
+			t.Fatalf("a phase approval's gate CLASS is its own task id; %q waits at %q", g.TaskID, g.Gate)
+		}
 	}
 	// EACH GATE CARRIES ITS OWN OCCURRENCE. One shared awaitingSince would report the same
-	// instant for both, which is the half that makes "the sibling is still there" a fact about
-	// per-task state rather than about a field that merely failed to be cleared.
-	if held.AwaitingSince == nil || survivor.AwaitingSince == nil {
-		t.Fatalf("a named gate carries the instant its occurrence began; held=%v survivor=%v",
-			held.AwaitingSince, survivor.AwaitingSince)
-	}
-	if held.AwaitingSince.Equal(*survivor.AwaitingSince) {
+	// instant for both, which is the half that makes "two gates" a fact about per-task state
+	// rather than about one entry duplicated.
+	if first.AwaitingSince.Equal(second.AwaitingSince) {
 		t.Fatalf("%q and %q report the SAME awaitingSince %v — the two gates opened 30 simulated seconds apart, "+
-			"so one clock is being shared between them", *held.AwaitingGate, sibling, *held.AwaitingSince)
+			"so one clock is being shared between them", first.TaskID, second.TaskID, first.AwaitingSince)
 	}
-	if survivor.ReviewSet == nil {
-		t.Fatalf("the surviving gate %q lost its roster when its SIBLING was decided", sibling)
+	// THE SECOND HALF. Deciding the first gate takes down ITS occurrence and leaves the
+	// sibling's standing — under the defect one leaveHumanStage cleared the pair both branches
+	// shared and the second read named nothing at all.
+	if len(survivor.AwaitingTasks) != 1 {
+		t.Fatalf("deciding %q must leave exactly %q standing; the session named %d gate(s) (%+v)",
+			first.TaskID, second.TaskID, len(survivor.AwaitingTasks), survivor)
+	}
+	left := survivor.AwaitingTasks[0]
+	if left.TaskID != second.TaskID {
+		t.Fatalf("after deciding %q the session must name the sibling %q; it named %q", first.TaskID, second.TaskID, left.TaskID)
+	}
+	if survivor.Stage != StageAwaitingApproval {
+		t.Fatalf("the surviving gate %q is a human stage; the session reports stage %s", left.TaskID, sessionStageName(survivor.Stage))
+	}
+	if !left.AwaitingSince.Equal(second.AwaitingSince) {
+		t.Fatalf("the surviving gate %q must keep its OWN occurrence: awaitingSince was %v and is now %v",
+			left.TaskID, second.AwaitingSince, left.AwaitingSince)
+	}
+	if left.ReviewSet == nil {
+		t.Fatalf("the surviving gate %q lost its roster when its SIBLING was decided", left.TaskID)
 	}
 }
 
@@ -19637,7 +19709,7 @@ func assertShapeLateApproveRefused(t *testing.T, rounds map[int]string,
 	}
 	// AND THE GATE IS STILL THERE. "Not decided" alone would also be true of a gate the refusal
 	// had torn down, which is the one wrong way to refuse: the reviewer's next click must land.
-	if after.Stage != StageAwaitingApproval || after.AwaitingGate == nil || *after.AwaitingGate != shapeDesignReviewTask {
+	if _, stillHeld := awaitingTaskGate(after, shapeDesignReviewTask); after.Stage != StageAwaitingApproval || !stillHeld {
 		t.Fatalf("after refusing a superseded decision the gate must KEEP awaiting %q; the session reports %s/%s (%+v)",
 			shapeDesignReviewTask, sessionStageName(after.Stage), gateNameOf(after), after)
 	}
@@ -29290,4 +29362,188 @@ func Test_DeliveryActivity_TheMergeTailReportsTheOutcomeItReached(t *testing.T) 
 			}
 		})
 	}
+}
+
+// ============ PREVIEW FIXTURE CONTRACTS — the guarded regenerator =============
+
+// Test_PreviewFixtureContracts_Write regenerates the ServiceContracts block of every
+// preview fixture from the committed model, using the SAME projection the server uses
+// (serviceContractsToContract) rather than a hand-written shape — because a fixture whose
+// shape is hand-maintained is exactly what produced a 30-contract pre-4a world that 57
+// green browser cases could not see. Guarded by PREVIEW_FIXTURE_CONTRACTS_WRITE=1, the
+// posture CONSTRUCT_HISTORY_CAPTURE_CASE already established for capture tools.
+//
+// MEASURED at the stage 4b3 wave head: 17 of the 23 uitests fixtures carried a 30-entry
+// map holding constructionManager, projectDesignManager and systemDesignManager — the
+// three Manager contracts stage 4a DELETED — and NOT deliveryManager, the Manager the
+// whole stage exists to build. Two more carried a trimmed map (one entry, and none at
+// all), which serviceContractsToContract cannot produce either: it answers nil for an
+// empty corpus and the WHOLE map otherwise, so there is no servable middle. The gate that
+// now holds this (webApp/scripts/fixture-schema.test.mjs) went red on all nineteen.
+//
+// IT SPLICES TEXT rather than re-encoding the document, deliberately: a fixture is a
+// recorded server answer whose every other byte is evidence, and a whole-file re-marshal
+// would rewrite key order and formatting across a megabyte of it, burying the one block
+// that changed. The replacement is indented to match the block it replaces.
+func Test_PreviewFixtureContracts_Write(t *testing.T) {
+	if os.Getenv("PREVIEW_FIXTURE_CONTRACTS_WRITE") != "1" {
+		t.Skip("set PREVIEW_FIXTURE_CONTRACTS_WRITE=1 to rewrite the preview fixtures' ServiceContracts")
+	}
+	root := filepath.Join("..", "..", "..", "..")
+	raw, err := os.ReadFile(filepath.Join(root, ".aiarch", "state", "project.json"))
+	if err != nil {
+		t.Fatalf("reading the committed model: %v", err)
+	}
+	var doc struct {
+		ServiceContracts map[string]projectstate.ServiceContract `json:"serviceContracts"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decoding the committed model: %v", err)
+	}
+	live := serviceContractsToContract(doc.ServiceContracts)
+	if len(live) == 0 {
+		t.Fatal("the committed model holds no service contracts; refusing to write an empty corpus")
+	}
+	files := previewFixtureFiles(t, root)
+	written := 0
+	for _, f := range files {
+		if rewriteFixtureContracts(t, f, live) {
+			written++
+			t.Logf("rewrote ServiceContracts in %s", f)
+		}
+	}
+	t.Logf("%d of %d fixture file(s) rewritten with %d contracts", written, len(files), len(live))
+}
+
+// previewFixtureFiles is every .json under the two fixture trees: the uitests corpus the
+// preview build is pointed at, and the one recorded-design smoke fixture.
+func previewFixtureFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var files []string
+	for _, tree := range []string{
+		filepath.Join(root, "uitests", "preview-fixtures"),
+		filepath.Join(root, "webApp", "preview", "fixtures"),
+	} {
+		if err := filepath.WalkDir(tree, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || filepath.Ext(p) != ".json" {
+				return err
+			}
+			files = append(files, p)
+			return nil
+		}); err != nil {
+			t.Fatalf("walking %s: %v", tree, err)
+		}
+	}
+	return files
+}
+
+// rewriteFixtureContracts splices the live corpus into one fixture, reporting whether it
+// changed. A fixture with no ServiceContracts member is left untouched.
+func rewriteFixtureContracts(t *testing.T, f string, live map[string]ServiceContract) bool {
+	t.Helper()
+	body, err := os.ReadFile(f) //nolint:gosec // a test tool over a path it just walked
+	if err != nil {
+		t.Fatalf("reading %s: %v", f, err)
+	}
+	next, ok, err := spliceFixtureContracts(string(body), live)
+	if err != nil {
+		t.Fatalf("%s: %v", f, err)
+	}
+	if !ok || next == string(body) {
+		return false
+	}
+	if err := os.WriteFile(f, []byte(next), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", f, err)
+	}
+	return true
+}
+
+// spliceFixtureContracts replaces the "ServiceContracts" member's VALUE in one fixture's
+// text, keeping every other byte. ok=false means the fixture carries no such member and is
+// left alone — a landing state or a pending read answers no project summary at all.
+//
+// The `"Name": "ServiceContracts"` occurrences inside the fixtures' own contract documents
+// are not matched: the search is for the KEY form (`"ServiceContracts":`), which a value
+// never takes.
+func spliceFixtureContracts(body string, live map[string]ServiceContract) (string, bool, error) {
+	const key = `"ServiceContracts":`
+	at := strings.Index(body, key)
+	if at < 0 {
+		return body, false, nil
+	}
+	lineStart := strings.LastIndex(body[:at], "\n") + 1
+	prefix := body[lineStart:at]
+	if strings.TrimSpace(prefix) != "" {
+		return body, false, fmt.Errorf("the ServiceContracts key is not at the head of its line")
+	}
+	open := strings.Index(body[at:], "{")
+	if open < 0 {
+		return body, false, fmt.Errorf("the ServiceContracts member has no object value")
+	}
+	open += at
+	end, err := endOfJSONObject(body, open)
+	if err != nil {
+		return body, false, err
+	}
+	// The unit indent is the block's own: the first inner line's indent less the key's, or
+	// — for an EMPTY block, which has no inner line — the indent of the document's first
+	// member. The fixtures are not uniformly indented (three widths across the corpus) and
+	// a re-indent would be a diff over the whole file.
+	indent := fixtureIndentUnit(body, open, end, prefix)
+	out, err := json.MarshalIndent(live, prefix, indent)
+	if err != nil {
+		return body, false, err
+	}
+	return body[:open] + string(out) + body[end:], true, nil
+}
+
+// fixtureIndentUnit measures one level of indentation for the block at [open,end).
+func fixtureIndentUnit(body string, open, end int, prefix string) string {
+	if inner := strings.Index(body[open:end], "\n"); inner >= 0 {
+		line := body[open+inner+1 : end]
+		if nl := strings.Index(line, "\n"); nl >= 0 {
+			line = line[:nl]
+		}
+		if deep := len(line) - len(strings.TrimLeft(line, " ")); deep > len(prefix) {
+			return strings.Repeat(" ", deep-len(prefix))
+		}
+	}
+	_, rest, ok := strings.Cut(body, "\n")
+	if !ok {
+		return "  "
+	}
+	if nl := strings.Index(rest, "\n"); nl >= 0 {
+		rest = rest[:nl]
+	}
+	if n := len(rest) - len(strings.TrimLeft(rest, " ")); n > 0 {
+		return strings.Repeat(" ", n)
+	}
+	return "  "
+}
+
+// endOfJSONObject returns the index just past the object that opens at `open`, respecting
+// strings and their escapes. A brace counter that did not would stop at the first `}`
+// inside a contract note.
+func endOfJSONObject(body string, open int) (int, error) {
+	depth, inStr, esc := 0, false, false
+	for i := open; i < len(body); i++ {
+		c := body[i]
+		switch {
+		case esc:
+			esc = false
+		case inStr && c == '\\':
+			esc = true
+		case c == '"':
+			inStr = !inStr
+		case inStr:
+		case c == '{':
+			depth++
+		case c == '}':
+			depth--
+			if depth == 0 {
+				return i + 1, nil
+			}
+		}
+	}
+	return 0, fmt.Errorf("unterminated object at offset %d", open)
 }

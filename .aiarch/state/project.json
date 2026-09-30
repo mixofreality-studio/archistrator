@@ -17939,36 +17939,6 @@
       ],
       "title": "DeliveryManager",
       "$defs": {
-        "ActiveRole": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "x-enum-varnames": [
-            "ActiveRoleNone",
-            "ActiveRoleArchitect",
-            "ActiveRoleProductManager"
-          ],
-          "x-go-base": "int"
-        },
-        "ActiveStep": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3
-          ],
-          "x-enum-varnames": [
-            "ActiveStepNone",
-            "ActiveStepDrafting",
-            "ActiveStepCritiquing",
-            "ActiveStepRevising"
-          ],
-          "x-go-base": "int"
-        },
         "ActivityBuildStatus": {
           "type": "integer",
           "enum": [
@@ -17987,17 +17957,20 @@
         },
         "ActivityConstructionPhase": {
           "type": "integer",
+          "description": "The coarse per-activity construction lifecycle, DERIVED from the row's head facts and its resolved phase completions — never stored. Member 4 (completedNotLanded) is APPENDED: ordinals 0-3 are wire values in every committed project and this model renumbers nothing.",
           "enum": [
             0,
             1,
             2,
-            3
+            3,
+            4
           ],
           "x-enum-varnames": [
             "ActivityConstructionNotStarted",
             "ActivityConstructionRunning",
             "ActivityConstructionDone",
-            "ActivityConstructionFailed"
+            "ActivityConstructionFailed",
+            "ActivityConstructionCompletedNotLanded"
           ],
           "x-go-base": "int"
         },
@@ -18327,6 +18300,35 @@
                 "$ref": "#/$defs/TaskRevisionView"
               },
               "description": "Oldest first. A dispatch task and the review task that judges it share revision numbers."
+            },
+            "reviewSet": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/ReviewSet",
+              "description": "Who reviews the artifact at THIS task's gate. Present only while this task is awaiting a human decision. On a fork two tasks are awaiting at once and the review engine answers each separately, so the roster is a per-task fact: it was on the activity until stage 4b3, where it could only ever describe whichever gate was entered last."
+            },
+            "reviewSetError": {
+              "type": "string",
+              "description": "Why reviewSet is absent at this task's live gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted when the engine answered or this task has no live gate."
+            },
+            "awaitingSince": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When THIS occurrence of the task's human stage began, in workflow time. A send-back's redraft re-enters the gate with a new awaitingSince, so the pair (task id, awaitingSince) identifies one gate occurrence. Omitted whenever the task is not awaiting a human."
+            },
+            "awaitingUntil": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When an escalation on this task stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and for an escalation that waits indefinitely."
+            },
+            "redraftExhausted": {
+              "type": "boolean",
+              "description": "True when THIS task's gate can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate occurrence; false whenever the task has no live gate."
             }
           },
           "required": [
@@ -18408,18 +18410,7 @@
               "items": {
                 "$ref": "#/$defs/ActivityTaskView"
               },
-              "description": "Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet."
-            },
-            "reviewSet": {
-              "type": [
-                "null"
-              ],
-              "$ref": "#/$defs/ReviewSet",
-              "description": "Who reviews the artifact at the gate the activity is waiting at. Present only while its live session awaits approval at a lifecycle-phase gate."
-            },
-            "reviewSetError": {
-              "type": "string",
-              "description": "Why reviewSet is absent at a live gate: the review engine refused the proposal. Omitted when the engine answered or no gate is live."
+              "description": "Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet. The reviewer roster and the awaiting facts live HERE, on the task, since stage 4b3: a fork has two gates open at once and an activity-level answer could only ever name one of them."
             }
           },
           "required": [
@@ -18623,6 +18614,57 @@
           ],
           "additionalProperties": false
         },
+        "AwaitingTaskGate": {
+          "type": "object",
+          "description": "ONE task's live human gate, as the activity's own execution sees it. It is the plural replacement for ConstructionSessionView's six flat gate members: those described an ACTIVITY while the facts are per TASK, so on a fork — where a service activity holds detailed_design and test_plan at once — they could only ever name whichever gate was entered last, and two stage 4b2 call sites read them and got the fork wrong. The key IS the task: there is one entry per task awaiting a human right now, and none at all when nobody is being waited on.",
+          "properties": {
+            "taskId": {
+              "type": "string",
+              "x-go-name": "TaskID",
+              "description": "The lifecycle task id this entry is about, or \"merge\" for the local merge hold. It is the key a decision must address."
+            },
+            "gate": {
+              "type": "string",
+              "description": "The gate CLASS this occurrence waits at: the task's own id for a phase approval, \"merge\" for the merge hold, \"takeover\" for an escalation. It is NOT redundant with taskId — an escalation is keyed by the task that escalated and waits at \"takeover\"."
+            },
+            "reviewSet": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/ReviewSet",
+              "description": "Who reviews the artifact at this task's gate. Absent when no roster went up: an escalation and the merge hold ask no reviewer set, and a refusal explains itself in reviewSetError."
+            },
+            "reviewSetError": {
+              "type": "string",
+              "description": "Why reviewSet is absent at this gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered."
+            },
+            "awaitingSince": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When THIS occurrence of the task's human stage began, in workflow time. A send-back's redraft re-enters the gate with a new awaitingSince, so the pair (taskId, awaitingSince) identifies one occurrence."
+            },
+            "awaitingUntil": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for a phase approval gate and for the merge hold."
+            },
+            "redraftExhausted": {
+              "type": "boolean",
+              "description": "True when this gate can take no further SendBack redraft: its human-paced budget is spent, so approve it or steer the activity with OverrideActivity. Recomputed on entry to every gate occurrence; false at the merge hold and at an escalation."
+            }
+          },
+          "required": [
+            "taskId",
+            "gate",
+            "awaitingSince",
+            "redraftExhausted"
+          ],
+          "additionalProperties": false
+        },
         "CICheckState": {
           "type": "integer",
           "enum": [
@@ -18726,43 +18768,18 @@
               ],
               "$ref": "#/$defs/PipelinePhase"
             },
-            "reviewSet": {
-              "type": [
-                "null"
-              ],
-              "$ref": "#/$defs/ReviewSet"
-            },
-            "reviewSetError": {
-              "type": "string",
-              "description": "Why reviewSet is absent at a gate: the review engine refused to propose reviewers. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered."
-            },
             "variance": {
               "type": [
                 "null"
               ],
               "$ref": "#/$defs/FlaggedVariance"
             },
-            "awaitingGate": {
-              "type": "string",
-              "description": "The gate this activity is waiting at, set only while stage is awaitingApproval or awaitingTakeover: a lifecycle phase's wire name (requirements, detailed_design, test_plan, construction or integration) for a phase approval gate, \"merge\" for the local merge hold, or \"takeover\" for an escalation. It is the key a decision must address. Omitted in every other stage and on the project-level view."
-            },
-            "awaitingSince": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time",
-              "description": "When this occurrence of the human stage began, in workflow time. A send-back's redraft re-enters its gate with a new awaitingSince, so the pair (awaitingGate, awaitingSince) identifies one gate occurrence. Omitted whenever awaitingGate is."
-            },
-            "awaitingUntil": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time",
-              "description": "When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and the merge hold, and for an escalation that waits indefinitely."
-            },
-            "redraftExhausted": {
-              "type": "boolean",
-              "description": "True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation."
+            "awaitingTasks": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AwaitingTaskGate"
+              },
+              "description": "Every task this activity is awaiting a human at right now, sorted by task id so a replayed query reproduces it. Empty when nobody is being waited on. It REPLACES the six flat gate members (reviewSet, reviewSetError, awaitingGate, awaitingSince, awaitingUntil, redraftExhausted), which named one gate for a whole activity and were therefore wrong on any fork."
             },
             "attempt": {
               "type": "integer",
@@ -18776,7 +18793,6 @@
           "required": [
             "projectId",
             "stage",
-            "redraftExhausted",
             "attempt",
             "attemptBudget"
           ],
@@ -20007,7 +20023,16 @@
                 "null"
               ],
               "$ref": "#/$defs/ActivityID",
-              "x-go-name": "ActivityID"
+              "x-go-name": "ActivityID",
+              "description": "DEPRECATED, and populated with the FIRST element of activityIds. A parallel pump dispatches a whole frontier in one tick, so one id is a lie about N; read activityIds. Kept because a reader written against the singular field still gets a true answer about one of the activities that started."
+            },
+            "activityIds": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ActivityID"
+              },
+              "x-go-name": "ActivityIDs",
+              "description": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight)."
             }
           },
           "required": [
@@ -20034,21 +20059,6 @@
           "required": [
             "open"
           ],
-          "additionalProperties": false
-        },
-        "ReplanSweepResult": {
-          "type": "object",
-          "properties": {
-            "flaggedVariances": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/FlaggedVariance"
-              }
-            }
-          },
           "additionalProperties": false
         },
         "ResearchInput": {
@@ -25667,15 +25677,30 @@
           ],
           "additionalProperties": false
         },
+        "DelinquencyAction": {
+          "type": "integer",
+          "description": "What a delinquency directive asks for. The UNKNOWN member is the point: it is the zero value, so a request body that omits the action decodes as unknown and is REFUSED by the enforcement branch instead of taking the only arm that acts. The varnames are deliberately NOT identical to operatedSystemStateAccess.DelinquencyAction's (Paused/Withdrawn) — that enum records what was DONE, this one names what was ASKED.",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "DelinquencyActionUnknown",
+            "DelinquencyActionPause",
+            "DelinquencyActionWithdraw"
+          ],
+          "x-go-base": "int"
+        },
         "DelinquencyContext": {
           "type": "object",
           "properties": {
-            "pauseNotWithdraw": {
-              "type": "boolean"
+            "action": {
+              "$ref": "#/$defs/DelinquencyAction"
             }
           },
           "required": [
-            "pauseNotWithdraw"
+            "action"
           ],
           "additionalProperties": false
         },
@@ -26330,17 +26355,20 @@
         },
         "ActivityConstructionPhase": {
           "type": "integer",
+          "description": "The coarse per-activity construction lifecycle, DERIVED from the row's head facts and its resolved phase completions — never stored. Member 4 (completedNotLanded) is APPENDED: ordinals 0-3 are wire values in every committed project and this model renumbers nothing.",
           "enum": [
             0,
             1,
             2,
-            3
+            3,
+            4
           ],
           "x-enum-varnames": [
             "ActivityConstructionNotStarted",
             "ActivityConstructionRunning",
             "ActivityConstructionDone",
-            "ActivityConstructionFailed"
+            "ActivityConstructionFailed",
+            "ActivityConstructionCompletedNotLanded"
           ],
           "x-go-base": "int"
         },
@@ -32209,7 +32237,7 @@
               "id": "STP-UC4-N1",
               "kind": "negative",
               "title": "Delinquency policy pauses (not withdraws) the operated system",
-              "proves": "The queued Manager->Manager delinquency signal must PAUSE the system when pauseNotWithdraw=true and must be observable - never silently withdraw or ignore it.",
+              "proves": "The queued Manager->Manager delinquency signal must PAUSE the system when action=pause and must be observable - never silently withdraw or ignore it.",
               "expectedOutcome": "After ApplyDelinquencyPolicy, publishDesiredState fires with reason=ReasonDelinquency and the view is NOT RuntimeStatusWithdrawn.",
               "steps": [
                 {
@@ -32223,14 +32251,14 @@
                     },
                     {
                       "name": "delinquencyContext",
-                      "value": "{\"pauseNotWithdraw\":true}",
+                      "value": "{\"action\":1}",
                       "schemaRef": "#/$defs/DelinquencyContext"
                     }
                   ],
                   "expect": {
                     "errorExpected": false
                   },
-                  "assertion": "pauseNotWithdraw=true; the manager re-publishes desired state with reason=4 (ReasonDelinquency)."
+                  "assertion": "action=1 (pause); the manager re-publishes desired state with reason=4 (ReasonDelinquency)."
                 },
                 {
                   "seq": 2,

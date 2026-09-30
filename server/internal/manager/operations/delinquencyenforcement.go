@@ -22,33 +22,30 @@ import (
 
 // DelinquencyContext is the BillingTerms-derived enforcement directive Settlement
 // decided (operationsManager.md §3.2). The Manager EXECUTES it (pause vs withdraw per
-// terms); it does NOT decide it. It is the CONTRACT type, carried on the public façade
-// op, and it is unchanged here: it has exactly one member, PauseNotWithdraw, and that
-// bool is the whole of what the two producers ever disagreed about (see
-// applyDelinquencySignal below).
+// terms); it does NOT decide it. It is the CONTRACT type carried on the public façade op,
+// and since stage 4b3 its one member is DelinquencyAction rather than a bool — see below.
 
-// delinquencyAction is what the enforcement branch is TOLD to do, and it has three
-// members because a bool has two and the missing one is the important one. `unknown` is
-// what a payload that named no action decodes to, and the branch REFUSES it — where the
-// retired bool made "nobody said" and "withdraw" the same value, and withdraw is the only
-// arm that acts (the pause arm publishes nothing; see runDelinquencyBranch). This is the
-// rule 4b1 already wrote at the planning-assumptions site: a field whose value is its
-// vocabulary's UNKNOWN member is absent in the only sense that matters.
-type delinquencyAction int
-
-const (
-	delinquencyActionUnknown  delinquencyAction = 0
-	delinquencyActionPause    delinquencyAction = 1
-	delinquencyActionWithdraw delinquencyAction = 2
-)
-
-func (a delinquencyAction) String() string {
+// DelinquencyAction's String, hand-written on the GENERATED enum (contract.gen.go). The
+// vocabulary has three members because a bool has two and the missing one is the important
+// one: DelinquencyActionUnknown is what a request body that named no action decodes to, and
+// the branch REFUSES it. Until stage 4b3 the wire carried a non-pointer `pauseNotWithdraw`
+// bool whose zero value was WITHDRAW — the only arm that acts, and irreversible — on a
+// generated REST/MCP handler that does a plain decodeJSON with no required-presence check.
+// So "nobody said" and "remove every in-flight app of this customer" were the same eight
+// bytes. This is the rule 4b1 already wrote at the planning-assumptions site: a field whose
+// value is its vocabulary's UNKNOWN member is absent in the only sense that matters.
+//
+// The varnames are deliberately NOT operatedsystemstate.DelinquencyAction's
+// (Paused/Withdrawn): that enum records what was DONE and this one names what was ASKED, and
+// a reader who confuses the directive with the recorded head state has confused the two ends
+// of this branch.
+func (a DelinquencyAction) String() string {
 	switch a {
-	case delinquencyActionPause:
+	case DelinquencyActionPause:
 		return "pause"
-	case delinquencyActionWithdraw:
+	case DelinquencyActionWithdraw:
 		return "withdraw"
-	case delinquencyActionUnknown:
+	case DelinquencyActionUnknown:
 		return "unknown"
 	}
 	return "unknown"
@@ -59,15 +56,17 @@ func (a delinquencyAction) String() string {
 // (SignalWithStartWorkflow) and the billing shortfall sweep (messageBus.deliverSignal).
 //
 // It is FLAT because both producers are flat: billing has always sent
-// {CustomerID, PauseNotWithdraw} and the façade nested the same single bit one level
-// deeper. The nesting was the whole of the mismatch (the contract type DelinquencyContext
-// has exactly one member), so flattening costs no contract change and makes the two
-// producers converge on ONE payload type — which is what the missing gate would have
-// required anyway. This is a Manager-internal type, NOT a contract type; no generated
-// surface moves with it.
+// {CustomerID, <the action>} and the façade nested the same single fact one level deeper.
+// The nesting was the whole of the mismatch (the contract type DelinquencyContext has
+// exactly one member), so flattening cost no contract change and made the two producers
+// converge on ONE payload type — which is what the missing gate would have required anyway.
+// This is a Manager-internal type, NOT a contract type; no generated surface moves with it.
+// Its Action is the GENERATED contract enum since stage 4b3: the façade now passes the
+// caller's directive straight through, so a second local vocabulary would be a mirror with
+// nothing on the other side of it.
 type applyDelinquencySignal struct {
 	CustomerID customerID        `json:"CustomerID"`
-	Action     delinquencyAction `json:"Action"`
+	Action     DelinquencyAction `json:"Action"`
 }
 
 // decodeDelinquencySignal normalises the TWO wire forms this channel really carries, and
@@ -140,11 +139,11 @@ func (wf *workflows) DelinquencyEnforcementWorkflow(ctx workflow.Context, in del
 //  2. Per app, per BillingTerms: PublishDesiredStateActivity(pause-or-withdraw-patch)
 //     (replicas=0 or removed).
 //  3. RecordDelinquencyActionActivity (operatedSystemStateAccess.recordDelinquencyAction).
-func (wf *workflows) runDelinquencyBranch(ctx workflow.Context, customerID customerID, action delinquencyAction) error {
+func (wf *workflows) runDelinquencyBranch(ctx workflow.Context, customerID customerID, action DelinquencyAction) error {
 	logger := workflow.GetLogger(ctx)
 	switch action {
-	case delinquencyActionPause, delinquencyActionWithdraw:
-	case delinquencyActionUnknown:
+	case DelinquencyActionPause, DelinquencyActionWithdraw:
+	case DelinquencyActionUnknown:
 		// REFUSED, LOUDLY. The retired bool's zero value selected WITHDRAW, so a payload that
 		// named no action removed the runtime of every in-flight app of this customer. There
 		// is no safe default here: pause publishes nothing today and withdraw is irreversible,
@@ -162,14 +161,14 @@ func (wf *workflows) runDelinquencyBranch(ctx workflow.Context, customerID custo
 	}
 
 	state := operatedsystemstate.DelinquencyActionWithdrawn
-	if action == delinquencyActionPause {
+	if action == DelinquencyActionPause {
 		state = operatedsystemstate.DelinquencyActionPaused
 	}
 
 	for _, app := range apps {
 		// EXECUTE the BillingTerms-derived enforcement: a pause is INTENDED to publish
 		// replicas=0; a hard withdraw removes the runtime.
-		if action == delinquencyActionPause {
+		if action == DelinquencyActionPause {
 			// Deliberately does NOT call the runtime publish (review finding 2, same
 			// reasoning as reconcile.go's HealthRetry/autoscale comments): the only
 			// state this path could construct today is either the static model-declared

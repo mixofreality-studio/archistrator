@@ -7,23 +7,6 @@ import (
 	"time"
 )
 
-type ActiveRole int
-
-const (
-	ActiveRoleNone           ActiveRole = 0
-	ActiveRoleArchitect      ActiveRole = 1
-	ActiveRoleProductManager ActiveRole = 2
-)
-
-type ActiveStep int
-
-const (
-	ActiveStepNone       ActiveStep = 0
-	ActiveStepDrafting   ActiveStep = 1
-	ActiveStepCritiquing ActiveStep = 2
-	ActiveStepRevising   ActiveStep = 3
-)
-
 type ActivityBuildStatus int
 
 const (
@@ -36,10 +19,11 @@ const (
 type ActivityConstructionPhase int
 
 const (
-	ActivityConstructionNotStarted ActivityConstructionPhase = 0
-	ActivityConstructionRunning    ActivityConstructionPhase = 1
-	ActivityConstructionDone       ActivityConstructionPhase = 2
-	ActivityConstructionFailed     ActivityConstructionPhase = 3
+	ActivityConstructionNotStarted         ActivityConstructionPhase = 0
+	ActivityConstructionRunning            ActivityConstructionPhase = 1
+	ActivityConstructionDone               ActivityConstructionPhase = 2
+	ActivityConstructionFailed             ActivityConstructionPhase = 3
+	ActivityConstructionCompletedNotLanded ActivityConstructionPhase = 4
 )
 
 type ActivityConstructionStatus struct {
@@ -128,6 +112,11 @@ type ActivityTaskView struct {
 	Reviews          *string            `json:"reviews,omitempty"`
 	State            ActivityTaskState  `json:"state"`
 	Revisions        []TaskRevisionView `json:"revisions"`
+	ReviewSet        *ReviewSet         `json:"reviewSet,omitempty"`
+	ReviewSetError   *string            `json:"reviewSetError,omitempty"`
+	AwaitingSince    *time.Time         `json:"awaitingSince,omitempty"`
+	AwaitingUntil    *time.Time         `json:"awaitingUntil,omitempty"`
+	RedraftExhausted *bool              `json:"redraftExhausted,omitempty"`
 }
 
 type ActivityType int
@@ -146,16 +135,14 @@ const (
 )
 
 type ActivityView struct {
-	ActivityID     ActivityID               `json:"activityId"`
-	Name           string                   `json:"name"`
-	Type           string                   `json:"type"`
-	Variant        *string                  `json:"variant,omitempty"`
-	ComponentID    *string                  `json:"componentId,omitempty"`
-	State          ActivityViewState        `json:"state"`
-	Phases         []ActivityLifecyclePhase `json:"phases"`
-	Tasks          []ActivityTaskView       `json:"tasks"`
-	ReviewSet      *ReviewSet               `json:"reviewSet,omitempty"`
-	ReviewSetError *string                  `json:"reviewSetError,omitempty"`
+	ActivityID  ActivityID               `json:"activityId"`
+	Name        string                   `json:"name"`
+	Type        string                   `json:"type"`
+	Variant     *string                  `json:"variant,omitempty"`
+	ComponentID *string                  `json:"componentId,omitempty"`
+	State       ActivityViewState        `json:"state"`
+	Phases      []ActivityLifecyclePhase `json:"phases"`
+	Tasks       []ActivityTaskView       `json:"tasks"`
 }
 
 type ActivityViewState string
@@ -230,6 +217,16 @@ type AttemptProvenance struct {
 	Basis       *string    `json:"basis,omitempty"`
 }
 
+type AwaitingTaskGate struct {
+	TaskID           string     `json:"taskId"`
+	Gate             string     `json:"gate"`
+	ReviewSet        *ReviewSet `json:"reviewSet,omitempty"`
+	ReviewSetError   *string    `json:"reviewSetError,omitempty"`
+	AwaitingSince    time.Time  `json:"awaitingSince"`
+	AwaitingUntil    *time.Time `json:"awaitingUntil,omitempty"`
+	RedraftExhausted bool       `json:"redraftExhausted"`
+}
+
 type CICheckState int
 
 const (
@@ -255,19 +252,14 @@ type ConstructionProgress struct {
 }
 
 type ConstructionSessionView struct {
-	ProjectID        ProjectID         `json:"projectId"`
-	ActivityID       *ActivityID       `json:"activityId,omitempty"`
-	Stage            ConstructionStage `json:"stage"`
-	PipelinePhase    *PipelinePhase    `json:"pipelinePhase,omitempty"`
-	ReviewSet        *ReviewSet        `json:"reviewSet,omitempty"`
-	ReviewSetError   *string           `json:"reviewSetError,omitempty"`
-	Variance         *FlaggedVariance  `json:"variance,omitempty"`
-	AwaitingGate     *string           `json:"awaitingGate,omitempty"`
-	AwaitingSince    *time.Time        `json:"awaitingSince,omitempty"`
-	AwaitingUntil    *time.Time        `json:"awaitingUntil,omitempty"`
-	RedraftExhausted bool              `json:"redraftExhausted"`
-	Attempt          int64             `json:"attempt"`
-	AttemptBudget    int64             `json:"attemptBudget"`
+	ProjectID     ProjectID          `json:"projectId"`
+	ActivityID    *ActivityID        `json:"activityId,omitempty"`
+	Stage         ConstructionStage  `json:"stage"`
+	PipelinePhase *PipelinePhase     `json:"pipelinePhase,omitempty"`
+	Variance      *FlaggedVariance   `json:"variance,omitempty"`
+	AwaitingTasks []AwaitingTaskGate `json:"awaitingTasks,omitempty"`
+	Attempt       int64              `json:"attempt"`
+	AttemptBudget int64              `json:"attemptBudget"`
 }
 
 type ConstructionStage int
@@ -649,17 +641,14 @@ type ProjectViewQuery struct {
 }
 
 type PumpResult struct {
-	Dispatched bool        `json:"dispatched"`
-	ActivityID *ActivityID `json:"activityId,omitempty"`
+	Dispatched  bool         `json:"dispatched"`
+	ActivityID  *ActivityID  `json:"activityId,omitempty"`
+	ActivityIDs []ActivityID `json:"activityIds,omitempty"`
 }
 
 type PumpStatus struct {
 	Open         bool       `json:"open"`
 	RunStartedAt *time.Time `json:"runStartedAt,omitempty"`
-}
-
-type ReplanSweepResult struct {
-	FlaggedVariances []FlaggedVariance `json:"flaggedVariances,omitempty"`
 }
 
 type ResearchInput struct {
@@ -968,36 +957,6 @@ type TimelineEvent struct {
 	Raw       *json.RawMessage `json:"raw,omitempty"`
 }
 
-// ActiveRoleName returns the declared varname of a ActiveRole value.
-func ActiveRoleName(v ActiveRole) string {
-	switch v {
-	case ActiveRoleNone:
-		return "ActiveRoleNone"
-	case ActiveRoleArchitect:
-		return "ActiveRoleArchitect"
-	case ActiveRoleProductManager:
-		return "ActiveRoleProductManager"
-	default:
-		return ""
-	}
-}
-
-// ActiveStepName returns the declared varname of a ActiveStep value.
-func ActiveStepName(v ActiveStep) string {
-	switch v {
-	case ActiveStepNone:
-		return "ActiveStepNone"
-	case ActiveStepDrafting:
-		return "ActiveStepDrafting"
-	case ActiveStepCritiquing:
-		return "ActiveStepCritiquing"
-	case ActiveStepRevising:
-		return "ActiveStepRevising"
-	default:
-		return ""
-	}
-}
-
 // ActivityBuildStatusName returns the declared varname of a ActivityBuildStatus value.
 func ActivityBuildStatusName(v ActivityBuildStatus) string {
 	switch v {
@@ -1025,6 +984,8 @@ func ActivityConstructionPhaseName(v ActivityConstructionPhase) string {
 		return "ActivityConstructionDone"
 	case ActivityConstructionFailed:
 		return "ActivityConstructionFailed"
+	case ActivityConstructionCompletedNotLanded:
+		return "ActivityConstructionCompletedNotLanded"
 	default:
 		return ""
 	}

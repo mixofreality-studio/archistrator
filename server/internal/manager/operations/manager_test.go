@@ -1438,7 +1438,7 @@ func Test_Delinquency_PauseTerms_RecordsPaused(t *testing.T) {
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalApplyDelinquencyPolicy, applyDelinquencySignal{
-			CustomerID: cid, Action: delinquencyActionPause,
+			CustomerID: cid, Action: DelinquencyActionPause,
 		})
 	}, time.Millisecond)
 
@@ -1471,7 +1471,7 @@ func Test_Delinquency_WithdrawTerms_WithdrawsAndRecordsWithdrawn(t *testing.T) {
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalApplyDelinquencyPolicy, applyDelinquencySignal{
-			CustomerID: cid, Action: delinquencyActionWithdraw,
+			CustomerID: cid, Action: DelinquencyActionWithdraw,
 		})
 	}, time.Millisecond)
 
@@ -1490,7 +1490,7 @@ func Test_Delinquency_WithdrawTerms_WithdrawsAndRecordsWithdrawn(t *testing.T) {
 
 // F3: Test_Delinquency_AnUnsaidActionIsRefusedRatherThanWithdrawn is the whole point of
 // the vocabulary change. Before it, applyDelinquencySignal's zero value decoded to
-// DelinquencyContext{PauseNotWithdraw:false}, runDelinquencyBranch read that as
+// DelinquencyContext{pauseNotWithdraw:false}, runDelinquencyBranch read that as
 // DelinquencyActionWithdrawn, and withdrawRuntime removed the runtime of EVERY in-flight
 // app of the customer — so "nobody said" and "withdraw" were the same value. A bool
 // cannot express the difference; a three-member vocabulary can, and the enforcement
@@ -1551,7 +1551,7 @@ func Test_Delinquency_TheBusWireFormIsDecoded(t *testing.T) {
 		// not at all — the SDK logs "Corrupted signal received on channel" and DROPS it.
 		{"busRawBytes", []byte(`{"CustomerID":"` + cid.String() + `","Action":1}`)},
 		// The façade form: a struct through SignalWithStartWorkflow, json/plain.
-		{"facadeStruct", applyDelinquencySignal{CustomerID: cid, Action: delinquencyActionPause}},
+		{"facadeStruct", applyDelinquencySignal{CustomerID: cid, Action: DelinquencyActionPause}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1682,10 +1682,10 @@ func Test_Delinquency_TheTwoPackagesAgreeOnTheWire(t *testing.T) {
 	// 2. The two wire ordinals. billing may send only these, and they are operations'.
 	for _, want := range []struct {
 		name string
-		val  delinquencyAction
+		val  DelinquencyAction
 	}{
-		{"delinquencyActionPauseWire", delinquencyActionPause},
-		{"delinquencyActionWithdrawWire", delinquencyActionWithdraw},
+		{"delinquencyActionPauseWire", DelinquencyActionPause},
+		{"delinquencyActionWithdrawWire", DelinquencyActionWithdraw},
 	} {
 		got, ok := shape.constVals[want.name]
 		if !ok {

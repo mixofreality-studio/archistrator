@@ -483,16 +483,20 @@ test.describe('activity experience: what each body says', () => {
   test('a gate whose reviewer set could not be proposed shows the engine refusal, not an empty strip', async ({
     page,
   }) => {
+    // THE REFUSAL IS ON THE TASK, not on the activity (stage 4b3). It used to be an
+    // activity-level member, which on a fork could only ever explain one of two gates —
+    // and the strip is drawn per task, so it was reading a fact about the wrong branch.
     const view = fixture('activity-experience', 'review-set-error').ops[
       'deliveryQueryActivityView'
-    ]?.result as { reviewSetError: string };
-    expect(view.reviewSetError).toBeTruthy();
+    ]?.result as { tasks: { id: string; reviewSetError?: string }[] };
+    const refusal = view.tasks.find((t) => t.reviewSetError !== undefined)?.reviewSetError;
+    expect(refusal).toBeTruthy();
 
     const offBundle = await openState(page, 'activity-experience', 'review-set-error');
     await expect(page.getByTestId(TESTID.activityReviewersStrip)).toBeVisible();
     // Verbatim — a refusal paraphrased is a refusal nobody can act on.
     await expect(page.getByTestId(TESTID.activityReviewSetError)).toContainText(
-      view.reviewSetError
+      refusal ?? ''
     );
 
     expect(await incidents(page)).toEqual([]);

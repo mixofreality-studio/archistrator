@@ -15,56 +15,6 @@
 // hand code, not a bug — see the NOTE on the block), this file exports ONLY
 // the raw Go varnames; keep a small hand mapping for those.
 
-// --- ActiveRole ----------------------------------------------------------
-// Sources: DeliveryActiveRole
-export const ACTIVE_ROLE_GO_VARNAMES = [
-  'ActiveRoleNone',
-  'ActiveRoleArchitect',
-  'ActiveRoleProductManager',
-] as const;
-
-export type ActiveRoleGoVarname = (typeof ACTIVE_ROLE_GO_VARNAMES)[number];
-
-export const ACTIVE_ROLE_ORDINAL_TO_GO_VARNAME: readonly ActiveRoleGoVarname[] =
-  ACTIVE_ROLE_GO_VARNAMES;
-
-export const ACTIVE_ROLE_APP_STRINGS = ['none', 'architect', 'productManager'] as const;
-
-export type ActiveRole = (typeof ACTIVE_ROLE_APP_STRINGS)[number];
-
-export const ACTIVE_ROLE_ORDINAL_TO_APP: readonly ActiveRole[] = ACTIVE_ROLE_APP_STRINGS;
-
-export const ACTIVE_ROLE_APP_TO_ORDINAL: Readonly<Record<ActiveRole, number>> = {
-  none: 0,
-  architect: 1,
-  productManager: 2,
-};
-// --- ActiveStep ----------------------------------------------------------
-// Sources: DeliveryActiveStep
-export const ACTIVE_STEP_GO_VARNAMES = [
-  'ActiveStepNone',
-  'ActiveStepDrafting',
-  'ActiveStepCritiquing',
-  'ActiveStepRevising',
-] as const;
-
-export type ActiveStepGoVarname = (typeof ACTIVE_STEP_GO_VARNAMES)[number];
-
-export const ACTIVE_STEP_ORDINAL_TO_GO_VARNAME: readonly ActiveStepGoVarname[] =
-  ACTIVE_STEP_GO_VARNAMES;
-
-export const ACTIVE_STEP_APP_STRINGS = ['none', 'drafting', 'critiquing', 'revising'] as const;
-
-export type ActiveStep = (typeof ACTIVE_STEP_APP_STRINGS)[number];
-
-export const ACTIVE_STEP_ORDINAL_TO_APP: readonly ActiveStep[] = ACTIVE_STEP_APP_STRINGS;
-
-export const ACTIVE_STEP_APP_TO_ORDINAL: Readonly<Record<ActiveStep, number>> = {
-  none: 0,
-  drafting: 1,
-  critiquing: 2,
-  revising: 3,
-};
 // --- ActivityBuildStatus -------------------------------------------------
 // Sources: DeliveryActivityBuildStatus
 export const ACTIVITY_BUILD_STATUS_GO_VARNAMES = [
@@ -87,6 +37,7 @@ export const ACTIVITY_CONSTRUCTION_PHASE_GO_VARNAMES = [
   'ActivityConstructionRunning',
   'ActivityConstructionDone',
   'ActivityConstructionFailed',
+  'ActivityConstructionCompletedNotLanded',
 ] as const;
 
 export type ActivityConstructionPhaseGoVarname =
@@ -101,6 +52,7 @@ export const ACTIVITY_CONSTRUCTION_PHASE_APP_STRINGS = [
   'running',
   'done',
   'failed',
+  'completedNotLanded',
 ] as const;
 
 export type ActivityConstructionPhase = (typeof ACTIVITY_CONSTRUCTION_PHASE_APP_STRINGS)[number];
@@ -115,6 +67,7 @@ export const ACTIVITY_CONSTRUCTION_PHASE_APP_TO_ORDINAL: Readonly<
   running: 1,
   done: 2,
   failed: 3,
+  completedNotLanded: 4,
 };
 // --- ActivityTaskKind ----------------------------------------------------
 // Sources: DeliveryActivityTaskKind
@@ -433,6 +386,32 @@ export const CONSTRUCTION_STAGE_APP_TO_ORDINAL: Readonly<Record<ConstructionStag
   paused: 5,
   exited: 6,
   awaitingApproval: 7,
+};
+// --- DelinquencyAction ---------------------------------------------------
+// Sources: OperationsDelinquencyAction
+export const DELINQUENCY_ACTION_GO_VARNAMES = [
+  'DelinquencyActionUnknown',
+  'DelinquencyActionPause',
+  'DelinquencyActionWithdraw',
+] as const;
+
+export type DelinquencyActionGoVarname = (typeof DELINQUENCY_ACTION_GO_VARNAMES)[number];
+
+export const DELINQUENCY_ACTION_ORDINAL_TO_GO_VARNAME: readonly DelinquencyActionGoVarname[] =
+  DELINQUENCY_ACTION_GO_VARNAMES;
+
+// NOTE: no existing hand-authored app-string table to verify against (unwired/new enum) — derived mechanically, unverified.
+export const DELINQUENCY_ACTION_APP_STRINGS = ['unknown', 'pause', 'withdraw'] as const;
+
+export type DelinquencyAction = (typeof DELINQUENCY_ACTION_APP_STRINGS)[number];
+
+export const DELINQUENCY_ACTION_ORDINAL_TO_APP: readonly DelinquencyAction[] =
+  DELINQUENCY_ACTION_APP_STRINGS;
+
+export const DELINQUENCY_ACTION_APP_TO_ORDINAL: Readonly<Record<DelinquencyAction, number>> = {
+  unknown: 0,
+  pause: 1,
+  withdraw: 2,
 };
 // --- DesiredStateReason --------------------------------------------------
 // Sources: OperationsDesiredStateReason

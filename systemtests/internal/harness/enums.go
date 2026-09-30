@@ -139,6 +139,22 @@ var desiredStateReasonByWire = invert(desiredStateReasonWire)
 
 func desiredStateReason(name string) sdk.DesiredStateReason { return desiredStateReasonByWire[name] }
 
+// The delinquency DIRECTIVE, which is what the caller ASKS for — not
+// operatedSystemStateAccess's DelinquencyAction, which records what was DONE. The
+// UNKNOWN member is deliberately mapped: it is the zero value, so it is what a caller
+// who omits the field sends, and STP-UC4 exists partly to prove the enforcement branch
+// REFUSES it rather than defaulting to the one irreversible arm (it did, until stage
+// 4b3 the field was a bool whose zero value meant withdraw).
+var delinquencyActionWire = map[sdk.DelinquencyAction]string{
+	sdk.DelinquencyActionUnknown:  "unknown",
+	sdk.DelinquencyActionPause:    "pause",
+	sdk.DelinquencyActionWithdraw: "withdraw",
+}
+
+var delinquencyActionByWire = invert(delinquencyActionWire)
+
+func delinquencyAction(name string) sdk.DelinquencyAction { return delinquencyActionByWire[name] }
+
 var patchKindWire = map[sdk.PatchKind]string{
 	sdk.PatchFullBundle: "fullBundle",
 	sdk.PatchScale:      "scale",

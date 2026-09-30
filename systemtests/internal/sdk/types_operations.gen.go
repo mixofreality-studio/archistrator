@@ -42,8 +42,16 @@ type CostProjectionSeam struct {
 	ScaleWhatIfCurve     WhatIfCurve     `json:"ScaleWhatIfCurve"`
 }
 
+type DelinquencyAction int
+
+const (
+	DelinquencyActionUnknown  DelinquencyAction = 0
+	DelinquencyActionPause    DelinquencyAction = 1
+	DelinquencyActionWithdraw DelinquencyAction = 2
+)
+
 type DelinquencyContext struct {
-	PauseNotWithdraw bool `json:"pauseNotWithdraw"`
+	Action DelinquencyAction `json:"action"`
 }
 
 type DeployResult struct {
@@ -203,6 +211,20 @@ func AutoscalerModeName(v AutoscalerMode) string {
 		return "AutoscalerModeAuto"
 	case AutoscalerModeManual:
 		return "AutoscalerModeManual"
+	default:
+		return ""
+	}
+}
+
+// DelinquencyActionName returns the declared varname of a DelinquencyAction value.
+func DelinquencyActionName(v DelinquencyAction) string {
+	switch v {
+	case DelinquencyActionUnknown:
+		return "DelinquencyActionUnknown"
+	case DelinquencyActionPause:
+		return "DelinquencyActionPause"
+	case DelinquencyActionWithdraw:
+		return "DelinquencyActionWithdraw"
 	default:
 		return ""
 	}

@@ -6359,19 +6359,47 @@ func (m *constructionManager) QueryActivityView(rc fwmanager.Context, projectID 
 	if err != nil {
 		return ActivityView{}, mapRAError(err, "episodeAccess.ListEpisodes")
 	}
-	// The gate is the session's awaitingGate verbatim: a lifecycle-phase id matches a
-	// phase, and the merge hold and an escalation simply match none.
-	liveGate, _ := liveApprovalGate(live)
-	tasks := deriveTaskViews(lc, normalizeAttempts(id, row, resolved, records, live), row.OperatorNotes, row.Reviews, liveGate)
+	// The gates are the session's own, verbatim: a lifecycle-phase id matches a phase, and
+	// the merge hold and an escalation simply match none.
+	liveGates := liveApprovalGates(live)
+	tasks := deriveTaskViews(lc, normalizeAttempts(id, row, resolved, records, live), row.OperatorNotes, row.Reviews, liveGates)
 	view := activityViewFrom(activityID, item, typ, variant, lc, resolved, tasks)
 	view.State = activityViewState(coarse, live)
-	// The roster and the engine's refusal to produce one are the SAME fact about the live
-	// gate, so they travel together under the one condition: a refusal without a live gate
-	// would explain an absence nobody is looking at.
-	if liveGate != "" {
-		view.ReviewSet, view.ReviewSetError = live.ReviewSet, live.ReviewSetError
-	}
+	// THE FIVE LIVE-GATE FACTS LAND ON THE TASK THEY ARE ABOUT (stage 4b3). They used to be
+	// copied onto the ACTIVITY from the session's single-valued pair, so a fork showed one
+	// branch's roster beside both gates and the Activity Experience's reviewers strip drew
+	// the wrong people. The join is by task id, which is exactly the key the child writes
+	// them under; a task the session is not awaiting at gets none of them, which is what
+	// their absence means.
+	applyLiveGateFacts(&view, live)
 	return view, nil
+}
+
+// applyLiveGateFacts joins the session's per-task gate entries onto the tasks of the derived
+// activity view. A session entry that names no lifecycle task — the merge hold — has no task
+// to land on and is dropped here, deliberately: the merge is not a lifecycle task and the
+// Activity Experience renders it from the session, not from the task DAG.
+func applyLiveGateFacts(view *ActivityView, live *ConstructionSessionView) {
+	if live == nil || len(live.AwaitingTasks) == 0 {
+		return
+	}
+	byTask := make(map[string]AwaitingTaskGate, len(live.AwaitingTasks))
+	for _, g := range live.AwaitingTasks {
+		byTask[g.TaskID] = g
+	}
+	for i := range view.Tasks {
+		g, ok := byTask[view.Tasks[i].ID]
+		if !ok {
+			continue
+		}
+		since := g.AwaitingSince
+		view.Tasks[i].ReviewSet = g.ReviewSet
+		view.Tasks[i].ReviewSetError = g.ReviewSetError
+		view.Tasks[i].AwaitingSince = &since
+		view.Tasks[i].AwaitingUntil = g.AwaitingUntil
+		exhausted := g.RedraftExhausted
+		view.Tasks[i].RedraftExhausted = &exhausted
+	}
 }
 
 // GetPumpStatus — op 2.9 (plan B1.5). Reports whether the project's ONE construction
@@ -6590,7 +6618,13 @@ func (m *constructionManager) WithdrawReviewRound(
 	view, err := m.activitySession(ctx, projectID, activityID)
 	switch {
 	case err == nil:
-		if view.Stage == StageAwaitingApproval && gateNameOf(view) == taskID {
+		// PER TASK since stage 4b3: the question is whether THIS task's own phase gate is
+		// live, not whether the activity is at some gate. `g.Gate == taskID` is what says
+		// "a phase approval on this task" — an escalation is keyed by the task that
+		// escalated while it waits at takeoverGateKey, and the old activity-level
+		// `Stage == StageAwaitingApproval` check excluded that case by accident rather
+		// than on purpose.
+		if g, ok := awaitingTaskGate(view, taskID); ok && g.Gate == taskID {
 			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 				"activity %s is awaiting your decision at %s: approve it, send it back, or re-dispatch the task — a withdraw records that nobody judged the round, and pulling it out from under a live gate would strand the activity",
 				activityID, taskID))
@@ -6764,7 +6798,10 @@ func (m *constructionManager) SubmitTaskDecision(
 	// — the child's refusal is written for exactly that (decideTaskGate).
 	round := 0
 	if taskID == mergeGateKey {
-		if view.Stage != StageAwaitingApproval || gateNameOf(view) != mergeGateKey {
+		// The merge hold is keyed by mergeGateKey in the per-task map, so asking for it by
+		// key IS the check — and it no longer depends on the activity-level stage, which a
+		// fork can set from a sibling branch.
+		if _, ok := awaitingTaskGate(view, mergeGateKey); !ok {
 			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 				"activity %s is at %s/%s, not holding for a merge approval",
 				activityID, sessionStageName(view.Stage), gateNameOf(view)))
@@ -6967,13 +7004,19 @@ func isManagerNotFound(err error) bool {
 	return errors.As(err, &me) && me.Kind == fwmanager.NotFound
 }
 
-// gateNameOf renders a session's gate for a refusal sentence: the gate it is at, or that
-// there is none.
+// gateNameOf renders a session's live gates for a refusal sentence: every gate it is
+// holding at, or that there is none. It is PLURAL since stage 4b3 because the session is:
+// a fork holds two gates at once, and a refusal that named one of them was telling the
+// operator about the branch they were not asking about. The ids arrive sorted (view()).
 func gateNameOf(v ConstructionSessionView) string {
-	if v.AwaitingGate == nil || *v.AwaitingGate == "" {
+	if len(v.AwaitingTasks) == 0 {
 		return "no gate"
 	}
-	return *v.AwaitingGate
+	names := make([]string, 0, len(v.AwaitingTasks))
+	for _, g := range v.AwaitingTasks {
+		names = append(names, g.TaskID)
+	}
+	return strings.Join(names, ", ")
 }
 
 // validateTaskDecision is SubmitTaskDecision's ContractMisuse gate over the (task, decision)
@@ -7046,7 +7089,12 @@ func precheckTaskDecision(v ConstructionSessionView, activityID ActivityID, task
 		// holds the gate being decided. None of them is the answer to "is THIS task's gate
 		// open" — requireOpenRound is.
 	}
-	if decision == ReviewReject && v.RedraftExhausted {
+	// PER TASK since stage 4b3, which discharges 4b2's earmark on this line. The flag used
+	// to be an ACTIVITY-level member, so on a fork the budget of whichever gate was entered
+	// last refused a send-back at the other one — and, equally, let one through at a gate
+	// whose own budget was spent. A task with no live gate has no budget question to answer
+	// and falls through; requireOpenRound is what refuses it.
+	if g, ok := awaitingTaskGate(v, taskID); decision == ReviewReject && ok && g.RedraftExhausted {
 		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 			"the redraft budget for %s of activity %s is spent — approve it or steer the activity with an override", taskID, activityID))
 	}
@@ -8460,52 +8508,53 @@ func (s *constructState) view() (ConstructionSessionView, error) {
 		Attempt:       int64(s.attempt),
 		AttemptBudget: maxVarianceAttempts,
 	}
-	// THE FLAT MEMBERS ARE DERIVED NOW, AND THEY ARE STILL A LIE — a bounded one, for one
-	// more task. ConstructionSessionView's awaiting* / reviewSet* / redraftExhausted describe
-	// an ACTIVITY and the facts are per TASK, so on a fork there is no correct single answer.
-	// Until stage 4b3 Task 8 moves them onto ActivityTaskView and deletes them from the wire,
-	// this projection answers with the MERGE gate when one is held (after the join there is
-	// exactly one occupant, which is why mergeGateKey is the one gate 4b2 left reading the
-	// view) and otherwise with the most recently entered task, tie-broken by task id so a
-	// replay reproduces it. Nothing NEW may read these; the per-task map is the source.
-	live, ok := s.projectedGate()
-	if !ok {
-		return v, nil
-	}
-	v.ReviewSet, v.RedraftExhausted = live.reviewSet, live.redraftExhausted
-	if live.reviewSetError != "" {
-		e := live.reviewSetError
-		v.ReviewSetError = &e
-	}
-	gate, since := live.gate, live.awaitingSince
-	v.AwaitingGate, v.AwaitingSince = &gate, &since
-	if live.awaitingUntil != nil {
-		until := *live.awaitingUntil
-		v.AwaitingUntil = &until
+	// THE GATE FACTS ARE PLURAL, AND THAT IS THE WHOLE OF STAGE 4b3'S VIEW MOVE. Until this
+	// wave the view carried SIX flat members — reviewSet, reviewSetError, awaitingGate,
+	// awaitingSince, awaitingUntil, redraftExhausted — that described an ACTIVITY while the
+	// facts are per TASK. On a `service` fork, where detailed_design and test_plan are gated
+	// at once, they could only ever name whichever gate was entered last: two independent 4b2
+	// call sites read them and got the fork wrong, and one of the two was the ROUTINE approval
+	// path, where the operator could not approve one of the two gates the screen was showing
+	// them. They are DELETED, not deprecated — there are no production users and therefore no
+	// compatibility argument — and this array is what answers instead. One entry per task
+	// awaiting a human, none at all when nobody is being waited on.
+	//
+	// awaitingTasks() is SORTED: a map range in a workflow is nondeterministic and this feeds
+	// a Query a replay must reproduce byte for byte.
+	for _, id := range s.awaitingTasks() {
+		live := s.taskView(id)
+		gate := AwaitingTaskGate{
+			TaskID:           id,
+			Gate:             live.gate,
+			ReviewSet:        live.reviewSet,
+			AwaitingSince:    live.awaitingSince,
+			RedraftExhausted: live.redraftExhausted,
+		}
+		if live.reviewSetError != "" {
+			e := live.reviewSetError
+			gate.ReviewSetError = &e
+		}
+		if live.awaitingUntil != nil {
+			until := *live.awaitingUntil
+			gate.AwaitingUntil = &until
+		}
+		v.AwaitingTasks = append(v.AwaitingTasks, gate)
 	}
 	return v, nil
 }
 
-// projectedGate picks the ONE task the flat wire members describe, per view()'s rule: the
-// merge hold when it is held, otherwise the most recently entered gate with the
-// lexicographically first task id breaking a tie. awaitingTasks is already sorted, so
-// keeping the FIRST entry that strictly beats the running maximum is that tie-break.
-//
-// ok=false means no gate is live, which is the whole of "the activity is not waiting for a
-// person" — and it is why a decided gate no longer erases its sibling's: the six facts come
-// down with the OCCURRENCE that owned them, not with whichever one was decided last.
-func (s *constructState) projectedGate() (taskViewState, bool) {
-	if merge := s.taskView(mergeGateKey); merge.awaiting() {
-		return merge, true
-	}
-	var best taskViewState
-	found := false
-	for _, id := range s.awaitingTasks() {
-		if v := s.taskView(id); !found || v.awaitingSince.After(best.awaitingSince) {
-			best, found = v, true
+// awaitingTaskGate is ONE task's live gate on a session view, or ok=false when that task is
+// not awaiting a human. It is the per-task successor of the `gateNameOf(view) == taskID`
+// comparison the flat members forced, and it is strictly narrower: the old form asked
+// "is the ACTIVITY at a gate, and is that one gate this task's", which on a fork answered
+// for the sibling.
+func awaitingTaskGate(v ConstructionSessionView, taskID string) (AwaitingTaskGate, bool) {
+	for _, g := range v.AwaitingTasks {
+		if g.TaskID == taskID {
+			return g, true
 		}
 	}
-	return best, found
+	return AwaitingTaskGate{}, false
 }
 
 // operatorPauseSignal is the operatorPauseRequested payload (constructionManager.md
@@ -9456,18 +9505,48 @@ func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, res
 	})
 }
 
-// liveApprovalGate is the lifecycle phase a live session awaits approval at, if any. The
-// merge hold and an escalation are not phase gates and never match a phase id.
-func liveApprovalGate(live *ConstructionSessionView) (string, *time.Time) {
-	if live == nil || live.Stage != StageAwaitingApproval || live.AwaitingGate == nil {
-		return "", nil
+// liveApprovalGates are the PHASE approval gates a live session is holding at, keyed by the
+// gate's own key and carrying when that occurrence began. PLURAL since stage 4b3: a fork
+// holds two at once, and the single answer this replaced was whichever the view's projection
+// happened to name.
+//
+// The merge hold and an escalation are excluded by shape rather than by the activity's
+// stage: both name a gate CLASS that is not their task's id (mergeGateKey, takeoverGateKey),
+// and neither is a phase gate. Reading the stage instead — as the single-valued version did
+// — lost a live phase gate whenever a SIBLING branch had escalated, because the stage is one
+// activity-level value and the escalation wrote it last.
+//
+// 🔴 THE KEYS ARE GATE TASK IDS, AND FIXING THAT IS PART OF THIS CHANGE. Until stage 4b3
+// every consumer below compared the session's gate against a lifecycle PHASE id (`ph.ID`,
+// `t.Phase`) while the child has always written the gate TASK id — enterHumanStage(…, taskID,
+// taskID, …) puts "designReview" there, never "detailed_design". The comparison was therefore
+// ALWAYS FALSE in production, so `evidenceState`'s rule 1 (a gate task at a live gate reads
+// awaitingHuman) and appendGateAttempts' "session.awaitingGate" pending attempt had never
+// fired on a real row. It was invisible because every test fixture supplied a PHASE id, which
+// matched — the derivation was green over a shape production does not produce.
+//
+// It surfaced here because the per-task roster join (applyLiveGateFacts) keys on the task id
+// the child really writes, so the two halves could not both be right against one fixture.
+// The consumers now compare against the GATE TASK (`ph.Gate`, `t.ID`) and the fixtures carry
+// the key production carries; every existing expectation is unchanged, because the fixtures
+// moved to the other end of the same 1:1 phase↔gate mapping.
+func liveApprovalGates(live *ConstructionSessionView) map[string]time.Time {
+	if live == nil {
+		return nil
 	}
-	return *live.AwaitingGate, live.AwaitingSince
+	out := make(map[string]time.Time, len(live.AwaitingTasks))
+	for _, g := range live.AwaitingTasks {
+		if g.Gate != g.TaskID {
+			continue // the merge hold and an escalation: neither is a phase gate
+		}
+		out[g.TaskID] = g.AwaitingSince
+	}
+	return out
 }
 
 // appendGateAttempts is N4, over the resolved phase set.
 func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row projectstate.ActivityExecution, resolved []projectstate.PhaseCompletion, live *ConstructionSessionView) []projectstate.TaskAttempt {
-	liveGate, liveSince := liveApprovalGate(live)
+	liveGates := liveApprovalGates(live)
 	// ResolveConstructionRow's reconciled set IS the phase inventory and the completion
 	// state, in profile order. There is no second inventory: canonicalMethodPhases was one,
 	// and two inventories over one row is exactly what ResolvePhaseCompletions exists to
@@ -9506,11 +9585,12 @@ func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row p
 				StartedAt: started, EndedAt: ended, Outcome: outcome, Provenance: reconstructed(basis),
 			})
 		}
+		since, liveHere := liveGates[string(gate)]
 		switch {
 		case pc.Completed && !passed:
 			add(projectstate.OutcomePassed, nil, pc.CompletedAt, "phases["+string(p)+"].completed")
-		case liveGate == string(p):
-			add(projectstate.OutcomePending, liveSince, nil, "session.awaitingGate")
+		case liveHere:
+			add(projectstate.OutcomePending, &since, nil, "session.awaitingGate")
 		}
 	}
 	return out
@@ -9533,12 +9613,12 @@ func (s phaseSegment) members() []projectstate.TaskAttempt {
 // rounds is the row's PERSISTED review ledger. Where a gate has rounds they ARE its
 // revisions; the note-and-attempt reconstruction survives only for the gates that have
 // none, which is every gate of every row written before this ledger existed.
-func deriveTaskViews(lc methodassets.Lifecycle, attempts []projectstate.TaskAttempt, notes []projectstate.OperatorNote, rounds []projectstate.ReviewRound, liveGate string) []taskView {
+func deriveTaskViews(lc methodassets.Lifecycle, attempts []projectstate.TaskAttempt, notes []projectstate.OperatorNote, rounds []projectstate.ReviewRound, liveGates map[string]time.Time) []taskView {
 	revs := make(map[string][]taskRevision, len(lc.Tasks))
 	gates := make(map[string]bool, len(lc.Phases))
 	for _, ph := range lc.Phases {
 		work := phaseWorkTask(lc, ph.ID)
-		workRevs, gateRevs := phaseRevisions(ph, work, attempts, notes, rounds, liveGate)
+		workRevs, gateRevs := phaseRevisions(ph, work, attempts, notes, rounds, liveGates)
 		if work != "" {
 			revs[work] = workRevs
 		}
@@ -9560,7 +9640,7 @@ func deriveTaskViews(lc methodassets.Lifecycle, attempts []projectstate.TaskAtte
 		}
 		states[id] = taskLocked // a cycle reads locked; a validated lifecycle has none
 		t := byID[id]
-		s := evidenceState(t, gates[id], revs, reviewerOf, liveGate)
+		s := evidenceState(t, gates[id], revs, reviewerOf, liveGates)
 		if s == "" {
 			s = taskPending
 			for _, dep := range t.DependsOn {
@@ -9595,7 +9675,7 @@ func phaseWorkTask(lc methodassets.Lifecycle, phaseID string) string {
 // the gate task's revisions (R1–R4), and chooses which of the two review ledgers the gate
 // reads: the PERSISTED rounds where the row holds any for this gate, the reconstruction
 // where it holds none.
-func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []projectstate.TaskAttempt, notes []projectstate.OperatorNote, rounds []projectstate.ReviewRound, liveGate string) (workRevs, gateRevs []taskRevision) {
+func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []projectstate.TaskAttempt, notes []projectstate.OperatorNote, rounds []projectstate.ReviewRound, liveGates map[string]time.Time) (workRevs, gateRevs []taskRevision) {
 	var main, extra, gate []projectstate.TaskAttempt
 	for _, a := range attempts {
 		switch {
@@ -9619,7 +9699,7 @@ func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []proj
 	for i, seg := range foldConditional(cutSegments(main), extra) {
 		workRevs = append(workRevs, dispatchRevision(i+1, seg))
 	}
-	live := liveGate == ph.ID
+	_, live := liveGates[ph.Gate]
 	persisted := roundsForTask(rounds, projectstate.MethodTask(ph.Gate))
 	if len(persisted) == 0 {
 		return workRevs, reconstructedReviewRevisions(gate, notes, ph.ID, live)
@@ -9997,9 +10077,9 @@ func attemptSpan(members []projectstate.TaskAttempt) (started, ended *time.Time)
 
 // evidenceState applies state rules 1–8; "" means the task has no evidence and its
 // dependsOn decide between locked and pending.
-func evidenceState(t methodassets.LifecycleTask, isGate bool, revs map[string][]taskRevision, reviewerOf map[string]string, liveGate string) string {
+func evidenceState(t methodassets.LifecycleTask, isGate bool, revs map[string][]taskRevision, reviewerOf map[string]string, liveGates map[string]time.Time) string {
 	if t.Kind == methodassets.LifecycleTaskReview {
-		if isGate && liveGate != "" && liveGate == t.Phase {
+		if _, live := liveGates[t.ID]; isGate && live {
 			return taskAwaitingHuman // 1
 		}
 		return reviewEvidenceState(revs[t.ID], len(revs[t.Reviews]))
@@ -10093,6 +10173,16 @@ func activityViewState(coarse projectstate.ActivityConstructionPhase, live *Cons
 	case projectstate.ActivityConstructionDone:
 		return ActivityViewDone
 	case projectstate.ActivityConstructionFailed:
+		return ActivityViewFailed
+	case projectstate.ActivityConstructionCompletedNotLanded:
+		// FAILED, and deliberately not Done. The activity completed its work and failed to
+		// LAND it: nothing integrated, so the screen must show an operator a red node they
+		// can act on rather than a green one they cannot. It is the same reading
+		// CoarseBuildStatusFor will give it (not integrated, and not in review either) —
+		// which is Task 9's, because Task 9 is what makes CoarsePhaseFor able to return
+		// this at all. Stage 4b3 Task 8 only makes the member exist; this arm is here
+		// because gochecksumtype requires every arm and a `default:` is how a vocabulary
+		// change goes silent.
 		return ActivityViewFailed
 	case projectstate.ActivityConstructionRunning:
 		if live != nil && (live.Stage == StageAwaitingApproval || live.Stage == StageAwaitingTakeover) {
@@ -13094,16 +13184,14 @@ type taskViewState struct {
 	// NOT the map key and it is not redundant with it: an escalation is keyed by the TASK
 	// that escalated and waits at "takeover", so the key cannot answer for it.
 	//
-	// It exists to reproduce ConstructionSessionView.awaitingGate byte for byte while that
-	// member is still on the wire, and it goes with it: stage 4b3 Task 8 moves these facts
-	// onto ActivityTaskView, where the key IS the task and a field naming which task it is
-	// would be a lie waiting to happen.
+	// It OUTLIVED the flat wire member it was introduced to reproduce. Stage 4b3 deleted
+	// ConstructionSessionView.awaitingGate, but two live readers want the class rather than
+	// the key: leaveHumanStage tags construction_gate_wait with humanGateClass(gate) — which
+	// was recording the SIBLING's class on a fork until the map was keyed by task — and
+	// liveApprovalGates tells a phase gate from the merge hold and an escalation by asking
+	// whether the class is the task's own id. It travels on AwaitingTaskGate for that second
+	// reader.
 	gate string
-	// round is the gate's 1-based round number, copied from gateLedger.number at openRound.
-	// Zero for the merge hold and an escalation, which open no round. TASK 6 READS THIS: the
-	// late-approve refusal compares the round a decision judged against the round that is
-	// live, and the live one is per task.
-	round int
 }
 
 // awaiting reports whether this task is in a human stage right now.
@@ -13133,12 +13221,28 @@ func (s *constructState) setTaskView(taskID string, mut func(*taskViewState)) {
 //
 // The engine's REFUSAL travels with the roster's absence, which is why one function writes
 // both: a reviewSetError left standing over a later gate's roster would explain an absence
-// that is not there. No production site sets it non-empty today — proposeReviewSet's error
-// fails the task rather than surfacing — and it is kept because the member is on the wire and
-// the Activity Experience renders it (earmark: either a site that sets it or the member goes,
-// and that is a model edit, so it belongs with Task 8's successor rather than here).
+// that is not there.
 func (s *constructState) surfaceReviewSet(taskID string, set *ReviewSet) {
 	s.setTaskView(taskID, func(v *taskViewState) { v.reviewSet, v.reviewSetError = set, "" })
+}
+
+// surfaceReviewSetRefusal puts the review engine's REFUSAL up in the roster's place, and it
+// is the answer to a member that had no producer at all.
+//
+// MEASURED at stage 4b3 (Task 5): every write of reviewSetError in this package was the
+// empty string, because proposeReviewSet's error FAILED THE TASK rather than surfacing — so
+// a member that is on the wire, documented in the MCP tool text and rendered by the Activity
+// Experience's reviewers strip could never be non-empty. The contract had already decided
+// what should happen and the code disagreed with it: "it is a defect in the Manager's call
+// or in the engine, never an operator error, and the gate itself is unaffected — Approve and
+// SendBack work." A gate that vanishes because the roster could not be computed is strictly
+// worse than a gate that says who could not be asked.
+//
+// It is the same ONE writer as the roster for the same reason — the pair must move together
+// — and it takes the reason rather than an error so the caller decides what the operator is
+// shown.
+func (s *constructState) surfaceReviewSetRefusal(taskID, reason string) {
+	s.setTaskView(taskID, func(v *taskViewState) { v.reviewSet, v.reviewSetError = nil, reason })
 }
 
 // awaitingTasks is the ids of the tasks in a human stage right now, SORTED — a map range in

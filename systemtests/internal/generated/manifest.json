@@ -40,7 +40,7 @@
         "STP-UC4-B1",
         "STP-UC4-N2"
       ],
-      "sourceHash": "fb028c2d5203cdded6f3d5da7b484e5e48e436062a38547c582f34299efcd058"
+      "sourceHash": "8686041817606233d4c7052eb932844cd8438d533bf5465de0854fa58c206d08"
     },
     "STP-UC5": {
       "file": "stp_uc5_table.gen.go",

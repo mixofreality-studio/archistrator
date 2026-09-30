@@ -237,9 +237,9 @@ func (t *mcpTransport) QueryOperatedSystemView(ctx context.Context, operatedAppI
 	}, nil
 }
 
-func (t *mcpTransport) ApplyDelinquencyPolicy(ctx context.Context, customerID string, pauseNotWithdraw bool) error {
+func (t *mcpTransport) ApplyDelinquencyPolicy(ctx context.Context, customerID, action string) error {
 	err := t.client.OperationsApplyDelinquencyPolicy(ctx, customerID,
-		sdk.DelinquencyContext{PauseNotWithdraw: pauseNotWithdraw})
+		sdk.DelinquencyContext{Action: delinquencyAction(action)})
 	return sentinelError(err)
 }
 

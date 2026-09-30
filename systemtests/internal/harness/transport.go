@@ -195,10 +195,12 @@ type Transport interface {
 	// (phase, in-flight, health, SLOs, autoscaler, run-rate). Side-effect-free.
 	QueryOperatedSystemView(ctx context.Context, operatedAppID, requestID string) (view OperatedSystemView, err error)
 	// ApplyDelinquencyPolicy delivers the queued cross-Manager delinquency signal
-	// (normally settlementManager → operationsManager). pauseNotWithdraw=true pauses
-	// (reversible); false withdraws. QUEUED: returns once durably enqueued, not once
-	// the enforcement workflow has run.
-	ApplyDelinquencyPolicy(ctx context.Context, customerID string, pauseNotWithdraw bool) error
+	// (normally settlementManager → operationsManager). The action is the three-value
+	// directive: Pause (reversible), Withdraw (terminal) — and Unknown, which the
+	// enforcement branch REFUSES rather than acting on, because it is also what a caller
+	// who omits the field sends. QUEUED: returns once durably enqueued, not once the
+	// enforcement workflow has run.
+	ApplyDelinquencyPolicy(ctx context.Context, customerID, action string) error
 	// WithdrawSystem terminally withdraws an operated app's desired state. Idempotent
 	// on the id; a withdrawn app is never resurrected by reconcile (STP-UC4-N2).
 	WithdrawSystem(ctx context.Context, operatedAppID, changeID, notes string) (withdrawn bool, err error)

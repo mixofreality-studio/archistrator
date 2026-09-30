@@ -50,8 +50,9 @@ const OUTPUT_NAMES = {
   DeliveryArtifactKind: 'ArtifactKind',
   DeliveryReviewDecision: 'ReviewDecision',
   DeliverySeverity: 'Severity',
-  DeliveryActiveRole: 'ActiveRole',
-  DeliveryActiveStep: 'ActiveStep',
+  // Stage 4b3: DeliveryActiveRole and DeliveryActiveStep are GONE. Both were UNREFERENCED —
+  // compile-probed in both Go modules and in the webApp typecheck, not grepped — and their
+  // $defs went with the wave's one model edit, so an entry here could never match again.
   DeliveryDesignArtifactSessionStage: 'SessionStage',
   DeliverySDPDecision: 'SDPDecision',
   DeliveryPhase: 'ProjectPhase',
@@ -81,6 +82,9 @@ const OUTPUT_NAMES = {
   DeliveryProjectViewKind: 'ProjectViewKind',
   OperationsAutoscaleAction: 'AutoscaleAction',
   OperationsAutoscalerMode: 'AutoscalerMode',
+  // stage 4b3: the delinquency directive's three-value action, which replaced a non-pointer
+  // bool whose zero value meant WITHDRAW on a façade that does no required-presence check.
+  OperationsDelinquencyAction: 'DelinquencyAction',
   OperationsDesiredStateReason: 'DesiredStateReason',
   OperationsHealthState: 'HealthState',
   OperationsPatchKind: 'PatchKind',
@@ -103,7 +107,18 @@ const OUTPUT_NAMES = {
  * EpisodeOutcome were published once per design/construction Manager. One
  * Manager publishes each exactly once, so the assertion has nothing to
  * compare — the fork it guarded against is now structurally impossible.
- * Keep the mechanism: it costs nothing and the next facet split will want it. */
+ * (Two of those seven, ActiveRole and ActiveStep, no longer exist at all:
+ * stage 4b3's model edit deleted them as unreferenced.)
+ * Keep the mechanism: it costs nothing and the next facet split will want it.
+ *
+ * WORTH KNOWING, because the mechanism is idle exactly where it would now help:
+ * ActivityConstructionPhase is published TWICE in the model — by deliveryManager
+ * and by projectStateAccess — but only the Manager namespaces reach the public
+ * OAS, so the RA copy is invisible here and no assertion can compare them. The
+ * thing that keeps the two in step is the Go side: deliverymanager.go casts the
+ * RA ordinal onto the wire enum directly, so a member added to one and not the
+ * other puts an ordinal on the wire that this file cannot name. Stage 4b3 added
+ * completedNotLanded to BOTH for that reason. */
 const DEDUPE_GROUPS = [];
 
 /** Logical output names for which the mechanical derivation does NOT
@@ -163,6 +178,9 @@ const UNVERIFIED_MECHANICAL = new Set([
   'EpisodeKind',
   'EpisodeOutcome',
   'OperatorNoteKind',
+  // stage 4b3: the delinquency directive. No hand table has ever named it — the field it
+  // replaced was a bool — so the mechanical derivation is the only table there is.
+  'DelinquencyAction',
 ]);
 
 function splitWords(name) {

@@ -62,6 +62,8 @@ import type {
   CheckItem,
   ConstructionProgress,
   ConstructionRow,
+  AwaitingTaskGate,
+  ConstructionReviewSet,
   ConstructionSessionState,
   ConstructionStage,
   DesignHealth,
@@ -842,6 +844,39 @@ export function mapSessionState(
 
 // --- construction session --------------------------------------------------
 
+/** One reviewer roster off the wire, shared by the session's gates and the task view. */
+function mapReviewSet(
+  w: NonNullable<Schemas['DeliveryAwaitingTaskGate']['reviewSet']>
+): ConstructionReviewSet {
+  return {
+    ...(w.reviewers !== undefined && w.reviewers !== null
+      ? {
+          reviewers: w.reviewers.map((r) => ({
+            role: r.role,
+            perspective: r.perspective,
+            ...(r.referenceArtifact !== undefined && r.referenceArtifact !== null
+              ? { referenceArtifact: r.referenceArtifact }
+              : {}),
+            mayAmend: r.mayAmend,
+          })),
+        }
+      : {}),
+  };
+}
+
+/** ONE task's live gate off the session view (stage 4b3: the gate facts are per task). */
+function mapAwaitingTaskGate(w: Schemas['DeliveryAwaitingTaskGate']): AwaitingTaskGate {
+  return {
+    taskId: w.taskId,
+    gate: w.gate,
+    ...(w.reviewSet !== undefined ? { reviewSet: mapReviewSet(w.reviewSet) } : {}),
+    ...(w.reviewSetError != null ? { reviewSetError: w.reviewSetError } : {}),
+    awaitingSince: w.awaitingSince,
+    ...(w.awaitingUntil != null ? { awaitingUntil: w.awaitingUntil } : {}),
+    redraftExhausted: w.redraftExhausted,
+  };
+}
+
 export function mapConstructionSession(
   w: Schemas['DeliveryConstructionSessionView']
 ): ConstructionSessionState {
@@ -857,24 +892,6 @@ export function mapConstructionSession(
       ...(w.activityId !== undefined ? { activityId: w.activityId } : {}),
       stage: w.stage,
       ...(w.pipelinePhase !== undefined ? { pipelinePhase: w.pipelinePhase } : {}),
-      ...(w.reviewSet !== undefined
-        ? {
-            reviewSet: {
-              ...(w.reviewSet.reviewers !== undefined && w.reviewSet.reviewers !== null
-                ? {
-                    reviewers: w.reviewSet.reviewers.map((r) => ({
-                      role: r.role,
-                      perspective: r.perspective,
-                      ...(r.referenceArtifact !== undefined && r.referenceArtifact !== null
-                        ? { referenceArtifact: r.referenceArtifact }
-                        : {}),
-                      mayAmend: r.mayAmend,
-                    })),
-                  }
-                : {}),
-            },
-          }
-        : {}),
       ...(w.variance !== undefined
         ? {
             variance: {
@@ -884,13 +901,13 @@ export function mapConstructionSession(
             },
           }
         : {}),
-      // The gate-occurrence fields (B1.2). Optional on the app type so a view served by
-      // an older server (none of these keys) maps to a view that simply lacks them — the
-      // three the contract requires are tested for PRESENCE, not nullness.
-      ...(w.awaitingGate != null ? { awaitingGate: w.awaitingGate } : {}),
-      ...(w.awaitingSince != null ? { awaitingSince: w.awaitingSince } : {}),
-      ...(w.awaitingUntil != null ? { awaitingUntil: w.awaitingUntil } : {}),
-      ...('redraftExhausted' in w ? { redraftExhausted: w.redraftExhausted } : {}),
+      // The gate occurrences (B1.2, made PLURAL by stage 4b3). Optional on the app type so
+      // a view served by a server with no gate open maps to a view that simply lacks the
+      // key — the absence IS "nobody is being waited on", and the SPA must not read it as
+      // "an older server". The order is the server's, which is sorted by task id.
+      ...(w.awaitingTasks != null
+        ? { awaitingTasks: w.awaitingTasks.map(mapAwaitingTaskGate) }
+        : {}),
       ...('attempt' in w ? { attempt: w.attempt } : {}),
       ...('attemptBudget' in w ? { attemptBudget: w.attemptBudget } : {}),
     },

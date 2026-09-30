@@ -27,12 +27,18 @@ import type { ProjectPhase } from './types';
 
 /**
  * Coarse per-activity construction lifecycle ordinal — mirrors the server's
- * ActivityConstructionPhase (0 notStarted, 1 running, 2 done, 3 failed). Distinct
- * from ConstructionRow.currentLifecyclePhase (the fine-grained ActivityMethodPhase STRING already
- * mapped for display elsewhere) and from ActivityBuildStatusRow (the coarser
- * build-status STRING lens) — this is the raw ordinal the fixture corpus carries.
+ * ActivityConstructionPhase (0 notStarted, 1 running, 2 done, 3 failed,
+ * 4 completedNotLanded). Distinct from ConstructionRow.currentLifecyclePhase (the
+ * fine-grained ActivityMethodPhase STRING already mapped for display elsewhere) and from
+ * ActivityBuildStatusRow (the coarser build-status STRING lens) — this is the raw ordinal
+ * the fixture corpus carries.
+ *
+ * Ordinal 4 is stage 4b3's APPENDED member: an activity that recorded its binary exit and
+ * then failed to LAND it (a broken merge tail). It is derived, never stored, and it is not
+ * Done — which is all this module needs to know, since `operating` asks only whether every
+ * listed activity reached Done AND Integrated.
  */
-export type ActivityConstructionPhaseLike = 0 | 1 | 2 | 3;
+export type ActivityConstructionPhaseLike = 0 | 1 | 2 | 3 | 4;
 
 /**
  * Per-activity build-status ordinal — mirrors the server's ActivityBuildStatus

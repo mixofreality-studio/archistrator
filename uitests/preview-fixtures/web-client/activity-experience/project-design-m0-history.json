@@ -6790,7 +6790,7 @@
                 "Outbound": null,
                 "Ops": [
                   {
-                    "Signature": "OpenActivity(projectID: ProjectID, expectedVersion: Version, activityID: string, typ: ActivityType, variant: TestingVariant, pin: LifecyclePin, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "OpenActivity(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, typ: ActivityType, variant: TestingVariant, pin: LifecyclePin, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -6810,6 +6810,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -6909,7 +6919,7 @@
                     ]
                   },
                   {
-                    "Signature": "StageTaskOutput(projectID: ProjectID, expectedVersion: Version, activityID: string, taskID: string, branch: string, model: ModelEnvelope, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (StagedRef, fwra.Error)",
+                    "Signature": "StageTaskOutput(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, taskID: string, branch: string, model: ModelEnvelope, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (StagedRef, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -6929,6 +6939,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -7038,7 +7058,7 @@
                     ]
                   },
                   {
-                    "Signature": "RecordAttemptOutcome(projectID: ProjectID, expectedVersion: Version, activityID: string, attempt: TaskAttemptInput, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "RecordAttemptOutcome(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, attempt: TaskAttemptInput, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -7058,6 +7078,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -7107,6 +7137,11 @@
                           },
                           {
                             "Name": "evidenceRef",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "detail",
                             "Type": "string",
                             "Note": ""
                           }
@@ -7162,7 +7197,7 @@
                     ]
                   },
                   {
-                    "Signature": "OpenReviewRound(projectID: ProjectID, expectedVersion: Version, activityID: string, round: ReviewRoundInput, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "OpenReviewRound(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, round: ReviewRoundInput, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -7182,6 +7217,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -7212,6 +7257,11 @@
                           {
                             "Name": "reviews",
                             "Type": "MethodTask",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "artifactKind",
+                            "Type": "ArtifactKind",
                             "Note": ""
                           },
                           {
@@ -7281,7 +7331,7 @@
                     ]
                   },
                   {
-                    "Signature": "AppendReviewVerdict(projectID: ProjectID, expectedVersion: Version, activityID: string, roundID: string, verdict: ReviewVerdict, comments: []ReviewComment, replies: []ReviewReply, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "AppendReviewVerdict(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, roundID: string, verdict: ReviewVerdict, comments: []ReviewComment, replies: []ReviewReply, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -7301,6 +7351,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -7430,7 +7490,7 @@
                     ]
                   },
                   {
-                    "Signature": "SetReviewCommentStatus(projectID: ProjectID, expectedVersion: Version, activityID: string, roundID: string, commentID: string, status: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "SetReviewCommentStatus(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, roundID: string, commentID: string, status: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -7450,6 +7510,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -7544,7 +7614,7 @@
                     ]
                   },
                   {
-                    "Signature": "DecideReviewRound(projectID: ProjectID, expectedVersion: Version, activityID: string, roundID: string, outcome: ReviewRoundOutcome, decidedBy: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "DecideReviewRound(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, roundID: string, outcome: ReviewRoundOutcome, decidedBy: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -7564,6 +7634,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -7658,7 +7738,7 @@
                     ]
                   },
                   {
-                    "Signature": "CommitActivityArtifacts(projectID: ProjectID, expectedVersion: Version, activityID: string, artifacts: CommitArtifactsInput, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "CommitActivityArtifacts(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, artifacts: CommitArtifactsInput, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -7678,6 +7758,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -7772,7 +7862,7 @@
                     ]
                   },
                   {
-                    "Signature": "RecordActivityOutcome(projectID: ProjectID, expectedVersion: Version, activityID: string, outcome: ActivityOutcome, reason: FailureReason, detail: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "RecordActivityOutcome(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, outcome: ActivityOutcome, reason: FailureReason, detail: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -7792,6 +7882,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -7886,7 +7986,7 @@
                     ]
                   },
                   {
-                    "Signature": "RecordOperatorNote(projectID: ProjectID, expectedVersion: Version, activityID: string, note: OperatorNoteInput, deliveredToAttemptID: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "RecordOperatorNote(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, note: OperatorNoteInput, deliveredToAttemptID: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -7906,6 +8006,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -8010,7 +8120,7 @@
                     ]
                   },
                   {
-                    "Signature": "AcknowledgeStaleBasis(projectID: ProjectID, expectedVersion: Version, activityID: string, kind: ArtifactKind, note: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "AcknowledgeStaleBasis(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, kind: ArtifactKind, note: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -8030,6 +8140,16 @@
                           {
                             "Name": "expectedVersion",
                             "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "int64",
+                        "Fields": [
+                          {
+                            "Name": "expectedActivityVersion",
+                            "Type": "int64",
                             "Note": ""
                           }
                         ]
@@ -9782,795 +9902,6 @@
                 "Idempotency": "",
                 "Revisions": null
               },
-              "constructionManager": {
-                "Component": "constructionManager",
-                "Layer": "Manager",
-                "Stereotype": "construction contract",
-                "Volatility": "",
-                "Status": "",
-                "Inbound": null,
-                "Outbound": null,
-                "Ops": [
-                  {
-                    "Signature": "ExecuteNextActivity(projectID: ProjectID, tickID: string) → (PumpResult, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "tickID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "PumpResult",
-                        "Fields": [
-                          {
-                            "Name": "dispatched",
-                            "Type": "bool",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ActivityID",
-                            "Type": "ActivityID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "GetSessionState(projectID: ProjectID, activityID: *ActivityID) → (ConstructionSessionView, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ActivityID",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "ActivityID",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "ConstructionSessionView",
-                        "Fields": [
-                          {
-                            "Name": "ProjectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ActivityID",
-                            "Type": "ActivityID",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "stage",
-                            "Type": "ConstructionStage",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "pipelinePhase",
-                            "Type": "PipelinePhase",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "reviewSet",
-                            "Type": "ReviewSet",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "reviewSetError",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "variance",
-                            "Type": "FlaggedVariance",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "awaitingGate",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "awaitingSince",
-                            "Type": "time.Time",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "awaitingUntil",
-                            "Type": "time.Time",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "redraftExhausted",
-                            "Type": "bool",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "attempt",
-                            "Type": "int",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "attemptBudget",
-                            "Type": "int",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "GetPumpStatus(projectID: ProjectID) → (PumpStatus, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "PumpStatus",
-                        "Fields": [
-                          {
-                            "Name": "open",
-                            "Type": "bool",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "runStartedAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "OverrideActivity(projectID: ProjectID, activityID: ActivityID, override: ActivityOverride) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ActivityID",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "ActivityID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ActivityOverride",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "OverrideKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "notes",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "comments",
-                            "Type": "[]AnchoredComment",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "PauseProject(projectID: ProjectID, reason: string) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "reason",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "ResumeProject(projectID: ProjectID) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RunReplanSweep(projectID: *ProjectID, tickID: string) → (ReplanSweepResult, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "tickID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "ReplanSweepResult",
-                        "Fields": [
-                          {
-                            "Name": "flaggedVariances",
-                            "Type": "[]FlaggedVariance",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "SetReviewPolicy(projectID: ProjectID, preset: string) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "preset",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "SubmitPhaseDecision(projectID: ProjectID, activityID: ActivityID, phase: string, decision: PhaseDecision, feedback: *ReviewFeedback) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ActivityID",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "ActivityID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "phase",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "PhaseDecision",
-                        "Fields": [
-                          {
-                            "Name": "decision",
-                            "Type": "PhaseDecision",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ReviewFeedback",
-                        "Fields": [
-                          {
-                            "Name": "notes",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "comments",
-                            "Type": "[]AnchoredComment",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "UpdateReviewPolicy(projectID: ProjectID, policy: ReviewPolicyInput) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ReviewPolicyInput",
-                        "Fields": [
-                          {
-                            "Name": "gatedPhasesByType",
-                            "Type": "object",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "ListEpisodesForActivity(projectID: ProjectID, activityID: string) → ([]EpisodeRecordView, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "[]EpisodeRecordView",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "[]EpisodeRecordView",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "GetEpisodeTimeline(projectID: ProjectID, episodeID: string) → (EpisodeTimeline, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "episodeID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "EpisodeTimeline",
-                        "Fields": [
-                          {
-                            "Name": "record",
-                            "Type": "EpisodeRecordView",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "events",
-                            "Type": "[]TimelineEvent",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "QueryActivityView(projectID: ProjectID, activityID: ActivityID) → (ActivityView, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ActivityID",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "ActivityID",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "ActivityView",
-                        "Fields": [
-                          {
-                            "Name": "ActivityID",
-                            "Type": "ActivityID",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "name",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "type",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "variant",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ComponentID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "state",
-                            "Type": "ActivityViewState",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "phases",
-                            "Type": "[]ActivityLifecyclePhase",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "tasks",
-                            "Type": "[]ActivityTaskView",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "reviewSet",
-                            "Type": "ReviewSet",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "reviewSetError",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ],
-                "DataContracts": [
-                  "ActivityID",
-                  "ActivityLifecyclePhase",
-                  "ActivityOverride",
-                  "ActivityTaskKind",
-                  "ActivityTaskState",
-                  "ActivityTaskView",
-                  "ActivityView",
-                  "ActivityViewState",
-                  "AnchoredComment",
-                  "ConstructionSessionView",
-                  "ConstructionStage",
-                  "EpisodeKind",
-                  "EpisodeLineage",
-                  "EpisodeOutcome",
-                  "EpisodeRecordView",
-                  "EpisodeTimeline",
-                  "EpisodeUsage",
-                  "FlaggedVariance",
-                  "OverrideKind",
-                  "PhaseDecision",
-                  "PipelinePhase",
-                  "ProjectID",
-                  "PumpResult",
-                  "PumpStatus",
-                  "ReplanSweepResult",
-                  "ReviewFeedback",
-                  "ReviewPolicyInput",
-                  "ReviewRosterSeat",
-                  "ReviewSet",
-                  "ReviewSubjectRef",
-                  "ReviewThreadComment",
-                  "ReviewThreadReply",
-                  "ReviewVerdictKind",
-                  "ReviewVerdictView",
-                  "Reviewer",
-                  "SubagentSpan",
-                  "TaskRevisionComment",
-                  "TaskRevisionOutcome",
-                  "TaskRevisionProvenance",
-                  "TaskRevisionView",
-                  "TimelineEvent"
-                ],
-                "ErrorModel": "Operations fail with fwm.Error — the typed Manager fault.",
-                "Idempotency": "",
-                "Revisions": null
-              },
               "constructionTransitionAccess": {
                 "Component": "projectStateAccess",
                 "Layer": "ResourceAccess",
@@ -11740,6 +11071,930 @@
                 "Idempotency": "",
                 "Revisions": null
               },
+              "deliveryManager": {
+                "Component": "deliveryManager",
+                "Layer": "Manager",
+                "Stereotype": "DeliveryManager",
+                "Volatility": "",
+                "Status": "",
+                "Inbound": null,
+                "Outbound": null,
+                "Ops": [
+                  {
+                    "Signature": "StartProject(owner: OwnerScope, name: string, projectID: *string, model: *OperatingModel, research: *ResearchInput, start: bool) → (StartProjectResult, fwm.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "OwnerScope",
+                        "Fields": [
+                          {
+                            "Name": "owner",
+                            "Type": "OwnerScope",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "name",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "OperatingModel",
+                        "Fields": [
+                          {
+                            "Name": "model",
+                            "Type": "OperatingModel",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ResearchInput",
+                        "Fields": [
+                          {
+                            "Name": "sources",
+                            "Type": "[]ResearchSource",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "bool",
+                        "Fields": [
+                          {
+                            "Name": "start",
+                            "Type": "bool",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "StartProjectResult",
+                        "Fields": [
+                          {
+                            "Name": "ProjectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "version",
+                            "Type": "Version",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "session",
+                            "Type": "SessionRef",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "ExecuteNextActivity(projectID: ProjectID, tickID: string) → (PumpResult, fwm.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "tickID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "PumpResult",
+                        "Fields": [
+                          {
+                            "Name": "dispatched",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ActivityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ActivityIDs",
+                            "Type": "[]ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DispatchActivityTask(projectID: ProjectID, activityID: ActivityID, taskID: string, feedback: *ReviewFeedback) → (SessionRef, fwm.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "taskID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ReviewFeedback",
+                        "Fields": [
+                          {
+                            "Name": "notes",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "comments",
+                            "Type": "[]AnchoredComment",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "SessionRef",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "SessionRef",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "SubmitReviewDecision(projectID: ProjectID, activityID: ActivityID, taskID: string, decision: ReviewDecisionInput, feedback: *ReviewFeedback) → fwm.Error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "taskID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ReviewDecisionInput",
+                        "Fields": [
+                          {
+                            "Name": "decision",
+                            "Type": "ReviewDecision",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "acknowledgeStale",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "OptionID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "CommentID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "commentStatus",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ReviewFeedback",
+                        "Fields": [
+                          {
+                            "Name": "notes",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "comments",
+                            "Type": "[]AnchoredComment",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "AskQuestions(projectID: ProjectID, activityID: ActivityID, taskID: string, addressee: string, questions: []AnchoredComment) → fwm.Error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "taskID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "addressee",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "[]AnchoredComment",
+                        "Fields": [
+                          {
+                            "Name": "questions",
+                            "Type": "[]AnchoredComment",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "AcknowledgeStaleBasis(projectID: ProjectID, activityID: ActivityID, taskID: string, note: string) → fwm.Error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "taskID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "note",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "SetProjectRunState(projectID: ProjectID, runState: ProjectRunState, reason: string) → fwm.Error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ProjectRunState",
+                        "Fields": [
+                          {
+                            "Name": "runState",
+                            "Type": "ProjectRunState",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "reason",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OverrideActivity(projectID: ProjectID, activityID: ActivityID, override: ActivityOverride) → fwm.Error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityOverride",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "OverrideKind",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "notes",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "comments",
+                            "Type": "[]AnchoredComment",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "SetProjectExecutionPolicy(projectID: ProjectID, policy: ExecutionPolicyInput) → fwm.Error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ExecutionPolicyInput",
+                        "Fields": [
+                          {
+                            "Name": "preset",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "policy",
+                            "Type": "ReviewPolicyInput",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "QueryProjectView(query: ProjectViewQuery) → (ProjectView, fwm.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectViewQuery",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "ProjectViewKind",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "owner",
+                            "Type": "OwnerScope",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ProjectID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ActivityID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "artifactKind",
+                            "Type": "ArtifactKind",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "EpisodeID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "ProjectView",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "ProjectViewKind",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "summary",
+                            "Type": "ProjectState",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "projects",
+                            "Type": "[]ProjectSummary",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "session",
+                            "Type": "DesignArtifactSessionView",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "constructionSession",
+                            "Type": "ConstructionSessionView",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "pump",
+                            "Type": "PumpStatus",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "designHealth",
+                            "Type": "DesignHealth",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "episodes",
+                            "Type": "[]EpisodeRecordView",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "timeline",
+                            "Type": "EpisodeTimeline",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "QueryActivityView(projectID: ProjectID, activityID: ActivityID) → (ActivityView, fwm.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "ActivityView",
+                        "Fields": [
+                          {
+                            "Name": "ActivityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "name",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "type",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "variant",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ComponentID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "state",
+                            "Type": "ActivityViewState",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "phases",
+                            "Type": "[]ActivityLifecyclePhase",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "tasks",
+                            "Type": "[]ActivityTaskView",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "ActivityBuildStatus",
+                  "ActivityConstructionPhase",
+                  "ActivityConstructionStatus",
+                  "ActivityGitStatus",
+                  "ActivityID",
+                  "ActivityLifecyclePhase",
+                  "ActivityMethodPhase",
+                  "ActivityOverride",
+                  "ActivityTaskKind",
+                  "ActivityTaskState",
+                  "ActivityTaskView",
+                  "ActivityType",
+                  "ActivityView",
+                  "ActivityViewState",
+                  "AnchoredComment",
+                  "ArtifactKind",
+                  "ArtifactSlotModel",
+                  "ArtifactSlotView",
+                  "ArtifactStage",
+                  "AttemptProvenance",
+                  "AwaitingTaskGate",
+                  "CICheckState",
+                  "CheckItem",
+                  "ConstructionProgress",
+                  "ConstructionSessionView",
+                  "ConstructionStage",
+                  "ContractOp",
+                  "ContractParty",
+                  "ContractRevision",
+                  "ContractStruct",
+                  "DefectView",
+                  "DesignArtifactSessionStage",
+                  "DesignArtifactSessionView",
+                  "DesignHealth",
+                  "DraftModel",
+                  "EVCurve",
+                  "EpisodeKind",
+                  "EpisodeLineage",
+                  "EpisodeOutcome",
+                  "EpisodeRecordView",
+                  "EpisodeTimeline",
+                  "EpisodeUsage",
+                  "EvPoint",
+                  "EvidenceRef",
+                  "ExecutionPolicyInput",
+                  "FailureReason",
+                  "Finding",
+                  "FlaggedVariance",
+                  "GoField",
+                  "Location",
+                  "NoteComment",
+                  "OperatingModel",
+                  "OperatorNote",
+                  "OperatorNoteKind",
+                  "OptionID",
+                  "OverrideKind",
+                  "OwnerScope",
+                  "PendingDependency",
+                  "PendingResume",
+                  "Phase",
+                  "PhaseAdvanceResult",
+                  "PhaseCompletion",
+                  "PhaseDecision",
+                  "PipelinePhase",
+                  "ProducedArtifact",
+                  "ProjectID",
+                  "ProjectRunState",
+                  "ProjectState",
+                  "ProjectSummary",
+                  "ProjectView",
+                  "ProjectViewKind",
+                  "ProjectViewQuery",
+                  "PumpResult",
+                  "PumpStatus",
+                  "ResearchInput",
+                  "ResearchSource",
+                  "ReviewCommentReply",
+                  "ReviewCommentView",
+                  "ReviewDecision",
+                  "ReviewDecisionInput",
+                  "ReviewFeedback",
+                  "ReviewPolicyInput",
+                  "ReviewPolicyView",
+                  "ReviewRosterSeat",
+                  "ReviewSet",
+                  "ReviewSubjectRef",
+                  "ReviewThreadComment",
+                  "ReviewThreadReply",
+                  "ReviewVerdictKind",
+                  "ReviewVerdictView",
+                  "Reviewer",
+                  "RuleID",
+                  "SDPDecision",
+                  "ServiceContract",
+                  "SessionRef",
+                  "Severity",
+                  "StartProjectResult",
+                  "SubagentSpan",
+                  "SystemTestPlanView",
+                  "TaskAttempt",
+                  "TaskRevisionComment",
+                  "TaskRevisionOutcome",
+                  "TaskRevisionProvenance",
+                  "TaskRevisionView",
+                  "TestArgView",
+                  "TestCaseView",
+                  "TestExpectView",
+                  "TestRunView",
+                  "TestScenarioView",
+                  "TestStepView",
+                  "TestingStateView",
+                  "TestingVariant",
+                  "TimelineEvent",
+                  "Version"
+                ],
+                "ErrorModel": "Operations fail with fwm.Error — the typed Manager fault.",
+                "Idempotency": "",
+                "Revisions": null
+              },
               "designSessionAccess": {
                 "Component": "projectStateAccess",
                 "Layer": "ResourceAccess",
@@ -12165,7 +12420,7 @@
                     ]
                   },
                   {
-                    "Signature": "ReconcileBranchFromMain(projectID: ProjectID, expectedVersion: Version, branch: string, kind: ArtifactKind, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "ReconcileBranchFromMain(projectID: ProjectID, expectedVersion: Version, branch: string, kinds: []ArtifactKind, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -12200,11 +12455,11 @@
                         ]
                       },
                       {
-                        "Name": "ArtifactKind",
+                        "Name": "[]ArtifactKind",
                         "Fields": [
                           {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
+                            "Name": "kinds",
+                            "Type": "[]ArtifactKind",
                             "Note": ""
                           }
                         ]
@@ -15462,8 +15717,8 @@
                         "Name": "DelinquencyContext",
                         "Fields": [
                           {
-                            "Name": "pauseNotWithdraw",
-                            "Type": "bool",
+                            "Name": "action",
+                            "Type": "DelinquencyAction",
                             "Note": ""
                           }
                         ]
@@ -15932,6 +16187,7 @@
                   "AutoscalerMode",
                   "AutoscalerView",
                   "CostProjectionSeam",
+                  "DelinquencyAction",
                   "DelinquencyContext",
                   "DeployResult",
                   "DeploymentHealth",
@@ -15955,704 +16211,6 @@
                   "WhatIfPoint",
                   "WithdrawReason",
                   "WithdrawResult"
-                ],
-                "ErrorModel": "Operations fail with fwm.Error — the typed Manager fault.",
-                "Idempotency": "",
-                "Revisions": null
-              },
-              "projectDesignManager": {
-                "Component": "projectDesignManager",
-                "Layer": "Manager",
-                "Stereotype": "projectdesign contract",
-                "Volatility": "",
-                "Status": "",
-                "Inbound": null,
-                "Outbound": null,
-                "Ops": [
-                  {
-                    "Signature": "AdvanceToConstruction(projectID: ProjectID, acknowledgeStale: bool) → (PhaseAdvanceResult, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "bool",
-                        "Fields": [
-                          {
-                            "Name": "acknowledgeStale",
-                            "Type": "bool",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "PhaseAdvanceResult",
-                        "Fields": [
-                          {
-                            "Name": "advanced",
-                            "Type": "bool",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "missingArtifacts",
-                            "Type": "[]ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "GetSessionState(projectID: ProjectID, kind: ArtifactKind) → (SessionStateView, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "SessionStateView",
-                        "Fields": [
-                          {
-                            "Name": "ProjectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "artifactKind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "stage",
-                            "Type": "SessionStage",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "draft",
-                            "Type": "DraftModel",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "findings",
-                            "Type": "[]Finding",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "failureReason",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "StageName",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "reviewThread",
-                            "Type": "[]ReviewCommentView",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "activeRole",
-                            "Type": "ActiveRole",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "activeStep",
-                            "Type": "ActiveStep",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "round",
-                            "Type": "int",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RequestArtifactDraft(projectID: ProjectID, kind: ArtifactKind, feedback: *ReviewFeedback) → (SessionRef, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ReviewFeedback",
-                        "Fields": [
-                          {
-                            "Name": "notes",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "comments",
-                            "Type": "[]AnchoredComment",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "SessionRef",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "SessionRef",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RequestSDPCommit(projectID: ProjectID) → (SessionRef, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "SessionRef",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "SessionRef",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "AskQuestions(projectID: ProjectID, kind: ArtifactKind, addressee: string, questions: []AnchoredComment) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "addressee",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "[]AnchoredComment",
-                        "Fields": [
-                          {
-                            "Name": "questions",
-                            "Type": "[]AnchoredComment",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "AcknowledgeStaleBasis(projectID: ProjectID, kind: ArtifactKind, note: string) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "note",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "SetReviewCommentStatus(projectID: ProjectID, kind: ArtifactKind, commentID: string, status: string) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "commentID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "status",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "SubmitReviewDecision(projectID: ProjectID, kind: ArtifactKind, decision: ReviewDecision, feedback: *ReviewFeedback) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ReviewDecision",
-                        "Fields": [
-                          {
-                            "Name": "decision",
-                            "Type": "ReviewDecision",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ReviewFeedback",
-                        "Fields": [
-                          {
-                            "Name": "notes",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "comments",
-                            "Type": "[]AnchoredComment",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "SubmitSDPDecision(projectID: ProjectID, decision: SDPDecision, optionID: *OptionID, feedback: *ReviewFeedback) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "SDPDecision",
-                        "Fields": [
-                          {
-                            "Name": "decision",
-                            "Type": "SDPDecision",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "OptionID",
-                        "Fields": [
-                          {
-                            "Name": "optionID",
-                            "Type": "OptionID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ReviewFeedback",
-                        "Fields": [
-                          {
-                            "Name": "notes",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "comments",
-                            "Type": "[]AnchoredComment",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "ListEpisodesForArtifact(projectID: ProjectID, artifactKind: ArtifactKind) → ([]EpisodeRecordView, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "artifactKind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "[]EpisodeRecordView",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "[]EpisodeRecordView",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "GetEpisodeTimeline(projectID: ProjectID, episodeID: string) → (EpisodeTimeline, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "episodeID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "EpisodeTimeline",
-                        "Fields": [
-                          {
-                            "Name": "record",
-                            "Type": "EpisodeRecordView",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "events",
-                            "Type": "[]TimelineEvent",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ],
-                "DataContracts": [
-                  "ActiveRole",
-                  "ActiveStep",
-                  "AnchoredComment",
-                  "ArtifactKind",
-                  "DraftModel",
-                  "EpisodeKind",
-                  "EpisodeLineage",
-                  "EpisodeOutcome",
-                  "EpisodeRecordView",
-                  "EpisodeTimeline",
-                  "EpisodeUsage",
-                  "Finding",
-                  "Location",
-                  "OptionID",
-                  "PhaseAdvanceResult",
-                  "ProjectID",
-                  "ReviewCommentReply",
-                  "ReviewCommentView",
-                  "ReviewDecision",
-                  "ReviewFeedback",
-                  "RuleID",
-                  "SDPDecision",
-                  "SessionRef",
-                  "SessionStage",
-                  "SessionStateView",
-                  "Severity",
-                  "SubagentSpan",
-                  "TimelineEvent"
                 ],
                 "ErrorModel": "Operations fail with fwm.Error — the typed Manager fault.",
                 "Idempotency": "",
@@ -18400,1069 +17958,6 @@
                   "ReviewVerdict"
                 ],
                 "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.",
-                "Idempotency": "",
-                "Revisions": null
-              },
-              "systemDesignManager": {
-                "Component": "systemDesignManager",
-                "Layer": "Manager",
-                "Stereotype": "systemdesign contract",
-                "Volatility": "",
-                "Status": "",
-                "Inbound": null,
-                "Outbound": null,
-                "Ops": [
-                  {
-                    "Signature": "AdvancePhase(projectID: ProjectID, acknowledgeStale: bool) → (PhaseAdvanceResult, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "bool",
-                        "Fields": [
-                          {
-                            "Name": "acknowledgeStale",
-                            "Type": "bool",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "PhaseAdvanceResult",
-                        "Fields": [
-                          {
-                            "Name": "advanced",
-                            "Type": "bool",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "missingArtifacts",
-                            "Type": "[]ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "CreateProject(owner: OwnerScope, name: string) → (ProjectID, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "OwnerScope",
-                        "Fields": [
-                          {
-                            "Name": "owner",
-                            "Type": "OwnerScope",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "name",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "GetProject(projectID: ProjectID) → (ProjectState, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "ProjectState",
-                        "Fields": [
-                          {
-                            "Name": "ProjectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Name",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Owner",
-                            "Type": "OwnerScope",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Phase",
-                            "Type": "Phase",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "PhaseName",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Version",
-                            "Type": "int",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "operatingModel",
-                            "Type": "OperatingModel",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Research",
-                            "Type": "ResearchInput",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Slots",
-                            "Type": "[]ArtifactSlotView",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "GitRows",
-                            "Type": "object",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "activityExecution",
-                            "Type": "object",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "constructionProgress",
-                            "Type": "ConstructionProgress",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ServiceContracts",
-                            "Type": "object",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "reviewPolicy",
-                            "Type": "ReviewPolicyView",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "testingState",
-                            "Type": "TestingStateView",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "constructionStarted",
-                            "Type": "bool",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "operatorPaused",
-                            "Type": "bool",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "pauseReason",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "GetSessionState(projectID: ProjectID, kind: ArtifactKind) → (SessionStateView, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "SessionStateView",
-                        "Fields": [
-                          {
-                            "Name": "ProjectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "artifactKind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "stage",
-                            "Type": "SessionStage",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "draft",
-                            "Type": "DraftModel",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "findings",
-                            "Type": "[]Finding",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "failureReason",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "FailureRunURL",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "RunURL",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "critique",
-                            "Type": "CritiqueView",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "StageName",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "reviewThread",
-                            "Type": "[]ReviewCommentView",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "activeRole",
-                            "Type": "ActiveRole",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "activeStep",
-                            "Type": "ActiveStep",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "round",
-                            "Type": "int",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "GetDesignHealth(projectID: ProjectID) → (DesignHealth, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "DesignHealth",
-                        "Fields": [
-                          {
-                            "Name": "findings",
-                            "Type": "[]Finding",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "waivers",
-                            "Type": "[]CheckItem",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "attestations",
-                            "Type": "[]CheckItem",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "evaluatedAtRevision",
-                            "Type": "int",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "ListProjects(owner: OwnerScope) → ([]ProjectSummary, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "OwnerScope",
-                        "Fields": [
-                          {
-                            "Name": "owner",
-                            "Type": "OwnerScope",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "[]ProjectSummary",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "[]ProjectSummary",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RequestArtifactDraft(projectID: ProjectID, kind: ArtifactKind, feedback: *ReviewFeedback) → (SessionRef, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ReviewFeedback",
-                        "Fields": [
-                          {
-                            "Name": "notes",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "comments",
-                            "Type": "[]AnchoredComment",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "SessionRef",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "SessionRef",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "SetOperatingModel(projectID: ProjectID, model: OperatingModel) → (Version, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "OperatingModel",
-                        "Fields": [
-                          {
-                            "Name": "model",
-                            "Type": "OperatingModel",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "SetResearchInput(projectID: ProjectID, research: ResearchInput) → (Version, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ResearchInput",
-                        "Fields": [
-                          {
-                            "Name": "sources",
-                            "Type": "[]ResearchSource",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "AskQuestions(projectID: ProjectID, kind: ArtifactKind, addressee: string, questions: []AnchoredComment) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "addressee",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "[]AnchoredComment",
-                        "Fields": [
-                          {
-                            "Name": "questions",
-                            "Type": "[]AnchoredComment",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "AcknowledgeStaleBasis(projectID: ProjectID, kind: ArtifactKind, note: string) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "note",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "SetReviewCommentStatus(projectID: ProjectID, kind: ArtifactKind, commentID: string, status: string) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "commentID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "status",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "StartSystemDesign(projectID: ProjectID) → (SessionRef, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "SessionRef",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "SessionRef",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "SubmitReviewDecision(projectID: ProjectID, kind: ArtifactKind, decision: ReviewDecision, feedback: *ReviewFeedback) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ReviewDecision",
-                        "Fields": [
-                          {
-                            "Name": "decision",
-                            "Type": "ReviewDecision",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ReviewFeedback",
-                        "Fields": [
-                          {
-                            "Name": "notes",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "comments",
-                            "Type": "[]AnchoredComment",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "ListEpisodesForArtifact(projectID: ProjectID, artifactKind: ArtifactKind) → ([]EpisodeRecordView, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "artifactKind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "[]EpisodeRecordView",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "[]EpisodeRecordView",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "GetEpisodeTimeline(projectID: ProjectID, episodeID: string) → (EpisodeTimeline, fwm.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "episodeID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "EpisodeTimeline",
-                        "Fields": [
-                          {
-                            "Name": "record",
-                            "Type": "EpisodeRecordView",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "events",
-                            "Type": "[]TimelineEvent",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ],
-                "DataContracts": [
-                  "ActiveRole",
-                  "ActiveStep",
-                  "ActivityBuildStatus",
-                  "ActivityConstructionPhase",
-                  "ActivityConstructionStatus",
-                  "ActivityGitStatus",
-                  "ActivityMethodPhase",
-                  "ActivityType",
-                  "AnchoredComment",
-                  "ArtifactKind",
-                  "ArtifactSlotModel",
-                  "ArtifactSlotView",
-                  "ArtifactStage",
-                  "AttemptProvenance",
-                  "CICheckState",
-                  "CheckItem",
-                  "ConstructionProgress",
-                  "ContractOp",
-                  "ContractParty",
-                  "ContractRevision",
-                  "ContractStruct",
-                  "CritiqueView",
-                  "DefectView",
-                  "DesignHealth",
-                  "DraftModel",
-                  "EVCurve",
-                  "EpisodeKind",
-                  "EpisodeLineage",
-                  "EpisodeOutcome",
-                  "EpisodeRecordView",
-                  "EpisodeTimeline",
-                  "EpisodeUsage",
-                  "EvPoint",
-                  "EvidenceRef",
-                  "FailureReason",
-                  "Finding",
-                  "GoField",
-                  "Location",
-                  "NoteComment",
-                  "OperatingModel",
-                  "OperatorNote",
-                  "OperatorNoteKind",
-                  "OwnerScope",
-                  "PendingDependency",
-                  "PendingResume",
-                  "Phase",
-                  "PhaseAdvanceResult",
-                  "PhaseCompletion",
-                  "ProducedArtifact",
-                  "ProjectID",
-                  "ProjectState",
-                  "ProjectSummary",
-                  "ResearchInput",
-                  "ResearchSource",
-                  "ReviewCommentReply",
-                  "ReviewCommentView",
-                  "ReviewDecision",
-                  "ReviewFeedback",
-                  "ReviewPolicyView",
-                  "RuleID",
-                  "ServiceContract",
-                  "SessionRef",
-                  "SessionStage",
-                  "SessionStateView",
-                  "Severity",
-                  "SubagentSpan",
-                  "SystemTestPlanView",
-                  "TaskAttempt",
-                  "TestArgView",
-                  "TestCaseView",
-                  "TestExpectView",
-                  "TestRunView",
-                  "TestScenarioView",
-                  "TestStepView",
-                  "TestingStateView",
-                  "TestingVariant",
-                  "TimelineEvent",
-                  "Version"
-                ],
-                "ErrorModel": "Operations fail with fwm.Error — the typed Manager fault.",
                 "Idempotency": "",
                 "Revisions": null
               },
@@ -21289,6 +19784,20 @@
         "tasks": [
           {
             "id": "sdpReview",
+            "awaitingSince": "2026-09-23T07:30:00Z",
+            "redraftExhausted": false,
+            "reviewSet": {
+              "reason": "Project Design is the ONE deterministic cost-approval gate: the M0 milestone spends the whole construction budget, so the spend floor takes a human and no preset can lower it.",
+              "requiresHuman": true,
+              "reviewers": [
+                {
+                  "role": "human",
+                  "perspective": "cost",
+                  "referenceArtifact": "sdpReview",
+                  "mayAmend": false
+                }
+              ]
+            },
             "kind": "review",
             "title": "SDP Review · M0",
             "phase": "sdp",
@@ -21429,19 +19938,7 @@
               }
             ]
           }
-        ],
-        "reviewSet": {
-          "reason": "Project Design is the ONE deterministic cost-approval gate: the M0 milestone spends the whole construction budget, so the spend floor takes a human and no preset can lower it.",
-          "requiresHuman": true,
-          "reviewers": [
-            {
-              "role": "human",
-              "perspective": "cost",
-              "referenceArtifact": "sdpReview",
-              "mayAmend": false
-            }
-          ]
-        }
+        ]
       }
     }
   }

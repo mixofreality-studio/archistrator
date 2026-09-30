@@ -1180,25 +1180,41 @@ export interface FlaggedVariance {
   summary: string;
 }
 
+/**
+ * ONE task's live human gate. The session's gate facts are PLURAL since stage 4b3: they used
+ * to be six flat members describing an ACTIVITY while the facts are per TASK, so on a fork
+ * (a service activity holding detailed_design and test_plan at once) they could only ever
+ * name whichever gate was entered last.
+ */
+export interface AwaitingTaskGate {
+  /** The lifecycle task id, or "merge" for the local merge hold. */
+  taskId: string;
+  /**
+   * The gate CLASS: the task's own id for a phase approval, "merge" for the merge hold,
+   * "takeover" for an escalation. Not redundant with taskId — an escalation is keyed by the
+   * task that escalated and waits at "takeover".
+   */
+  gate: string;
+  reviewSet?: ConstructionReviewSet;
+  /** Why there is no roster: the review engine refused. The gate itself still works. */
+  reviewSetError?: string;
+  /** When THIS occurrence of the gate began (ISO date-time): the gate-occurrence identity. */
+  awaitingSince: string;
+  /** When an escalation gives up (ISO date-time); absent for approval gates and the merge hold. */
+  awaitingUntil?: string;
+  /** This gate's send-back budget is spent: approve, or steer with an override. */
+  redraftExhausted: boolean;
+}
+
 export interface ConstructionSessionView {
   projectId: string;
   activityId?: string;
   /** Integer ConstructionStage ordinal on the inner view. */
   stage: number;
   pipelinePhase?: number;
-  reviewSet?: ConstructionReviewSet;
   variance?: FlaggedVariance;
-  /**
-   * The gate the activity is waiting at (a lifecycle phase's wire name, "merge" or
-   * "takeover"), set only while the stage is awaiting approval or a takeover.
-   */
-  awaitingGate?: string;
-  /** When THIS occurrence of the gate began (ISO date-time): the gate-occurrence identity. */
-  awaitingSince?: string;
-  /** When an escalation gives up (ISO date-time); absent for approval gates and unbounded waits. */
-  awaitingUntil?: string;
-  /** The gate's send-back budget is spent: approve, or steer with an override. */
-  redraftExhausted?: boolean;
+  /** Every task awaiting a human right now, sorted by task id. Absent when none is. */
+  awaitingTasks?: AwaitingTaskGate[];
   /** The current supervision attempt, 1-based (0 before the first). */
   attempt?: number;
   /** How many supervision attempts the activity gets. */

@@ -96,7 +96,22 @@ void test('a session at awaitingApproval is owed, gated on the profile phase gat
   const reviewers = [{ role: 'system-architect', perspective: 'architecture', mayAmend: true }];
   const [item] = owedItemsFor({
     rows,
-    sessions: { 'C-a': session('C-a', 'awaitingApproval', { reviewSet: { reviewers } }) },
+    // The roster is PER TASK since stage 4b3: the session lists the gates it is holding
+    // and each carries its own reviewers, so this lens reads the gate's entry rather than
+    // an activity-level set that a fork could only ever answer for one branch.
+    sessions: {
+      'C-a': session('C-a', 'awaitingApproval', {
+        awaitingTasks: [
+          {
+            taskId: 'designReview',
+            gate: 'designReview',
+            awaitingSince: '2026-09-13T12:00:00Z',
+            redraftExhausted: false,
+            reviewSet: { reviewers },
+          },
+        ],
+      }),
+    },
     titleFor: (id) => (id === 'C-a' ? 'Billing Engine' : undefined),
   });
   assert.ok(item);

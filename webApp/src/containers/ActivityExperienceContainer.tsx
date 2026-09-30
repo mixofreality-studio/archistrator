@@ -144,6 +144,7 @@ import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 type RevisionWire = ActivityViewWire['tasks'][number]['revisions'][number];
+type ActivityTaskWire = ActivityViewWire['tasks'][number];
 
 /**
  * The RAW wire revision behind a selection. `activityViewToGraph` deliberately
@@ -159,6 +160,25 @@ function revisionWireFor(
   return view?.tasks
     .find((taskView) => taskView.id === sel.taskId)
     ?.revisions.find((r) => r.n === sel.revision);
+}
+
+/**
+ * The SELECTED task's own live-gate facts. The roster and the engine's refusal are per TASK
+ * since stage 4b3: they used to be read off the ACTIVITY, so on a fork — a service activity
+ * holding detailed_design and test_plan at once — the reviewers strip beside ONE task drew
+ * whichever branch's roster the session had written last. A task that is not at a live gate
+ * carries neither, which is what their absence means.
+ */
+function taskGateFor(
+  view: ActivityViewWire | undefined,
+  sel: ActivitySelection | undefined
+): { reviewSet?: ActivityTaskWire['reviewSet']; reviewSetError?: string } {
+  if (sel === undefined) return {};
+  const taskView = view?.tasks.find((t) => t.id === sel.taskId);
+  return {
+    ...(taskView?.reviewSet !== undefined ? { reviewSet: taskView.reviewSet } : {}),
+    ...(taskView?.reviewSetError !== undefined ? { reviewSetError: taskView.reviewSetError } : {}),
+  };
 }
 
 export function ActivityExperienceContainer({
@@ -211,6 +231,7 @@ export function ActivityExperienceContainer({
   const node = sel === undefined ? undefined : nodes.find((n) => n.id === sel.taskId);
   const facts = view !== undefined && sel !== undefined ? taskFactsFor(view, sel.taskId) : {};
   const revisionWire = revisionWireFor(view, sel);
+  const taskGate = taskGateFor(view, sel);
   // Reading HISTORY: everything that would change something goes away below, and
   // the one navigation back goes up. `latest` is what the banner counts against.
   const latest = node === undefined ? 0 : latestRevision(node);
@@ -787,8 +808,8 @@ export function ActivityExperienceContainer({
             // The LIVE proposal belongs to the gate the activity is waiting at
             // now, which is not the round on screen when the round on screen is
             // past. The roster and the verdicts below ARE that round's, and stay.
-            reviewSet={historical ? undefined : view.reviewSet}
-            reviewSetError={historical ? undefined : view.reviewSetError}
+            reviewSet={historical ? undefined : taskGate.reviewSet}
+            reviewSetError={historical ? undefined : taskGate.reviewSetError}
             revision={sel.revision}
             revisions={node.revisions}
             roster={revisionWire?.reviewers}

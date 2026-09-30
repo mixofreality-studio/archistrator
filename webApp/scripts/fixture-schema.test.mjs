@@ -139,6 +139,115 @@ void test('every recorded design fixture passes too, when there are any', () => 
   assert.deepEqual(validateFixtureTree(DESIGN_FIXTURES, { validate }).errors, []);
 });
 
+// THE FIXTURE CONTRACT SET IS GATED AGAINST THE MODEL (stage 4b3 Task 8). Measured at the
+// wave head: 17 of the 23 preview fixtures carried a 30-entry ServiceContracts map holding
+// constructionManager, projectDesignManager and systemDesignManager — the three Manager
+// contracts stage 4a DELETED — and NOT deliveryManager, the Manager this whole stage
+// exists to build. All 57 preview cases were green over it. The contract-code panel and
+// the contract React Flow diagrams, which this repo treats as first-class review aids, were
+// browser-tested against a world four waves old, and nothing said so.
+//
+// WHY THE RULE IS "THE WHOLE CORPUS OR NO SUMMARY AT ALL", and not "every contract you name
+// must exist": serviceContractsToContract (deliverymanager.go) is ALL-OR-NOTHING — it returns
+// nil for an empty corpus and the WHOLE map otherwise — so there is no answer a server could
+// give between "no contracts" and "all 28 of them". A subset rule would have passed
+// `plan/owed-gate.json`'s 1-entry map and `plan/begin-confirm.json`'s `{}` forever, and both
+// are states no server emits. The gate is therefore keyed on the SUMMARY READ, not on whether
+// the fixture happens to carry the member: a fixture that answers
+// deliveryQueryProjectView.summary with a `result` must carry the corpus exactly as the model
+// holds it. Keying it on `ServiceContracts === undefined` would let a future fixture opt out
+// of the gate by dropping the member, which is the failure mode this whole clause is about.
+//
+// The five fixtures with no summary RESULT (two landing states, a pending read, an
+// unfixtured read, and the one recorded-design smoke fixture) have nothing to check, and they
+// are named rather than counted so the skip cannot silently grow.
+const PROJECT_JSON = join(here, '..', '..', '.aiarch', 'state', 'project.json');
+const NO_SUMMARY_READ = [
+  'activity-experience/not-started.json',
+  'landing/load-error.json',
+  'landing/resting.json',
+  'plan/loading.json',
+  'plan/unfixtured-read.json',
+];
+
+void test('every preview fixture describes the contracts the model actually holds', () => {
+  const live = JSON.parse(readFileSync(PROJECT_JSON, 'utf8')).serviceContracts;
+  const liveNames = Object.keys(live).sort();
+  const liveOpCount = (name) => live[name].interface?.operations?.length ?? 0;
+  const offences = [];
+  const skipped = [];
+  let checked = 0;
+  for (const root of FIXTURE_ROOTS) {
+    const { files, errors } = validateFixtureTree(root, { validate });
+    assert.deepEqual(errors, [], `${root}: fixtures must validate before they are read`);
+    for (const file of files) {
+      const where = file.split('/').slice(-2).join('/');
+      const summary = JSON.parse(readFileSync(file, 'utf8')).ops?.deliveryQueryProjectView
+        ?.summary;
+      if (summary?.result === undefined) {
+        skipped.push(where);
+        continue;
+      }
+      checked += 1;
+      const sc = summary.result.summary?.ServiceContracts ?? {};
+      const names = Object.keys(sc).sort();
+      if (names.join() !== liveNames.join()) {
+        offences.push(
+          `${where}: ServiceContracts vs .aiarch/state/project.json — ` +
+            `extra ${JSON.stringify(names.filter((n) => live[n] === undefined))}, ` +
+            `missing ${JSON.stringify(liveNames.filter((n) => sc[n] === undefined))}`
+        );
+      }
+      for (const [name, c] of Object.entries(sc)) {
+        if (live[name] === undefined) continue; // already reported as extra
+        if ((c.Ops ?? []).length !== liveOpCount(name)) {
+          offences.push(
+            `${where}: ${name} carries ${(c.Ops ?? []).length} ops, the model declares ${liveOpCount(name)}`
+          );
+        }
+      }
+    }
+  }
+  assert.deepEqual(offences, []);
+  assert.deepEqual(skipped.sort(), NO_SUMMARY_READ, 'the set of fixtures with no summary read');
+  assert.ok(checked > 0, 'no fixture corpus was checked; this test would pass vacuously');
+});
+
+// AN ADDRESSEE OUTSIDE THE VOCABULARY IS ADDRESSED TO NOBODY. `ReviewCommentAddressee` is
+// `'pm' | 'architect' | ''` (contracts/types.ts) and wire.ts's reviewAddressee maps anything
+// else to '' — silently. Measured at the wave head: FIVE fixture comments carried
+// "seniorDeveloper" (three in construction-round-withdrawn.json, two in
+// service-fork-sent-back.json — the plan said three, and it had missed a file), so five
+// change requests were addressed to a role the SPA drops on decode. Nothing said so, because
+// dropping is what the adapter is for.
+const REVIEW_ADDRESSEES = ['', 'architect', 'pm'];
+
+void test('every fixture review comment is addressed to a role the SPA can decode', () => {
+  const offences = [];
+  let comments = 0;
+  const walk = (node, where) => {
+    if (Array.isArray(node)) {
+      for (const v of node) walk(v, where);
+      return;
+    }
+    if (node === null || typeof node !== 'object') return;
+    if (typeof node.addressee === 'string' && typeof node.anchor === 'string') {
+      comments += 1;
+      if (!REVIEW_ADDRESSEES.includes(node.addressee)) {
+        offences.push(`${where} ${node.id}: addressee ${JSON.stringify(node.addressee)}`);
+      }
+    }
+    for (const v of Object.values(node)) walk(v, where);
+  };
+  for (const root of FIXTURE_ROOTS) {
+    for (const file of validateFixtureTree(root, { validate }).files) {
+      walk(JSON.parse(readFileSync(file, 'utf8')), file.split('/').slice(-2).join('/'));
+    }
+  }
+  assert.deepEqual(offences, []);
+  assert.ok(comments > 0, 'no fixture comment was checked; this test would pass vacuously');
+});
+
 void test('the schema keys ops by exactly the OpsClient OpIds, composition routes included', () => {
   const schemaOps = Object.keys(buildFixtureSchema(doc).properties.ops.properties).sort();
   assert.deepEqual(schemaOps, Object.keys(opBindings(doc)).sort());

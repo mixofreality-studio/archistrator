@@ -105,8 +105,13 @@ export function buildStatusForStage(stage: ConstructionStage): BuildStatus {
 /**
  * Whether the session represents a live/active construction session at all (vs the
  * dormant-pump awaiting state). A 404 surfaces as an undefined session upstream;
- * an empty dispatching view with no activity / pipeline / review / variance is the
+ * an empty dispatching view with no activity / pipeline / gate / variance is the
  * quiet-pump answer the console renders as awaiting.
+ *
+ * "review" became "gate" at stage 4b3: the roster moved onto the per-task awaiting entries,
+ * and a session holding ANY gate is live whether or not a roster was proposed for it — which
+ * is strictly more correct, since a gate whose review engine refused has no roster and is
+ * plainly live.
  */
 export function sessionIsLive(session: ConstructionSessionState | undefined): boolean {
   if (session === undefined) return false;
@@ -114,7 +119,7 @@ export function sessionIsLive(session: ConstructionSessionState | undefined): bo
   return (
     v.activityId !== undefined ||
     session.pipelinePhase !== undefined ||
-    v.reviewSet !== undefined ||
+    (v.awaitingTasks !== undefined && v.awaitingTasks.length > 0) ||
     v.variance !== undefined ||
     (session.stage !== 'dispatching' && session.stage !== 'unknown')
   );

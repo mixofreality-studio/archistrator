@@ -176,7 +176,11 @@ function owedFor(
   // as "nothing is owed".
   if (session === undefined) return 'unchecked';
   if (session === null) return 'clear';
-  const reviewers = session.view.reviewSet?.reviewers ?? [];
+  // THE ROSTER IS PER TASK (stage 4b3). This lens describes ONE activity's owed work as a
+  // single card, so it shows the roster of the gate the card is about: the first (and, off a
+  // fork, only) gate the session is holding. A fork legitimately has two, and the Activity
+  // Experience is where each is drawn beside its own task.
+  const reviewers = session.view.awaitingTasks?.[0]?.reviewSet?.reviewers ?? [];
   if (session.stage === 'awaitingTakeover') {
     const summary = session.view.variance?.summary;
     return {

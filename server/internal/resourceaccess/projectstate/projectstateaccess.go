@@ -7307,6 +7307,18 @@ func (v *TestingVariant) UnmarshalJSON(data []byte) error {
 // This is a STORED terminal — the CoarsePhase deriver short-circuits on it so it is
 // never recomputed back to Running/Done (see CoarsePhase's guard).
 
+// ActivityConstructionCompletedNotLanded — the activity recorded its binary exit and
+// then FAILED TO LAND IT: the merge tail broke after finalizeActivity had already
+// written CompletedAt. It is APPENDED at ordinal 4 because ordinals 0-3 are wire values
+// in every committed project and this repo renumbers nothing.
+//
+// It is DERIVED, never stored, and it is derived from TailFailureDetail — the third head
+// fact — rather than from a re-meaning of FailureReason/FailureDetail, whose pair every
+// reader and every write site assumes. A Completed row carrying a failureReason is a
+// contradiction; a Completed row carrying a tail failure is an honest and different
+// thing, and this is the word for it. Stage 4b3 Task 8 adds the vocabulary; Task 9 writes
+// the fact and derives the node.
+
 // String returns the canonical wire name for the construction phase (used in JSON
 // and log output). Mirrors CICheckState.String() and ActivityOutcome.String().
 func (p ActivityConstructionPhase) String() string {
@@ -7317,10 +7329,12 @@ func (p ActivityConstructionPhase) String() string {
 		return "done"
 	case ActivityConstructionFailed:
 		return "failed"
+	case ActivityConstructionCompletedNotLanded:
+		return "completedNotLanded"
 	case ActivityConstructionNotStarted:
 		return "notStarted"
 	}
-	// Unreachable for the four defined ActivityConstructionPhase values above (the
+	// Unreachable for the five defined ActivityConstructionPhase values above (the
 	// exhaustive linter enforces that every real variant has its own case); kept
 	// as a defensive fallback for an out-of-range ordinal.
 	return "notStarted"
@@ -7695,6 +7709,26 @@ type ActivityExecution struct {
 	// FailureDetail is the human-readable diagnostic captured alongside FailureReason
 	// (the pipeline's neutral diagnostic / a short escalation note). Empty otherwise.
 	FailureDetail string `json:"failureDetail,omitempty"`
+	// TailFailureDetail is set when an activity's MERGE TAIL failed AFTER its binary exit
+	// was recorded — it completed its work and failed to land it.
+	//
+	// It is a THIRD HEAD FACT and NOT a re-meaning of FailureDetail, whose pair with
+	// FailureReason every reader and every write site assumes: a Completed row carrying a
+	// FailureReason is a contradiction, and a Completed row carrying a tail failure is an
+	// honest and different thing. Routing a tail failure through failWalk instead would
+	// write VarianceExhausted over an already-recorded Completed, which is a decision about
+	// the documented heal-by-re-open path rather than a line to add.
+	//
+	// WRITE-ONCE, and cleared only by a requeue note — which clears the other four head
+	// facts with it, so the heal cannot leave half a terminal behind. The operator's red
+	// node is DERIVED from it (ActivityConstructionCompletedNotLanded), never stored:
+	// derived-not-stored is the spec's own rule for anything a ledger can answer.
+	//
+	// STAGE 4b3 TASK 8 ADDS THE MEMBER AND WRITES IT NOWHERE. Task 9 is the writer and the
+	// deriver; the member exists here first because one wave gets one model edit — and
+	// because, measured, this struct is hand-written rather than generated (the contract
+	// binds it through x-go-type, not a $def), so it could not have ridden that edit at all.
+	TailFailureDetail string `json:"tailFailureDetail,omitempty"`
 	// Attempts is the APPEND-ONLY Figure A-1 task ledger — the record of what happened.
 	// Every lifecycle-phase completion is derived from it (phaseCompleteFromAttempts).
 	Attempts []TaskAttempt `json:"attempts,omitempty"`
@@ -10784,9 +10818,20 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 // re-arming a live row would hand a second child the row this one is writing.
 func reopenTerminalRow(cs *ActivityExecution, activityID string) error {
 	switch phase := CoarsePhaseFor(*cs, nil); phase {
-	case ActivityConstructionDone, ActivityConstructionFailed:
+	case ActivityConstructionDone, ActivityConstructionFailed, ActivityConstructionCompletedNotLanded:
+		// completedNotLanded JOINS THE TWO TERMINALS, and it is the member the heal exists
+		// for: an activity whose merge tail broke has a CompletedAt and no FailureReason, so
+		// it has plainly exited and there is nothing live for a requeue to collide with. It
+		// is unreachable until Task 9 teaches CoarsePhaseFor to return it; the arm is here
+		// because gochecksumtype requires one and because a requeue that refused the one
+		// state the operator most needs to clear would be the defect wearing a guard.
+		//
+		// TailFailureDetail is cleared WITH the other four. It is the third head fact, and
+		// its own contract says the requeue note is the only thing that clears it — a
+		// re-armed row that kept it would derive a red node over a walk that has restarted.
 		cs.StartedAt, cs.CompletedAt = nil, nil
 		cs.FailureReason, cs.FailureDetail = FailureReasonUnknown, ""
+		cs.TailFailureDetail = ""
 		return nil
 	case ActivityConstructionNotStarted, ActivityConstructionRunning:
 		// A CONFLICT, NOT A CONTRACT MISUSE. The caller's ARGUMENTS are impeccable — the same

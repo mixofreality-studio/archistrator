@@ -55,8 +55,16 @@ type CostProjectionSeam struct {
 	ScaleWhatIfCurve     WhatIfCurve `json:"ScaleWhatIfCurve"`
 }
 
+type DelinquencyAction int
+
+const (
+	DelinquencyActionUnknown  DelinquencyAction = 0
+	DelinquencyActionPause    DelinquencyAction = 1
+	DelinquencyActionWithdraw DelinquencyAction = 2
+)
+
 type DelinquencyContext struct {
-	PauseNotWithdraw bool `json:"pauseNotWithdraw"`
+	Action DelinquencyAction `json:"action"`
 }
 
 type DeployResult struct {

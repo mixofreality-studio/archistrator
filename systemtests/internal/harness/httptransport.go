@@ -310,9 +310,9 @@ func (t *httpTransport) QueryOperatedSystemView(ctx context.Context, operatedApp
 	}, nil
 }
 
-func (t *httpTransport) ApplyDelinquencyPolicy(ctx context.Context, customerID string, pauseNotWithdraw bool) error {
+func (t *httpTransport) ApplyDelinquencyPolicy(ctx context.Context, customerID, action string) error {
 	err := t.client.OperationsApplyDelinquencyPolicy(ctx, customerID,
-		sdk.DelinquencyContext{PauseNotWithdraw: pauseNotWithdraw})
+		sdk.DelinquencyContext{Action: delinquencyAction(action)})
 	return sentinelError(err)
 }
 

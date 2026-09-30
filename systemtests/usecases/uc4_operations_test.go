@@ -169,7 +169,7 @@ func Test_UC4_ApplyDelinquencyPolicy_QueuedSignalSucceeds(t *testing.T) {
 	tr := operationsSurfaceServer(t)
 
 	customerID := harness.NewProjectID()
-	if err := tr.ApplyDelinquencyPolicy(ctx, customerID, true /* pauseNotWithdraw */); err != nil {
+	if err := tr.ApplyDelinquencyPolicy(ctx, customerID, "pause"); err != nil {
 		t.Fatalf("applyDelinquencyPolicy: expected the queued signal to succeed, got %v", err)
 	}
 

@@ -494,19 +494,16 @@ func (m *operationsManager) ApplyDelinquencyPolicy(rc fwmgr.Context, customerID 
 	}
 
 	wfID := delinquencyWorkflowID(customerID)
-	// THE FAÇADE CANNOT SAY "NOBODY SAID", AND THAT IS RECORDED RATHER THAN HIDDEN.
-	// DelinquencyContext.pauseNotWithdraw is a non-pointer bool on the generated REST and MCP
-	// surfaces, so a request body that omits it decodes as false and arrives here
-	// indistinguishable from an explicit withdraw. Mapping it to the enum keeps today's
-	// semantics exactly and moves the three-value vocabulary to where a MISSING payload can
-	// still be caught (the workflow's own decode). Closing the outer half is a $defs change —
-	// pauseNotWithdraw -> a delinquencyAction enum — across the generated surfaces, and it is
-	// earmarked rather than smuggled into a Manager body.
-	action := delinquencyActionWithdraw
-	if delinquencyContext.PauseNotWithdraw {
-		action = delinquencyActionPause
-	}
-	sig := applyDelinquencySignal{CustomerID: customerID, Action: action}
+	// THE CALLER'S DIRECTIVE TRAVELS UNTOUCHED, INCLUDING "NOBODY SAID". Until stage 4b3 this
+	// was a bool→enum mapping with an earmark on it: DelinquencyContext.pauseNotWithdraw was a
+	// non-pointer bool on the generated REST and MCP surfaces, the generated handler does a
+	// plain decodeJSON with no required-presence validation, and the Go zero of that bool meant
+	// WITHDRAW — so a body that omitted the field asked, silently, for the one irreversible arm.
+	// The $defs swap discharged it: the zero value is now DelinquencyActionUnknown, and the
+	// enforcement branch REFUSES it by name rather than acting on it. The façade's job is
+	// therefore to carry it, not to interpret it — validating here as well would put a second
+	// answer in front of the one the branch is written to give.
+	sig := applyDelinquencySignal{CustomerID: customerID, Action: delinquencyContext.Action}
 	opts := client.StartWorkflowOptions{
 		ID:                       wfID,
 		TaskQueue:                TaskQueue,
