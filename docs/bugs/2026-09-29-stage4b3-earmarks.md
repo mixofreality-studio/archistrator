@@ -334,3 +334,38 @@ Recorded in full, by name and commit, in `docs/bugs/2026-09-28-stage4b2-earmarks
 **The measurement that contradicts the plan is the deliverable, and this wave produced five.** The census was 33 and two documents said 36 or 37. The shapes end at 14/14 where the gate ledger said 15/15, and npm at 1241 where it said 1243. The GAP-7 argument — that the pump's per-wake-up read is the strongest case for the batched plan read — is **false**: the pump reads through `designSessionAccess.ReadProjectOnBranch` **inside a workflow** and touches `QueryProjectView` **zero times**, so an eighth `ProjectViewKind` buys it nothing. The delinquency defect was reported live and is latent. And the file that R23 said to split **grew 301 lines** while a task measured 82 candidate symbols and correctly moved none.
 
 **None of those was found by a gate. Every one was found by somebody re-running the number instead of transcribing it** — which is the discipline 4b2's Task 17 adopted after the 37-row miss, and it has now paid five times in one wave.
+
+---
+
+## The release — Task 13 Step 11, recorded
+
+**Cut 2026-09-30. `main` is at `0ff0ca33`; the wave's last engineering commit is `ed22471e`, merged forward as `d637e73d`.**
+
+| | |
+|---|---|
+| Server tag | **`archistrator-server-v0.8.112`** (`server/VERSION` 0.8.112) |
+| webApp tag | **`archistrator-webapp-v0.6.94`** (`webApp/package.json` 0.6.94) |
+| Images | `ghcr.io/mixofreality-studio/archistrator-server:0.8.112`, `ghcr.io/mixofreality-studio/archistrator-webapp:0.6.94` |
+| Release run | `release.yml` **36699164010**, success in 1m53s |
+| Merge shape | `origin/main` merged INTO the branch (bringing the 0.8.111 / 0.6.93 bump-backs), then `main` fast-forwarded — the same shape stage 4b2 used |
+
+**The plan predicted 0.8.111 / 0.6.93 and was one release behind**, because the 4b2 merge's own release run had already consumed those numbers. `release.yml` resolves `max(last-tag-patch + 1, source-file-version)`, so the arithmetic self-corrected; nothing was hand-tagged, which matters because the next release reads the last tag.
+
+### What the drain actually did, step by step
+
+**Steps 3 and 5 were NOT run from the release session, and this is the honest record of why.** That session had **no cluster and no production Temporal namespace**: `~/.kube/` holds no config file at all (`kubectl config view` → `cannot locate context`), and the only reachable Temporal is a local dev server on `127.0.0.1:7233` in the `default` namespace. A local server proves nothing about Schedules in either direction — `dryRunConstructionScheduleGate` skips every `delivery`-queue `RegisterSchedule` under `CONSTRUCTION_DRYRUN=true`, so no Schedule is created to inspect.
+
+There is also **no chart in this repository** — no `Chart.yaml`, no `values*.yaml`, no pinned image tag — so rolling the images is outside this repo by construction.
+
+**Therefore, outstanding and owed to whoever has the namespace, IN THIS ORDER:**
+
+1. **Step 3 — pause, then drain.** Optional cleanup under the founder's no-users ruling *except* where noted below. Sweep the `delivery:` prefix **and** `*:nextActivity:*` **and** `{customerId}:delinquency` (see step 2's fifth bullet — that one is on the `operations` queue, which is why a `delivery:`-prefix sweep never reached it).
+2. **Step 5 — the three `temporal schedule delete` calls, BEFORE the new image runs.** This is the one step the no-users ruling does not excuse: `RegisterSchedule` **adopts** a same-id Schedule rather than replacing it (`messagebus.go:167-217`), so an unregistered Schedule is not a deleted one and keeps firing into a workflow type no worker serves. Delete `construction:pumpSweep`, `construction:replanSweep`, `delivery:replanSweep`.
+3. **The delinquency route must stay CLOSED across the whole rollout.** Not merely drained. The destructive direction is a rolling window: an **old** worker receiving the **new** payload decodes `Context` absent → zero → `PauseNotWithdraw == false` → **withdraw**, irreversible, per app. Nothing in code enforces this; a `GetVersion` fence on that decode would have made it a non-issue and was out of scope.
+4. **Step 8 — deploy, then confirm by ID and never by count** (the corrected step above), then unpause with `SetProjectRunState` `runState: "running"`.
+5. **Step 9 — watch the first cascade deliberately.** The main-write lease has **never run in production**: every lease message was dropped on the wire until `37b0e768`, so the 2 h grant budget, the liveness probe, the epoch and `pumpGrantLease`'s requester validation have only ever been exercised by tests using a wire form production never produced. Measure the three things Step 9 names, plus this wave's own two firsts — Task 7's liveness probe (a `deliverSignal` at epoch 0 no child has ever received in production) and Task 10's re-open sweep (which writes a requeue note on a 300 s schedule). **A probe storm or an unexpected re-open is a rollback trigger, not a curiosity.**
+6. **Step 10 — rollback order is not the obvious one:** pause → restore `project.json` to its pre-migration commit → roll the image → unpause. Rolling the image alone re-dispatches every activity as `NotStarted`.
+
+### One operational consequence of the fix itself, expected and not a regression
+
+The live-gate derivation was comparing a gate **task** id against a lifecycle **phase** id, so two rules had never fired in production. **The first run on this image will show `awaitingHuman` task states the previous image could not produce.** That is the fix working.
