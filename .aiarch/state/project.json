@@ -1,5 +1,6 @@
 {
   "id": "archistrator",
+  "operatorPaused": true,
   "version": 605,
   "phase": 2,
   "owner": "dev-architect",
