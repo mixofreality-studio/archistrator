@@ -1,0 +1,27 @@
+// THE INVERTED RULE: what the gate CANNOT follow is a FAILURE, not a pass.
+//
+// This is the rule that keeps the gate from going blind on a form nobody
+// anticipated. A gate that silently skips the channel it could not trace is
+// precisely the artifact stage 4b2 shipped: green, and wrong about the one class it
+// existed to see.
+//
+// Two shapes, both flagged:
+//   - a bus-delivered channel RETURNED out of the corpus, so its receive target is
+//     decided somewhere this analysis never looks;
+//   - a bus-delivered channel handed to a callee the gate cannot resolve.
+package badunanalysable
+
+const (
+	signalActivityLeaseGranted   = "activityLeaseGranted"
+	signalActivityLeaseRequested = "activityLeaseRequested"
+)
+
+func UnanalysableReturn(ctx workflow.Context) workflow.ReceiveChannel {
+	ch := workflow.GetSignalChannel(ctx, signalActivityLeaseGranted)
+	return ch // WANT: flagged — the gate cannot follow a channel out of the corpus
+}
+
+func UnanalysableHandOff(ctx workflow.Context) {
+	ch := workflow.GetSignalChannel(ctx, signalActivityLeaseRequested)
+	registerElsewhere(ch) // WANT: flagged — callee is not declared in this package
+}

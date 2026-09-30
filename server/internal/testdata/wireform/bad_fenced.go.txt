@@ -1,0 +1,46 @@
+// THE EXCEPTION SHAPE R4 RESERVED, RECORDED HERE AS *FLAGGED* RATHER THAN SANCTIONED.
+//
+// R4 allowed exactly one exception: a pre-change arm behind a workflow.GetVersion
+// fence, kept so a recorded history replays. The plan's third RED instance WAS that
+// shape, at pumpPausedAtRunStart. Stage 4b3 Task 3 discharged all five pump fences
+// under the founder's no-production-users ruling, so the shape has ZERO production
+// instances, and shipping an exception mechanism with no instance would have meant
+// shipping an untested escape hatch in a gate whose whole failure mode is silence:
+// any struct receive could be quieted by wrapping it in a GetVersion that always
+// takes the new arm.
+//
+// So the shipped rule has NO exception, and this fixture is how that decision is
+// held: the pre-change arm below IS a finding. If a future wave genuinely needs a
+// fenced pre-change receive, the way back is to add the exception here, with this
+// fixture flipped to `good_`, in the same commit as the fence — deliberately, in the
+// open, and never by an allowlist of names.
+package badfenced
+
+const signalOperatorPauseRequested = "operatorPauseRequested"
+
+type operatorPauseSignal struct{ Reason string }
+
+func FencedEntry(ctx workflow.Context) (string, bool) {
+	ch := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
+	return fencedPreChangeArm(ctx, ch)
+}
+
+func fencedPreChangeArm(ctx workflow.Context, ch workflow.ReceiveChannel) (string, bool) {
+	if workflow.GetVersion(ctx, "some-pre-change-fence", workflow.DefaultVersion, 1) >= 1 {
+		var raw any
+		ch.Receive(ctx, &raw)
+		return normaliseFenced(raw)
+	}
+	// The PRE-CHANGE body: a concrete struct on purpose, kept only so a recorded
+	// history replays.
+	var sig operatorPauseSignal
+	if ch.ReceiveAsync(&sig) { // WANT: flagged — the exception SHAPE is NOT shipped
+		return sig.Reason, true
+	}
+	return "", false
+}
+
+func normaliseFenced(raw any) (string, bool) {
+	s, ok := raw.(string)
+	return s, ok
+}

@@ -1,0 +1,84 @@
+// THE COUNTERWEIGHT, and it is not decoration. A gate that reddens on everything is
+// as useless as one that reddens on nothing, and this fixture is the assertion that
+// the analyser can follow every shape production actually uses and stay SILENT:
+//
+//   - a channel handed into a struct's field and read back off that field;
+//   - a channel handed to a package-local helper as an argument;
+//   - a channel received on inside an AddReceive closure, through a helper;
+//   - `any` targets and a *[]byte target, the two the SDK's binary/plain payload
+//     can actually be assigned to;
+//   - and a channel whose name NO messageBus.deliverSignal producer uses, receiving
+//     into a concrete struct, which is CORRECT and must never be flagged. That is
+//     the whole reason the rule is keyed on the NAME.
+//
+// The shapes mirror pumpnextactivity.go's pumpChannels / pumpPauseRequested /
+// pumpReceiveSignalBlocking and billing/closecycle.go's chargeback receive.
+package goodnormalised
+
+const (
+	signalOperatorPauseRequested = "operatorPauseRequested"
+	signalActivityLeaseRequested = "activityLeaseRequested"
+	// NOT a bus-delivered name: nothing calls messageBus.deliverSignal with it.
+	signalChargebackReceived = "chargebackReceived"
+)
+
+type leaseChannels struct{ pause, lease workflow.ReceiveChannel }
+
+type activityLeaseRequest struct{ ActivityID string }
+
+type gatewayReversalEvent struct{ EventID string }
+
+func GoodEntry(ctx workflow.Context) {
+	pauseCh := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
+	leaseCh := workflow.GetSignalChannel(ctx, signalActivityLeaseRequested)
+
+	// A directly-signalled channel with no bus producer. A concrete struct target is
+	// right here, and the gate must say nothing about it.
+	chargebacks := workflow.GetSignalChannel(ctx, signalChargebackReceived)
+	var ev gatewayReversalEvent
+	chargebacks.ReceiveAsync(&ev)
+
+	goodLoop(ctx, leaseChannels{pause: pauseCh, lease: leaseCh})
+}
+
+func goodLoop(ctx workflow.Context, chans leaseChannels) {
+	if paused := goodPauseRequested(chans.pause); paused {
+		return
+	}
+	sel := workflow.NewSelector(ctx)
+	sel.AddReceive(chans.lease, func(c workflow.ReceiveChannel, _ bool) {
+		var req activityLeaseRequest
+		_ = goodReceiveBlocking(ctx, c, &req)
+	})
+	sel.Select(ctx)
+}
+
+func goodPauseRequested(ch workflow.ReceiveChannel) bool {
+	var raw any
+	return ch.ReceiveAsync(&raw)
+}
+
+func goodReceiveBlocking(ctx workflow.Context, ch workflow.ReceiveChannel, out *activityLeaseRequest) bool {
+	var raw any
+	ch.Receive(ctx, &raw)
+	return goodDecode(raw, out)
+}
+
+func goodDecode(raw any, out *activityLeaseRequest) bool {
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return false
+	}
+	id, ok := m["ActivityID"].(string)
+	out.ActivityID = id
+	return ok
+}
+
+// GoodRawBytes takes the OTHER assignable target: the SDK's ByteSlicePayloadConverter
+// can hand a binary/plain payload to a *[]byte, so this loses nothing.
+func GoodRawBytes(ctx workflow.Context) []byte {
+	ch := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
+	var b []byte
+	ch.Receive(ctx, &b)
+	return b
+}

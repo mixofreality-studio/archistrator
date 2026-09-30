@@ -1,0 +1,27 @@
+// FORM 3 OF 3, AND THE ONE A NAIVE GATE MISSES: the receive happens inside a
+// selector callback, on the CLOSURE PARAMETER rather than on the channel variable.
+// Nothing in this function body reads `ch` after the AddReceive, so a gate that
+// looked only for `<seeded var>.Receive` would see a channel with no receive at all
+// and report nothing.
+//
+// The live form is deliveryactivity.go:2009-2024 (routeSignals) and :3462
+// (requestMainWriteLease's grant arm); the pump's park uses it three times.
+package badaddreceive
+
+const signalActivityFinished = "activityFinished"
+
+type activityFinishedSignal struct {
+	ActivityID string
+	Outcome    string
+}
+
+func BadAddReceive(ctx workflow.Context) {
+	ch := workflow.GetSignalChannel(ctx, signalActivityFinished)
+	sel := workflow.NewSelector(ctx)
+	sel.AddReceive(ch, func(c workflow.ReceiveChannel, _ bool) {
+		var s activityFinishedSignal
+		c.Receive(ctx, &s) // WANT: flagged — the closure param IS the same channel
+		_ = s
+	})
+	sel.Select(ctx)
+}

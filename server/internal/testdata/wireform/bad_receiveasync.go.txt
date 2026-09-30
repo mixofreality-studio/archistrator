@@ -1,0 +1,23 @@
+// FORM 2 OF 3: ReceiveAsync into a concrete struct. This is the form
+// billing/closecycle.go:192 and :217 use — legitimately there, because neither
+// inboundRevenueReceived nor chargebackReceived has a bus producer — and the form
+// operations/delinquencyenforcement.go would have used had Task 1 not changed it.
+//
+// A gate that matched only the blocking Receive would ship as coverage it has not.
+package badreceiveasync
+
+const signalApplyDelinquencyPolicy = "applyDelinquencyPolicy"
+
+type applyDelinquencySignal struct {
+	CustomerID string
+	Action     int
+}
+
+func BadReceiveAsync(ctx workflow.Context) bool {
+	ch := workflow.GetSignalChannel(ctx, signalApplyDelinquencyPolicy)
+	var ev applyDelinquencySignal
+	if !ch.ReceiveAsync(&ev) { // WANT: flagged — concrete struct target on a bus-delivered name
+		return false
+	}
+	return ev.CustomerID != ""
+}

@@ -1,0 +1,25 @@
+// FORM 1 OF 3: a plain blocking Receive into a concrete struct, on a channel whose
+// NAME a messageBus.deliverSignal producer uses.
+//
+// This is projectsupervision.go:48 exactly as it stood until stage 4b3 Task 2 — the
+// LATENT instance, and the one an id-keyed gate would have cleared, because that
+// name's two producers reach different execution ids.
+//
+// The file is .go.txt so the go tool never builds it. Nothing here needs to compile:
+// the gate is AST-only, so `workflow` may be an undeclared package and the fixture is
+// still a faithful statement of the shape.
+package badreceive
+
+const signalOperatorPauseRequested = "operatorPauseRequested"
+
+type operatorPauseSignal struct {
+	ProjectID string
+	Reason    string
+}
+
+func BadReceive(ctx workflow.Context) string {
+	ch := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
+	var sig operatorPauseSignal
+	ch.Receive(ctx, &sig) // WANT: flagged — concrete struct target on a bus-delivered name
+	return sig.Reason
+}
