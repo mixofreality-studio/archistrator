@@ -18080,6 +18080,18 @@ func lifecycleShapeCases() []lifecycleShapeCase {
 			name: "continue-as-new-loses-no-signal", typeKey: "pump",
 			drive: driveContinueAsNewLosesNoSignal, wantToday: shapePassesToday,
 		},
+		{
+			// THE FORK'S VIEW NAMES BOTH GATES. The TWELFTH case, and it is the oracle for the
+			// single-valued session view (stage 4b3 Task 5). A `service` fork opens `stp`'s
+			// review and `designReview` at once; enterHumanStage OVERWROTE
+			// awaitingGate/awaitingSince on every entry and leaveHumanStage CLEARED them, so
+			// the query could only ever describe the gate entered second — and deciding that
+			// one erased the sibling's plainly open gate from the view entirely. Two
+			// independent 4b2 call sites read it and got the fork wrong, one of them on the
+			// ROUTINE approval path rather than an override.
+			name: "fork-view-names-both-gates", typeKey: "service",
+			drive: driveForkViewNamesBothGates, wantToday: shapePassesToday,
+		},
 	}
 }
 
@@ -18390,6 +18402,12 @@ func assertShape(t *testing.T, name string, got shapeOutcome) {
 		assertShapeVibesFloor(t, name, got)
 	case "continue-as-new-loses-no-signal":
 		assertShapeContinueAsNewLosesNoSignal(t, name, got)
+	case "fork-view-names-both-gates":
+		// The walk-shaped half only: both branches started once and overlapped, and the
+		// activity advanced. The case's OWN claim is about the session Query's two answers,
+		// which shapeOutcome cannot carry, so the driver asserts it where it reads it
+		// (assertShapeForkGatePair).
+		assertShapeForkOverlap(t, name, got)
 	default:
 		t.Fatalf("no assertion is written for shape case %q; a case without one would pass by saying nothing", name)
 	}
@@ -18957,6 +18975,7 @@ func shapeReviewActivityTypeFor(typeKey string) (review.ActivityType, bool) {
 // is the wire value; a derivation here would test the derivation instead of the routing.
 const (
 	shapeDesignReviewTask = "designReview"
+	shapeSTPReviewTask    = "stpReview"
 	shapeSTPTask          = "stp"
 	shapeSRSTask          = "srs"
 	shapeConstructionTask = "construction"
@@ -19185,6 +19204,132 @@ func driveInboxOverflow(t *testing.T, rig *shapeRig) shapeOutcome {
 			"signal is what exhausted the per-activity version", shapeInboxFloodSize, n)
 	}
 	return rig.csOutcome(shapeServiceID)
+}
+
+// shapeQuerySessionAt reads the child's sessionState Query at workflow time `at`, WHILE the
+// walk is still going, and hands back what it answered. The mid-run read is the whole point:
+// the session view describes a LIVE gate, and a read taken after the walk closed describes an
+// activity with no gate at all.
+//
+// It returns POINTERS the caller reads after ExecuteWorkflow returns, and never calls t.Fatalf
+// from inside the callback: a delayed callback runs on the test environment's own dispatcher,
+// and failing the test from there unwinds a goroutine the SDK owns.
+func shapeQuerySessionAt(rig *shapeRig, at time.Duration) (*ConstructionSessionView, *error) {
+	var view ConstructionSessionView
+	var qerr error
+	rig.env.RegisterDelayedCallback(func() {
+		enc, err := rig.env.QueryWorkflow(querySessionState)
+		if err != nil {
+			qerr = err
+			return
+		}
+		qerr = enc.Get(&view)
+	}, at)
+	return &view, &qerr
+}
+
+// driveForkViewNamesBothGates holds BOTH branches of the `service` fork at a human gate and
+// reads the session Query twice: once while the pair is open, and once after the gate the
+// first read named has been decided.
+//
+// ASSERTED THROUGH THE QUERY, NOT THROUGH THE STRUCT. constructState is what this task
+// changes and the query is what a caller sees; a test that read the field it had just moved
+// would prove the move rather than the fix.
+//
+// WHY TWO READS RATHER THAN ONE NAMING BOTH. ConstructionSessionView is still SINGLE-VALUED
+// at this task — the per-task members move onto ActivityTaskView and leave the wire at stage
+// 4b3 Task 8, which is the wave's one model edit — so no single answer can name two gates.
+// What the pair of reads states instead is the same fact the wire will state directly: each
+// task carries its OWN occurrence. Read one names a gate with its own awaitingSince and its
+// own roster; deciding it leaves the SIBLING's gate standing, with a DIFFERENT awaitingSince
+// and a roster of its own. Under the defect the second read names nothing at all, because one
+// leaveHumanStage cleared the one triple both gates were sharing.
+//
+// The pacing: srs succeeds at t=15 and the fork opens; detailedDesign takes one Running poll
+// and its gate opens at t=30; stp lags three and its gate opens at t=60. Both are therefore
+// held from t=60, the first read is at t=90 and the second at t=120.
+func driveForkViewNamesBothGates(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.cs.project.ReviewPolicy = replayGatedOn(
+		projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseTestPlan)
+	rig.forkWinner(projectstate.TaskDetailedDesign, 3)
+	rig.register(rig.env)
+
+	held, heldErr := shapeQuerySessionAt(rig, 90*time.Second)
+	// DECIDE THE GATE THE PROJECTION NAMED, whichever it is. The case does not script which
+	// one that is: the derived flat member answers with the most recently entered task, and
+	// pinning that here would assert the tie-break rather than the per-task state.
+	rig.env.RegisterDelayedCallback(func() {
+		if held.AwaitingGate != nil && *held.AwaitingGate != "" {
+			shapeApprove(rig.env, *held.AwaitingGate)()
+		}
+	}, 95*time.Second)
+	survivor, survivorErr := shapeQuerySessionAt(rig, 120*time.Second)
+	// BOTH GATES ARE APPROVED HERE regardless of what the reads found, so the walk reaches a
+	// terminal and the case fails on its own assertion instead of on a timeout. The defect
+	// makes the second read name NOTHING, and "the shape driver did not reach a terminal"
+	// would not say why. A decision addressed at a task that has already passed is dropped by
+	// the router, so the duplicate costs nothing.
+	rig.env.RegisterDelayedCallback(func() {
+		shapeApprove(rig.env, shapeDesignReviewTask)()
+		shapeApprove(rig.env, shapeSTPReviewTask)()
+	}, 125*time.Second)
+
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	assertShapeForkGatePair(t, *held, *heldErr, *survivor, *survivorErr)
+	return rig.csOutcome(shapeServiceID)
+}
+
+// assertShapeForkGatePair is the per-task session state's oracle, held apart from
+// assertShape because what it judges is the QUERY's two answers and shapeOutcome carries
+// only the recorder's projections of the walk.
+func assertShapeForkGatePair(t *testing.T, held ConstructionSessionView, heldErr error,
+	survivor ConstructionSessionView, survivorErr error,
+) {
+	t.Helper()
+	if heldErr != nil || survivorErr != nil {
+		t.Fatalf("both mid-run session reads must be served: held=%v survivor=%v", heldErr, survivorErr)
+	}
+	gates := map[string]string{shapeDesignReviewTask: shapeSTPReviewTask, shapeSTPReviewTask: shapeDesignReviewTask}
+	if held.AwaitingGate == nil {
+		t.Fatalf("with both fork branches at a gate the session must name one of them; it named none (%+v)", held)
+	}
+	sibling, ok := gates[*held.AwaitingGate]
+	if !ok {
+		t.Fatalf("the session named gate %q; the two gates held at t=90s are %v", *held.AwaitingGate, slices.Sorted(maps.Keys(gates)))
+	}
+	if held.ReviewSet == nil {
+		t.Fatalf("the gate %q is held for a human, so its roster must be on the view", *held.AwaitingGate)
+	}
+	// THE CLAIM. The decided gate's sibling is still open, and the view still says so.
+	if survivor.AwaitingGate == nil {
+		t.Fatalf("deciding %q left %q open, and the session named NO gate — the six view facts are keyed by "+
+			"ACTIVITY and written per GATE, so one leaveHumanStage cleared the pair both branches shared (%+v)",
+			*held.AwaitingGate, sibling, survivor)
+	}
+	if *survivor.AwaitingGate != sibling {
+		t.Fatalf("after deciding %q the session must name the sibling %q; it named %q", *held.AwaitingGate, sibling, *survivor.AwaitingGate)
+	}
+	if survivor.Stage != StageAwaitingApproval {
+		t.Fatalf("the surviving gate %q is a human stage; the session reports stage %s", sibling, sessionStageName(survivor.Stage))
+	}
+	// EACH GATE CARRIES ITS OWN OCCURRENCE. One shared awaitingSince would report the same
+	// instant for both, which is the half that makes "the sibling is still there" a fact about
+	// per-task state rather than about a field that merely failed to be cleared.
+	if held.AwaitingSince == nil || survivor.AwaitingSince == nil {
+		t.Fatalf("a named gate carries the instant its occurrence began; held=%v survivor=%v",
+			held.AwaitingSince, survivor.AwaitingSince)
+	}
+	if held.AwaitingSince.Equal(*survivor.AwaitingSince) {
+		t.Fatalf("%q and %q report the SAME awaitingSince %v — the two gates opened 30 simulated seconds apart, "+
+			"so one clock is being shared between them", *held.AwaitingGate, sibling, *held.AwaitingSince)
+	}
+	if survivor.ReviewSet == nil {
+		t.Fatalf("the surviving gate %q lost its roster when its SIBLING was decided", sibling)
+	}
 }
 
 // assertShapeContinueAsNew: the continued walk is ONE walk. Every lifecycle task ran exactly

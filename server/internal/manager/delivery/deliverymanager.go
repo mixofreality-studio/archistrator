@@ -8403,29 +8403,60 @@ type taskDecisionSignal struct {
 func (s *constructState) view() (ConstructionSessionView, error) {
 	aid := s.activityID
 	v := ConstructionSessionView{
-		ProjectID:        s.projectID,
-		ActivityID:       &aid,
-		Stage:            s.stage,
-		PipelinePhase:    s.pipelinePhase,
-		ReviewSet:        s.reviewSet,
-		Variance:         s.variance,
-		RedraftExhausted: s.redraftExhausted,
-		Attempt:          int64(s.attempt),
-		AttemptBudget:    maxVarianceAttempts,
+		ProjectID:     s.projectID,
+		ActivityID:    &aid,
+		Stage:         s.stage,
+		PipelinePhase: s.pipelinePhase,
+		Variance:      s.variance,
+		Attempt:       int64(s.attempt),
+		AttemptBudget: maxVarianceAttempts,
 	}
-	if s.reviewSetError != "" {
-		e := s.reviewSetError
+	// THE FLAT MEMBERS ARE DERIVED NOW, AND THEY ARE STILL A LIE — a bounded one, for one
+	// more task. ConstructionSessionView's awaiting* / reviewSet* / redraftExhausted describe
+	// an ACTIVITY and the facts are per TASK, so on a fork there is no correct single answer.
+	// Until stage 4b3 Task 8 moves them onto ActivityTaskView and deletes them from the wire,
+	// this projection answers with the MERGE gate when one is held (after the join there is
+	// exactly one occupant, which is why mergeGateKey is the one gate 4b2 left reading the
+	// view) and otherwise with the most recently entered task, tie-broken by task id so a
+	// replay reproduces it. Nothing NEW may read these; the per-task map is the source.
+	live, ok := s.projectedGate()
+	if !ok {
+		return v, nil
+	}
+	v.ReviewSet, v.RedraftExhausted = live.reviewSet, live.redraftExhausted
+	if live.reviewSetError != "" {
+		e := live.reviewSetError
 		v.ReviewSetError = &e
 	}
-	if s.awaitingGate != "" {
-		gate, since := s.awaitingGate, s.awaitingSince
-		v.AwaitingGate, v.AwaitingSince = &gate, &since
-		if s.awaitingUntil != nil {
-			until := *s.awaitingUntil
-			v.AwaitingUntil = &until
-		}
+	gate, since := live.gate, live.awaitingSince
+	v.AwaitingGate, v.AwaitingSince = &gate, &since
+	if live.awaitingUntil != nil {
+		until := *live.awaitingUntil
+		v.AwaitingUntil = &until
 	}
 	return v, nil
+}
+
+// projectedGate picks the ONE task the flat wire members describe, per view()'s rule: the
+// merge hold when it is held, otherwise the most recently entered gate with the
+// lexicographically first task id breaking a tie. awaitingTasks is already sorted, so
+// keeping the FIRST entry that strictly beats the running maximum is that tie-break.
+//
+// ok=false means no gate is live, which is the whole of "the activity is not waiting for a
+// person" — and it is why a decided gate no longer erases its sibling's: the six facts come
+// down with the OCCURRENCE that owned them, not with whichever one was decided last.
+func (s *constructState) projectedGate() (taskViewState, bool) {
+	if merge := s.taskView(mergeGateKey); merge.awaiting() {
+		return merge, true
+	}
+	var best taskViewState
+	found := false
+	for _, id := range s.awaitingTasks() {
+		if v := s.taskView(id); !found || v.awaitingSince.After(best.awaitingSince) {
+			best, found = v, true
+		}
+	}
+	return best, found
 }
 
 // operatorPauseSignal is the operatorPauseRequested payload (constructionManager.md
@@ -12974,16 +13005,127 @@ func RegisterSchedules(ctx context.Context, bus messagebus.MessageBus) error {
 // The whole-project exportEpisodes op is cut from v1 (per-target export is
 // client-side, Task 10).
 // ---------------------------------------------------------------------------
+// taskViewState is ONE task's live view facts.
+//
+// It exists because a fork holds two gates at once and the six facts below described
+// whichever was ENTERED LAST. On an ordinary `service` fork — `stp`'s review and
+// `designReview` open together — the session view could only ever describe one of them, and
+// two independent stage 4b2 call sites read it and got the fork wrong; one of the two was
+// the ROUTINE approval path, where the operator could not approve one of the two gates the
+// screen was showing them. Both were fixed by asking the LEDGER instead of the view, which
+// is permanent for a SERVER decision and never acceptable for the client: the browser has no
+// ledger, and telling it to ask means re-implementing latestRoundFor and escalatedTaskOf in
+// TypeScript. This map is what the client gets instead.
+//
+// The ledger was already right. Every review coroutine has owned its own *gateLedger since
+// stage 4b1, for exactly this reason (see gateLedger's own comment); only the PROJECTION
+// lied, and this is the projection's half of the same fix.
+type taskViewState struct {
+	// reviewSet is the roster put up for THIS task's gate occurrence, and reviewSetError is
+	// why there is none ("" when the engine answered). They travel together: a refusal
+	// without a roster explains an absence nobody is looking at.
+	reviewSet      *ReviewSet
+	reviewSetError string
+	// redraftExhausted reports that THIS task's gate can take no further SendBack redraft:
+	// its human-paced budget (maxPhaseRedrafts) is spent. It does NOT fail the activity or
+	// re-enter the variance loop — the gate keeps awaiting the human. Recomputed on entry to
+	// every gate occurrence (B1.2).
+	redraftExhausted bool
+	// awaitingSince is when THIS occurrence of the task's human stage began, and the zero
+	// value is what says the task is NOT in one: nothing else is needed, because
+	// workflow.Now never answers the zero instant. awaitingUntil is when an escalation with
+	// a bounded wait gives up (nil for a phase gate and for the merge hold).
+	//
+	// awaitingSince is workflow.Now, so a query served by replay rebuilds the original time,
+	// and a redraft re-entering its gate starts a new occurrence.
+	awaitingSince time.Time
+	awaitingUntil *time.Time
+	// gate is the gate CLASS name this occurrence waits at — a lifecycle task id for a phase
+	// approval, mergeGateKey for the merge hold, takeoverGateKey for an escalation. It is
+	// NOT the map key and it is not redundant with it: an escalation is keyed by the TASK
+	// that escalated and waits at "takeover", so the key cannot answer for it.
+	//
+	// It exists to reproduce ConstructionSessionView.awaitingGate byte for byte while that
+	// member is still on the wire, and it goes with it: stage 4b3 Task 8 moves these facts
+	// onto ActivityTaskView, where the key IS the task and a field naming which task it is
+	// would be a lie waiting to happen.
+	gate string
+	// round is the gate's 1-based round number, copied from gateLedger.number at openRound.
+	// Zero for the merge hold and an escalation, which open no round. TASK 6 READS THIS: the
+	// late-approve refusal compares the round a decision judged against the round that is
+	// live, and the live one is per task.
+	round int
+}
+
+// awaiting reports whether this task is in a human stage right now.
+func (v taskViewState) awaiting() bool { return !v.awaitingSince.IsZero() }
+
+// taskView is one task's live view facts, or the zero value for a task that has none.
+func (s *constructState) taskView(taskID string) taskViewState { return s.tasks[taskID] }
+
+// setTaskView is the ONE writer of the per-task view state. Mutating through a callback
+// rather than assigning a whole struct is what keeps the six facts independent: a gate entry
+// writes the awaiting pair without erasing the round, and openRound writes the round without
+// erasing an awaiting pair that a resumed gate already holds.
+func (s *constructState) setTaskView(taskID string, mut func(*taskViewState)) {
+	if s.tasks == nil {
+		s.tasks = map[string]taskViewState{}
+	}
+	v := s.tasks[taskID]
+	mut(&v)
+	s.tasks[taskID] = v
+}
+
+// surfaceReviewSet puts ONE TASK's roster up on the session view, or takes it down when set
+// is nil. It is the four gate-entry sites' one writer, and it is per task for the reason the
+// whole of taskViewState is: on a fork the roster the screen shows beside `designReview` and
+// the roster it shows beside `stpReview` are two different answers from the review engine,
+// and a single slot could only ever hold whichever coroutine wrote last.
+//
+// The engine's REFUSAL travels with the roster's absence, which is why one function writes
+// both: a reviewSetError left standing over a later gate's roster would explain an absence
+// that is not there. No production site sets it non-empty today — proposeReviewSet's error
+// fails the task rather than surfacing — and it is kept because the member is on the wire and
+// the Activity Experience renders it (earmark: either a site that sets it or the member goes,
+// and that is a model edit, so it belongs with Task 8's successor rather than here).
+func (s *constructState) surfaceReviewSet(taskID string, set *ReviewSet) {
+	s.setTaskView(taskID, func(v *taskViewState) { v.reviewSet, v.reviewSetError = set, "" })
+}
+
+// awaitingTasks is the ids of the tasks in a human stage right now, SORTED — a map range in
+// a workflow is nondeterministic, and this feeds a Query a replay must reproduce.
+func (s *constructState) awaitingTasks() []string {
+	var out []string
+	for id, v := range s.tasks {
+		if v.awaiting() {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ---------------------------------------------------------------------------
 // constructState is the live technical state backing the sessionState Query.
 type constructState struct {
-	projectID     ProjectID
-	activityID    ActivityID
+	projectID  ProjectID
+	activityID ActivityID
+	// stage / pipelinePhase / variance / attempt are WHOLE-ACTIVITY facts and stay single
+	// valued: the walk has one current stage, one pipeline phase on the branch it is
+	// dispatching, one flagged variance and one supervision attempt. The six facts that are
+	// per GATE moved onto tasks (stage 4b3 Task 5).
 	stage         ConstructionStage
 	pipelinePhase *PipelinePhase
-	reviewSet     *ReviewSet
-	// reviewSetError is why reviewSet is nil at the current gate ("" when the engine answered).
-	reviewSetError string
-	variance       *FlaggedVariance
+	variance      *FlaggedVariance
+
+	// tasks is the PER-TASK live view state, keyed by lifecycle task id (plus mergeGateKey
+	// for the merge hold, which is a gate and not a lifecycle task). See taskViewState for
+	// why the six facts it holds cannot live on the activity.
+	//
+	// Initialised at the child's workflow start and lazily by setTaskView, so the project
+	// supervision workflow's state — which never enters a gate — allocates nothing, the same
+	// discipline taskAttempts follows.
+	tasks map[string]taskViewState
 
 	// completedPhases is the LIVE in-memory skip-guard the phase loop consults so an
 	// already-completed phase is never re-dispatched or re-gated. It is SEEDED at
@@ -12993,24 +13135,6 @@ type constructState struct {
 	// re-walks phases from index 0) from re-gating an already-approved phase across a
 	// non-git execution where no head-state completion record exists to re-read.
 	completedPhases map[projectstate.ActivityMethodPhase]bool
-
-	// redraftExhausted reports that the phase gate the workflow is waiting at can take no
-	// further SendBack redraft: its human-paced budget (maxPhaseRedrafts) is spent. It does
-	// NOT fail the activity or re-enter the variance loop — the gate keeps awaiting the
-	// human; the flag surfaces that redrafting is spent. RECOMPUTED on entry to every gate
-	// (B1.2): it used to be set once and never reset, so it leaked into every later gate of
-	// the same run (plan G5).
-	redraftExhausted bool
-
-	// awaitingGate / awaitingSince / awaitingUntil describe the human stage the workflow is
-	// in right now (B1.2): which gate (a lifecycle phase's wire name, mergeGateKey or
-	// takeoverGateKey), when THIS occurrence of it began, and — for an escalation with a
-	// bounded wait — when it gives up. awaitingSince is workflow.Now, so a query served by
-	// replay rebuilds the original time, and a redraft re-entering its gate starts a new
-	// occurrence. Written only by enterHumanStage and cleared only by leaveHumanStage.
-	awaitingGate  string
-	awaitingSince time.Time
-	awaitingUntil *time.Time
 
 	// attempt is the current supervision attempt, 1-based (set by runAttempt); 0 before
 	// the first attempt.
@@ -13137,7 +13261,10 @@ const (
 	lSignalRedraft = "redraft"
 	// Stage 4a: ONE copy now serves the systemDesign+construction rails (byte-identical
 	// twins, collapsed by the package merge).
-	// querySessionState returns a DesignArtifactSessionView; backs getSessionState.
+	// querySessionState returns a ConstructionSessionView; backs getSessionState. (It said
+	// DesignArtifactSessionView until stage 4b3 Task 5, and had been wrong since the design
+	// rails were retired: both handlers — the generic child's constructState.view and the
+	// project supervision workflow's — answer with a ConstructionSessionView.)
 	querySessionState = "sessionState"
 	// signalSetCommentStatus resumes a CoAuthorArtifactWorkflow suspended at the
 	// AwaitingReview gate to apply a durable review-ledger status transition

@@ -1266,19 +1266,19 @@ func (wf *csWorkflows) runTaskVariance(
 func (wf *csWorkflows) escalateTaskVariance(
 	ctx workflow.Context, tc taskContext, detail string, deferred []routedSignal,
 ) (varianceVerdict, []routedSignal, error) {
-	tc.State.redraftExhausted = false
+	tc.State.setTaskView(tc.Task.ID, func(v *taskViewState) { v.redraftExhausted = false })
 	// Named at the moment of escalation, not only at its terminal: an operator who opens the log
 	// because an activity is waiting on them must be able to read WHAT they are being asked about.
 	workflow.GetLogger(ctx).Warn("delivery.construction.escalated",
 		"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "detail", detail,
 		"window", wf.EscalationWaitTimeout.String())
-	tc.State.enterHumanStage(ctx, StageAwaitingTakeover, takeoverGateKey, wf.EscalationWaitTimeout)
+	tc.State.enterHumanStage(ctx, StageAwaitingTakeover, tc.Task.ID, takeoverGateKey, wf.EscalationWaitTimeout)
 	override, got, held := wf.awaitRoutedOverride(ctx, tc, deferred)
 	if !got {
-		tc.State.leaveHumanStage(ctx, tc.In.Activity.activityTypeName(), gateOutcomeTimedOut)
+		tc.State.leaveHumanStage(ctx, tc.Task.ID, tc.In.Activity.activityTypeName(), gateOutcomeTimedOut)
 		return varianceEscalationTimedOut, held, nil
 	}
-	tc.State.leaveHumanStage(ctx, tc.In.Activity.activityTypeName(),
+	tc.State.leaveHumanStage(ctx, tc.Task.ID, tc.In.Activity.activityTypeName(),
 		gateOutcomeOverridePrefix+strings.ToLower(overrideKindName(override.Kind)))
 	// The operator's steer is kept on the activity and — for a retry, takeover or reassign —
 	// carried by the next dispatch. A skip's note is kept and never pending: nothing runs after
@@ -1813,6 +1813,7 @@ func (wf *csWorkflows) DeliveryActivityWorkflow(ctx workflow.Context, in deliver
 	state := &constructState{
 		projectID: in.ProjectID, activityID: in.ActivityID, stage: StageDispatching,
 		completedPhases: map[projectstate.ActivityMethodPhase]bool{},
+		tasks:           map[string]taskViewState{},
 	}
 	ctx = wf.bindRowAccessors(ctx, in, state)
 	if err := workflow.SetQueryHandler(ctx, querySessionState, state.view); err != nil {
@@ -2319,7 +2320,7 @@ func (wf *csWorkflows) runGate(
 	if reason, held := criticHoldsTheGate(criticVerdict, criticJudged); held {
 		workflow.GetLogger(ctx).Warn(reason, "activityId", in.ActivityID, "taskId", t.ID,
 			"roundId", gate.roundID, "criticVerdict", string(criticVerdict))
-		state.reviewSet, state.reviewSetError = &set, ""
+		state.surfaceReviewSet(t.ID, &set)
 		state.stage = StageAwaitingApproval
 		// A HUMAN gate, not a held autogate: neither of the two holds is released by a resolve.
 		// A critic that did not judge has nothing for a resolve to address, and a critic that
@@ -2351,7 +2352,7 @@ func (wf *csWorkflows) runGate(
 			// No roster goes up for a gate nobody is asked to answer, mirroring the retired rail's
 			// no-human arm: a reviewer set left on the session view outlives the occurrence it
 			// described, and the Activity Experience reads one as a LIVE gate.
-			state.reviewSet, state.reviewSetError = nil, ""
+			state.surfaceReviewSet(t.ID, nil)
 			return wf.passRound(ctx, in, lc, t, tc, state, &gate, gateActorSystem, reasonOf(set))
 		default:
 			workflow.GetLogger(ctx).Warn("delivery.gate.heldOnOpenComments",
@@ -2361,11 +2362,11 @@ func (wf *csWorkflows) runGate(
 		// HELD, NOT DECIDED: the roster goes up so the screen shows a live gate, and the gate
 		// auto-passes the moment the last open comment is resolved (awaitTaskDecision's autogate
 		// arm) — which is what makes the Manager's comment-status mirror signal load-bearing.
-		state.reviewSet, state.reviewSetError = &set, ""
+		state.surfaceReviewSet(t.ID, &set)
 		state.stage = StageAwaitingApproval
 		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, autogateOn(set))
 	}
-	state.reviewSet, state.reviewSetError = &set, ""
+	state.surfaceReviewSet(t.ID, &set)
 	state.stage = StageAwaitingApproval
 	return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, nil)
 }
@@ -2488,6 +2489,11 @@ func (wf *csWorkflows) openRound(
 	}
 	state.walk.headVersion = v
 	state.rowAdvanced()
+	// THE ROUND NUMBER GOES ON THE TASK'S VIEW STATE, because "which round is live at this
+	// task" is per task exactly as the gate is (stage 4b3 Task 5). Task 6 reads it: the
+	// late-approve refusal compares the round a decision judged against the round that is
+	// live, and on a fork there is one of those per branch.
+	state.setTaskView(t.ID, func(v *taskViewState) { v.round = gate.number })
 	return nil
 }
 
@@ -2807,7 +2813,7 @@ func (wf *csWorkflows) awaitTaskDecision(
 			// so the round is WITHDRAWN (nobody judged it) and the judged pair re-opens —
 			// which IS the re-dispatch, expressed in the walker's own vocabulary. Executing
 			// the re-run's own dispatch inputs is Task 12's.
-			state.leaveHumanStage(ctx, activityType, gateOutcomeSentBack)
+			state.leaveHumanStage(ctx, t.ID, activityType, gateOutcomeSentBack)
 			if err := wf.decideRound(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
 				projectstate.RoundWithdrawn, gateActorOperator); err != nil {
 				return walkTaskFailed, err
@@ -2874,8 +2880,7 @@ func (wf *csWorkflows) reconsiderAutogate(
 			"activityId", in.ActivityID, "taskId", t.ID, "commentId", sig.CommentID)
 		return walkTaskFailed, false, nil
 	}
-	state.leaveHumanStage(ctx, in.Activity.activityTypeName(), gateOutcomeApproved)
-	state.reviewSet, state.reviewSetError = nil, ""
+	state.leaveHumanStage(ctx, t.ID, in.Activity.activityTypeName(), gateOutcomeApproved)
 	st, err := wf.passRound(ctx, in, lc, t, tc, state, gate, gateActorSystem, *autogateReason)
 	return st, true, err
 }
@@ -2904,7 +2909,7 @@ func (wf *csWorkflows) decideTaskGate(
 				"activityId", in.ActivityID, "taskId", t.ID, "open", len(open))
 			return walkTaskFailed, false, nil
 		}
-		state.leaveHumanStage(ctx, activityType, gateOutcomeApproved)
+		state.leaveHumanStage(ctx, t.ID, activityType, gateOutcomeApproved)
 		if err := wf.closeGateRound(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
 			projectstate.VerdictApprove, projectstate.RoundPassed, sig.Feedback); err != nil {
 			return walkTaskFailed, true, err
@@ -2937,11 +2942,11 @@ func (wf *csWorkflows) decideTaskGate(
 			// redrafting is spent (mirrors sendBackGate's anti-wedge staging).
 			workflow.GetLogger(ctx).Warn("task redraft budget exhausted; keep awaiting human decision",
 				"activityId", in.ActivityID, "taskId", t.ID)
-			state.leaveHumanStage(ctx, activityType, gateOutcomeSentBackExhausted)
+			state.leaveHumanStage(ctx, t.ID, activityType, gateOutcomeSentBackExhausted)
 			state.enterPhaseGate(ctx, t.ID, *redraft)
 			return walkTaskFailed, false, nil
 		}
-		state.leaveHumanStage(ctx, activityType, gateOutcomeSentBack)
+		state.leaveHumanStage(ctx, t.ID, activityType, gateOutcomeSentBack)
 		if err := wf.sendBackRound(ctx, in, t, state, gate, ws, sig.Feedback); err != nil {
 			return walkTaskFailed, true, err
 		}
@@ -3874,8 +3879,8 @@ func (wf *csWorkflows) holdForMergeApproval(
 	ctx workflow.Context, in deliveryActivityInput, ws *walkState,
 	state *constructState, inbox workflow.ReceiveChannel,
 ) {
-	state.redraftExhausted = false
-	state.enterHumanStage(ctx, StageAwaitingApproval, mergeGateTaskID, 0)
+	state.setTaskView(mergeGateTaskID, func(v *taskViewState) { v.redraftExhausted = false })
+	state.enterHumanStage(ctx, StageAwaitingApproval, mergeGateTaskID, mergeGateKey, 0)
 	for {
 		ws.drainPending(mergeGateTaskID)
 		var msg routedSignal
@@ -3884,7 +3889,7 @@ func (wf *csWorkflows) holdForMergeApproval(
 		// that did not survive the snapshot's JSON round-trip would panic the workflow task
 		// into infinite retry, with the merge hold looking simply unanswered.
 		if msg.Kind == routedKindDecision && msg.Decision != nil && msg.Decision.Decision == ReviewApprove {
-			state.leaveHumanStage(ctx, in.Activity.activityTypeName(), gateOutcomeApproved)
+			state.leaveHumanStage(ctx, mergeGateTaskID, in.Activity.activityTypeName(), gateOutcomeApproved)
 			return
 		}
 		workflow.GetLogger(ctx).Info("merge gate: ignoring a non-approve message; awaiting Approve",
@@ -4805,49 +4810,66 @@ func (wf *csWorkflows) finalizeActivity(
 }
 
 // enterPhaseGate enters a phase approval gate after redrafts SendBack redrafts: the gate
-// has no budget left once a further SendBack could not redraft it.
-func (s *constructState) enterPhaseGate(ctx workflow.Context, key string, redrafts int) {
-	s.redraftExhausted = redrafts+1 >= maxPhaseRedrafts
-	s.enterHumanStage(ctx, StageAwaitingApproval, key, 0)
+// has no budget left once a further SendBack could not redraft it. A phase gate's gate name
+// IS the task id; the merge hold and an escalation are the two that differ.
+func (s *constructState) enterPhaseGate(ctx workflow.Context, taskID string, redrafts int) {
+	s.setTaskView(taskID, func(v *taskViewState) { v.redraftExhausted = redrafts+1 >= maxPhaseRedrafts })
+	s.enterHumanStage(ctx, StageAwaitingApproval, taskID, taskID, 0)
 }
 
-// enterHumanStage starts one occurrence of a human stage: the stage, the gate it waits
-// at, the occurrence identity (workflow.Now), and — when wait > 0 — when it gives up.
-func (s *constructState) enterHumanStage(ctx workflow.Context, stage ConstructionStage, gate string, wait time.Duration) {
+// enterHumanStage starts one occurrence of ONE TASK's human stage: the activity's stage, the
+// gate it waits at, the occurrence identity (workflow.Now), and — when wait > 0 — when it
+// gives up.
+//
+// taskID and gate are two arguments because they are two things. For a phase approval they
+// are the same string; the merge hold is keyed and gated by mergeGateKey; and an escalation
+// is keyed by the TASK that escalated while it waits at takeoverGateKey — so on a fork two
+// escalations would collide under a gate-name key and be invisible to each other.
+func (s *constructState) enterHumanStage(ctx workflow.Context, stage ConstructionStage, taskID, gate string, wait time.Duration) {
 	s.stage = stage
-	s.awaitingGate = gate
-	s.awaitingSince = workflow.Now(ctx)
-	s.awaitingUntil = nil
-	if wait > 0 {
-		until := s.awaitingSince.Add(wait)
-		s.awaitingUntil = &until
-	}
+	since := workflow.Now(ctx)
+	s.setTaskView(taskID, func(v *taskViewState) {
+		v.gate, v.awaitingSince, v.awaitingUntil = gate, since, nil
+		if wait > 0 {
+			until := since.Add(wait)
+			v.awaitingUntil = &until
+		}
+	})
 }
 
-// leaveHumanStage ends the current occurrence: it records the construction_gate_wait
+// leaveHumanStage ends ONE TASK's current occurrence: it records the construction_gate_wait
 // timer (tags: the gate CLASS, the outcome and the activity type — never the activity
-// id, which would make the series unbounded) and the construction.gate.decided log line
-// (the dependable surface while the prod OTLP export is an open earmark), then clears
-// the awaiting fields AND the reviewer set.
+// id or the task id, either of which would make the series unbounded) and the
+// construction.gate.decided log line (the dependable surface while the prod OTLP export is
+// an open earmark), then clears that task's awaiting fields AND its reviewer set.
+//
+// IT TAKES THE TASK because the occurrence belongs to the task and not to the activity
+// (stage 4b3 Task 5). It used to read the activity's one awaitingGate/awaitingSince pair, so
+// on a fork it tagged the metric with the SIBLING's gate class, recorded the sibling's wait,
+// and — the defect that mattered — cleared the pair the sibling was still standing on, which
+// took that branch's plainly open gate off the session view entirely.
 //
 // I1: the roster (and an engine refusal) describes the OCCURRENCE, not the activity, so
 // it comes down with it. It used to be cleared on gate ENTRY only, which left a decided
 // gate's reviewers on the session view until the next gate opened — and the Activity
 // Experience's takeover card read them as live. surfaceReviewSet puts a fresh roster up
 // on every entry, including a redraft's re-entry, so the pair stays balanced.
-func (s *constructState) leaveHumanStage(ctx workflow.Context, activityType, outcome string) {
-	waited := workflow.Now(ctx).Sub(s.awaitingSince)
+func (s *constructState) leaveHumanStage(ctx workflow.Context, taskID, activityType, outcome string) {
+	live := s.taskView(taskID)
+	waited := workflow.Now(ctx).Sub(live.awaitingSince)
 	gateMetrics(ctx).WithTags(map[string]string{
-		"gate":          humanGateClass(s.awaitingGate),
+		"gate":          humanGateClass(live.gate),
 		"outcome":       outcome,
 		"activity_type": activityType,
 	}).Timer("construction_gate_wait").Record(waited)
 	workflow.GetLogger(ctx).Info("construction.gate.decided",
 		"projectId", string(s.projectID), "activityId", string(s.activityID),
-		"gate", s.awaitingGate, "outcome", outcome,
-		"waitedMs", waited.Milliseconds(), "awaitingSince", s.awaitingSince)
-	s.awaitingGate, s.awaitingSince, s.awaitingUntil = "", time.Time{}, nil
-	s.reviewSet, s.reviewSetError = nil, ""
+		"taskId", taskID, "gate", live.gate, "outcome", outcome,
+		"waitedMs", waited.Milliseconds(), "awaitingSince", live.awaitingSince)
+	s.setTaskView(taskID, func(v *taskViewState) {
+		v.gate, v.awaitingSince, v.awaitingUntil = "", time.Time{}, nil
+		v.reviewSet, v.reviewSetError = nil, ""
+	})
 }
 
 // openActivity births the activity's execution row and pins the lifecycle in force.
