@@ -17833,6 +17833,11 @@ type shapeRig struct {
 	// Temporal test logger can only be set on the SUITE, before the environment exists. Nil on
 	// the `requirements` arm, whose rig is built elsewhere.
 	logs *shapeLogSink
+	// bus is the messageBus.deliverSignal double on the arms that wire one (the two pump arms).
+	// It is on the rig rather than inside the register closure because the zombie case's
+	// sharpest assertion is about the CONTENT of what the pump put on the wire — one grant, at
+	// the epoch the child is required to ignore — and a driver cannot read that off a local.
+	bus *recordingSignalBus
 }
 
 // forkWinner tells the venue double which branch of the srsReview fan-out finishes first: the
@@ -17888,6 +17893,11 @@ const (
 	shapeServiceID    = "C-Orders"
 	shapeDeploymentID = "R-Deploy"
 	shapeSDPActivity  = "P-SDP"
+	// The zombie case seeds TWO futureless in-flight ids, and the second one is not
+	// decoration: one candidate cannot tell a per-tick cap from the absence of one. The pump
+	// must probe the FIRST and leave the second for a later tick.
+	shapeZombieProbedID   = ActivityID("C-GONE-A")
+	shapeZombieUnprobedID = ActivityID("C-GONE-B")
 )
 
 // newShapeRig builds the rig for one lifecycle on the rails as they stand. The
@@ -17952,14 +17962,19 @@ func newShapeRig(t *testing.T, typeKey string) *shapeRig {
 		wf.Deliveries = rig.rec
 		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
 		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
-	case "pump":
-		// THE ONE ARM THAT IS NOT A LIFECYCLE. continue-as-new-loses-no-signal is a shape of
-		// the PUMP, not of a walk, and it is in this table rather than beside the other
-		// Test_Pump cases for the reason the table exists: it is the wave's riskiest failure
-		// and the only one that fails SILENTLY, so it belongs with the cases a reader runs to
-		// ask "does this commit still hold the shapes". The rig is a two-activity frontier
-		// with both children held open, which is what lets the run reach a continue-as-new
-		// boundary with work still outstanding.
+	case "pump", "pumpZombie":
+		// THE TWO ARMS THAT ARE NOT LIFECYCLES. continue-as-new-loses-no-signal and
+		// futureless-zombie-is-reaped are shapes of the PUMP, not of a walk, and they are in
+		// this table rather than beside the other Test_Pump cases for the reason the table
+		// exists: both are failures that fail SILENTLY, so they belong with the cases a reader
+		// runs to ask "does this commit still hold the shapes".
+		//
+		// They differ in exactly two wires, and both differences ARE their cases. `pump` is a
+		// two-activity frontier with both children held open and a bus that delivers, which is
+		// what lets the run reach a continue-as-new boundary with work still outstanding.
+		// `pumpZombie` is a DRAINED frontier — nothing eligible, so the only thing in flight is
+		// the id the driver seeds through pumpInput.Started — and a bus whose every delivery
+		// answers RA NotFound, which is the one fact that says an execution is gone.
 		ps := &csFakeProjectState{project: projectstate.Project{
 			ID: "shape-p", Version: 1, Phase: 2,
 			ActivityExecution: map[string]projectstate.ActivityExecution{},
@@ -17969,13 +17984,26 @@ func newShapeRig(t *testing.T, typeKey string) *shapeRig {
 		deps := gateDeps(ps)
 		deps.Review = review.NewReviewEngine()
 		deps.NextEligibleActivity = twoActivityFrontier
+		zombie := typeKey == "pumpZombie"
+		if zombie {
+			deps.NextEligibleActivity = drainedFrontier
+		}
 		wf := csNewWorkflows(deps)
 		wf.Deliveries = rig.rec
 		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
+		rig.bus = &recordingSignalBus{}
+		if zombie {
+			rig.bus.err = fwra.New(fwra.NotFound, "messagebus: no execution with that id")
+		}
 		rig.register = func(env *testsuite.TestWorkflowEnvironment) {
-			registerPumpWithBus(env, wf, ps, pipe, &recordingSignalBus{})
+			registerPumpWithBus(env, wf, ps, pipe, rig.bus)
 			env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
 				After(90 * time.Minute).Return(nil)
+			if zombie {
+				// No read delay: the zombie case's assertion is the number of TICKS to a verdict,
+				// and a two-minute head-state read would only pad the workflow clock.
+				return
+			}
 			read := &genActivities{DesignSession: projectstate.NewDesignSessionAccess(fakeFullProjectState{ps})}
 			env.OnActivity("designSessionAccess.readProjectOnBranch", mock.Anything, mock.Anything, mock.Anything).
 				After(2 * time.Minute).Return(read.DesignSessionReadProjectOnBranch)
@@ -18121,6 +18149,29 @@ func lifecycleShapeCases() []lifecycleShapeCase {
 			// SubmitTaskDecision growing a round parameter across eight surfaces.
 			name: "late-approve-to-a-superseded-round-is-refused", typeKey: "service",
 			drive: driveLateApproveToASupersededRound, wantToday: shapePassesToday,
+		},
+		{
+			// A FUTURELESS ZOMBIE IS REAPED. The FOURTEENTH case (stage 4b3 Task 7) and the
+			// pump's second. A child started before a ContinueAsNew, never reached its merge
+			// tail (so it never asked for the lease), and died writing no row. Its id has no
+			// future in this run, no terminal row to read and no lease to probe — so
+			// markVanished's two callers, BOTH on the lease path, never fire for it. It sits in
+			// inFlight() on every tick forever: the pump never quiesces, never dispatches past
+			// it, and the project stops with nothing red.
+			//
+			// The assertion is that the pump REACHES A VERDICT within a bounded number of ticks,
+			// not that it succeeds: a vanished child that recorded no terminal STOPS the cascade
+			// (pumpReconcile's vanished arm), and that is the correct answer — the wrong one is
+			// waiting forever.
+			//
+			// AND THAT THE PROBE IS NOT A GRANT. The case's other half is the epoch on the wire.
+			// Re-delivering a real grant to a child that did not ask for one buffers on its
+			// activityLeaseGranted channel and is consumed at its merge tail, so the child runs
+			// believing it holds a lease nobody gave it — the second concurrent main writer the
+			// lease exists to prevent, created by the probe. Epoch 0 is the one value the child
+			// is REQUIRED to ignore, and SignalsDelivered carries it so the table says so.
+			name: "futureless-zombie-is-reaped", typeKey: "pumpZombie",
+			drive: driveFuturelessZombieIsReaped, wantToday: shapePassesToday,
 		},
 	}
 }
@@ -18331,6 +18382,65 @@ func driveContinueAsNewLosesNoSignal(t *testing.T, rig *shapeRig) shapeOutcome {
 	return rig.rec.outcome(nil, false)
 }
 
+// driveFuturelessZombieIsReaped seeds two futureless in-flight ids — Started in the INPUT,
+// so no future in this run — over a DRAINED frontier and a bus that answers NotFound, and
+// reports what the pump put on the wire before it reached its verdict.
+//
+// NOTHING ELSE IN THE RIG CAN RESOLVE THEM, and that is the case. There is no future to
+// read, no row to read (ActivityExecution is empty and stays empty: nobody writes one), and
+// neither id ever asks for the lease, so pumpDeliverGrant's NotFound arm and pumpCheckLease's
+// — markVanished's only two callers — are both unreachable. Without the probe the run parks
+// on its reconcile timer forever.
+//
+// THE VERDICT IS AN ERROR AND THAT IS THE RIGHT ANSWER: an execution that is gone having
+// written no terminal is a broken child by every rule in this file, so the cascade STOPS.
+// Asserting a clean completion here would be asserting that the pump walked past it.
+func driveFuturelessZombieIsReaped(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.register(rig.env)
+
+	rig.env.ExecuteWorkflow(executionKindPump, pumpInput{
+		ProjectID: shapeProjectID,
+		Started:   []ActivityID{shapeZombieProbedID, shapeZombieUnprobedID},
+	})
+
+	if !rig.env.IsWorkflowCompleted() {
+		t.Fatal("the pump never reached a terminal: a futureless in-flight id with no row and no lease ask " +
+			"is sitting in inFlight() on every tick, which is the defect this case exists for")
+	}
+	err := rig.env.GetWorkflowError()
+	switch {
+	case err == nil:
+		t.Fatal("an activity whose execution is gone and whose row carries no terminal must STOP the cascade; " +
+			"a clean result means the pump counted it finished or walked past it")
+	case isContinueAsNew(err):
+		t.Fatalf("the cascade must stop, not continue: %v", err)
+	}
+	var appErr *temporal.ApplicationError
+	if !errors.As(err, &appErr) || appErr.Type() != "ActivityChildVanished" {
+		t.Fatalf("the verdict must be pumpReconcile's vanished arm, so an operator reading the failure knows "+
+			"WHICH fact stopped the cascade; got %v", err)
+	}
+
+	// The wire, read off the bus: the target execution and the epoch. The target proves the
+	// probe went to the CHILD and not to the pump's own id; the epoch is the whole design.
+	rig.bus.mu.Lock()
+	targets := append([]messagebus.ExecutionID(nil), rig.bus.targets...)
+	rig.bus.mu.Unlock()
+	for _, g := range rig.bus.grants(t) {
+		rig.rec.signalDelivered(string(g.ActivityID),
+			fmt.Sprintf("%s@%d", signalActivityLeaseGranted, g.Epoch))
+	}
+	want := messagebus.ExecutionID(deliveryActivityWorkflowID(shapeProjectID, shapeZombieProbedID))
+	for _, target := range targets {
+		if target != want {
+			t.Errorf("every delivery this run made must be addressed to the probed child's own execution %q; got %q",
+				want, target)
+		}
+	}
+	return rig.rec.outcome(nil, false)
+}
+
 // ---- shared driver plumbing ------------------------------------------------
 
 // shapeRequireCompleted is the precondition every case shares: a driver that did not
@@ -18447,6 +18557,20 @@ func assertShape(t *testing.T, name string, got shapeOutcome) {
 		shapeWantRound(t, name, got.RoundsDecided, shapeServiceID+":designReview:1", string(projectstate.RoundWithdrawn))
 		shapeWantRound(t, name, got.RoundsDecided, shapeServiceID+":designReview:2", string(projectstate.RoundPassed))
 		shapeWantAdvanced(t, name, got.PhaseAdvanced)
+	case "futureless-zombie-is-reaped":
+		// EXACTLY ONE PROBE, AT THE EPOCH THE CHILD IS REQUIRED TO IGNORE. Both numbers in one
+		// assertion, and both are mutations away from a defect. Epoch 1 — or st.LeaseEpoch+1,
+		// which is what a reader reaching for pumpCheckLease's shape would write — is a lease
+		// handed to a child that never asked for one, buffered on activityLeaseGranted and
+		// consumed at its merge tail: two concurrent main writers. A SECOND entry (the run
+		// seeds two futureless ids) is the per-tick cap gone, which is N deliverSignal
+		// Activities per tick on an N-activity plan.
+		//
+		// The reached-a-verdict half is asserted in the driver, off the workflow error, because
+		// shapeOutcome cannot carry an error type.
+		shapeWantOrder(t, name, "SignalsDelivered", got.SignalsDelivered,
+			[]string{string(shapeZombieProbedID) + ":" + signalActivityLeaseGranted + "@0"})
+		shapeWantOrder(t, name, "TaskOrder", got.TaskOrder, nil)
 	default:
 		t.Fatalf("no assertion is written for shape case %q; a case without one would pass by saying nothing", name)
 	}
@@ -27204,8 +27328,8 @@ func pumpGuardCensus() []pumpGuard {
 }
 
 // pumpGuardCensusPump is pumpnextactivity.go's guards — 22 when stage 4b2 Task 1 took them
-// out of the body Task 12 rewrote, 18 since stage 4b3 Task 3 discharged the four that hung
-// off the version fences.
+// out of the body Task 12 rewrote, 18 after stage 4b3 Task 3 discharged the four that hung
+// off the version fences, and 19 since Task 7 added the zombie probe's own row.
 func pumpGuardCensusPump() []pumpGuard {
 	return []pumpGuard{
 		{"G-P1", "pumpnextactivity.go:61-66", "the dispatch Query handler is registered BEFORE any blocking call",
@@ -27277,6 +27401,13 @@ func pumpGuardCensusPump() []pumpGuard {
 		{"G-P22", "pumpnextactivity.go:398-403", "a nil NextEligibleActivity helper is a quiet tick, never a dispatch",
 			"a wiring regression becomes a nil-deref inside the project's one pump",
 			"Test_Pump_NoEligibleActivity_QuietTick"},
+		// G-P23 IS THE FIRST ROW ADDED FOR A GUARD THAT DID NOT EXIST BEFORE THE CENSUS (stage
+		// 4b3 Task 7). Its Site is therefore a CURRENT line, not a pre-wave provenance one —
+		// there is no c5851e90 line for code written today, and G-S7 set that precedent when
+		// Task 4 added the row the census had missed.
+		{"G-P23", "pumpnextactivity.go:1049-1079", "a futureless in-flight id with no row is PROBED — at pumpLivenessProbeEpoch, the one epoch the child is required to ignore — at most ONCE per tick, rotating",
+			"three ways, and the first is the defect the row exists for: without the probe a child that predates a ContinueAsNew, never asked for the lease and wrote no row sits in inFlight() on every tick forever (markVanished's two callers are BOTH on the lease path) — the pump never quiesces, never dispatches past it, and nothing goes red. Probe at a REAL epoch and the probe hands that child a lease it never asked for, buffered on activityLeaseGranted and consumed at its merge tail: two concurrent main writers, created by the mechanism meant to prevent one. Drop the per-tick cap and it is N deliverSignal Activities per tick on an N-activity plan",
+			"Test_LifecycleShapes"},
 	}
 }
 
@@ -28501,6 +28632,14 @@ func twoActivityFrontier(proj projectstate.Project, _ eligibilityRule) pumpSelec
 	return pumpSelection{Verdict: verdictQuiescent}
 }
 
+// drainedFrontier is the selection helper for a plan with NOTHING eligible. It is the other
+// half of twoActivityFrontier and it exists for the zombie case: with no dispatch to make,
+// the only id in flight is the one the run's INPUT carries, which is exactly the
+// pre-ContinueAsNew shape — Started with no future in this run.
+func drainedFrontier(_ projectstate.Project, _ eligibilityRule) pumpSelection {
+	return pumpSelection{Verdict: verdictQuiescent}
+}
+
 // newLeasePumpRig is a pump with a two-activity frontier, both children held open, and a
 // bus the case can read the grants off.
 func newLeasePumpRig(bus messagebus.MessageBus, childRun time.Duration) cascadingPumpRig {
@@ -28870,6 +29009,59 @@ func Test_DeliveryActivity_AGrantInTheWireFormThePumpProducesIsNotDropped(t *tes
 	if elapsed := env.Now().Sub(start); elapsed >= activityLeaseGrantWaitBudget {
 		t.Fatalf("a grant delivered in the pump's OWN wire form (binary/plain) must be read: the walk spent %s, "+
 			"i.e. it waited out the whole %s budget and ran UNLEASED, which is the lease being inert in production",
+			elapsed, activityLeaseGrantWaitBudget)
+	}
+}
+
+// AND A LIVENESS PROBE IS NOT A GRANT — the requirement stage 4b3 Task 7's zombie probe
+// RELIES ON, pinned here because nothing pinned it before.
+//
+// pumpProbeStaleInFlight sends an activityLeaseGrant at pumpLivenessProbeEpoch (0) to a child
+// that asked for NOTHING, purely to learn from the DELIVERY's answer whether its execution
+// still exists. That is only safe because of one arm in requestMainWriteLease:
+// `grant.Epoch <= pumpLivenessProbeEpoch` continues the wait instead of returning a lease.
+// The code has had that arm since 4b2 and NO test exercised it, so "the child is required to
+// ignore epoch 0" was a comment rather than a fact — while the whole safety of a new pump
+// sender now rests on it.
+//
+// THE PROBE IS BUFFERED BEFORE THE TAIL EVEN ASKS, which is the hazard's exact shape: a
+// signal delivered to a workflow that has not yet read its channel is held by the SDK, so the
+// message is waiting when requestMainWriteLease first selects. Accept it and the child runs
+// its merge tail believing it holds a lease nobody granted — a second concurrent main writer,
+// created by the mechanism that exists to prevent one.
+//
+// THE ASSERTION IS THE CLOCK, for the same reason its sibling above uses it: an accepted
+// probe fails nothing visible. The tail must wait out the WHOLE activityLeaseGrantWaitBudget
+// and then run unleased (which is the fail-open the next case is about) — so "waited the full
+// budget" is precisely "did not mistake the probe for a grant". Measured the other way while
+// writing this: the identical envelope at Epoch 1 is taken as a grant after 1 ms of workflow
+// time, so the epoch is the only thing standing between a probe and a stolen lease.
+func Test_DeliveryActivity_ALivenessProbeIsNotAGrant(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	wf := csNewWorkflows(deps)
+	registerDeliveryActivityWithBus(env, wf, ps, pipe, &recordingSignalBus{})
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalActivityLeaseGranted,
+			pumpLeaseWireBytes(t, activityLeaseGrant{ActivityID: "C-Orders", Epoch: pumpLivenessProbeEpoch}))
+	}, time.Millisecond)
+	start := env.Now()
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "shape-p", ActivityID: "C-Orders", Activity: sampleActivity(),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if elapsed := env.Now().Sub(start); elapsed < activityLeaseGrantWaitBudget {
+		t.Fatalf("a grant at pumpLivenessProbeEpoch is a LIVENESS PROBE and must be ignored: the walk spent %s, "+
+			"i.e. under the %s budget, so the child took the probe for a grant and ran its merge tail holding a "+
+			"lease the pump never gave it — the second concurrent main writer the lease exists to prevent",
 			elapsed, activityLeaseGrantWaitBudget)
 	}
 }

@@ -44,17 +44,19 @@ is the one place the row SHAPE is written down.
 
 ## Headline counts
 
-**THE TOTAL IS 32.** The arithmetic, in the order it happened: Task 1 wrote 37 rows, Task 4
+**THE TOTAL IS 33.** The arithmetic, in the order it happened: Task 1 wrote 37 rows, Task 4
 added `G-S7` (38), Task 11 discharged `replansweep.go`'s two rows with the workflow (36),
-and **stage 4b3 Task 3 discharged the four that hung off the pump's `GetVersion` fences** —
-G-P18, G-P19, G-P20, G-P21 — leaving **32**. The line that settles it is the per-file split
-below, **18 + 7 + 7**, and `pumpGuardCensus()` returns exactly that many. (Task 1's report
-and `progress.md` still say 37; they were stale from the day Task 4 landed.)
+**stage 4b3 Task 3 discharged the four that hung off the pump's `GetVersion` fences** —
+G-P18, G-P19, G-P20, G-P21 — leaving 32, and **stage 4b3 Task 7 added `G-P23`**, the zombie
+probe, which is the first row this census has ever gained for a guard that did not exist
+before it. The line that settles it is the per-file split below, **19 + 7 + 7**, and
+`pumpGuardCensus()` returns exactly that many. (Task 1's report and `progress.md` still say
+37; they were stale from the day Task 4 landed.)
 
 | | |
 |---|---:|
-| Guard rows total | **32** |
-| `pumpnextactivity.go` | 18 |
+| Guard rows total | **33** |
+| `pumpnextactivity.go` | 19 |
 | `pumpsweep.go` | 7 |
 | `projectsupervision.go` | 7 |
 | Rows the 4b2 plan's brief names | 12 |
@@ -107,7 +109,7 @@ stage 4b3 Task 3.)
 
 ---
 
-## `pumpnextactivity.go` — 18 guards
+## `pumpnextactivity.go` — 19 guards
 
 | ID | Line | Verdict (Task 16) | Guard | What it protects | BreaksAs | PinnedBy |
 |---|---|---|---|---|---|---|
@@ -129,6 +131,7 @@ stage 4b3 Task 3.)
 | **G-P16** | `:386` | **RE-ASSERTED** · `:1391` | the child is addressed by `deliveryActivityWorkflowID(projectID, id)` — **idempotency / dedup** | A redundant tick collapses onto the running child instead of starting a second one. A hand-built id is how the pump and the façade disagree about which execution to signal. | Two executions for one activity, both writing the same row. | `Test_Pump_StartsOneChildAndNamesNoActivityType` |
 | **G-P17** | `:387` | **RE-ASSERTED**, pin strengthened · `:1392` | `ParentClosePolicy: PARENT_CLOSE_POLICY_ABANDON`. **Task 12 re-asserted it STRUCTURALLY** (`pumpChildOptionsField` walks the AST to the key) because the pin was a substring check and the line now carries a comment naming the constant — the old test would have stayed green with the assignment deleted | The activity is its own durable execution, independent of this pump's continue-as-new chain. | Drop it and the pump's own close — every ContinueAsNew, every failure — terminates every in-flight activity. Silent, and catastrophic. | `Test_Pump_TheChildIsAbandonedSoThePumpsOwnCloseNeverKillsIt` |
 | **G-P22** | `:398-403` | **RE-ASSERTED** · `:1404-1407` | `nextEligible`: a nil `NextEligibleActivity` helper ⇒ `verdictQuiescent` | An unwired pump dispatches NOTHING rather than panicking or dispatching arbitrarily — fail-safe by construction. | A wiring regression becomes a nil-deref inside the project's one pump. | `Test_Pump_NoEligibleActivity_QuietTick` |
+| **G-P23** | `:1049-1079` | **RE-ASSERTED** · `:1049-1079` — the row's own code, written by stage 4b3 Task 7 | `pumpProbeStaleInFlight`: **ONE** extra liveness probe per tick, rotating, over the futureless in-flight ids that are neither the lease holder nor already vanished — sent as an `activityLeaseGrant` at **`pumpLivenessProbeEpoch` (0)**, and its `NotFound` answer calls `markVanished` and **never judges** | The `Started`-forever zombie. `markVanished` has exactly two callers and BOTH are on the lease path (`pumpDeliverGrant`'s `NotFound` arm, `pumpCheckLease`'s), so the pump can only notice a child that ASKED for the lease. The intersection of three conditions — predates a `ContinueAsNew` (no future) **and** never reached its merge tail (never asked) **and** wrote no row — is invisible to every other mechanism in the file. The epoch is the other half of the guard: `0` is the one value `requestMainWriteLease` is required to ignore, so the probe cannot become a grant. | Without the probe: the id sits in `inFlight()` on every tick forever, the pump never quiesces, never dispatches past it, and **nothing goes red** (measured: the shape case hangs until the Go test timeout, parked in `pumpLoop`). At a real epoch: the grant buffers on `activityLeaseGranted` and the child consumes it at its merge tail, running unasked-for — **two concurrent main writers, created by the mechanism meant to prevent one** (measured: at Epoch 1 the child accepts after 1 ms). Without the cap: **N** `deliverSignal` Activities per tick on an N-activity plan. | `Test_LifecycleShapes` (the `futureless-zombie-is-reaped` case, which asserts the verdict, the ONE probe and its epoch) + `Test_DeliveryActivity_ALivenessProbeIsNotAGrant` (the child-side requirement the probe RELIES on, which nothing pinned before) |
 
 **FOUR ROWS USED TO FOLLOW G-P17 AND ARE DISCHARGED (stage 4b3 Task 3).** G-P18
 (`pumpPausedBehindGate`'s fence, two change ids through one func), G-P19
@@ -307,20 +310,24 @@ found, and the one verdict the brief's three words could not say honestly.
 ## The tally
 
 **This table is CHECKED, not typed.** `Test_PumpGuardCensus_TheHeadlineCountsAreTrue` reads
-the `Verdict` cell of all 36 rows, requires each to OPEN with one of exactly these four
+the `Verdict` cell of all 33 rows, requires each to OPEN with one of exactly these four
 words, and counts them against these numbers — so a row cannot carry an invented verdict, an
 empty verdict, or a **LOST** that this tally still reports as zero.
 
 | verdict | rows |
 |---|---:|
-| **RE-ASSERTED** | 31 |
+| **RE-ASSERTED** | 32 |
 | **RE-ASSERTED IN REDUCED FORM** | 1 |
 | **DELETED WITH ITS SUBJECT** | 0 |
 | **LOST** | 0 |
-| Verdict rows total | 32 |
+| Verdict rows total | 33 |
 
 **It read 35 / 1 / 0 / 0 / 36 when Task 16 closed.** The four rows stage 4b3 Task 3
-discharged were all **RE-ASSERTED**, so the whole movement is in that first line. A
+discharged were all **RE-ASSERTED** and so is the one Task 7 added, so the whole movement is
+in that first line. **A row for code written in the same commit reads RE-ASSERTED**, which
+is a slight stretch of a vocabulary built to audit a rewrite: the other three words are worse
+fits (nothing was deleted, nothing is lost, nothing is reduced), and inventing a fifth would
+mean moving `pumpGuardVerdictWords` for one row. The Verdict cell says so in place. A
 discharged row is NOT recorded here as *DELETED WITH ITS SUBJECT*: that verdict is for a
 guard whose subject the code no longer has, and these four subjects were deliberately
 removed by a later task with a ruling behind it, which is a different fact and belongs in

@@ -297,18 +297,25 @@ const pumpHistoryBudget = 4000
 // 0 because no genuine grant can ever carry it: pumpDeliverGrant bumps LeaseEpoch before it
 // delivers, so every real grant carries at least 1.
 //
-// NO SIGNAL THE PUMP SENDS EVER CARRIES IT, and this comment used to say the opposite (fix
-// round 1, F4). The liveness probe in pumpCheckLease deliberately re-delivers the HOLDER'S
-// OWN grant at st.LeaseEpoch and never at 0, because the probe is a RENEWAL — a live holder
-// that reads it sees the grant it already has, which is the whole reason the deadline does
-// not revoke. The probe's only observable is the DELIVERY's answer (NotFound means the
-// execution is gone), and a grant at epoch 0 would be one the holder is required to ignore,
-// so sending one would buy nothing.
+// EXACTLY ONE SIGNAL THE PUMP SENDS CARRIES IT, and this comment has now said three
+// different things about that. It said "a grant at 0 is a probe"; fix round 1 (F4) corrected
+// it to NO SIGNAL EVER CARRIES IT, which was true because the pump sent none; and stage 4b3
+// Task 7 made the original claim true by writing the one sender — pumpProbeStaleInFlight,
+// the zombie probe. The rule the constant states is exactly what makes that probe safe, so
+// the two are one fact read from both ends.
+//
+// THE HOLDER'S PROBE STILL USES THE REAL EPOCH, and that is not an inconsistency: it is the
+// difference between the two probes. pumpCheckLease re-delivers the HOLDER'S OWN grant at
+// st.LeaseEpoch because that probe is a RENEWAL — a live holder that reads it sees the grant
+// it already has, which is the whole reason the deadline does not revoke. The zombie probe
+// has no grant to renew: its target asked for nothing, so any epoch above 0 would be a lease
+// handed to a child that never asked, buffered on its activityLeaseGranted channel and
+// consumed at its merge tail. Both probes' only observable is the DELIVERY's answer —
+// NotFound means the execution is gone.
 //
 // What this constant IS, therefore: a child-side FLOOR, read at exactly one site —
 // requestMainWriteLease's `grant.Epoch <= pumpLivenessProbeEpoch` arm in deliveryactivity.go
-// — where it refuses a zero-valued or replayed grant envelope, which is the only way one can
-// arrive.
+// — where it refuses the zombie probe, and a zero-valued or replayed grant envelope with it.
 const pumpLivenessProbeEpoch int64 = 0
 
 // pumpState is what a run of the pump knows. Everything in it rides ContinueAsNew through
@@ -345,6 +352,14 @@ type pumpState struct {
 	// the pump's one positive fact that a child is gone. It is a note for the NEXT
 	// pumpReconcile and NOT a terminal: see markVanished.
 	vanished map[ActivityID]bool
+
+	// probeCursor rotates pumpProbeStaleInFlight's ONE probe per tick across the futureless
+	// in-flight ids. It is run-local for the same reason futures, blocked and vanished are,
+	// and for one of its own: it is a rotation index, not a fact. Correctness does not depend
+	// on it surviving a ContinueAsNew — a fresh run restarts the rotation at the head of a
+	// list it re-derives anyway — and carrying it through pumpInput would be a payload change
+	// (G-P10) bought for nothing.
+	probeCursor int
 }
 
 func pumpStateFrom(in pumpInput) *pumpState {
@@ -910,7 +925,14 @@ func (wf *csWorkflows) pumpRecordBlocked(
 // That is the pre-wave state, deliberately, and it is strictly better than failing an
 // activity that did all of its work because the admission queue restarted underneath it.
 func (wf *csWorkflows) pumpGrantLease(ctx workflow.Context, in pumpInput, st *pumpState) error {
+	// THE TICK'S TWO LIVENESS QUESTIONS, adjacent, so "at most two deliverSignal Activities
+	// per tick" is one readable fact rather than two facts a reader has to add up. Neither is
+	// about granting; both are about whether an execution is still there, and the answer to
+	// either changes who may be granted below — which is why they run before the grant loop.
 	if err := wf.pumpCheckLease(ctx, in, st); err != nil {
+		return err
+	}
+	if err := wf.pumpProbeStaleInFlight(ctx, in, st); err != nil {
 		return err
 	}
 	for st.LeaseHolder == nil && len(st.requests) > 0 {
@@ -988,6 +1010,71 @@ func (wf *csWorkflows) pumpCheckLease(ctx workflow.Context, in pumpInput, st *pu
 	st.LeaseGrantedAt = &now
 	workflow.GetLogger(ctx).Info("pump: the lease holder is alive and its lease is renewed, not revoked",
 		"projectId", string(in.ProjectID), "activityId", string(holder), "epoch", st.LeaseEpoch)
+	return nil
+}
+
+// pumpProbeStaleInFlight is the ONE extra liveness probe per tick, and it exists for the one
+// activity shape nothing else in this file can see: started before this run's ContinueAsNew
+// (so no future), never reached its merge tail (so it never asked for the lease and
+// markVanished's two callers — pumpDeliverGrant's NotFound arm and pumpCheckLease's — never
+// fire for it), and dead without writing a row. Such an id sits in inFlight() on every tick
+// forever: the pump never quiesces, never dispatches past it, and NOTHING GOES RED. The three
+// conditions are an intersection, not a union, and every one of them is answered above: a
+// child of THIS run has a future, a holder is probed by the lease's own deadline, and a child
+// that wrote a terminal row is judged by pumpReconcile off that row.
+//
+// WHY IT SENDS A GRANT AT pumpLivenessProbeEpoch AND NOT THE HOLDER'S OWN GRANT. Re-delivering
+// a real grant to a child that did not ask for one is not a probe, it is a HAZARD: the message
+// buffers on activityLeaseGranted, and when that child later reaches requestMainWriteLease it
+// consumes the buffered grant and runs its merge tail believing it holds a lease nobody gave
+// it — two concurrent main writers, produced by the mechanism that exists to prevent them.
+// Epoch 0 is the one value the child is REQUIRED to ignore (deliveryactivity.go's
+// `grant.Epoch <= pumpLivenessProbeEpoch` arm in requestMainWriteLease), because
+// pumpDeliverGrant bumps LeaseEpoch before every real grant, so no genuine grant can carry it.
+// The probe's ONLY observable is the delivery's answer.
+//
+// ONE PER TICK, ROTATING. Probing every futureless id every tick is N deliverSignal Activities
+// per tick on an N-activity plan, which is the objection that killed the earmark's version and
+// it was right. The cursor is run-local, like futures and vanished. A 30-activity frontier is
+// therefore fully probed within 30 ticks — fifteen minutes, on a rail whose gates wait hours
+// for a human — and the cost is at most ONE extra Activity per 30 s tick, beside the holder's.
+//
+// IT NEVER JUDGES. NotFound marks the id vanished and releases any admission it held (which
+// also drops the queued asks of a requester that is gone — the reason this runs BEFORE
+// pumpGrantLease's grant loop rather than after it); whether the activity finished or broke is
+// pumpReconcile's answer, off a FRESH row. That is markVanished's own rule and this caller
+// does not get to bend it. THE COST IS ONE TICK, stated rather than hidden: pumpLoop calls
+// pumpReconcile BEFORE pumpGrantLease, so an id marked here on tick k is judged on tick k+1.
+// Two ticks to a verdict, against forever.
+func (wf *csWorkflows) pumpProbeStaleInFlight(ctx workflow.Context, in pumpInput, st *pumpState) error {
+	var candidates []ActivityID
+	for _, id := range st.inFlight() {
+		if _, hasFuture := st.futures[id]; hasFuture {
+			continue // a child of THIS run: its future is the authority
+		}
+		if st.LeaseHolder != nil && *st.LeaseHolder == id {
+			continue // pumpCheckLease already probes the holder, at its own epoch
+		}
+		if st.vanished[id] {
+			continue // already answered; pumpReconcile owes the verdict
+		}
+		candidates = append(candidates, id)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	id := candidates[st.probeCursor%len(candidates)]
+	st.probeCursor++
+	err := wf.pumpSignalChild(ctx, in.ProjectID, id, activityLeaseGrant{ActivityID: id, Epoch: pumpLivenessProbeEpoch})
+	switch {
+	case isSignalTargetNotFound(err):
+		workflow.GetLogger(ctx).Error("pump: an activity started before this run's continue-as-new has no execution; the reconcile will say whether it finished or broke",
+			"projectId", string(in.ProjectID), "activityId", string(id))
+		st.markVanished(id)
+		return nil
+	case err != nil:
+		return err
+	}
 	return nil
 }
 
