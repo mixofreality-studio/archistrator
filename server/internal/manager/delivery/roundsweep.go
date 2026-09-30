@@ -66,6 +66,11 @@ type roundSweepResult struct {
 	// append) and does not appear here — this field is "started just now", like
 	// pumpSweepResult.PumpedProjects.
 	SweptProjects []ProjectID
+	// Reopened is how many activities THIS execution re-opened because they completed
+	// their work and failed to land it (stage 4b3 Task 10). Like Stamped, only the
+	// single-project arm produces it, and it counts what this tick WROTE — a row another
+	// writer healed between the read and the write is not this tick's heal.
+	Reopened int
 }
 
 // RoundSweepWorkflow closes rounds that no run will ever decide.
@@ -89,6 +94,14 @@ type roundSweepResult struct {
 // The terminal is RoundWithdrawn, which stage 4b1 gave its own wire member: the round
 // was pulled back before anyone decided it, which is exactly what happened. decidedBy
 // names the sweep, so the ledger never claims a person decided it.
+//
+// SINCE STAGE 4b3 THE PER-PROJECT ARM HAS A SECOND STEP (sweepReopenNotLanded), and it is
+// here rather than in a workflow of its own for a reason that is scope, not taste: a new
+// registered type would be a new golden name, a new frozen name, a new Schedule and a new
+// drain item in the wave that runs the drain and cuts the release. This workflow is already
+// Schedule-triggered, already has the fan-out/single-project discriminator, already bounds
+// its writes per tick, and already closes the records no run will ever come back to — which
+// is the same job one noun over.
 func (wf *csWorkflows) RoundSweepWorkflow(ctx workflow.Context, in roundSweepInput) (roundSweepResult, error) {
 	if in.ProjectID == "" {
 		return wf.fanOutRoundSweep(ctx)
@@ -108,10 +121,16 @@ func (wf *csWorkflows) RoundSweepWorkflow(ctx workflow.Context, in roundSweepInp
 //
 // NO OPERATOR-PAUSE FILTER either, and this is the one place the two sweeps
 // deliberately disagree. The pump sweep skips a paused project because starting a pump
-// would DISPATCH work, which is the thing the operator paused to stop. This sweep
-// dispatches nothing and advances no lifecycle: it corrects a record that is already
-// wrong, and the operator who paused the project to look at it is the reader a round
-// rendering `running` forever misleads most.
+// would DISPATCH work, which is the thing the operator paused to stop. The ROUND half of
+// this sweep dispatches nothing and advances no lifecycle: it corrects a record that is
+// already wrong, and the operator who paused the project to look at it is the reader a
+// round rendering `running` forever misleads most.
+//
+// THE PAUSE IS HONOURED ONE LEVEL DOWN INSTEAD (stage 4b3 Task 10), because the second
+// step is not like the first: a re-open leads to a dispatch the moment the project
+// resumes, and it clears the very fact the operator paused to look at. Filtering it HERE
+// would cost the paused project its round sweep too, so sweepReopenNotLanded checks the
+// pause itself and the fan-out stays unfiltered.
 //
 // The child id carries the TICK (roundSweepWorkflowID), unlike the pump's deliberately
 // tick-invariant id: the pump's id is shared so a still-cascading pump absorbs a
@@ -164,7 +183,16 @@ func (wf *csWorkflows) fanOutRoundSweep(ctx workflow.Context) (roundSweepResult,
 }
 
 // sweepProjectRounds is the per-project arm: withdraw every stranded round on every
-// activity of one project, in a deterministic order, bounded per tick.
+// activity of one project, in a deterministic order, bounded per tick — and then offer the
+// re-open heal to every activity that completed its work and failed to land it.
+//
+// THE TWO STEPS SHARE ONE PROJECT READ and nothing else. The heal is handed the project as
+// it was read at the top of this arm, not the head version the round loop advanced: the two
+// steps are independent jobs over the same document, and threading a mutated counter between
+// them would couple them through a variable for the sake of a re-read that applyRecovering
+// already makes correctly. On the rare tick that does BOTH jobs the heal's first write pays
+// one Conflict and the loop re-seeds; on every other tick — which is every tick with no
+// stranded round, the common case — the seed is exact.
 func (wf *csWorkflows) sweepProjectRounds(ctx workflow.Context, in roundSweepInput) (roundSweepResult, error) {
 	logger := workflow.GetLogger(ctx)
 	proj, err := wf.readProject(ctx, in.ProjectID)
@@ -202,6 +230,10 @@ func (wf *csWorkflows) sweepProjectRounds(ctx workflow.Context, in roundSweepInp
 
 		for _, r := range stranded {
 			if result.Stamped >= roundSweepMaxPerTick {
+				// The tick is at its write bound, so the HEAL does not run either: this
+				// execution has already done a tick's worth of work, and a heal deferred 300s
+				// on a project that is this far behind is the right trade against a Temporal
+				// task that never finishes. The next tick takes both.
 				logger.Info("round sweep hit its per-tick bound; the rest is swept on the next tick",
 					"projectId", string(in.ProjectID), "stamped", result.Stamped)
 				result.Bounded = true
@@ -236,5 +268,147 @@ func (wf *csWorkflows) sweepProjectRounds(ctx workflow.Context, in roundSweepInp
 				"roundId", r.RoundID, "tickId", in.TickID)
 		}
 	}
+
+	reopened, rerr := wf.sweepReopenNotLanded(ctx, in.ProjectID, proj)
+	if rerr != nil {
+		return roundSweepResult{}, rerr
+	}
+	result.Reopened = reopened
 	return result, nil
+}
+
+// sweepReopenNotLanded offers the heal for an activity that completed its work and failed
+// to land it (CoarsePhaseFor -> completedNotLanded). It writes a REQUEUE note, which is the
+// one operator-note kind that changes the row: it clears the five head facts, keeps both
+// ledgers and the lifecycle pin, and the pump selects the activity again because the note
+// itself is the evidence it reads (RequeuedAfterExit).
+//
+// WHY A SWEEP MAY PRESS THIS BUTTON. It is not a decision about the work — the walk already
+// decided that and the ledger keeps it — it is a decision about a LANDING that provably did
+// not happen, and the re-run re-seeds every task that passed rather than redoing them.
+// Leaving it to a human means leaving it to a human who was shown nothing until stage 4b3
+// Task 9 gave the state a name. And nothing else was ever going to re-run it: a not-landed
+// row is not Done, so it does not unblock its dependents either — the cascade simply stops.
+//
+// IT KEYS ON THE TAIL'S OWN MARK, NOT ON UNCOMMITTED SLOTS, and that is the precision this
+// sweep needs rather than eagerness. "Completed with a slot still AwaitingReview" is also
+// the honest MID-FLIGHT shape of a design activity whose gate has not run, and a sweep that
+// re-ran those would re-dispatch work nobody asked for. The three facts that make the
+// difference — a recorded completion, no recorded failure, and a tail-failure detail — are
+// exactly what CoarsePhaseFor folds into completedNotLanded, so this asks the DERIVATION
+// the operator's node is drawn from rather than restating its conditions here. It is asked
+// as a switch, because a sum-type linter covers a switch and not an `==` (Task 9 §3, where
+// two `if` sites over this same enum were silently wrong).
+//
+// IT DOES NOT RUN ON A PAUSED PROJECT, and this is the one place the two halves of this
+// workflow disagree. The round half deliberately ignores the operator pause because it
+// dispatches nothing and only corrects a record that is already wrong (fanOutRoundSweep
+// says so in those words). A re-open is the opposite on both counts: it leads to a dispatch
+// the moment the project resumes, which is the thing the operator paused to stop, and it
+// CLEARS TailFailureDetail — the very evidence the operator paused to look at. The operator
+// can still press the button themselves; what may not happen is the platform pressing it
+// behind them.
+//
+// IT CANNOT LOOP. RecordOperatorNote dedups on NoteID before it re-arms, and
+// RequeuedAfterExit requires the newest requeue note to be newer than the newest RESOLVED
+// attempt — so an activity re-opened, re-run and finished again is finished, and its stale
+// requeue note does not re-arm it a second time. The NoteID is reopenNoteID, the operator
+// button's own derivation: it keys on the row's EXIT STAMP, so one broken landing mints one
+// note however many ticks see it, and the heal converges with an operator's rather than
+// filing a second reason against the same terminal. It is derived, never minted — a
+// workflow that generated a random id would be non-deterministic on replay.
+//
+// BOUNDED per tick, the same reason roundSweepMaxPerTick states for the rounds: one Temporal
+// task may not do unbounded work on a project with years of history. The budget is its OWN
+// rather than shared with the rounds, because a project holding 200 stranded rounds must
+// still heal, and reaching this bound at all would mean 200 activities broke their landings
+// in one plan — an incident, not a paced backlog.
+func (wf *csWorkflows) sweepReopenNotLanded(ctx workflow.Context, projectID ProjectID, proj projectstate.Project) (int, error) {
+	logger := workflow.GetLogger(ctx)
+	if proj.OperatorPaused {
+		return 0, nil
+	}
+
+	head := proj.Version
+	reopened := 0
+	for _, activityID := range sortedActivityIDs(proj.ActivityExecution) {
+		row := proj.ActivityExecution[activityID]
+		switch projectstate.CoarsePhaseFor(row, nil) {
+		case projectstate.ActivityConstructionCompletedNotLanded:
+			// The one state this heal exists for.
+		case projectstate.ActivityConstructionNotStarted, projectstate.ActivityConstructionRunning,
+			projectstate.ActivityConstructionDone, projectstate.ActivityConstructionFailed:
+			// Running and NotStarted have nothing to re-open; Done landed; Failed is a
+			// decision about the WORK, and re-running it on a timer would be the platform
+			// overriding a terminal a walk established. Only an operator re-opens those.
+			continue
+		}
+		if reopened >= roundSweepMaxPerTick {
+			logger.Info("round sweep hit its per-tick heal bound; the rest is re-opened on the next tick",
+				"projectId", string(projectID), "reopened", reopened)
+			return reopened, nil
+		}
+
+		// THE ROW THIS ITERATION WRITES, bound for the reason the round loop states: without
+		// it applyRecovering's Conflict arm cannot re-read the row, so a heal racing another
+		// writer would burn twenty attempts and fail the whole sweep as
+		// MutateConflictExhausted instead of recognising the state it is in.
+		rowVersion := row.Version
+		rctx := withRowAccessor(ctx, rowAccessor{
+			activityID: activityID,
+			version:    func() int64 { return rowVersion },
+			setVersion: func(v int64) { rowVersion = v },
+		})
+		note := projectstate.OperatorNoteInput{
+			NoteID: reopenNoteID(ActivityID(activityID), row),
+			Kind:   projectstate.NoteRequeue,
+			Gate:   reopenGateKey,
+			Text:   sweepReopenNoteText(row),
+		}
+		v, werr := wf.applyRecovering(rctx, projectID, head, func(expected projectstate.Version) (projectstate.Version, error) {
+			return wf.Acts.ActivityExecutionRecordOperatorNote(rctx, projectstate.ProjectID(projectID), expected,
+				rowVersion, activityID, note, "", railCredEnvelope{}.toProjectState())
+		})
+		if werr != nil {
+			// A row that stopped being re-openable between the read and the write — an
+			// operator who pressed the button first, or a re-run already under way — is
+			// refused by the store as a terminality Conflict that moves nothing. The heal
+			// happened; it was simply not this tick's. Anything else is real.
+			if isTerminalConflict(werr) {
+				logger.Info("activity is no longer waiting to be re-opened; nothing to heal",
+					"projectId", string(projectID), "activityId", activityID)
+				continue
+			}
+			return 0, werr
+		}
+		head = v
+		reopened++
+		logger.Info("activity completed its work and did not land it; re-opened",
+			"projectId", string(projectID), "activityId", activityID,
+			"tailFailure", row.TailFailureDetail)
+	}
+	return reopened, nil
+}
+
+// sweepReopenNoteText is the requeue note the sweep files, and it has to be two things at
+// once. DETERMINISTIC, because RecordOperatorNote refuses a second note under one id with
+// different content ("one id names one note") — so a re-delivery of the same heal has to
+// produce the same sentence, which it does: every word comes from the row.
+//
+// And it CARRIES THE CAUSE, because the heal itself destroys it — reopenTerminalRow clears
+// TailFailureDetail with the other four head facts, so an operator reading the row after the
+// re-open would otherwise find no trace of why it was re-opened. The note is where the fact
+// goes to survive.
+//
+// TRUNCATED AT maxOperatorNoteRunes, which is the limit the façade already rules for every
+// operator note (checkOperatorNoteSize) rather than a number invented here. It matters
+// because TailFailureDetail carries a Temporal error string verbatim and nothing bounds it,
+// and this note lands in project.json, which is a git-as-DB document.
+func sweepReopenNoteText(row projectstate.ActivityExecution) string {
+	text := "re-opened by the platform sweep: the activity completed its work and failed to land it — " +
+		row.TailFailureDetail
+	if r := []rune(text); len(r) > maxOperatorNoteRunes {
+		return string(r[:maxOperatorNoteRunes])
+	}
+	return text
 }

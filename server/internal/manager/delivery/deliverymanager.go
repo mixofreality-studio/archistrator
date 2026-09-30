@@ -8738,6 +8738,13 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		"activityExecutionAccess.appendReviewVerdict":   recordActivityOptions(),
 		"activityExecutionAccess.decideReviewRound":     recordActivityOptions(),
 		"activityExecutionAccess.recordActivityOutcome": recordActivityOptions(),
+		// THE REQUEUE NOTE (stage 4b3 Task 10) joins them, because the round sweep's heal
+		// gave this verb its first WORKFLOW caller — every other writer of it is the Manager,
+		// which does not consult this hook at all. It is a head-state Record verb like the six
+		// above and takes their preset for their reason; without an entry it would silently
+		// inherit the generated 15s default, which is how the defect this gate exists for
+		// shipped once.
+		"activityExecutionAccess.recordOperatorNote": recordActivityOptions(),
 		// The ROW READ the Conflict arm makes (stage 4b1, terminalAfterRowReread) takes NO
 		// entry here, DELIBERATELY: it rides the generated default, exactly as the two
 		// design rails' row read has since stage 3. A preset was considered and rejected —

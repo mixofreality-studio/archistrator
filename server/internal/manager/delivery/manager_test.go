@@ -12784,6 +12784,14 @@ func registerRoundSweep(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows,
 	// worker registers every one of them for every execution.
 	registerGenProjectStateVersion(env, ps)
 	csRegisterGenActivityExecution(env, ps)
+	// THE NINTH, and it belongs to this workflow rather than to the construction child:
+	// the sweep's second step (stage 4b3 Task 10) files the requeue note that re-opens an
+	// activity which completed its work and failed to land it. csRegisterGenActivityExecution
+	// deliberately registers only what the CHILD calls, so registering it there would tell a
+	// future child it may call a verb it may not.
+	notes := &genActivities{ActivityExecution: csFakeActivityExecution{ps}}
+	env.RegisterActivityWithOptions(notes.ActivityExecutionRecordOperatorNote,
+		activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
 	lister := fakeProjectLister{fakeFullProjectState: fakeFullProjectState{ps}, summaries: summaries}
 	acts := &genActivities{ProjectState: lister}
 	env.RegisterActivityWithOptions(acts.ProjectStateListProjects, activity.RegisterOptions{Name: "projectStateAccess.listProjects"})
@@ -12807,6 +12815,76 @@ func runRoundSweep(t *testing.T, ps *csFakeProjectState) roundSweepResult {
 		t.Fatalf("decode round sweep result: %v", err)
 	}
 	return res
+}
+
+// notLandedRow builds the row the HEAL keys on (stage 4b3 Task 10): a recorded completion,
+// no recorded failure, and the tail's own mark — the three facts CoarsePhaseFor folds into
+// completedNotLanded. Hand-built here because the pause case is about the SWEEP's decision,
+// not about how the row came to be; the production shape is driven end to end by
+// Test_RoundSweep_ReopensAnActivityThatCompletedAndDidNotLand.
+func notLandedRow(activityID string) projectstate.ActivityExecution {
+	at := testLedgerClock
+	return projectstate.ActivityExecution{
+		ActivityID: activityID, Version: 1, StartedAt: &at, CompletedAt: &at,
+		TailFailureDetail: "the merge tail failed at commitDesignArtifacts: refused",
+	}
+}
+
+// THE PAUSE IS HONOURED BY THE HEAL, AND ONLY BY THE HEAL. The round half of this sweep
+// deliberately ignores an operator pause — it dispatches nothing and only corrects a record
+// that is already wrong. A re-open is the opposite on both counts: it leads to a dispatch the
+// moment the project resumes, which is the thing the operator paused to stop, and it CLEARS
+// TailFailureDetail — the very evidence the operator paused to look at. The operator may still
+// press the button themselves; what may not happen is the platform pressing it behind them.
+//
+// The second half of the case is what makes the first falsifiable: the SAME row on the SAME
+// store is healed the moment the pause is lifted, so the refusal above is the pause and not
+// the shape.
+func Test_RoundSweep_APausedProjectIsNotHealedBehindTheOperator(t *testing.T) {
+	ps := roundSweepState(notLandedRow("C-ONE"))
+	ps.project.OperatorPaused = true
+
+	if res := runRoundSweep(t, ps); res.Reopened != 0 {
+		t.Fatalf("a paused project must not be healed behind the operator, got %d re-opened", res.Reopened)
+	}
+	if row := ps.execution("C-ONE"); row.CompletedAt == nil || row.TailFailureDetail == "" {
+		t.Fatalf("the paused project's red node must still be there for the operator to read, got %+v", row)
+	}
+
+	ps.mu.Lock()
+	ps.project.OperatorPaused = false
+	ps.mu.Unlock()
+
+	if res := runRoundSweep(t, ps); res.Reopened != 1 {
+		t.Fatalf("the same row is healed once the pause is lifted, got %d re-opened", res.Reopened)
+	}
+	if row := ps.execution("C-ONE"); row.CompletedAt != nil || row.TailFailureDetail != "" {
+		t.Fatalf("the heal must clear the head facts, got %+v", row)
+	}
+}
+
+// THE HEAL CANNOT LOOP, which is the whole licence for letting a 300s timer press an
+// operator's button. The re-arm clears the head facts the sweep keys on, so the very next
+// tick sees an activity waiting to run rather than one waiting to be healed, and files no
+// second note against the same broken landing.
+func Test_RoundSweep_AHealedRowIsNotReopenedOnTheNextTick(t *testing.T) {
+	ps := roundSweepState(notLandedRow("C-ONE"))
+
+	if res := runRoundSweep(t, ps); res.Reopened != 1 {
+		t.Fatalf("the first tick heals the row, got %d re-opened", res.Reopened)
+	}
+	if res := runRoundSweep(t, ps); res.Reopened != 0 {
+		t.Fatalf("the next tick must find nothing to heal, got %d re-opened", res.Reopened)
+	}
+	notes := 0
+	for _, n := range ps.execution("C-ONE").OperatorNotes {
+		if n.Kind == projectstate.NoteRequeue {
+			notes++
+		}
+	}
+	if notes != 1 {
+		t.Fatalf("one broken landing mints ONE requeue note however many ticks see it, got %d", notes)
+	}
 }
 
 // roundOutcomeByID reads back what the sweep decided for each round of one row.
@@ -22712,6 +22790,115 @@ func assertReArmed(t *testing.T, ps *csFakeProjectState, activityID string) {
 	if notes != 1 {
 		t.Fatalf("the re-open must leave exactly ONE requeue note — the operator's own reason; got %d", notes)
 	}
+}
+
+// seedMidFlightCompletion plants the sweep's NON-CASE: an activity that recorded its binary
+// exit while a slot it produced is still AwaitingReview and NOTHING went wrong. It is a real
+// shape rather than a contrivance — the walk records the exit BEFORE it commits its slots, so
+// every design activity passes through it — and the whole precision of the heal is that this
+// row is left exactly as it was found.
+func seedMidFlightCompletion(ps *csFakeProjectState, activityID string) {
+	at := testLedgerClock
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if ps.project.ActivityExecution == nil {
+		ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{}
+	}
+	ps.project.ActivityExecution[activityID] = projectstate.ActivityExecution{
+		ActivityID: activityID, StartedAt: &at, CompletedAt: &at,
+	}
+}
+
+// Test_RoundSweep_ReopensAnActivityThatCompletedAndDidNotLand pins the heal half of the
+// broken-tail pair. The row holds a real completion AND a tail-failure detail — the state
+// Task 9 made visible — so the activity is over, its slots are not committed, and nothing was
+// ever going to re-run it: RecordOperatorNote{NoteRequeue} is the documented heal and until
+// now a human had to know to press it, on a node that showed nothing wrong.
+// Test_Reopen_HealsTheDesignSlotCommitWindow above is the same repair driven by that human;
+// this is the platform pressing the same button, and the re-run must land the slot the failed
+// commit left behind WITHOUT re-drafting anything — the walk resumes, it does not restart.
+//
+// It also pins the NON-CASE, in the SAME tick, which is the half that matters more: a
+// Completed row with NO tail-failure detail is NOT re-opened, because "Completed with a slot
+// awaiting review" is also the honest mid-flight shape of a design activity, and a sweep that
+// re-ran those would re-dispatch work nobody asked for.
+func Test_RoundSweep_ReopensAnActivityThatCompletedAndDidNotLand(t *testing.T) {
+	rig, _ := designShapeRig(t, projectstate.ReviewPresetVibes)
+	designPlanStore(rig.cs)
+	rig.cs.mu.Lock()
+	rig.cs.commitFailKinds = map[projectstate.ArtifactKind]bool{projectstate.KindCoreUseCases: true}
+	rig.cs.mu.Unlock()
+	pipe := newDesignJobPipeline(rig.cs, rig.rec)
+	rig.pipe = nil
+	rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, rig.cswf, rig.cs, pipe) }
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: "requirements",
+		Activity: designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	if rig.env.GetWorkflowError() == nil {
+		t.Fatal("a failed slot commit must surface as the walk's error; this case needs the window it heals")
+	}
+	if rig.cs.execution("requirements").TailFailureDetail == "" {
+		t.Fatal("the premise is the tail's OWN mark — without it the sweep has nothing to key on")
+	}
+	seedMidFlightCompletion(rig.cs, "architecture")
+
+	res := runRoundSweep(t, rig.cs)
+
+	// THE NON-CASE IS CHECKED FIRST, because it is the half that matters more: a Completed
+	// row with no tail mark is a design activity waiting for its gate, and a sweep keyed on
+	// CompletedAt alone re-opens it and re-dispatches work nobody asked for. Asserted before
+	// the count so the eager mutation reddens on what it actually broke.
+	mid := rig.cs.execution("architecture")
+	if mid.CompletedAt == nil || len(mid.OperatorNotes) != 0 {
+		t.Fatalf("a mid-flight design activity must not be swept; got %+v", mid)
+	}
+	if res.Reopened != 1 {
+		t.Fatalf("exactly the not-landed activity is re-opened, got %d", res.Reopened)
+	}
+	// THE HEAL: the five head facts cleared, both ledgers kept, the pump selecting it again,
+	// and exactly one requeue note — the same shape the operator's own re-open leaves.
+	assertReArmed(t, rig.cs, "requirements")
+	// AND THE CAUSE SURVIVED THE HEAL. reopenTerminalRow clears TailFailureDetail, so unless
+	// the note carries it nobody can afterwards say why the platform re-opened the activity.
+	if got := requeueNoteText(rig.cs, "requirements"); !strings.Contains(got, "commitDesignArtifacts") {
+		t.Fatalf("the sweep's note must carry the tail failure it healed; got %q", got)
+	}
+	// AND THE WALK RESUMES. The commit double stops refusing, the activity runs again, and
+	// the slot the broken tail left behind lands.
+	rig.cs.mu.Lock()
+	rig.cs.commitFailKinds = nil
+	rig.cs.mu.Unlock()
+	next := rig.reenter(t)
+	next.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, next.cswf, next.cs, pipe) }
+	next.register(next.env)
+	next.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: "requirements",
+		Activity: designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	shapeRequireCompleted(t, next.env)
+	if got := slotStatusOf(rig.cs, projectstate.KindCoreUseCases); got != projectstate.ReviewCommitted {
+		t.Fatalf("the swept re-run must land the slot the failed commit left behind; status = %v", got)
+	}
+	// RESUMED, NOT RESTARTED: every task seeded off the ledger that passed, so the repair is a
+	// commit pass and not four fresh design jobs. This is what makes an automatic re-open safe
+	// to do at all.
+	for _, kind := range []string{"mission", "glossary", "volatilities", "coreUseCases"} {
+		if pipe.drafts[kind] != 1 {
+			t.Errorf("%s drafted %d times across both runs, want 1 — the sweep's re-run must not re-draft", kind, pipe.drafts[kind])
+		}
+	}
+}
+
+// requeueNoteText reads back the text of the row's requeue note.
+func requeueNoteText(ps *csFakeProjectState, activityID string) string {
+	for _, n := range ps.execution(activityID).OperatorNotes {
+		if n.Kind == projectstate.NoteRequeue {
+			return n.Text
+		}
+	}
+	return ""
 }
 
 // ===========================================================================
