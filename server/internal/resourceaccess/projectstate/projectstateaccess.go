@@ -891,6 +891,14 @@ func applyHeadState(summary *ProjectSummary, p Project, docUpdatedAt time.Time) 
 // (contracts/operating.ts deriveOperating), which applies the same list-driven rule
 // over the view-model's already-resolved rows. Unexported: only ListProjects (same
 // package) calls it today.
+//
+// THE PHASE CLAUSE IS NOW THE ONLY GUARD, and that is worth saying out loud. "has a
+// COMMITTED Phase-2 activity list with at least one activity" was independent evidence
+// that the Phase-2 seal had passed; since 2026-10-02 project BIRTH commits a THREE-activity
+// design-prefix list (delivery.seedDesignPrefixPlan), so a committed non-empty list proves
+// nothing about the seal any more. Phase == PhaseConstruction still carries it — nothing
+// reaches that phase without phase2SealGate — but the redundancy that used to back it up
+// is gone, so do not relax the phase clause on the strength of the list clause.
 func isConstructionComplete(p Project) bool {
 	if p.Phase != PhaseConstruction || p.ActivityList.Status != ReviewCommitted {
 		return false
@@ -6805,8 +6813,15 @@ func statusTransition(op string, kind ArtifactKind, to ArtifactReviewStatus, not
 //   - CLEARS the committed slot's own StaleBasis (re-committing IS the reconcile), and
 //   - sets StaleBasis=true on every ALREADY-committed DOWNSTREAM slot (its basis shifted).
 //
-// On a FIRST commit no downstream slot is committed yet, so the downstream marking is a
-// no-op; only a re-commit (amendment) actually flags anything.
+// A FIRST commit USED TO BE a no-op for the downstream marking, because no downstream slot
+// could be committed yet. That stopped being true on 2026-10-02: project BIRTH now commits
+// slots 9 and 10 with the derived design prefix (delivery.seedDesignPrefixPlan), so the
+// FIRST commit of every Phase-1 slot flags those two stale, with a StaleCause naming it.
+// That is the correct answer — the plan's basis genuinely did shift — and M0's own
+// re-commit of all eight Phase-2 slots reconciles every one of them before the seal. The
+// one place it is VISIBLE is a manual, pre-M0 AdvanceToConstruction, which refuses with
+// "committed artifact(s) are stale" rather than naming the Phase-2 slots still missing;
+// the verdict (refuse) is unchanged, only the stated reason.
 //
 // prov carries the ADDITIVE commit-provenance record (PM-P2-4). When non-nil it is stamped
 // onto the committed slot (refreshing any prior provenance on a re-commit); a nil prov (the
@@ -6832,8 +6847,9 @@ func commitTransition(kind ArtifactKind, prov *Provenance) func(*Project) error 
 		slot.StaleBasis = false
 		slot.StaleBasisCause = nil
 		// Flag every already-committed downstream slot stale, and RECORD THE CAUSE (this
-		// upstream kind + its new revision) so the read model can name what shifted. On a
-		// FIRST commit no downstream slot is committed yet, so this is a no-op.
+		// upstream kind + its new revision) so the read model can name what shifted. This
+		// is REACHABLE ON A FIRST COMMIT since project birth began committing slots 9/10 —
+		// see the note on this function.
 		cause := &StaleCause{UpstreamKind: kind.WireName(), UpstreamRevision: slot.Revisions}
 		for _, dk := range downstreamKinds(kind) {
 			if ds, ok := slotPtr(p, dk); ok && ds.Status == ReviewCommitted {

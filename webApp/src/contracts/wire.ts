@@ -783,8 +783,14 @@ export function mapProjectState(w: Schemas['DeliveryProjectState']): ProjectStat
 /**
  * The activity names of the COMMITTED Phase-2 activity list (slot 9), in authored
  * order: the domain deriveOperating iterates, as the Go isConstructionComplete does.
- * Empty when no activity list is committed; a project without the Phase-2 seal is
- * never operating.
+ * Empty when no activity list is committed.
+ *
+ * IT IS NOT A PHASE-2-SEAL PROXY, and it used to read like one. Since 2026-10-02 project
+ * BIRTH commits a THREE-activity design-prefix list (requirements/architecture/
+ * projectDesign), so a committed, non-empty list says nothing about the seal. What keeps a
+ * pre-seal project from reading as operating is deriveOperating's own first clause,
+ * `projectPhase !== 'construction'` — exactly as the Go isConstructionComplete relies on
+ * its phase clause.
  */
 function committedActivityNames(slots: readonly ArtifactSlotView[]): string[] {
   const slot = slots.find((s) => s.kind === 'activityList');
