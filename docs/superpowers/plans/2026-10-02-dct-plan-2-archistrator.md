@@ -302,6 +302,24 @@ func TestNetworkWithMultipleSinksComputesFloat(t *testing.T) {
 
 ---
 
+### Task 4b: Lifecycle serialization — re-measure counts, re-record replay histories
+
+Spec §8 (method-assets v0.10.0) serialized `stp` after `designReview` and `construction` after `stpReview`, so the design/test-plan **fork is gone** and the pinned assets went 14→12 lifecycles, 39→33 phases. Tests that pinned the fork shape or the old counts are red after the pin bump (found by Task 0).
+
+**Files:**
+- Modify: `server/internal/manager/delivery/manager_test.go` — `Test_LifecycleShapes` (drop the `fork-join-service-stp-first`, `fork-join-service-design-first`, `join-waits-for-all`, `both-gates` cases; add `serial-service-stp-after-design` asserting `stp.dependsOn == [designReview]` and `construction.dependsOn == [stpReview]`), `Test_DeliveryWalk_ForkFansOutInDeclarationOrder` (re-target to a lifecycle that still forks, or delete if none does — say which), `Test_DeliveryGate_TwoSimultaneousHumanGatesAreDecidedIndependently` (re-target to `requirements`+`uxRequirements` on frontend if those still fork; else delete with a comment naming §8), `TestQueryActivityView_LiveGate_AfterASendBack`, `TestHydrateConstructionActivity_TestingPlanIsThreePhases` (delete: lifecycle retired), `TestConstructionPromptsUseStateTools`, `TestNormalizeAttempts_GateCompletionComesFromTheResolvedSetOnly` (replace the N-STP fixture with a C-* activity), the four re-measure guards (`Test_ReviewRounds_KindComesFromTheJudgedTask`, `Test_LastPhaseGateIsTheWalksFinalTask`, `Test_RoundKindOfTask_AgreesWithWhatTheChildStamps`, `Test_DeliveryWalker_EveryLifecyclePhaseIsOneTheEngineReasonsAbout`: 14→12, 39→33 — re-measure from `methodassets.Lifecycles()`, never hard-code again: assert against `len(Lifecycles())`).
+- Modify: `server/internal/resourceaccess/projectstate/access_test.go` — the 8 profile/lifecycle tests named by Task 0 (`TestProfileFor_*`, `TestCommandFor_*`, `TestEveryProfilePhaseHasCommandFile`, `TestLifecycleKeyFor_CoversEveryTypeAndVariant`, `TestEveryActivityTypeResolvesToALifecycle`, `TestEveryLifecycleIsReachableFromAnActivityType`): remove `testing:plan`/`testing:systemTest` expectations; `TestProfileFor_TestingPlanRelabelsCanonicalIDs` is deleted.
+- Re-record: `server/internal/manager/delivery/testdata/replay/post-4b1/{fork-join-stp-first,fork-join-design-first,join-waits-for-all,sendback-judged-pair}.json` and `post-4b2-pump/child-lease-granted-and-released.json` — delete the four fork recordings (the shape no longer exists) and re-record `sendback-judged-pair` and `child-lease-granted-and-released` with the recorder the replay test documents (`Test_Replay_DeliveryHistories` / `Test_Replay_PumpHistories` doc comments name the env var or `go run` recorder). Add one new recording `post-dct/serial-stp-after-design.json`.
+- Modify: `server/cmd/aiarch-state-mcp` tests `TestPromptSurfaceToolReferencesExistInRegistry`, `TestEveryManifestToolIsRealAndModeLegal` — green once Task 2 registers `listComponentScenarios`; if Task 4b lands first, leave them to Task 2 (do not stub).
+
+- [ ] **Step 1:** Run `GOWORK=off go test ./internal/manager/delivery/ ./internal/resourceaccess/projectstate/ 2>&1 | grep -E '^(--- FAIL|FAIL)'` and paste the list into the commit message as the "before".
+- [ ] **Step 2:** Make each change above; for every deleted test write one line in the commit body saying which §8 ruling retired it.
+- [ ] **Step 3:** Re-record replays; run `Test_Replay_*` → PASS (no TMPRL1100).
+- [ ] **Step 4:** `GOWORK=off go test ./internal/manager/delivery/ ./internal/resourceaccess/projectstate/` → PASS (except nothing). `go vet`, lint clean.
+- [ ] **Step 5: Commit** `dct: lifecycle serialization (§8) — re-measure 12/33, re-record replays, retire fork-shape tests`.
+
+---
+
 ### Task 5: artifactAccess — test-run index and files
 
 **Files:**
