@@ -7245,8 +7245,8 @@ func (t *ActivityType) UnmarshalJSON(data []byte) error {
 // non-testing activity carries. It is declared in the contract — the F81 wire-map gate
 // requires the map and the contract to agree — because it has to cross a wire: the
 // construction workflow hands (type, variant) to its Temporal activities as positional
-// arguments, where no `omitempty` hides a zero. "plan" is not accepted on decode; a
-// stored "plan" is the retired artifact's row and fails loudly.
+// arguments, where no `omitempty` hides a zero. "systemTest" is not accepted on decode;
+// a stored "systemTest" is the retired artifact's row and fails loudly.
 var testingVariantNames = map[TestingVariant]string{
 	TestVariantNone:      "none",
 	TestVariantHarness:   "harness",
@@ -7255,13 +7255,28 @@ var testingVariantNames = map[TestingVariant]string{
 }
 var testingVariantByName = invert(testingVariantNames)
 
+// testingVariantLegacyPlan is the wire name ordinal 0 carried BEFORE the rename, and it
+// is still in flight: every delivery workflow started under the old worker holds its
+// classification in a Temporal payload (constructionActivity, csDispatch) whose Variant
+// was marshalled without omitempty, so every non-testing activity's payload reads
+// "Variant":"plan". Decoding it as TestVariantNone is what keeps those workflows alive
+// across the deploy. It is a DECODE-ONLY alias, kept out of testingVariantNames so it
+// never marshals and the F81 wire-map gate (map ≡ contract enum) keeps holding.
+const testingVariantLegacyPlan = "plan"
+
 // MarshalJSON encodes the TestingVariant as its canonical wire name.
 func (v TestingVariant) MarshalJSON() ([]byte, error) {
 	return marshalEnum(v, testingVariantNames, "TestingVariant")
 }
 
 // UnmarshalJSON decodes a wire name (or legacy integer ordinal) into a TestingVariant.
+// The retired ordinal-0 name "plan" decodes to TestVariantNone (testingVariantLegacyPlan).
 func (v *TestingVariant) UnmarshalJSON(data []byte) error {
+	var name string
+	if json.Unmarshal(data, &name) == nil && name == testingVariantLegacyPlan {
+		*v = TestVariantNone
+		return nil
+	}
 	got, err := unmarshalEnum(data, testingVariantByName, "TestingVariant")
 	if err != nil {
 		return err

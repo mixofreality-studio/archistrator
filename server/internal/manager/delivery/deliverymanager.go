@@ -7739,8 +7739,11 @@ type constructionActivity struct {
 	// stamp (RecordActivityStarted) and the per-phase slash command (CommandFor).
 	// Classify once, carry the result — a second derivation is a second chance to
 	// disagree, which is exactly how a phase profile and its commands drifted apart.
-	// The zero pair (Service, Plan) is what a legacy Temporal payload decodes to,
-	// preserving pre-change behavior for a workflow already in flight.
+	// Variant is marshalled WITHOUT omitempty, so a workflow already in flight carries
+	// its non-testing activity as the pre-rename "Variant":"plan"; projectstate decodes
+	// that legacy name to TestVariantNone (the zero pair is (Service, None)), which is
+	// what keeps every live delivery workflow — not only the retired N-STP/N-IT ones —
+	// replaying across the deploy that renamed ordinal 0.
 	Type    projectstate.ActivityType
 	Variant projectstate.TestingVariant
 }

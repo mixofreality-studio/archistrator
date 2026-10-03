@@ -7104,6 +7104,44 @@ func TestTestingVariant_JSONRoundTrip(t *testing.T) {
 	}
 }
 
+// TestTestingVariant_LegacyPlanDecodesToNone pins the in-flight-workflow contract of
+// the ordinal-0 rename (plan → none, deterministic component testing spec §7): every
+// delivery workflow started BEFORE this change carries its classification in a Temporal
+// payload whose Variant was marshalled WITHOUT omitempty — so every non-testing
+// activity's payload reads "Variant":"plan" (the committed replay recordings do). The
+// new worker must decode that payload, or deploying strands every live delivery
+// workflow, not just the retired N-STP/N-IT ones. "plan" is a DECODE-ONLY alias: it
+// never marshals (the F81 wire-map gate holds the map at the contract's four names).
+func TestTestingVariant_LegacyPlanDecodesToNone(t *testing.T) {
+	// The shape a pre-change constructionActivity payload has on the wire.
+	legacy := `{"ActivityID":"C-BG","Type":"service","Variant":"plan"}`
+	var got struct {
+		ActivityID string
+		Type       ActivityType
+		Variant    TestingVariant
+	}
+	if err := json.Unmarshal([]byte(legacy), &got); err != nil {
+		t.Fatalf("a legacy in-flight payload must decode, got: %v", err)
+	}
+	if got.Type != ActivityTypeService || got.Variant != TestVariantNone {
+		t.Fatalf("legacy (service, plan) must decode to (Service, None), got (%v, %v)", got.Type, got.Variant)
+	}
+	var bare TestingVariant
+	if err := json.Unmarshal([]byte(`"plan"`), &bare); err != nil || bare != TestVariantNone {
+		t.Fatalf(`"plan" must decode to TestVariantNone, got %v %v`, bare, err)
+	}
+	// Decode-only: the alias never comes back out, and the retired "systemTest" stays dead.
+	if b, err := json.Marshal(TestVariantNone); err != nil || string(b) != `"none"` {
+		t.Fatalf("TestVariantNone must marshal as \"none\", got %s %v", b, err)
+	}
+	if _, ok := testingVariantByName["plan"]; ok {
+		t.Fatal(`"plan" must not be in the wire-name table — it is a decode alias, not a wire name`)
+	}
+	if err := json.Unmarshal([]byte(`"systemTest"`), &bare); err == nil {
+		t.Fatal(`"systemTest" (retired ordinal 3) must not decode`)
+	}
+}
+
 func TestActivityMethodPhase_Constants(t *testing.T) {
 	cases := map[ActivityMethodPhase]string{
 		MethodPhaseRequirements:   "requirements",

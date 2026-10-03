@@ -14680,6 +14680,34 @@ func Test_Capture_DeliveryHistories(t *testing.T) {
 // green against ANY walker because there is barely a command sequence to disagree with.
 const deliveryReplayMinEvents = 20
 
+// Test_LegacyDeliveryActivityInput_PlanVariantDecodes pins the deploy contract of the
+// TestingVariant ordinal-0 rename (plan → none): a DeliveryActivityWorkflow started under
+// the previous worker holds its start payload for the rest of its life, and that payload
+// marshalled constructionActivity.Variant without omitempty — so EVERY non-testing
+// activity in flight reads "Variant":"plan", not only the retired N-STP/N-IT ones. The
+// literal below is the exact start payload of the post-4b1/architecture-sendback.json
+// recording BEFORE Task 4b re-records it with this worker; it is embedded rather than read
+// from the fixture so the re-recording cannot make this pin vacuous. If this fails, the
+// deploy strands every live delivery workflow with a payload decode error.
+func Test_LegacyDeliveryActivityInput_PlanVariantDecodes(t *testing.T) {
+	const legacyStartPayload = `{"ProjectID":"shape-p","ActivityID":"architecture","Activity":{"ActivityID":"architecture","Kind":2,"ComponentID":"","Layer":"","EstimateDays":0,"CRLabel":"","IsRevert":false,"Phases":null,"Type":"architecture","Variant":"plan"},"Resume":null}`
+	var in deliveryActivityInput
+	if err := json.Unmarshal([]byte(legacyStartPayload), &in); err != nil {
+		t.Fatalf("a pre-rename start payload must still decode on the new worker, got: %v", err)
+	}
+	if in.Activity.Type != projectstate.ActivityTypeArchitecture || in.Activity.Variant != projectstate.TestVariantNone {
+		t.Fatalf("legacy (architecture, plan) must decode to (Architecture, None), got (%v, %v)", in.Activity.Type, in.Activity.Variant)
+	}
+	// And the new worker never writes the legacy name back out.
+	out, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), `"Variant":"plan"`) || !strings.Contains(string(out), `"Variant":"none"`) {
+		t.Fatalf("a re-marshalled payload must carry \"none\", not the decode-only alias: %s", out)
+	}
+}
+
 // Test_Replay_DeliveryHistories replays every captured generic-child history against the
 // current code. A missing fixture FAILS (it never skips), a fixture no case names fails, and
 // a fixture too thin to be a walk fails — so this file cannot go green by recording nothing.
