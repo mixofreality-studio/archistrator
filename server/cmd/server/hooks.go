@@ -863,9 +863,12 @@ func (m projectScopedDeliveryManager) QueryProjectView(rc fwmanager.Context, que
 }
 
 // ArtifactAccessGitHubCloudArgs supplies the CLOUD artifactAccess ctor args: the
-// construction-output repo + the GitHub-App identity (installationID coerced to int64).
-func (h *appHooks) ArtifactAccessGitHubCloudArgs(cfg *Config) (string, string, string, string, string, int64) {
-	return cfg.ArtifactRepoURL, cfg.ArtifactRepoOwner, cfg.GithubAppAppID, cfg.GithubAppPrivateKeyPEM, cfg.GithubAppAPIBaseURL, parseInt64(cfg.GithubAppInstallationID)
+// shared GitHub-App client (the same one sourcecontrol + agenticjob spread; nil
+// when the App identity is unconfigured, which the ctor refuses as ContractMisuse)
+// + the construction-output repo (installationID coerced to int64). The test-run
+// store reads Actions run artifacts through that client.
+func (h *appHooks) ArtifactAccessGitHubCloudArgs(cfg *Config) (*github.AppClient, string, string, int64) {
+	return h.appClient, cfg.ArtifactRepoURL, cfg.ArtifactRepoOwner, parseInt64(cfg.GithubAppInstallationID)
 }
 
 // AgenticJobAccessGitHubActionsArgs supplies the shared AppClient + the
