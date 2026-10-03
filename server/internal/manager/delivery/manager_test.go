@@ -8836,7 +8836,9 @@ func TestConstructionPromptsUseStateTools(t *testing.T) {
 	for _, f := range []string{"deployment", "documentation", "frontend", "service", "testing-harness", "testing-perf", "testing-qa"} {
 		commands = append(commands, f+"-detailed-design.md")
 	}
-	for _, f := range []string{"deployment", "documentation", "frontend", "service", "testing-harness", "testing-perf", "testing-plan", "testing-qa", "testing-systemtest"} {
+	// testing-plan and testing-systemtest are gone: spec §7 retired the
+	// testing:plan / testing:systemTest lifecycles with method-assets v0.10.0.
+	for _, f := range []string{"deployment", "documentation", "frontend", "service", "testing-harness", "testing-perf", "testing-qa"} {
 		commands = append(commands, f+"-construction.md")
 	}
 	const noteMarker = "State changes go through the `aiarch-state` MCP tools"
@@ -14352,16 +14354,28 @@ func deliveryReplayRegistrations(wf *csWorkflows) []genRegisteredWorkflow {
 	}
 }
 
-// deliveryReplayCase is one captured history: its fixture name, its rig, and how the
-// capture tool drives it to a terminal.
+// dctReplayDir holds the generic-child histories captured AFTER spec §8 serialised the
+// service lifecycle (method-assets v0.10.0). A third directory rather than a re-recording
+// into post-4b1 so the shape a fixture records is legible from its path: post-4b1 is the
+// pre-§8 child (its surviving fixtures replay unchanged because their lifecycles never
+// forked), post-dct is the chain.
+const dctReplayDir = "post-dct"
+
+// deliveryReplayCase is one captured history: its fixture name, the directory it lives in
+// (deliveryReplayDir when empty), its rig, and how the capture tool drives it to a terminal.
 type deliveryReplayCase struct {
 	name  string
+	dir   string
 	rig   func(t *testing.T) deliveryReplayRig
 	drive func(ctx context.Context, t *testing.T, c client.Client, tq string, r deliveryReplayRig) (wfID, runID string, open bool)
 }
 
 func deliveryReplayFixturePath(c deliveryReplayCase) string {
-	return filepath.Join("testdata", "replay", deliveryReplayDir, c.name+".json")
+	dir := c.dir
+	if dir == "" {
+		dir = deliveryReplayDir
+	}
+	return filepath.Join("testdata", "replay", dir, c.name+".json")
 }
 
 // deliveryReplayBuildRig is the construction-rail receiver every build-lifecycle case
@@ -14435,35 +14449,17 @@ func deliveryReplayCases() []deliveryReplayCase {
 			},
 		},
 		{
-			// FORK, STP BRANCH FIRST. srsReview passes, both branches start, and the DESIGN
-			// branch's job lags so the STP branch reaches its terminal first.
-			name: "fork-join-stp-first",
+			// SERIAL SERVICE, STP AFTER DESIGN (spec §8, method-assets v0.10.0). The three fork
+			// fixtures that stood here — fork-join-stp-first, fork-join-design-first and
+			// join-waits-for-all — are DELETED: §8 serialised `stp` after `designReview` and
+			// `construction` after `stpReview`, so the fan-out they recorded is a command
+			// sequence no walker produces any more and a history that can never replay green.
+			// This fixture is the chain that replaced it: one ungated `service` walk, every job
+			// taking one RUNNING poll on the production observe ladder, recorded in its own
+			// post-dct directory so the pre-§8 and post-§8 shapes are never confused.
+			name: "serial-stp-after-design", dir: dctReplayDir,
 			rig: func(*testing.T) deliveryReplayRig {
-				return deliveryReplayBuildRig(projectstate.ReviewPolicy{}, projectstate.TaskDetailedDesign, 2)
-			},
-			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ deliveryReplayRig) (string, string, bool) {
-				return deliveryReplayRunToTerminal(ctx, t, c, tq, sampleActivity())
-			},
-		},
-		{
-			// FORK, DESIGN BRANCH FIRST. The same DAG, the other completion order — two fixtures
-			// and not one, because a walker that serialised the branches would replay whichever
-			// single history matched its accident.
-			name: "fork-join-design-first",
-			rig: func(*testing.T) deliveryReplayRig {
-				return deliveryReplayBuildRig(projectstate.ReviewPolicy{}, projectstate.TaskSTP, 2)
-			},
-			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ deliveryReplayRig) (string, string, bool) {
-				return deliveryReplayRunToTerminal(ctx, t, c, tq, sampleActivity())
-			},
-		},
-		{
-			// JOIN WAITS FOR ALL. `testing` dependsOn [integration, stpReview], and the STP branch
-			// lags past the design branch's WHOLE remaining chain, so the joining review has to
-			// wait on a predecessor it does not gate.
-			name: "join-waits-for-all",
-			rig: func(*testing.T) deliveryReplayRig {
-				return deliveryReplayBuildRig(projectstate.ReviewPolicy{}, projectstate.TaskSTP, 6)
+				return deliveryReplayBuildRig(projectstate.ReviewPolicy{}, projectstate.TaskSTP, 1)
 			},
 			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ deliveryReplayRig) (string, string, bool) {
 				return deliveryReplayRunToTerminal(ctx, t, c, tq, sampleActivity())
@@ -14474,6 +14470,8 @@ func deliveryReplayCases() []deliveryReplayCase {
 			// the draft back, and the redraft is approved. The history therefore records the
 			// reject→reopen→re-dispatch→round 2 sequence, which is the one an operator's
 			// in-flight activity is most likely to be parked inside across a deploy.
+			// Re-recorded under spec §8: `stp` now follows the approved redraft instead of
+			// running beside it.
 			name: "sendback-judged-pair",
 			rig: func(*testing.T) deliveryReplayRig {
 				return deliveryReplayBuildRig(replayGatedOn(projectstate.MethodPhaseDetailedDesign), projectstate.TaskSTP, 6)
@@ -14650,9 +14648,26 @@ func Test_Capture_DeliveryHistories(t *testing.T) {
 	defer func() { _ = srv.Stop() }()
 	c := srv.Client()
 
+	// CONSTRUCT_HISTORY_CAPTURE_CASE narrows the capture to one fixture, exactly as it does
+	// for Test_Capture_PumpHistories: a re-record owed by one lifecycle change should not
+	// churn the histories of lifecycles that change did not touch.
+	only := os.Getenv("CONSTRUCT_HISTORY_CAPTURE_CASE")
 	for i, sc := range deliveryReplayCases() {
+		if only != "" && only != sc.name {
+			continue
+		}
 		t.Run(sc.name, func(t *testing.T) {
 			r := sc.rig(t)
+			// THE LEASE TRANSPORT IS THE PRODUCTION BUS, for the same reason the pump captures
+			// use it. A child-only case starts no pump, and in production that is the hand-started
+			// activity: its lease request reaches no execution, the bus answers NotFound, and the
+			// merge tail runs UNLEASED (requestMainWriteLease fails open by design). The recording
+			// double answers "delivered" instead, which parks the child on the two-hour grant
+			// budget — measured when the post-§8 fixtures were first captured — and records a
+			// park rather than a shape.
+			if r.bus == nil {
+				r.bus = pumpReplayBus(c)
+			}
 			tq := fmt.Sprintf("delivery-replay-capture-%d", i)
 			w := worker.New(c, tq, worker.Options{})
 			RegisterWorker(w, genWorkerManifest{
@@ -14808,7 +14823,7 @@ func deliveryReplayEventCount(t *testing.T, path string) int {
 // it fails on a directory no case list names. So this line and pumpReplayCases() are ONE
 // commit: the directory alone is an orphan, and the cases alone make replayFixtureFiles
 // t.Fatalf on an empty directory.
-func deliveryReplayDirs() []string { return []string{deliveryReplayDir, pumpReplayDir} }
+func deliveryReplayDirs() []string { return []string{deliveryReplayDir, pumpReplayDir, dctReplayDir} }
 
 // ===========================================================================
 // THE PUMP'S REPLAY FIXTURES (stage 4b2 Task 14).
@@ -16874,22 +16889,32 @@ func TestNormalizeAttempts_MoreLedgerRejectionsThanNotesReconstructsNothing(t *t
 // the case the resolver exists for, and the raw slice reconstructs a passed gate for a
 // phase this activity's lifecycle does not have.
 func TestNormalizeAttempts_GateCompletionComesFromTheResolvedSetOnly(t *testing.T) {
+	// The fixture used to be N-STP (testing/plan: requirements + construction +
+	// integration). Spec §7 retired that lifecycle with method-assets v0.10.0, and
+	// every remaining C-* type (service, documentation, deployment) carries a
+	// detailed_design phase, so the one construction-dispatched lifecycle that still
+	// lacks it is integration (I-* prefix: the single integration phase).
 	row := projectstate.ActivityExecution{
-		ActivityID: "N-STP",
+		ActivityID: "I-Billing",
 		// A ledger written under the zero-value (service) task vocabulary; the read-time
-		// classification is testing/plan, whose profile is requirements + construction
-		// + integration and carries no detailed_design phase at all. The send-back note
-		// names that phase, and the reconstruction must still refuse to invent a gate for
-		// a phase the resolved profile does not carry.
+		// classification is integration, whose profile is the single integration phase
+		// and carries no detailed_design phase at all. The send-back note names that
+		// phase, and the reconstruction must still refuse to invent a gate for a phase
+		// the resolved profile does not carry.
 		Attempts:      []projectstate.TaskAttempt{avObserved(projectstate.TaskSRS, 1, projectstate.OutcomePassed)},
 		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "not a phase this lifecycle has")},
 	}
-	item := projectstate.ActivityItem{Name: "N-STP", WorkerClass: "test-engineer", Coding: false}
+	item := projectstate.ActivityItem{Name: "I-Billing", WorkerClass: "senior-developer", Coding: true}
 	_, _, resolved, classified := projectstate.ResolveConstructionRow(row, item)
 	if !classified {
-		t.Fatalf("N-STP must classify; the fixture is wrong")
+		t.Fatalf("I-Billing must classify; the fixture is wrong")
 	}
-	got := normalizeAttempts("N-STP", row, resolved, nil, nil)
+	for _, ph := range resolved {
+		if ph.Phase == projectstate.MethodPhaseDetailedDesign {
+			t.Fatalf("the fixture must resolve to a profile WITHOUT detailed_design; got %+v", resolved)
+		}
+	}
+	got := normalizeAttempts("I-Billing", row, resolved, nil, nil)
 	for _, a := range got {
 		if a.Phase == projectstate.MethodPhaseDetailedDesign {
 			t.Fatalf("a detailed_design gate attempt on an activity whose resolved profile has no such phase: %+v\nresolved=%+v", a, resolved)
@@ -17397,8 +17422,11 @@ func avCheckLiveGateStates(t *testing.T, byID map[string]ActivityTaskView) {
 	if gate.State != ActivityTaskAwaitingHuman || len(gate.Revisions) != 2 {
 		t.Fatalf("designReview = %+v, want awaitingHuman with 2 revisions", gate)
 	}
-	if byID["stp"].State != ActivityTaskPending || byID["construction"].State != ActivityTaskLocked {
-		t.Errorf("the test-plan branch is open (%s) and construction locked (%s) behind the design gate", byID["stp"].State, byID["construction"].State)
+	// Spec §8 serialised stp after designReview (bindings need contract types), so the
+	// test plan is no longer an open sibling branch: it waits behind the design gate
+	// exactly as construction does.
+	if byID["stp"].State != ActivityTaskLocked || byID["construction"].State != ActivityTaskLocked {
+		t.Errorf("the test plan (%s) and construction (%s) are both locked behind the design gate", byID["stp"].State, byID["construction"].State)
 	}
 }
 
@@ -17832,16 +17860,19 @@ func Test_ReviewRounds_TwoKindsOnOneGateDoNotBindOneAttempt(t *testing.T) {
 func kindPtr(k projectstate.ArtifactKind) *projectstate.ArtifactKind { return &k }
 
 // Test_ReviewRounds_KindComesFromTheJudgedTask pins the resolution rule the real data
-// forces (and which Task 8 implements at its writer): NO review task in v0.9.0 carries an
-// artifactKind of its own except `sdpReview`, so a round's kind is
-// lifecycleTaskByID(lc, t.Reviews).ArtifactKind. Measured spread: `designReview` appears
-// in 8 lifecycles, `testing` and `codeReview` in 9, `srsReview` in 5 — so a reader that
-// resolved the kind from the TASK ID would be guessing between up to nine answers, which
-// is the whole reason the kind has to be stored ON the round.
+// forces (and which Task 8 implements at its writer): NO review task in the pinned assets
+// carries an artifactKind of its own except `sdpReview`, so a round's kind is
+// lifecycleTaskByID(lc, t.Reviews).ArtifactKind. The spread is MEASURED from
+// methodassets.Lifecycles() below rather than hard-coded (v0.9.0 shipped 14 lifecycles
+// with `designReview` in 8, `testing` and `codeReview` in 9, `srsReview` in 5; v0.10.0
+// retired testing:plan and testing:systemTest under spec §7 and the numbers moved) —
+// the claim is that every shared review id appears in MORE THAN ONE lifecycle, so a
+// reader that resolved the kind from the TASK ID would be guessing between several
+// answers, which is the whole reason the kind has to be stored ON the round.
 func Test_ReviewRounds_KindComesFromTheJudgedTask(t *testing.T) {
 	lifecycles := methodassets.Lifecycles()
-	if len(lifecycles) != 14 {
-		t.Fatalf("this case is measured against the 14 lifecycles v0.9.0 ships; got %d — re-measure before trusting the spread below", len(lifecycles))
+	if len(lifecycles) == 0 {
+		t.Fatal("the pinned assets carry no lifecycles; the table would assert nothing")
 	}
 	spread := map[string]map[string]bool{}
 	reviews := 0
@@ -17882,12 +17913,36 @@ func Test_ReviewRounds_KindComesFromTheJudgedTask(t *testing.T) {
 		t.Fatal("no review task was examined; the table asserted nothing")
 	}
 	// The measured spread, as the justification cites it. A task id that appears in more
-	// than one lifecycle is exactly the case a (taskId, round) key cannot resolve.
-	for id, want := range map[string]int{"designReview": 8, "codeReview": 9, "testing": 9, "srsReview": 5, "stpReview": 2} {
-		if got := len(spreadCount(lifecycles, id)); got != want {
-			t.Errorf("%s appears in %d lifecycles; the justification is measured at %d", id, got, want)
+	// than one lifecycle is exactly the case a (taskId, round) key cannot resolve. The
+	// expected count is derived from the SAME data by the other road — the lifecycles
+	// whose phase table names the id as a gate — so the number is never hard-coded and
+	// a lifecycle retired or added in method-assets moves both sides together.
+	for _, id := range []string{"designReview", "codeReview", "testing", "srsReview", "stpReview"} {
+		got := len(spreadCount(lifecycles, id))
+		if got < 2 {
+			t.Errorf("%s appears in %d lifecycle(s); the justification needs it shared by several", id, got)
+		}
+		if want := len(gateSpread(lifecycles, id)); got != want {
+			t.Errorf("%s is a task in %d lifecycles but a phase gate in %d; the two tables disagree", id, got, want)
+		}
+		t.Logf("%s appears in %d of the %d pinned lifecycles", id, got, len(lifecycles))
+	}
+}
+
+// gateSpread is the lifecycles whose PHASE table names taskID as a gate — the second
+// road to the same spread, so Test_ReviewRounds_KindComesFromTheJudgedTask measures its
+// number from the data instead of pinning it.
+func gateSpread(lifecycles []methodassets.Lifecycle, taskID string) []string {
+	var out []string
+	for _, lc := range lifecycles {
+		for _, ph := range lc.Phases {
+			if ph.Gate == taskID {
+				out = append(out, lc.Type)
+				break
+			}
 		}
 	}
+	return out
 }
 
 // spreadCount is the lifecycles one review task id appears in — the number that makes a
@@ -18103,10 +18158,12 @@ const (
 // that is an order; BETWEEN two parallel branches it is a SAMPLE, and it must never be
 // asserted as one. Two forked branches' activities are scheduled in one workflow task and
 // run on concurrent goroutines, so which of them reaches the recorder first is a race the
-// row-version conflict retry amplifies — the ~8% flake diagnosed in assertShapeForkOverlap,
-// where the measurement is written down. Declaration order IS deterministic, but it is a
-// property of readyTasks, and Test_DeliveryWalk_ForkFansOutInDeclarationOrder asserts it
-// there, purely.
+// row-version conflict retry amplifies — a ~8% flake measured while the `service` lifecycle
+// still forked (1 in 12 at 6ba40dd7 and at c5851e90). Declaration order IS deterministic,
+// but it is a property of readyTasks, and Test_DeliveryWalk_SerialServiceReadiesOneTaskAtATime
+// asserts it there, purely. Since spec §8 no pinned lifecycle forks, so TaskOrder is an order
+// along the whole walk; the distinction is kept because the recorder's semantics did not
+// change and a future fork would need it again.
 //
 // What a branch order actually changes is which branch's pipeline COMPLETES first, and
 // that is separated by a whole 15-second poll cycle of workflow time rather than by
@@ -18308,10 +18365,15 @@ type shapeRig struct {
 // laggingPolls of 0 takes shapeDefaultLaggingPolls.
 //
 // The WAITING IS THE PRODUCTION LADDER'S (observeInterval's durable timers), which is what
-// makes the fork a fact about the child rather than about a stub's sleep — and it is also the
-// yield the SDK needs: without one it would run each coroutine to completion in schedule order
-// and both branch-order cases would produce the same CompletedOrder, the serialisation
-// assertShapeForkOverlap exists to catch.
+// makes the pacing a fact about the child rather than about a stub's sleep — and it is also
+// the yield the SDK needs: without one it would run each coroutine to completion in schedule
+// order.
+//
+// SINCE SPEC §8 THERE IS NO FAN-OUT: `stp` follows `designReview`, so "the other branch lags"
+// now means the test-plan job takes laggingPolls observes AFTER the design gate passes. The
+// four cases that still call this all name detailedDesign as the winner and use the lag to
+// keep designReview the only live gate while they manufacture their claim; the knob is kept
+// under its old name so those drivers read as they did.
 func (r *shapeRig) forkWinner(winner projectstate.MethodTask, laggingPolls int) {
 	r.branchCompletesFirst = winner
 	lagging := projectstate.TaskSTP
@@ -18505,18 +18567,16 @@ func lifecycleShapeCases() []lifecycleShapeCase {
 			drive: driveLinearDeployment, wantToday: shapePassesToday,
 		},
 		{
-			// FORK, STP BRANCH COMPLETING FIRST. srsReview passes, then stp and
-			// detailedDesign are BOTH started (in declaration order, which is fixed);
-			// this case lets the STP branch's pipeline reach terminal first.
-			name: "fork-join-service-stp-first", typeKey: "service",
-			drive: driveServiceForkSTPFirst, wantToday: shapePassesToday,
-		},
-		{
-			// FORK, DESIGN BRANCH COMPLETING FIRST. The same DAG, the other completion
-			// order. Two cases, not one: a walker that serialized the branches would
-			// pass whichever single case matched its accident.
-			name: "fork-join-service-design-first", typeKey: "service",
-			drive: driveServiceForkDesignFirst, wantToday: shapePassesToday,
+			// SERIAL SERVICE, STP AFTER DESIGN (spec §8, method-assets v0.10.0). The service
+			// lifecycle used to FORK at srsReview into detailedDesign→designReview beside
+			// stp→stpReview, and this table carried two branch-order cases plus a join case
+			// for it (fork-join-service-stp-first, fork-join-service-design-first,
+			// join-waits-for-all). §8 serialised `stp` after `designReview` — bindings need
+			// the contract types the design produces — and `construction` after `stpReview`,
+			// so the one shape left is a chain, and this case pins it: the lifecycle data says
+			// so, and the walk does what the data says.
+			name: "serial-service-stp-after-design", typeKey: "service",
+			drive: driveServiceSerialWalk, wantToday: shapePassesToday,
 		},
 		{
 			// SEND-BACK RE-OPENS ONLY THE JUDGED PAIR. designReview sends back; the
@@ -18525,12 +18585,6 @@ func lifecycleShapeCases() []lifecycleShapeCase {
 			// naive "it redrafted" assertion.
 			name: "sendback-reopens-only-the-judged-pair", typeKey: "service",
 			drive: driveServiceSendBackJudgedPair, wantToday: shapePassesToday,
-		},
-		{
-			// JOIN WAITS FOR ALL. `testing` dependsOn [integration, stpReview]; the
-			// assertion is that its round does NOT open while either is unpassed.
-			name: "join-waits-for-all", typeKey: "service",
-			drive: driveServiceJoinWaits, wantToday: shapePassesToday,
 		},
 		{
 			// M0 NO SEND-BACK. The projectDesign lifecycle's one review task: approve
@@ -18594,18 +18648,11 @@ func lifecycleShapeCases() []lifecycleShapeCase {
 			name: "continue-as-new-loses-no-signal", typeKey: "pump",
 			drive: driveContinueAsNewLosesNoSignal, wantToday: shapePassesToday,
 		},
-		{
-			// THE FORK'S VIEW NAMES BOTH GATES. The TWELFTH case, and it is the oracle for the
-			// single-valued session view (stage 4b3 Task 5). A `service` fork opens `stp`'s
-			// review and `designReview` at once; enterHumanStage OVERWROTE
-			// awaitingGate/awaitingSince on every entry and leaveHumanStage CLEARED them, so
-			// the query could only ever describe the gate entered second — and deciding that
-			// one erased the sibling's plainly open gate from the view entirely. Two
-			// independent 4b2 call sites read it and got the fork wrong, one of them on the
-			// ROUTINE approval path rather than an override.
-			name: "fork-view-names-both-gates", typeKey: "service",
-			drive: driveForkViewNamesBothGates, wantToday: shapePassesToday,
-		},
+		// (fork-view-names-both-gates — the TWELFTH case, the oracle for the per-task session
+		// view holding two `service` gates open at once — is RETIRED by spec §8: with `stp`
+		// serialised after `designReview` no pinned lifecycle can hold two gates at the same
+		// time, so the shape it drove no longer exists. The per-task array it asserted stays
+		// on the wire and is read by late-approve-to-a-superseded-round-is-refused below.)
 		{
 			// A LATE APPROVE LANDS ON A ROUND NOBODY READ. The THIRTEENTH case (stage 4b3 Task 6).
 			// The defect is pre-existing and a STAGE check never could have closed it:
@@ -18674,43 +18721,21 @@ func driveLinearDeployment(t *testing.T, rig *shapeRig) shapeOutcome {
 	return rig.csOutcome(shapeDeploymentID)
 }
 
-// driveServiceWalk is the body the three ungated service cases share: one `service`
-// activity, no gate, run to its terminal. They differ in ONE field — which branch the
-// case wants to reach its pipeline terminal first — and in nothing else, deliberately:
-// the START order is lifecycle declaration order, which is not a case variable, so a
-// driver that also reordered the starts would be asserting its own script instead of
-// the walker's.
-func driveServiceWalk(t *testing.T, rig *shapeRig, completesFirst projectstate.MethodTask) shapeOutcome {
+// driveServiceSerialWalk is ONE ungated `service` activity run to its terminal with every job
+// taking exactly one Running poll — the pacing the retired fork cases used for the yield the SDK
+// needs, kept so the walk's own ordering (and not the SDK's run-to-completion scheduling) is
+// what the Timeline records. Nothing is scripted to lag: under §8 there is no branch left to
+// race, so a walk that started `stp` before `designReview` passed would be the walker's doing
+// and not the double's.
+func driveServiceSerialWalk(t *testing.T, rig *shapeRig) shapeOutcome {
 	t.Helper()
-	rig.forkWinner(completesFirst, 0)
+	rig.pipe.runningPolls = 1
 	rig.register(rig.env)
 	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
 	})
 	shapeRequireCompleted(t, rig.env)
 	return rig.csOutcome(shapeServiceID)
-}
-
-func driveServiceForkSTPFirst(t *testing.T, rig *shapeRig) shapeOutcome {
-	return driveServiceWalk(t, rig, projectstate.TaskSTP)
-}
-
-func driveServiceForkDesignFirst(t *testing.T, rig *shapeRig) shapeOutcome {
-	return driveServiceWalk(t, rig, projectstate.TaskDetailedDesign)
-}
-
-// driveServiceJoinWaits runs the same walk as the fork cases and asserts on the JOIN
-// rather than on the fan-out: `testing` depends on both `integration` and `stpReview`,
-// and its round must not open while either is unpassed.
-//
-// It asks for the DESIGN branch first, which is what makes the join observable at all:
-// the STP branch then lags behind the design branch's whole pipeline — detailed design
-// → construction → integration — so `stpReview` passes AFTER `integration` and the
-// joining review genuinely has to wait for a predecessor it did not gate. Under the
-// flat phase walk stpReview always passes before integration is dispatched, so the wait
-// is never exercised; that is why this case is skipped rather than green today.
-func driveServiceJoinWaits(t *testing.T, rig *shapeRig) shapeOutcome {
-	return driveServiceWalk(t, rig, projectstate.TaskDetailedDesign)
 }
 
 // driveServiceSendBackJudgedPair gates detailed_design, sends the draft back once,
@@ -18993,16 +19018,10 @@ func assertShape(t *testing.T, name string, got shapeOutcome) {
 	switch name {
 	case "linear-deployment":
 		assertShapeLinearDeployment(t, name, got)
-	case "fork-join-service-stp-first":
-		assertShapeForkOverlap(t, name, got)
-		shapeWantBefore(t, name, "CompletedOrder", got.CompletedOrder, "stp", "detailedDesign")
-	case "fork-join-service-design-first":
-		assertShapeForkOverlap(t, name, got)
-		shapeWantBefore(t, name, "CompletedOrder", got.CompletedOrder, "detailedDesign", "stp")
+	case "serial-service-stp-after-design":
+		assertShapeSerialServiceStpAfterDesign(t, name, got)
 	case "sendback-reopens-only-the-judged-pair":
 		assertShapeSendBackJudgedPair(t, name, got)
-	case "join-waits-for-all":
-		assertShapeJoinWaits(t, name, got)
 	case "m0-no-sendback":
 		assertShapeM0NoSendBack(t, name, got)
 	case "continue-as-new-mid-walk":
@@ -19015,12 +19034,6 @@ func assertShape(t *testing.T, name string, got shapeOutcome) {
 		assertShapeVibesFloor(t, name, got)
 	case "continue-as-new-loses-no-signal":
 		assertShapeContinueAsNewLosesNoSignal(t, name, got)
-	case "fork-view-names-both-gates":
-		// The walk-shaped half only: both branches started once and overlapped, and the
-		// activity advanced. The case's OWN claim is about the session Query's two answers,
-		// which shapeOutcome cannot carry, so the driver asserts it where it reads it
-		// (assertShapeForkGatePair).
-		assertShapeForkOverlap(t, name, got)
 	case "late-approve-to-a-superseded-round-is-refused":
 		// The ledger-shaped half: the redraft withdrew round 1 and re-opened ONLY the judged
 		// pair, and the approve that named the CURRENT round passed it. The refusal's own claim
@@ -19087,86 +19100,97 @@ func assertShapeLinearDeployment(t *testing.T, name string, got shapeOutcome) {
 	shapeWantAdvanced(t, name, got.PhaseAdvanced)
 }
 
-// assertShapeForkOverlap is the half both branch-order cases share: BOTH branches start,
-// each exactly once, and both are in flight at once. The overlap is read off the MERGED
-// Timeline and nowhere else — the two starts must both precede the first completion of
-// either — because that is the one statement TaskOrder and CompletedOrder cannot make
-// between them (see shapeOutcome.Timeline). A walker that serialises the branches fails
-// it, which is the whole reason there are two fork cases instead of one.
+// assertShapeSerialServiceStpAfterDesign is the §8 chain, asserted from BOTH ends so a data
+// edit and a walker edit each fail by name:
 //
-// IT USED TO ASSERT THE BRANCH START ORDER HERE, and that assertion flaked ~8% of runs
-// (measured 1 in 12 at 6ba40dd7 and 1 in 12 at the wave's base c5851e90, so it predates
-// this wave; reproduced 1 in 15 and 1 in 25 while diagnosing). The cause is not the
-// walker. Both branches' `recordAttemptOutcome` activities are scheduled in ONE workflow
-// task and execute on concurrent goroutines against a fake that checks the row version
-// optimistically; whichever lands first wins, and the LOSER re-reads, retries and so
-// reaches its submitAgenticJob — where the shape recorder records a task START — second.
-// Both orders were observed in the debug log, with the conflict swapping sides:
-//
-//	GREEN run: 15 recordAttemptOutcome ok, 16 CONFLICT, 17 submit(detailedDesign), 23 submit(stp)
-//	RED   run: 15 CONFLICT, 16 recordAttemptOutcome ok, 17 submit(stp), 23 submit(detailedDesign)
-//
-// So TaskOrder SAMPLES the fan-out order between two parallel branches; it does not
-// decide it, and no observation point inside an activity can. Declaration order is a
-// property of readyTasks, and that is where it is now asserted — deterministically,
-// against the real lifecycle data, by Test_DeliveryWalk_ForkFansOutInDeclarationOrder.
-// The claim this line used to make ("a data reorder in lifecycles.json is caught") is
-// kept there and is now caught 100% of the time instead of 92%.
-func assertShapeForkOverlap(t *testing.T, name string, got shapeOutcome) {
+//  1. THE DATA. `stp` dependsOn exactly [designReview] and `construction` dependsOn exactly
+//     [stpReview] in the pinned `service` lifecycle — the two edges spec §8 moved. Read off
+//     methodassets, not off the walk, because a walker that happened to serialise would
+//     otherwise hide a lifecycles.json that still forked.
+//  2. THE WALK. The Timeline shows designReview DONE before stp STARTED and stpReview DONE
+//     before construction STARTED, every task started exactly once, and TaskOrder is the
+//     lifecycle's declaration order end to end. The merged Timeline is the only projection
+//     that can state "nothing overlapped" (see shapeOutcome.Timeline) — CompletedOrder alone
+//     would pass a walk that started stp early and merely finished it late.
+func assertShapeSerialServiceStpAfterDesign(t *testing.T, name string, got shapeOutcome) {
 	t.Helper()
-	for _, branch := range []string{"detailedDesign", "stp"} {
-		if n := shapeCount(got.TaskOrder, branch); n != 1 {
-			t.Fatalf("%s: both fork branches must start exactly once; %q started %d times. TaskOrder=%v",
-				name, branch, n, got.TaskOrder)
+	lc, ok := methodassets.LifecycleFor("service")
+	if !ok {
+		t.Fatalf("%s: the platform's method assets carry no `service` lifecycle", name)
+	}
+	for task, want := range map[string][]string{
+		shapeSTPTask:          {shapeDesignReviewTask},
+		shapeConstructionTask: {shapeSTPReviewTask},
+	} {
+		decl, found := lifecycleTaskByID(lc, task)
+		if !found {
+			t.Fatalf("%s: the service lifecycle declares no %q task", name, task)
+		}
+		if !slices.Equal(decl.DependsOn, want) {
+			t.Fatalf("%s: %q dependsOn %v, want exactly %v (spec §8 serialised the test plan after the design review and construction after the test-plan review)",
+				name, task, decl.DependsOn, want)
 		}
 	}
-	firstDone := shapeFirstIndexOf(got.Timeline,
-		shapeEventCompleted+"detailedDesign", shapeEventCompleted+"stp")
-	if firstDone < 0 {
-		t.Fatalf("%s: neither fork branch ever completed; Timeline=%v", name, got.Timeline)
+	var declared []string
+	for _, task := range lc.Tasks {
+		declared = append(declared, task.ID)
 	}
-	for _, branch := range []string{"detailedDesign", "stp"} {
-		if started := slices.Index(got.Timeline, shapeEventStarted+branch); started < 0 || started > firstDone {
-			t.Fatalf("%s: the branches were SERIALISED — %q happened before %q, so the two were never in flight at once. Timeline=%v",
-				name, got.Timeline[firstDone], shapeEventStarted+branch, got.Timeline)
+	shapeWantOrder(t, name, "TaskOrder", got.TaskOrder, declared)
+	for _, task := range declared {
+		if n := shapeCount(got.TaskOrder, task); n != 1 {
+			t.Fatalf("%s: every task of a serial ungated walk starts exactly once; %q started %d times. TaskOrder=%v", name, task, n, got.TaskOrder)
 		}
+	}
+	shapeWantBefore(t, name, "Timeline", got.Timeline, shapeEventCompleted+shapeDesignReviewTask, shapeEventStarted+shapeSTPTask)
+	shapeWantBefore(t, name, "Timeline", got.Timeline, shapeEventCompleted+shapeSTPReviewTask, shapeEventStarted+shapeConstructionTask)
+	// The join that survives §8: `testing` still dependsOn [integration, stpReview], and its
+	// round is the LAST one opened.
+	shapeWantBefore(t, name, "RoundsOpened", got.RoundsOpened,
+		shapeServiceID+":stpReview:1", shapeServiceID+":testing:1")
+	if last := len(got.RoundsOpened) - 1; last < 0 || got.RoundsOpened[last] != shapeServiceID+":testing:1" {
+		t.Fatalf("%s: the join's round is the last one opened; RoundsOpened=%v", name, got.RoundsOpened)
+	}
+	shapeWantEveryRound(t, name, got.RoundsDecided, string(projectstate.RoundPassed))
+	if len(got.Reopened) != 0 {
+		t.Fatalf("%s: an ungated walk re-opens nothing; got %v", name, got.Reopened)
 	}
 	shapeWantAdvanced(t, name, got.PhaseAdvanced)
 }
 
-// Test_DeliveryWalk_ForkFansOutInDeclarationOrder is where the fork's declaration-order
-// claim actually lives, and it is here because the shape oracle could only SAMPLE it (see
-// assertShapeForkOverlap). readyTasks is pure over the lifecycle and one walkState, so
-// this runs with no Temporal environment, no fakes, no goroutines and no flake — and it
-// runs against the REAL method-assets data rather than a hand-built fixture, which is the
-// half that makes it worth having: the failure it exists to catch is someone reordering
-// `detailedDesign` and `stp` in lifecycles.json.
-//
-// Declaration order is not cosmetic. ValidateLifecycle guarantees it is a topological
-// order, and readyTasks walking lc.Tasks in it is what makes the fan-out DETERMINISTIC
-// under replay: a map walk would be non-determinism and a sort by id would be a second
-// rule to keep in step with the data.
-func Test_DeliveryWalk_ForkFansOutInDeclarationOrder(t *testing.T) {
+// Test_DeliveryWalk_SerialServiceReadiesOneTaskAtATime is where the declaration-order claim
+// lives after spec §8, and it is the successor of Test_DeliveryWalk_ForkFansOutInDeclarationOrder,
+// which pinned the fan-out [detailedDesign stp] at srsReview and is DELETED: no pinned lifecycle
+// forks any more, so there is no fan-out left to order. readyTasks is pure over the lifecycle
+// and one walkState, so this runs with no Temporal environment, no fakes, no goroutines and no
+// flake — and against the REAL method-assets data, which is the half that makes it worth
+// having: the failure it exists to catch is someone re-forking `stp` in lifecycles.json.
+func Test_DeliveryWalk_SerialServiceReadiesOneTaskAtATime(t *testing.T) {
 	lc, ok := methodassets.LifecycleFor("service")
 	if !ok {
 		t.Fatal("the platform's method assets carry no `service` lifecycle")
 	}
+	ready := func(ws *walkState) []string {
+		var got []string
+		for _, task := range readyTasks(lc, ws) {
+			got = append(got, task.ID)
+		}
+		return got
+	}
 	ws := newWalkState(lc)
 	ws.byTask["srs"] = walkTaskPassed
 	ws.byTask["srsReview"] = walkTaskPassed
-
-	var got []string
-	for _, task := range readyTasks(lc, ws) {
-		got = append(got, task.ID)
+	if got, want := ready(ws), []string{"detailedDesign"}; !slices.Equal(got, want) {
+		t.Fatalf("with srsReview passed ONLY the design is ready %v; got %v — a second ready task here is the fork §8 removed", want, got)
 	}
-	if want := []string{"detailedDesign", "stp"}; !slices.Equal(got, want) {
-		t.Fatalf("with srsReview passed the fork must fan out in lifecycle declaration order %v; got %v — "+
-			"a reorder in lifecycles.json changes which child the pump starts first on every service activity", want, got)
+	ws.byTask["detailedDesign"] = walkTaskPassed
+	ws.byTask["designReview"] = walkTaskPassed
+	if got, want := ready(ws), []string{"stp"}; !slices.Equal(got, want) {
+		t.Fatalf("with designReview passed ONLY the test plan is ready %v; got %v", want, got)
 	}
-	// The JOIN is the other half of the same rule and costs one line here: `testing`
-	// dependsOn [integration, stpReview], so it must not be ready while either is unpassed.
-	if slices.Contains(got, "testing") {
-		t.Fatalf("the join must not be ready while its dependsOn are unpassed; got %v", got)
+	ws.byTask["stp"] = walkTaskPassed
+	ws.byTask["stpReview"] = walkTaskPassed
+	if got, want := ready(ws), []string{"construction"}; !slices.Equal(got, want) {
+		t.Fatalf("with stpReview passed ONLY construction is ready %v; got %v — `testing` dependsOn [integration, stpReview] and must wait for the join", want, got)
 	}
 }
 
@@ -19213,25 +19237,6 @@ func assertShapeSendBackJudgedPair(t *testing.T, name string, got shapeOutcome) 
 	shapeWantRound(t, name, got.RoundsDecided, shapeServiceID+":designReview:2", string(projectstate.RoundPassed))
 	if sent := shapeRoundsWith(got.RoundsDecided, string(projectstate.RoundSentBack)); len(sent) != 1 {
 		t.Fatalf("%s: one send-back is one sent-back round; got %v", name, sent)
-	}
-	shapeWantAdvanced(t, name, got.PhaseAdvanced)
-}
-
-// assertShapeJoinWaits is the join: `testing` dependsOn [integration, stpReview], and
-// the case drives the STP branch to LAG so the join is observable at all — under the
-// flat phase walk stpReview always passes before integration is even dispatched, so
-// the wait is never exercised and the assertion below cannot be satisfied.
-func assertShapeJoinWaits(t *testing.T, name string, got shapeOutcome) {
-	t.Helper()
-	shapeWantBefore(t, name, "CompletedOrder", got.CompletedOrder, "integration", "stpReview")
-	shapeWantBefore(t, name, "CompletedOrder", got.CompletedOrder, "stpReview", "testing")
-	shapeWantBefore(t, name, "CompletedOrder", got.CompletedOrder, "integration", "testing")
-	// And the join holds at the ROUND, not merely at the completion: the joining review
-	// must not even OPEN while a predecessor is unpassed.
-	shapeWantBefore(t, name, "RoundsOpened", got.RoundsOpened,
-		shapeServiceID+":stpReview:1", shapeServiceID+":testing:1")
-	if last := len(got.RoundsOpened) - 1; last < 0 || got.RoundsOpened[last] != shapeServiceID+":testing:1" {
-		t.Fatalf("%s: the join's round is the last one opened; RoundsOpened=%v", name, got.RoundsOpened)
 	}
 	shapeWantAdvanced(t, name, got.PhaseAdvanced)
 }
@@ -19361,17 +19366,6 @@ func shapeRoundsWith(decided map[string]string, outcome string) []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-// shapeFirstIndexOf returns the position of the EARLIEST of the named events in the
-// merged timeline, or -1 when none of them happened.
-func shapeFirstIndexOf(timeline []string, events ...string) int {
-	for i, e := range timeline {
-		if slices.Contains(events, e) {
-			return i
-		}
-	}
-	return -1
 }
 
 func shapeCount(xs []string, v string) int {
@@ -19579,13 +19573,27 @@ func Test_DeliveryWalker_EveryLifecyclePhaseIsOneTheEngineReasonsAbout(t *testin
 			}
 		}
 	}
-	if seen != 39 {
-		t.Fatalf("the pinned lifecycles carry %d phases, not the 39 this case was measured against; re-measure before changing the number", seen)
+	// MEASURED FROM THE DATA, not pinned: v0.9.0 carried 39 phases over 14 lifecycles and
+	// v0.10.0 carries 33 over 12 (spec §7 retired testing:plan and testing:systemTest). The
+	// guard is that the loop examined EVERY phase the pinned assets declare and at least one.
+	if want := shapePhaseCount(methodassets.Lifecycles()); seen == 0 || seen != want {
+		t.Fatalf("the loop examined %d phases but the pinned lifecycles declare %d; the table asserted less than it claims", seen, want)
 	}
+	t.Logf("examined %d phases over %d pinned lifecycles", seen, len(methodassets.Lifecycles()))
+}
+
+// shapePhaseCount is the number of phases the pinned lifecycles declare, read off the data
+// so no case has to pin it.
+func shapePhaseCount(lifecycles []methodassets.Lifecycle) int {
+	n := 0
+	for _, lc := range lifecycles {
+		n += len(lc.Phases)
+	}
+	return n
 }
 
 // shapeReviewActivityTypeFor maps a lifecycle TYPE KEY onto the review engine's activity
-// type. The key is "testing:plan" for a variant, so the prefix before ":" is the type.
+// type. The key is "testing:harness" for a variant, so the prefix before ":" is the type.
 func shapeReviewActivityTypeFor(typeKey string) (review.ActivityType, bool) {
 	base := typeKey
 	if i := strings.Index(base, ":"); i >= 0 {
@@ -19951,119 +19959,6 @@ func shapeQuerySessionAt(rig *shapeRig, at time.Duration) (*ConstructionSessionV
 	return &view, &qerr
 }
 
-// driveForkViewNamesBothGates holds BOTH branches of the `service` fork at a human gate and
-// reads the session Query twice: once while the pair is open, and once after the gate the
-// first read named has been decided.
-//
-// ASSERTED THROUGH THE QUERY, NOT THROUGH THE STRUCT. constructState is what this task
-// changes and the query is what a caller sees; a test that read the field it had just moved
-// would prove the move rather than the fix.
-//
-// ONE READ NAMES BOTH GATES, WHICH IS WHAT THE WIRE MOVE BOUGHT. Stage 4b3 Task 5 could only
-// make this claim across TWO reads, because ConstructionSessionView was single-valued: the
-// six gate members described an ACTIVITY while the facts are per TASK, so no single answer
-// could name two gates and the case had to say "deciding one leaves the other standing"
-// instead. Task 8 deleted those six and put an ARRAY in their place, so read one now asserts
-// the thing directly — both task ids, each with its own awaitingSince and its own roster.
-// The second read is kept: it is the other half of the same fact, that deciding one gate
-// takes down ITS occurrence and not its sibling's, which is the defect the per-task key fixed.
-//
-// The pacing: srs succeeds at t=15 and the fork opens; detailedDesign takes one Running poll
-// and its gate opens at t=30; stp lags three and its gate opens at t=60. Both are therefore
-// held from t=60, the first read is at t=90 and the second at t=120.
-func driveForkViewNamesBothGates(t *testing.T, rig *shapeRig) shapeOutcome {
-	t.Helper()
-	rig.cs.project.ReviewPolicy = replayGatedOn(
-		projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseTestPlan)
-	rig.forkWinner(projectstate.TaskDetailedDesign, 3)
-	rig.register(rig.env)
-
-	held, heldErr := shapeQuerySessionAt(rig, 90*time.Second)
-	// DECIDE THE FIRST GATE THE VIEW LISTS, whichever it is. The list is sorted by task id, so
-	// this is deterministic without the case scripting which branch wins the fork.
-	rig.env.RegisterDelayedCallback(func() {
-		if len(held.AwaitingTasks) > 0 {
-			shapeApprove(rig.env, held.AwaitingTasks[0].TaskID)()
-		}
-	}, 95*time.Second)
-	survivor, survivorErr := shapeQuerySessionAt(rig, 120*time.Second)
-	// BOTH GATES ARE APPROVED HERE regardless of what the reads found, so the walk reaches a
-	// terminal and the case fails on its own assertion instead of on a timeout. The defect
-	// makes the second read name NOTHING, and "the shape driver did not reach a terminal"
-	// would not say why. A decision addressed at a task that has already passed is dropped by
-	// the router, so the duplicate costs nothing.
-	rig.env.RegisterDelayedCallback(func() {
-		shapeApprove(rig.env, shapeDesignReviewTask)()
-		shapeApprove(rig.env, shapeSTPReviewTask)()
-	}, 125*time.Second)
-
-	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
-		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
-	})
-	shapeRequireCompleted(t, rig.env)
-	assertShapeForkGatePair(t, *held, *heldErr, *survivor, *survivorErr)
-	return rig.csOutcome(shapeServiceID)
-}
-
-// assertShapeForkGatePair is the per-task session state's oracle, held apart from
-// assertShape because what it judges is the QUERY's two answers and shapeOutcome carries
-// only the recorder's projections of the walk.
-func assertShapeForkGatePair(t *testing.T, held ConstructionSessionView, heldErr error,
-	survivor ConstructionSessionView, survivorErr error,
-) {
-	t.Helper()
-	if heldErr != nil || survivorErr != nil {
-		t.Fatalf("both mid-run session reads must be served: held=%v survivor=%v", heldErr, survivorErr)
-	}
-	// THE CLAIM THE WIRE MOVE MAKES POSSIBLE: one read, both gates, sorted.
-	want := []string{shapeDesignReviewTask, shapeSTPReviewTask}
-	slices.Sort(want)
-	var got []string
-	for _, g := range held.AwaitingTasks {
-		got = append(got, g.TaskID)
-	}
-	if !slices.Equal(got, want) {
-		t.Fatalf("with both fork branches at a gate the session must name BOTH, sorted; it named %v (%+v)", got, held)
-	}
-	first, second := held.AwaitingTasks[0], held.AwaitingTasks[1]
-	for _, g := range held.AwaitingTasks {
-		if g.ReviewSet == nil {
-			t.Fatalf("the gate %q is held for a human, so its own roster is on its own entry (%+v)", g.TaskID, g)
-		}
-		if g.Gate != g.TaskID {
-			t.Fatalf("a phase approval's gate CLASS is its own task id; %q waits at %q", g.TaskID, g.Gate)
-		}
-	}
-	// EACH GATE CARRIES ITS OWN OCCURRENCE. One shared awaitingSince would report the same
-	// instant for both, which is the half that makes "two gates" a fact about per-task state
-	// rather than about one entry duplicated.
-	if first.AwaitingSince.Equal(second.AwaitingSince) {
-		t.Fatalf("%q and %q report the SAME awaitingSince %v — the two gates opened 30 simulated seconds apart, "+
-			"so one clock is being shared between them", first.TaskID, second.TaskID, first.AwaitingSince)
-	}
-	// THE SECOND HALF. Deciding the first gate takes down ITS occurrence and leaves the
-	// sibling's standing — under the defect one leaveHumanStage cleared the pair both branches
-	// shared and the second read named nothing at all.
-	if len(survivor.AwaitingTasks) != 1 {
-		t.Fatalf("deciding %q must leave exactly %q standing; the session named %d gate(s) (%+v)",
-			first.TaskID, second.TaskID, len(survivor.AwaitingTasks), survivor)
-	}
-	left := survivor.AwaitingTasks[0]
-	if left.TaskID != second.TaskID {
-		t.Fatalf("after deciding %q the session must name the sibling %q; it named %q", first.TaskID, second.TaskID, left.TaskID)
-	}
-	if survivor.Stage != StageAwaitingApproval {
-		t.Fatalf("the surviving gate %q is a human stage; the session reports stage %s", left.TaskID, sessionStageName(survivor.Stage))
-	}
-	if !left.AwaitingSince.Equal(second.AwaitingSince) {
-		t.Fatalf("the surviving gate %q must keep its OWN occurrence: awaitingSince was %v and is now %v",
-			left.TaskID, second.AwaitingSince, left.AwaitingSince)
-	}
-	if left.ReviewSet == nil {
-		t.Fatalf("the surviving gate %q lost its roster when its SIBLING was decided", left.TaskID)
-	}
-}
-
 // driveLateApproveToASupersededRound holds `designReview` at its gate, asks for a RE-DRAFT so
 // the round the reviewer read is withdrawn and round 2 opens, and only THEN delivers the
 // approve that reviewer cast — carrying round 1.
@@ -20106,7 +20001,7 @@ func driveLateApproveToASupersededRound(t *testing.T, rig *shapeRig) shapeOutcom
 }
 
 // assertShapeLateApproveRefused is the late-approve refusal's oracle, held apart from
-// assertShape for the reason assertShapeForkGatePair is: what it judges is a MID-RUN reading —
+// assertShape because what it judges is a MID-RUN reading —
 // two of them and the workflow's log — and shapeOutcome carries only the recorder's end state.
 func assertShapeLateApproveRefused(t *testing.T, rounds map[int]string,
 	after ConstructionSessionView, afterErr error, logged []string,
@@ -20168,10 +20063,11 @@ func assertShapeContinueAsNew(t *testing.T, name string, got shapeOutcome) {
 	shapeWantAdvanced(t, name, got.PhaseAdvanced)
 }
 
-// shapeServiceTasks is the `service` lifecycle's ten tasks, in declaration order.
+// shapeServiceTasks is the `service` lifecycle's ten tasks, in declaration order (spec §8:
+// the test plan follows the design review and construction follows the test-plan review).
 var shapeServiceTasks = []string{
 	"srs", "srsReview", "detailedDesign", "designReview",
-	"construction", "codeReview", "integration", "stp", "stpReview", "testing",
+	"stp", "stpReview", "construction", "codeReview", "integration", "testing",
 }
 
 // assertShapeForkSignalRouting is the router's claim, and it is a claim about WHICH TASK
@@ -21697,9 +21593,13 @@ func Test_LastPhaseGateIsTheWalksFinalTask(t *testing.T) {
 		}
 		seen++
 	}
-	if seen != 14 {
-		t.Fatalf("the pinned lifecycles are %d, not the 14 this case was measured against; re-measure before changing the number", seen)
+	// MEASURED FROM THE DATA, not pinned: v0.9.0 shipped 14 lifecycles and v0.10.0 ships 12
+	// (spec §7 retired testing:plan and testing:systemTest). The guard is that every pinned
+	// lifecycle was examined and at least one was.
+	if want := len(methodassets.Lifecycles()); seen == 0 || seen != want {
+		t.Fatalf("examined %d lifecycles but the pinned assets carry %d", seen, want)
 	}
+	t.Logf("examined %d pinned lifecycles", seen)
 }
 
 // THE EVIDENCE LADDER's three arms, and its ORDER. A construction attempt's evidence is the
@@ -21970,72 +21870,16 @@ func Test_DeliveryGate_ReceiverDrainsPastTheInboxCapacity(t *testing.T) {
 	}
 }
 
-// TWO HUMAN GATES SUSPENDED AT ONCE ON A FORK, each its OWN round and its OWN judged attempt.
-// `service` forks at srsReview into detailedDesign→designReview and stp→stpReview, and a
-// policy that gates BOTH phases puts two coroutines at two gates simultaneously — which the
-// flat phase walk could not express at all, and which is the state the signal router exists
-// for.
-//
-// THE CLAIM, and it is the one a single-gate case cannot make: deciding ONE leaves the OTHER
-// awaiting. The walk must not finish on the first approve, the second gate's round must still
-// be pending at that moment, and each round must carry its own id and its own subject.
-func Test_DeliveryGate_TwoSimultaneousHumanGatesAreDecidedIndependently(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{
-		GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
-			"service": {projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseTestPlan},
-		},
-	})
-	rec := newShapeRecorder()
-	pipe := &csFakePipeline{phase: PipelineSucceeded}
-	deps := gateDeps(ps)
-	deps.Review = review.NewReviewEngine()
-	deps.SDPEngines = shapeSDPEngines()
-	wf := csNewWorkflows(deps)
-	wf.Deliveries = rec
-	registerDeliveryActivity(env, wf, ps, pipe)
-
-	// BOTH gates are open before either is answered, which is what makes this a fork case and
-	// not two sequential gates. Measured at the moment designReview is approved.
-	var stpPendingWhenDesignDecided bool
-	env.RegisterDelayedCallback(func() {
-		stpPendingWhenDesignDecided = roundIsPending(ps, shapeServiceID, shapeSTPTask+"Review")
-		shapeApprove(env, shapeDesignReviewTask)()
-	}, 2*time.Minute)
-	env.RegisterDelayedCallback(shapeApprove(env, shapeSTPTask+"Review"), 4*time.Minute)
-	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
-		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
-	})
-	shapeRequireCompleted(t, env)
-
-	if !stpPendingWhenDesignDecided {
-		t.Fatal("stpReview's round was not PENDING when designReview was approved — the two gates were not " +
-			"suspended at the same time, so this case is asserting two sequential gates instead of a fork")
-	}
-	row := ps.execution(shapeServiceID)
-	decided := map[string]string{}
-	for _, r := range row.Reviews {
-		decided[string(r.TaskID)] = string(r.Outcome)
-	}
-	for _, task := range []string{shapeDesignReviewTask, shapeSTPTask + "Review"} {
-		if decided[task] != string(projectstate.RoundPassed) {
-			t.Errorf("round at %s is %q, want passed — each gate is answered on its own", task, decided[task])
-		}
-	}
-	// Each round is its OWN id and its own judged attempt: a shared gateLedger would have made
-	// one gate decide the other's round (Task 8's R8-7).
-	ids := map[string]bool{}
-	for _, r := range row.Reviews {
-		if ids[r.RoundID] {
-			t.Errorf("two rounds share the id %q", r.RoundID)
-		}
-		ids[r.RoundID] = true
-	}
-	if len(row.Reviews) < 2 {
-		t.Fatalf("want at least the two forked gates' rounds, got %d", len(row.Reviews))
-	}
-}
+// Test_DeliveryGate_TwoSimultaneousHumanGatesAreDecidedIndependently is RETIRED (spec §8,
+// method-assets v0.10.0). It held two human gates open at once on the `service` fork —
+// detailedDesign→designReview beside stp→stpReview — and asserted that deciding one left
+// the other awaiting. §8 serialised `stp` after `designReview` (bindings need contract
+// types) and `construction` after `stpReview`, and no pinned lifecycle forks any more
+// (`frontend` has no requirements/uxRequirements pair either; its tasks are the service
+// chain), so two gates can no longer be suspended at the same time on any walk. The
+// per-gate claims it also made — each round its own id and its own judged attempt — are
+// held by the serial walk's own cases (sendback-reopens-only-the-judged-pair and
+// late-approve-to-a-superseded-round-is-refused in Test_LifecycleShapes).
 
 // roundIsPending reports whether the named task's latest round is still awaiting a decision.
 func roundIsPending(ps *csFakeProjectState, activityID, taskID string) bool {
@@ -23404,12 +23248,13 @@ func Test_Approve_TheChildRefusesAnApproveOverAnOpenChangeRequest(t *testing.T) 
 // a design task's is its slot, and passing nil for one of the three kinds that SHARE
 // `architectureReview` would resolve to whichever was written last.
 func Test_RoundKindOfTask_AgreesWithWhatTheChildStamps(t *testing.T) {
-	// THE COUNT IS PINNED, because "all fourteen lifecycles" is the claim and a loop over a
-	// shorter list would make it vacuously true: a method-assets release that DROPPED a lifecycle
-	// would leave this green while an entire activity type's rounds went unchecked.
-	if got := len(methodassets.Lifecycles()); got != 14 {
-		t.Fatalf("method-assets carries %d lifecycles, want 14 — this case's claim is about all of them", got)
-	}
+	// THE COUNT IS MEASURED, NOT PINNED. "All lifecycles" is the claim, and the number used
+	// to be hard-coded (14 at v0.9.0; v0.10.0 ships 12 after spec §7 retired testing:plan and
+	// testing:systemTest) so that a method-assets release that DROPPED a lifecycle would not
+	// leave this green while an activity type's rounds went unchecked. That guard is kept by
+	// the other road: every (type, variant) key the server dispatches must resolve to a pinned
+	// lifecycle, so a dropped lifecycle fails by name here instead of by count.
+	shapeRequireEveryDispatchableLifecycle(t)
 	for _, lc := range methodassets.Lifecycles() {
 		for _, task := range lc.Tasks {
 			if task.Kind != methodassets.LifecycleTaskReview {
@@ -23440,6 +23285,45 @@ func Test_RoundKindOfTask_AgreesWithWhatTheChildStamps(t *testing.T) {
 	if got := roundKindOfTask(svc, "codeReview"); got != nil {
 		t.Errorf("a construction review task's round is KINDLESS; got %v", *got)
 	}
+}
+
+// shapeRequireEveryDispatchableLifecycle fails by NAME on a (type, variant) key the server
+// dispatches that the pinned assets carry no lifecycle for, and by count when the assets
+// carry a lifecycle the server has no key for.
+func shapeRequireEveryDispatchableLifecycle(t *testing.T) {
+	t.Helper()
+	keys := shapeDispatchableLifecycleKeys()
+	for _, key := range keys {
+		if _, ok := methodassets.LifecycleFor(key); !ok {
+			t.Fatalf("the server dispatches lifecycle %q but method-assets carries no such lifecycle", key)
+		}
+	}
+	if got, want := len(methodassets.Lifecycles()), len(keys); got != want {
+		t.Fatalf("method-assets carries %d lifecycles but the server knows %d (type, variant) keys — the claim is about all of them", got, want)
+	}
+}
+
+// shapeDispatchableLifecycleKeys is every lifecycle key the server can dispatch an
+// activity under: one per non-testing ActivityType and one per live TestingVariant,
+// spelled by LifecycleKeyFor so the enumeration cannot drift from the production rule.
+// It is the measure Test_RoundKindOfTask_AgreesWithWhatTheChildStamps holds the pinned
+// assets to instead of a hard-coded count.
+func shapeDispatchableLifecycleKeys() []string {
+	var keys []string
+	for _, typ := range []projectstate.ActivityType{
+		projectstate.ActivityTypeService, projectstate.ActivityTypeFrontend,
+		projectstate.ActivityTypeDeployment, projectstate.ActivityTypeDocumentation, projectstate.ActivityTypeUIDesign,
+		projectstate.ActivityTypeIntegration, projectstate.ActivityTypeRequirements,
+		projectstate.ActivityTypeArchitecture, projectstate.ActivityTypeProjectDesign,
+	} {
+		keys = append(keys, projectstate.LifecycleKeyFor(typ, projectstate.TestVariantNone))
+	}
+	for _, v := range []projectstate.TestingVariant{
+		projectstate.TestVariantHarness, projectstate.TestVariantPerf, projectstate.TestVariantQAProcess,
+	} {
+		keys = append(keys, projectstate.LifecycleKeyFor(projectstate.ActivityTypeTesting, v))
+	}
+	return keys
 }
 
 // ===========================================================================
