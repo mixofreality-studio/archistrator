@@ -8885,13 +8885,14 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		// runs (branch "" ⇒ main) — the former ReadProjectActivity preset.
 		"designSessionAccess.readProjectOnBranch": csReadProjectActivityOptions(),
 		"projectStateAccess.readProjectVersion":   csReadProjectActivityOptions(),
-		// THE TESTING GATE'S TWO READS (deterministic component testing, deliveryactivity.go).
-		// The head-state read is the same whole-aggregate read the pump makes and takes the
-		// same preset. The artifact index is a different envelope: the cloud variant lists a
-		// run's artifacts and downloads its zip ONCE per run, which is a GitHub round-trip
-		// plus a transfer, not a git read — so it gets the download's own budget. NotFound
-		// (the venue never uploaded it) is terminal: the gate reads it as evidence and holds.
-		"projectStateAccess.readProject":                    csReadProjectActivityOptions(),
+		// THE TESTING GATE'S ARTIFACT READ (deterministic component testing,
+		// deliveryactivity.go). Its other read is the activity-branch read above
+		// (designSessionAccess.readProjectOnBranch — the run lives on the activity branch
+		// until the merge). The artifact index is a different envelope: the cloud variant
+		// lists a run's artifacts and downloads its zip ONCE per run, which is a GitHub
+		// round-trip plus a transfer, not a git read — so it gets the download's own budget.
+		// NotFound (the venue never uploaded it) is terminal: the gate reads it as evidence
+		// and holds.
 		"artifactAccess.getTestRunIndex":                    testRunIndexActivityOptions(),
 		"constructionTransitionAccess.recordChangeReviewed": recordActivityOptions(),
 		"constructionTransitionAccess.recordActivityExited": recordActivityOptions(),
@@ -13858,7 +13859,7 @@ func (m *deliveryManager) queryTestRunView(rc fwmanager.Context, query ProjectVi
 	if query.ActivityID == nil || *query.ActivityID == "" {
 		return out, missingSelector("testRun", "activityId")
 	}
-	proj, err := m.readProjectForView(rc, id)
+	proj, err := m.readProjectForActivityView(rc, id, *query.ActivityID)
 	if err != nil {
 		return out, err
 	}
@@ -13930,6 +13931,39 @@ func (m *deliveryManager) ReadTestRunFile(rc fwmanager.Context, projectID Projec
 		return TestRunFile{}, sdMapRAError(err, "artifactAccess.ReadTestRunFile")
 	}
 	return TestRunFile{Bytes: out.Bytes, MIMEType: testRunFileMIME(filePath)}, nil
+}
+
+// readProjectForActivityView reads the project as the ACTIVITY'S BRANCH holds it, falling
+// back to main when that branch answers NotFound. The testRun view needs it for the reason
+// the testing gate does (deliveryactivity.go, readTestingGateProject): the venue publishes
+// the run onto activity/<id>, which reaches main only in the walk's merge, so a view
+// reading main could not show a run while the activity is in flight — which is exactly
+// when the reviewer at the testing gate needs it. The branch read is designSessionAccess'
+// envelope, which carries .testingState for this purpose; a Manager built with no design
+// session (a hand-built test double) reads main.
+//
+// EARMARK (Task 6): ReadTestRunFile still reads main, because the file endpoint names a
+// run and not an activity, and a run id alone cannot name the branch it lives on. Until
+// the endpoint carries the activity (a composition-root + webApp change), the video/trace
+// of an in-flight activity's run is reachable only after the merge.
+func (m *deliveryManager) readProjectForActivityView(rc fwmanager.Context, projectID ProjectID, activityID string) (projectstate.Project, error) {
+	if m.designSession == nil {
+		return m.readProjectForView(rc, projectID)
+	}
+	env, err := m.designSession.ReadProjectOnBranch(fwra.Context{Context: rc.Context},
+		projectstate.ProjectID(projectID), activityBranchName(ActivityID(activityID)))
+	if err != nil {
+		if raErr := (*fwra.Error)(nil); errors.As(err, &raErr) && raErr.Kind == fwra.NotFound {
+			return m.readProjectForView(rc, projectID)
+		}
+		return projectstate.Project{}, sdMapRAError(err, "designSessionAccess.ReadProjectOnBranch")
+	}
+	proj, derr := env.Decode()
+	if derr != nil {
+		return projectstate.Project{}, fwmanager.Wrap(fwmanager.Infrastructure, derr,
+			fmt.Sprintf("the project state on %s did not decode", activityBranchName(ActivityID(activityID))))
+	}
+	return proj, nil
 }
 
 // readProjectForView is the views' one read of head state, with the same NotFound

@@ -10605,6 +10605,14 @@ type csFakeProjectState struct {
 	venue            func(run *projectstate.TestRun) bool
 	expiredArtifacts map[string]bool
 	lostFiles        map[string]bool
+	// branchRuns is where the venue's record step LANDS: branch -> the runs its publish
+	// committed there. The venue writes the run into the job's checkout and publishes it
+	// onto AIARCH_TARGET_BRANCH = activity/<id> (aiarch-construct.yml, the local executor's
+	// constructDispatchPlan), which reaches main only in finalizeWalk's merge — AFTER the
+	// testing gate. A double that recorded on main would serve the gate a run main cannot
+	// hold yet, which is exactly how a gate reading main passed every rig while holding
+	// every production activity. nil until the venue records; see recordVenueRun.
+	branchRuns map[string][]projectstate.TestRun
 	// scenarios is the projection the venue records a result for — the SAME one the walk
 	// joins against (wfDeps.Scenarios), or the two halves disagree and every gate holds on
 	// results nobody projected. gateDeps sets both to shapeScenarioProjector; a rig that
@@ -11597,7 +11605,8 @@ func (f *csFakeProjectState) stageSlotOn(branch string, model projectstate.Artif
 	f.branchSlots[branch][model.Kind()] = model
 }
 
-// projectOnBranch is main with this branch's staged drafts overlaid. The caller holds f.mu.
+// projectOnBranch is main with this branch's staged drafts and the venue's recorded runs
+// overlaid. The caller holds f.mu.
 func (f *csFakeProjectState) projectOnBranch(branch string) projectstate.Project {
 	p := f.project
 	for kind, model := range f.branchSlots[branch] {
@@ -11606,7 +11615,35 @@ func (f *csFakeProjectState) projectOnBranch(branch string) projectstate.Project
 			slot.Model = model
 		}
 	}
+	if runs := f.branchRuns[branch]; len(runs) > 0 {
+		// A COPY of the testing state, not a write through main's pointer: the branch is
+		// main plus what the venue published there, and main must stay run-less until the
+		// merge — which is the whole fact the gate's branch read is about.
+		ts := projectstate.TestingState{}
+		if p.TestingState != nil {
+			ts = *p.TestingState
+		}
+		ts.TestRuns = append(slices.Clone(ts.TestRuns), runs...)
+		p.TestingState = &ts
+	}
 	return p
+}
+
+// venueRunByID finds a run the venue recorded, on main or on any activity branch: run ids
+// are venue-unique, and the artifact store is keyed by them regardless of which branch
+// the record landed on. The caller holds f.mu.
+func (f *csFakeProjectState) venueRunByID(runID string) (projectstate.TestRun, bool) {
+	if run, ok := testRunByID(&f.project, runID); ok {
+		return run, true
+	}
+	for _, runs := range f.branchRuns {
+		for _, run := range runs {
+			if run.ID == runID {
+				return run, true
+			}
+		}
+	}
+	return projectstate.TestRun{}, false
 }
 
 // stageSlot is the pure slot half of the store's stageArtifactForReviewOnBranch —
@@ -12065,20 +12102,20 @@ var _ review.ReviewEngine = (*fakeReview)(nil)
 // surface (wf.Acts.Pipeline*) dispatches by. The workflow reaches the pipeline only through
 // those invokers now.
 //
-// The pipeline is registered THROUGH THE VENUE DOUBLE (venueOver), and the two reads the
-// testing gate makes ride with it (spec §6.5, Plan 2 Task 7): a job that succeeds the
-// integration phase records its scenario run on ps, and the gate reads that run back
-// through projectStateAccess.readProject and its artifact through
-// artifactAccess.getTestRunIndex. They are registered here, in the one helper every
-// construction rig calls, because a service or frontend walk cannot pass its last gate
-// without them — the production worker registers one set per queue, and a rig that
+// The pipeline is registered THROUGH THE VENUE DOUBLE (venueOver), and the artifact read
+// the testing gate makes rides with it (spec §6.5, Plan 2 Task 7): a job that succeeds the
+// integration phase publishes its scenario run on the activity branch (recordVenueRun),
+// the gate reads that run back through designSessionAccess.readProjectOnBranch
+// (registerGenDesignSessionRead, over the same ps) and its artifact through
+// artifactAccess.getTestRunIndex. The artifact read is registered here, in the one helper
+// every construction rig calls, because a service or frontend walk cannot pass its last
+// gate without it — the production worker registers one set per queue, and a rig that
 // reached the gate with no venue behind it would hold for a run nobody could record.
 func registerGenPipeline(env *testsuite.TestWorkflowEnvironment, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess) {
-	acts := &genActivities{Pipeline: venueOver(ps, pipe), ProjectState: fakeFullProjectState{ps}, Artifact: venueArtifact(ps)}
+	acts := &genActivities{Pipeline: venueOver(ps, pipe), Artifact: venueArtifact(ps)}
 	env.RegisterActivityWithOptions(acts.PipelineSubmitAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.submitAgenticJob"})
 	env.RegisterActivityWithOptions(acts.PipelineObserveAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.observeAgenticJob"})
 	env.RegisterActivityWithOptions(acts.PipelineCancelAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.cancelAgenticJob"})
-	env.RegisterActivityWithOptions(acts.ProjectStateReadProject, activity.RegisterOptions{Name: "projectStateAccess.readProject"})
 	env.RegisterActivityWithOptions(acts.ArtifactGetTestRunIndex, activity.RegisterOptions{Name: "artifactAccess.getTestRunIndex"})
 }
 
@@ -12166,9 +12203,14 @@ func shapeScenarioProjector(_ *projectstate.Project, component string) ([]scenar
 // recordVenueRun is the venue's record step over the double: a green run for every
 // projected scenario at the activity's latest integration attempt, shaped by f.venue when
 // a case set one (false drops the record — the job that died before its record step).
-// The store's version is NOT advanced: on the real venue the run lands on the activity
-// branch, never on main's version, and a bump here would hand every later main write a
-// Conflict the real walk never sees.
+//
+// IT LANDS ON THE ACTIVITY BRANCH, NOT ON MAIN. The venue's publish pushes the job's
+// checkout to AIARCH_TARGET_BRANCH = activity/<id> (aiarch-construct.yml stamps it from
+// the activity id; constructDispatchPlan does the same on the local executor), and that
+// branch reaches main only when finalizeWalk merges it — after every gate, this one
+// included. So the double writes where the venue writes, and a gate that reads main
+// finds nothing, exactly as it would in production. The store's version is NOT advanced
+// for the same reason: the write is the branch's, never main's.
 func (f *csFakeProjectState) recordVenueRun(activityID, component, runID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -12190,10 +12232,11 @@ func (f *csFakeProjectState) recordVenueRun(activityID, component, runID string)
 	if f.venue != nil && !f.venue(&run) {
 		return
 	}
-	if f.project.TestingState == nil {
-		f.project.TestingState = &projectstate.TestingState{}
+	if f.branchRuns == nil {
+		f.branchRuns = map[string][]projectstate.TestRun{}
 	}
-	f.project.TestingState.TestRuns = append(f.project.TestingState.TestRuns, run)
+	branch := activityBranchName(ActivityID(activityID))
+	f.branchRuns[branch] = append(f.branchRuns[branch], run)
 }
 
 // venueArtifact is the artifact index the gate reads for a recorded run: the run's
@@ -12208,7 +12251,7 @@ func venueArtifact(ps *csFakeProjectState) artifact.ArtifactAccess {
 			if ps.expiredArtifacts[ref.Artifact] {
 				return artifact.TestRunIndex{Expired: true}, nil
 			}
-			run, ok := testRunByID(&ps.project, ref.RunID)
+			run, ok := ps.venueRunByID(ref.RunID)
 			if !ok {
 				return artifact.TestRunIndex{}, fwra.New(fwra.NotFound, "venue: no artifact for run "+ref.RunID)
 			}
@@ -31225,7 +31268,7 @@ func newM0GitRigOver(t *testing.T, sys projectstate.System) *m0GitRig {
 	// a few dozen times.
 	env.SetTestTimeout(10 * time.Minute)
 	rig := &m0GitRig{env: env, wf: csNewWorkflows(deps), ps: ps, id: id, repoURL: repoURL}
-	registerDeliveryActivityOverGit(env, rig.wf, repoURL)
+	registerDeliveryActivityOverGit(t, env, rig.wf, repoURL)
 	return rig
 }
 
@@ -31243,21 +31286,193 @@ func (r *m0GitRig) read(t *testing.T) projectstate.Project {
 // `projectDesign` walk reaches, every projectstate one backed by the GitLocal variant over
 // repoURL. An Activity this set forgets surfaces as a loud ActivityNotRegistered rather
 // than as a silent skip — which is the reason the set is explicit rather than inferred.
-func registerDeliveryActivityOverGit(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, repoURL string) {
-	registerDeliveryActivityOverGitWithPipeline(env, wf, repoURL, &csFakePipeline{phase: PipelineSucceeded})
+func registerDeliveryActivityOverGit(t *testing.T, env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, repoURL string) {
+	registerDeliveryActivityOverGitWithPipeline(t, env, wf, repoURL, &csFakePipeline{phase: PipelineSucceeded})
 }
+
+// gitVenueDouble is the venue's RECORD STEP over a real on-disk state repo — venueDouble's
+// git twin. The testing gate (spec §6.5) passes only on a TestRun the venue recorded for
+// the integration attempt it judges, and the venue records it the way aiarch-construct.yml
+// and the local executor do: record-test-run writes .testingState.testRuns into the job's
+// checkout of AIARCH_TARGET_BRANCH = activity/<id>, and the publish pushes that branch.
+// This double does exactly that with git — clone the activity branch, append the run to
+// its project.json through the one codec (EncodeProjectJSON, as record-test-run's
+// applyConstructionMutation does), commit, push — when an integration-phase job it was
+// handed reports SUCCEEDED. Without it, a walk over csFakePipeline (which commits nothing)
+// reaches every service/frontend testing gate with no run and holds for a human forever.
+//
+// The run is GREEN over wf.Scenarios — the projection the walk itself joins against — at
+// the activity's latest integration attempt as MAIN's ledger records it (the attempt is
+// opened PENDING before the dispatch, so the venue's checkout carries it).
+type gitVenueDouble struct {
+	inner   agenticjob.AgenticJobAccess
+	t       *testing.T
+	wf      *csWorkflows
+	repoURL string
+
+	mu    sync.Mutex
+	specs map[agenticjob.PipelineHandle]agenticjob.PipelineSpec
+}
+
+func (v *gitVenueDouble) SubmitAgenticJob(rc fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
+	handle, err := v.inner.SubmitAgenticJob(rc, spec)
+	if err != nil {
+		return handle, err
+	}
+	if spec.DispatchInputs["phase"] == projectstate.MethodPhaseIntegration.String() &&
+		spec.DispatchInputs[agenticjob.DispatchInputJobKey] != agenticjob.DispatchJobMerge {
+		v.mu.Lock()
+		v.specs[handle] = spec
+		v.mu.Unlock()
+	}
+	return handle, nil
+}
+
+func (v *gitVenueDouble) ObserveAgenticJob(rc fwra.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
+	obs, err := v.inner.ObserveAgenticJob(rc, handle)
+	if err != nil || obs.Phase != agenticjob.PhaseSucceeded {
+		return obs, err
+	}
+	v.mu.Lock()
+	spec, ok := v.specs[handle]
+	delete(v.specs, handle)
+	v.mu.Unlock()
+	if ok {
+		v.recordRun(spec, string(handle))
+	}
+	return obs, nil
+}
+
+func (v *gitVenueDouble) CancelAgenticJob(rc fwra.Context, handle agenticjob.PipelineHandle) error {
+	return v.inner.CancelAgenticJob(rc, handle)
+}
+
+func (v *gitVenueDouble) recordRun(spec agenticjob.PipelineSpec, runID string) {
+	if err := v.publishRun(spec, runID); err != nil {
+		v.t.Errorf("git venue: record-test-run for %s: %v", spec.ActivityID, err)
+	}
+}
+
+// publishRun is the record step proper: check out the activity branch, append the run to
+// its project.json, commit and push. Every failure is the double's, reported by recordRun.
+func (v *gitVenueDouble) publishRun(spec agenticjob.PipelineSpec, runID string) error {
+	activityID := string(spec.ActivityID)
+	branch := activityBranchName(ActivityID(activityID))
+	pid := projectstate.ProjectID(spec.ProjectID)
+
+	main, err := projectstate.NewGitLocalProjectStateAccess(v.repoURL).ReadProject(fwra.Context{Context: context.Background()}, pid)
+	if err != nil {
+		return fmt.Errorf("read main for the integration attempt: %w", err)
+	}
+	dir, err := v.checkoutActivityBranch(branch)
+	if err != nil {
+		return err
+	}
+	statePath := filepath.Join(dir, ".aiarch", "state", "project.json")
+	raw, err := os.ReadFile(statePath)
+	if err != nil {
+		return fmt.Errorf("read %s's checkout: %w", branch, err)
+	}
+	proj, _, err := projectstate.DecodeProjectJSON(raw, pid)
+	if err != nil {
+		return fmt.Errorf("decode %s's project.json: %w", branch, err)
+	}
+	run, err := v.greenRun(&proj, activityID, spec.DispatchInputs["component_id"], runID, latestIntegrationAttempt(main, activityID))
+	if err != nil {
+		return err
+	}
+	if proj.TestingState == nil {
+		proj.TestingState = &projectstate.TestingState{}
+	}
+	proj.TestingState.TestRuns = append(proj.TestingState.TestRuns, run)
+	out, err := projectstate.EncodeProjectJSON(proj)
+	if err != nil {
+		return fmt.Errorf("encode %s's project.json: %w", branch, err)
+	}
+	if err := os.WriteFile(statePath, out, 0o644); err != nil {
+		return fmt.Errorf("write %s's checkout: %w", branch, err)
+	}
+	if err := gitIn(dir, "-c", "user.email=venue@aiarch.local", "-c", "user.name=venue",
+		"commit", "--quiet", "-am", "record-test-run "+runID); err != nil {
+		return err
+	}
+	return gitIn(dir, "push", "--quiet", "origin", "HEAD:refs/heads/"+branch)
+}
+
+// checkoutActivityBranch clones the state repo and checks out the activity branch. The
+// publish CREATES the branch when no earlier job pushed it (the local executor cuts the
+// job's checkout from main and pushes it to the target branch), so the checkout is the
+// branch when it exists and main otherwise.
+func (v *gitVenueDouble) checkoutActivityBranch(branch string) (string, error) {
+	dir := filepath.Join(v.t.TempDir(), "venue-checkout")
+	if err := gitIn(filepath.Dir(dir), "clone", "--quiet", v.repoURL, dir); err != nil {
+		return "", err
+	}
+	if exec.Command("git", "-C", dir, "rev-parse", "--verify", "--quiet", "origin/"+branch).Run() == nil {
+		return dir, gitIn(dir, "checkout", "--quiet", "-B", branch, "origin/"+branch)
+	}
+	return dir, gitIn(dir, "checkout", "--quiet", "-b", branch)
+}
+
+// greenRun is a run with a pass for every scenario the walk's own projector names, stamped
+// with the integration attempt the round will judge.
+func (v *gitVenueDouble) greenRun(proj *projectstate.Project, activityID, component, runID string, attempt int) (projectstate.TestRun, error) {
+	projected, err := v.wf.Scenarios(proj, component)
+	if err != nil {
+		return projectstate.TestRun{}, fmt.Errorf("project %s's scenarios: %w", component, err)
+	}
+	run := projectstate.TestRun{
+		ID: runID, Activity: activityID, Component: component,
+		Revision: projectstate.AttemptID(activityID, projectstate.TaskIntegration, attempt),
+		Artifact: "test-results-" + activityID + "-" + runID,
+	}
+	for _, sc := range projected {
+		run.Scenarios = append(run.Scenarios, projectstate.ScenarioResult{Scenario: sc.ID, Status: "pass", DurationMs: 1})
+	}
+	return run, nil
+}
+
+// latestIntegrationAttempt is the highest integration attempt on the activity's row.
+func latestIntegrationAttempt(p projectstate.Project, activityID string) int {
+	attempt := 0
+	for _, a := range p.ActivityExecution[activityID].Attempts {
+		if a.Task == projectstate.TaskIntegration && a.Attempt > attempt {
+			attempt = a.Attempt
+		}
+	}
+	return attempt
+}
+
+// gitIn runs one git command in wd, returning its output on failure.
+func gitIn(wd string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = wd
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git %v: %w\n%s", args, err, out)
+	}
+	return nil
+}
+
+var _ agenticjob.AgenticJobAccess = (*gitVenueDouble)(nil)
 
 // registerDeliveryActivityOverGitWithPipeline is the same registration with the AGENTIC VENUE
 // supplied by the caller. It is a parameter rather than a second copy of the table because a
 // DESIGN walk needs a venue that commits (designAgentDouble) while a construction walk does
 // not, and two independently-maintained Activity tables is how a case ends up running a
 // different worker than production.
+//
+// THE VENUE'S RECORD STEP RIDES WITH IT (gitVenueDouble): whatever job double the caller
+// hands in, an integration job that succeeds records its scenario run on the activity
+// branch, and the testing gate's artifact read is the DRY-RUN artifact store — what a
+// CONSTRUCTION_DRYRUN boot wires (hooks.go) — so a service walk can pass its last gate.
 func registerDeliveryActivityOverGitWithPipeline(
-	env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, repoURL string, pipe agenticjob.AgenticJobAccess,
+	t *testing.T, env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, repoURL string, pipe agenticjob.AgenticJobAccess,
 ) {
 	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow,
 		workflow.RegisterOptions{Name: executionKindDeliveryActivity})
+	pipe = &gitVenueDouble{inner: pipe, t: t, wf: wf, repoURL: repoURL, specs: map[agenticjob.PipelineHandle]agenticjob.PipelineSpec{}}
 	acts := &genActivities{
+		Artifact:               artifact.NewDryRunArtifactAccess(),
 		ProjectState:           projectstate.NewGitLocalProjectStateAccess(repoURL),
 		ConstructionTransition: projectstate.NewGitLocalConstructionTransitionAccess(repoURL),
 		GitStatus:              projectstate.NewGitLocalGitActivityStatusAccess(repoURL),
@@ -31302,6 +31517,7 @@ func registerDeliveryActivityOverGitWithPipeline(
 		"agenticJobAccess.cancelAgenticJob":                  acts.PipelineCancelAgenticJob,
 		"episodeAccess.appendEpisode":                        acts.EpisodesAppendEpisode,
 		"messageBus.deliverSignal":                           acts.MessageBusDeliverSignal,
+		"artifactAccess.getTestRunIndex":                     acts.ArtifactGetTestRunIndex,
 	} {
 		env.RegisterActivityWithOptions(fn, activity.RegisterOptions{Name: name})
 	}
@@ -31517,7 +31733,7 @@ func runOneActivityChild(t *testing.T, rig *m0GitRig, sel pumpSelection, tick in
 	env.SetTestTimeout(10 * time.Minute)
 	env.SetStartWorkflowOptions(client.StartWorkflowOptions{
 		ID: deliveryActivityWorkflowID(ProjectID(rig.id), ActivityID(id))})
-	registerDeliveryActivityOverGit(env, rig.wf, rig.repoURL)
+	registerDeliveryActivityOverGit(t, env, rig.wf, rig.repoURL)
 	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: ProjectID(rig.id), ActivityID: ActivityID(id), Activity: sel.Activity,
 	})
@@ -31759,7 +31975,7 @@ func newDesignWalkGitRig(t *testing.T) (*m0GitRig, string) {
 	env := ts.NewTestWorkflowEnvironment()
 	env.SetTestTimeout(10 * time.Minute)
 	rig := &m0GitRig{env: env, wf: csNewWorkflows(deps), ps: ps, id: pid, repoURL: repoURL}
-	registerDeliveryActivityOverGitWithPipeline(env, rig.wf, repoURL, &designAgentDouble{
+	registerDeliveryActivityOverGitWithPipeline(t, env, rig.wf, repoURL, &designAgentDouble{
 		csFakePipeline: &csFakePipeline{phase: PipelineSucceeded},
 		t:              t, ds: ds, id: pid, venue: venue,
 		model:        &projectstate.System{Components: birthReplacementComponents},
@@ -31943,6 +32159,29 @@ func queryTestRun(t *testing.T, m *deliveryManager, activityID string) *Delivery
 		t.Fatal("the answer must land on `testRun`")
 	}
 	return out.TestRun
+}
+
+// THE VIEW READS THE ACTIVITY BRANCH, for the reason the testing gate does: the venue
+// publishes the run onto activity/<id>, which reaches main only when the walk's merge
+// lands, so a view that read main could not show a run while its activity is in flight —
+// which is exactly when a reviewer at the testing gate needs it. The run here exists on the
+// branch and nowhere on main.
+func TestQueryTestRunView_ReadsTheRunOffTheActivityBranch(t *testing.T) {
+	proj := testRunFixtureProject()
+	runs := proj.TestingState.TestRuns
+	proj.TestingState = nil
+	ps := &csFakeProjectState{project: proj, branchRuns: map[string][]projectstate.TestRun{activityBranchName("C-BG"): runs}}
+	full := fakeFullProjectState{ps}
+	var indexed artifact.TestRunRef
+	m := &deliveryManager{projectState: full, designSession: projectstate.NewDesignSessionAccess(full),
+		cs: &constructionManager{artifact: liveIndex(&indexed), scenarios: testRunProjection}}
+	v := queryTestRun(t, m, "C-BG")
+	if v.Run.Id != "9" || v.Artifact != "test-results-C-BG-9" {
+		t.Fatalf("the view must find the run the venue published on the activity branch, got %+v", v.Run)
+	}
+	if indexed != (artifact.TestRunRef{RunID: "9", Artifact: "test-results-C-BG-9"}) {
+		t.Fatalf("the index must be read for the branch run's ref, got %+v", indexed)
+	}
 }
 
 func TestQueryTestRunView_NamesTheScenarioTheRunOmitted(t *testing.T) {
@@ -32204,11 +32443,27 @@ func systemHoldComment(t *testing.T, round projectstate.ReviewRound) projectstat
 	return system[0]
 }
 
-// latestVenueRun is the run the venue recorded last for the activity.
+// latestVenueRun is the run the venue recorded last for the activity — read off the
+// activity BRANCH, where the venue publishes it (recordVenueRun).
 func latestVenueRun(ps *csFakeProjectState, activityID string) (projectstate.TestRun, bool) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	return selectTestRun(&ps.project, activityID, "")
+	proj := ps.projectOnBranch(activityBranchName(ActivityID(activityID)))
+	return selectTestRun(&proj, activityID, "")
+}
+
+// mainRuns is every run MAIN holds for the activity. The venue never writes main, so a
+// case that asserts the gate read the branch asserts this is empty when the gate passed.
+func mainRuns(ps *csFakeProjectState, activityID string) []projectstate.TestRun {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	var runs []projectstate.TestRun
+	for _, run := range testRuns(&ps.project) {
+		if run.Activity == activityID {
+			runs = append(runs, run)
+		}
+	}
+	return runs
 }
 
 // driveTestingGateHold runs the walk, asserts at the gate that it is HELD with a system
@@ -32359,5 +32614,70 @@ func TestTestingGate_SendBackReRunsIntegrationAndPasses(t *testing.T) {
 	run, ok := latestVenueRun(rig.cs, shapeServiceID)
 	if !ok || run.Revision != projectstate.AttemptID(shapeServiceID, projectstate.TaskIntegration, 2) {
 		t.Fatalf("the re-run is recorded at integration attempt 2, got %+v (found %v)", run, ok)
+	}
+}
+
+// THE RUN IS READ OFF THE ACTIVITY BRANCH, because that is where the venue publishes it:
+// record-test-run writes the job's checkout and the publish pushes AIARCH_TARGET_BRANCH =
+// activity/<id>, which reaches main only in finalizeWalk's merge — after this gate. A gate
+// that read main could never see a run before it had already passed, and would hold every
+// service and frontend activity for a human with "no test run is recorded". This case pins
+// the read: the venue's run exists on the branch and NOWHERE on main at the moment the gate
+// decides, and the gate passes on it as the system.
+func TestTestingGate_ReadsTheRunOffTheActivityBranch(t *testing.T) {
+	rig, _ := openCommentRig(t)
+	rig.env.RegisterDelayedCallback(func() {
+		// Mid-walk and after: main never holds the run. The venue does not write main.
+		if runs := mainRuns(rig.cs, shapeServiceID); len(runs) != 0 {
+			t.Errorf("the venue publishes onto the activity branch, never main; main holds %+v", runs)
+		}
+	}, 30*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	round, ok := testingRound(rig.cs, shapeServiceID)
+	if !ok || round.Outcome != projectstate.RoundPassed || round.DecidedBy != gateActorSystem {
+		t.Fatalf("the gate reads the run where the venue published it (activity/%s) and passes as the SYSTEM, got %+v", shapeServiceID, round)
+	}
+	if runs := mainRuns(rig.cs, shapeServiceID); len(runs) != 0 {
+		t.Fatalf("main must still hold no run for the activity (the double never merges), got %+v", runs)
+	}
+	if run, ok := latestVenueRun(rig.cs, shapeServiceID); !ok || run.Revision != projectstate.AttemptID(shapeServiceID, projectstate.TaskIntegration, 1) {
+		t.Fatalf("the branch holds the run the gate judged, got %+v (found %v)", run, ok)
+	}
+}
+
+// refuseReviewsAt is a review engine that refuses the roster for ONE lifecycle phase and
+// answers as the real engine everywhere else — the engine-refusal arm of runGate, reached
+// at exactly the task under test.
+type refuseReviewsAt struct {
+	inner review.ReviewEngine
+	phase string
+}
+
+func (r refuseReviewsAt) ProposeReviews(rc fweng.Context, change review.ReviewChange, activityType review.ActivityType,
+	lifecyclePhase string, componentID string, policy review.ReviewPolicy, floorTouched bool, contracts []string,
+) (review.ReviewSet, error) {
+	if lifecyclePhase == r.phase {
+		return review.ReviewSet{}, errors.New("ProposeReviews: refused for the test (" + r.phase + ")")
+	}
+	return r.inner.ProposeReviews(rc, change, activityType, lifecyclePhase, componentID, policy, floorTouched, contracts)
+}
+
+// THE REFUSED-ROSTER ARM EVALUATES THE GATE TOO. When the review engine cannot be asked,
+// runGate opens an empty-roster round and parks it for a human — and spec §6.5 says that
+// round "cannot passRound unless" the venue's evidence holds up, whoever decides it. Without
+// the evaluation on this arm a human could approve a testing round with no run and no
+// system comment, so the stale run here must land the same blocking system comment the
+// ordinary arm lands, and the only way through is resolve + approve (the recorded override).
+func TestTestingGate_HoldsOnTheRefusedRosterArmToo(t *testing.T) {
+	rig, m := openCommentRig(t)
+	rig.cswf.Review = refuseReviewsAt{inner: review.NewReviewEngine(), phase: projectstate.MethodPhaseIntegration.String()}
+	stale := projectstate.AttemptID(shapeServiceID, projectstate.TaskIntegration, 0)
+	rig.cs.venue = func(run *projectstate.TestRun) bool { run.Revision = stale; return true }
+	round := driveTestingGateHold(t, rig, m, stale)
+	if len(round.Reviewers) != 0 {
+		t.Fatalf("the refused arm opens an EMPTY roster, got %+v", round.Reviewers)
 	}
 }
