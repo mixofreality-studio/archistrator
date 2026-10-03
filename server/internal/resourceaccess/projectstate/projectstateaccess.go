@@ -42,6 +42,7 @@ import (
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 )
 
@@ -11041,4 +11042,158 @@ func (a *activityExecutionAccess) ReadActivityExecution(rc fwra.Context, project
 	}
 	cs.ActivityID = activityID
 	return cs, nil
+}
+
+// ---- Scenario adapter (deterministic component testing, design §2) ----
+//
+// The server-side mirror of methodcheck.ScenarioInput over the TYPED Project: it
+// projects the committed core use cases (slot 4: one scenario.Diagram per use case
+// that carries an activity diagram, plus every actor), the committed System's dynamic
+// views (slot 5) and the service-contract operation surface onto the adapter-neutral
+// scenario.Input that framework-go/scenario derives from. Node kinds and call modes
+// cross as their WIRE names (activityNodeKindNames / callModeNames), exactly what
+// methodcheck reads off the on-disk document, so the scenario ids a test plan binds
+// (TP-*), the ids the platform's testgen emits against and the ids this server
+// renders are ONE canonical set. The adapter lives in this impl file rather than a
+// file of its own because the file-layout gate admits no second handwritten file in
+// a component package.
+
+// ScenarioInputOf builds the derivation input from p's COMMITTED core use cases
+// (slot 4) and COMMITTED System (slot 5): a slot whose Status is not ReviewCommitted
+// — drafting, awaiting review, rejected (its model is retained as the redraft
+// baseline), withdrawn — contributes nothing, exactly the `Status == committed &&
+// model present` gate methodcheck.ScenarioInput applies through slotByKind. The gate
+// is what keeps the id set canonical on a design branch: with slot 4 rejected,
+// methodcheck's TP-* rules and the platform's testgen derive an empty set, so this
+// adapter must too, or the ids a verb binds split from the ids the rules check. A
+// project without committed use cases yields an empty input, not an error: there is
+// nothing to derive yet, which ForComponent reports as an empty set.
+func ScenarioInputOf(p *Project) (scenario.Input, error) {
+	in := scenario.Input{Actors: map[string]bool{}, Contracts: map[string]scenario.Contract{}}
+	if p == nil {
+		return in, errors.New("projectstate.ScenarioInputOf: nil project")
+	}
+	cu, ok := scenarioCommittedModel[*CoreUseCases](p, KindCoreUseCases)
+	if !ok {
+		return in, nil
+	}
+	scenarioAddUseCases(&in, cu)
+	if sys, ok := scenarioCommittedModel[*System](p, KindSystem); ok {
+		for _, v := range sys.DynamicViews {
+			in.Views = append(in.Views, scenarioViewOf(v))
+		}
+	}
+	for key, sc := range p.ServiceContracts {
+		in.Contracts[key] = scenarioContractOf(key, sc)
+	}
+	return in, nil
+}
+
+// ComponentScenarios derives the project's canonical scenario set and projects it
+// onto component (a serviceContracts key or a slot-5 component id — scenario.Normalize
+// folds kebab and camel spellings together): every scenario with at least one
+// stimulus into the component, with its stimuli filtered to those.
+func ComponentScenarios(p *Project, component string) ([]scenario.Scenario, error) {
+	if strings.TrimSpace(component) == "" {
+		return nil, errors.New("projectstate.ComponentScenarios: component must not be empty")
+	}
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return nil, err
+	}
+	all, err := scenario.Derive(in)
+	if err != nil {
+		return nil, fmt.Errorf("projectstate.ComponentScenarios: %w", err)
+	}
+	return scenario.ForComponent(all, component), nil
+}
+
+// scenarioCommittedModel returns the slot's model as M only when the slot is
+// ReviewCommitted and holds a non-nil model of that type — the server-side spelling
+// of methodcheck's Slot.committed() (status == committed && len(model) > 0), via the
+// same slotPtr + Status == ReviewCommitted guard the rest of this file applies.
+func scenarioCommittedModel[M interface {
+	ArtifactModel
+	comparable
+}](p *Project, kind ArtifactKind) (M, bool) {
+	var zero M
+	slot, ok := slotPtr(p, kind)
+	if !ok || slot.Status != ReviewCommitted || slot.Model == nil {
+		return zero, false
+	}
+	m, ok := slot.Model.(M)
+	if !ok || m == zero {
+		return zero, false
+	}
+	return m, true
+}
+
+// scenarioAddUseCases records every use case's actors and one Diagram per use case
+// that carries an activity diagram, sorted by use-case id.
+func scenarioAddUseCases(in *scenario.Input, cu *CoreUseCases) {
+	for _, d := range cu.Decisions {
+		uc := d.UseCase
+		for _, a := range uc.Actors {
+			in.Actors[a.ID] = true
+		}
+		if uc.Activity == nil {
+			continue
+		}
+		in.Diagrams = append(in.Diagrams, scenarioDiagramOf(uc))
+	}
+	sort.SliceStable(in.Diagrams, func(i, j int) bool { return in.Diagrams[i].UseCaseID < in.Diagrams[j].UseCaseID })
+}
+
+// scenarioDiagramOf hands a use case's activity diagram through with its node kinds
+// as wire names; the typed model's nil pointers for absent nullable fields become
+// the "" the derivation reads as absent.
+func scenarioDiagramOf(uc UseCase) scenario.Diagram {
+	d := scenario.Diagram{UseCaseID: uc.ID, Title: uc.Name}
+	for _, n := range uc.Activity.Nodes {
+		d.Nodes = append(d.Nodes, scenario.Node{
+			ID: n.ID, Kind: activityNodeKindNames[n.Kind], Label: n.Label, RoleName: n.RoleName,
+			LinkedActorID: derefString(n.LinkedActorID), DecidedBy: derefString(n.DecidedBy),
+			InState: n.InState, Anchor: n.Anchor,
+		})
+	}
+	for _, e := range uc.Activity.Edges {
+		d.Edges = append(d.Edges, scenario.Edge{From: e.From, To: e.To, Guard: e.Guard})
+	}
+	return d
+}
+
+// scenarioViewOf projects one dynamic view step by step, keeping call order.
+func scenarioViewOf(v DynamicView) scenario.View {
+	view := scenario.View{UseCaseID: v.UseCaseID}
+	for _, st := range v.Steps {
+		s := scenario.Step{NodeID: st.ActivityNodeID}
+		for _, c := range st.Calls {
+			s.Calls = append(s.Calls, scenario.Call{From: c.From, To: c.To, Mode: callModeNames[c.Mode], Label: c.Label, Alt: derefString(c.Alt)})
+		}
+		view.Steps = append(view.Steps, s)
+	}
+	return view
+}
+
+// scenarioContractOf keeps a contract's operation surface (op names + param names)
+// under its serviceContracts key, which is what the derivation resolves call labels
+// against.
+func scenarioContractOf(key string, sc ServiceContract) scenario.Contract {
+	ct := scenario.Contract{Component: key}
+	for _, op := range sc.Interface.Operations {
+		o := scenario.Op{Name: op.Name}
+		for _, prm := range op.Params {
+			o.Params = append(o.Params, prm.Name)
+		}
+		ct.Ops = append(ct.Ops, o)
+	}
+	return ct
+}
+
+// derefString is "" for a nil pointer, the pointee otherwise.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

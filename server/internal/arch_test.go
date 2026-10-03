@@ -979,6 +979,18 @@ var encapsulationAllowlistData = map[string][]string{
 		// for which payload field lands in which slot). Same category as RequireModelFields
 		// above (a pure helper the MCP binary shares with the server read/write path).
 		"ApplyPhaseArtifactPayload",
+		// SCENARIO DERIVATION ADAPTER (deterministic component testing, design §2/§3.2):
+		// the pure, I/O-free projection of the typed Project onto framework-go/scenario's
+		// adapter-neutral Input (ScenarioInputOf) and the derive+project composition over
+		// it (ComponentScenarios). projectstate OWNS the use-case diagrams, dynamic views
+		// and contract corpus the derivation reads, so the adapter lives here — the
+		// server-side mirror of methodcheck.ScenarioInput — and is consumed by
+		// cmd/aiarch-state-mcp (listComponentScenarios) and the delivery Manager's
+		// test-plan/test-run views, so every consumer binds against ONE canonical id set.
+		// Same category as ClassifyActivity/ApplyPhaseArtifactPayload above (a total,
+		// side-effect-free function the MCP binary shares with the server read path).
+		"ScenarioInputOf",
+		"ComponentScenarios",
 		// INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
 		// ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
 		// needs an explicit entry like the System model types) + its hand-written accessors.

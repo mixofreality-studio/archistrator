@@ -26,6 +26,7 @@ import (
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 )
 
@@ -12605,5 +12606,64 @@ func TestDeriveVariantNoLongerKnowsPlanOrSystemTest(t *testing.T) {
 	}
 	if v, ok := deriveVariant("N-PERF"); !ok || v != TestVariantPerf {
 		t.Fatal(v)
+	}
+}
+
+// TestScenarioInputOf_GatesOnCommittedSlots pins the parity invariant the scenario
+// adapter claims: methodcheck.ScenarioInput reads slot 4 and slot 5 ONLY when the
+// slot is ReviewCommitted with a model (framework-go methodcheck/project.go
+// slotByKind → Slot.committed), so the server-side mirror must apply the same
+// gate — otherwise a design branch with a drafting/rejected slot binds a
+// different canonical id set than the TP-* rules and testgen see.
+func TestScenarioInputOf_GatesOnCommittedSlots(t *testing.T) {
+	raw, err := os.ReadFile("../../../../.aiarch/state/project.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	load := func(edit func(*Project)) *Project {
+		p, ok, err := DecodeProjectJSON(raw, ProjectID("archistrator"))
+		if err != nil || !ok {
+			t.Fatalf("decode dog-food fixture: ok=%v err=%v", ok, err)
+		}
+		edit(&p)
+		return &p
+	}
+	derive := func(p *Project) (scenario.Input, int) {
+		t.Helper()
+		in, err := ScenarioInputOf(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := ComponentScenarios(p, "deliveryManager")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return in, len(got)
+	}
+
+	committed := load(func(*Project) {})
+	if committed.CoreUseCases.Status != ReviewCommitted || committed.SystemDesign.Status != ReviewCommitted {
+		t.Fatalf("fixture precondition: slots 4/5 must be committed, got %v/%v", committed.CoreUseCases.Status, committed.SystemDesign.Status)
+	}
+	base, baseN := derive(committed)
+	if len(base.Diagrams) == 0 || len(base.Views) == 0 || baseN == 0 {
+		t.Fatalf("fixture precondition: committed project must yield diagrams, views and deliveryManager scenarios, got %d/%d/%d", len(base.Diagrams), len(base.Views), baseN)
+	}
+
+	for _, status := range []ArtifactReviewStatus{ReviewAwaitingReview, ReviewRejected, ReviewWithdrawn, ReviewNone} {
+		// A non-committed core-use-cases slot is "nothing to derive yet": no
+		// diagrams, no actors, no views (views hang off the use cases), no scenarios
+		// — methodcheck derives an empty set here, so the server must too.
+		in, n := derive(load(func(p *Project) { p.CoreUseCases.Status = status }))
+		if len(in.Diagrams)+len(in.Actors)+len(in.Views)+n != 0 {
+			t.Fatalf("core-use-cases %v: expected nothing derived, got diagrams=%d actors=%d views=%d deliveryManager=%d", status, len(in.Diagrams), len(in.Actors), len(in.Views), n)
+		}
+
+		// A non-committed System slot drops the dynamic views but keeps the
+		// use-case diagrams — exactly what methodcheck.ScenarioInput does.
+		in, _ = derive(load(func(p *Project) { p.SystemDesign.Status = status }))
+		if len(in.Views) != 0 || len(in.Diagrams) != len(base.Diagrams) {
+			t.Fatalf("system %v: expected no views and %d diagrams, got views=%d diagrams=%d", status, len(base.Diagrams), len(in.Views), len(in.Diagrams))
+		}
 	}
 }

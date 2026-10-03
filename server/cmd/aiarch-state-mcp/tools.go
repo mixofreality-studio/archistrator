@@ -192,6 +192,16 @@ func composedVerbs(s *Session) []composedVerb {
 				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 			}, textHandler(func(_ context.Context, in getCommittedSlotInput) (string, error) { return s.getCommittedSlot(in.Kind) }))
 		}},
+		{name: "listComponentScenarios", modes: shared, register: func(srv *mcp.Server) {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name: "listComponentScenarios",
+				Description: "Deterministic scenarios projected onto one component (inputs into it, expected outputs/states, hints). " +
+					"Bind each one in the test plan; never invent scenarios.",
+				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			}, textHandler(func(_ context.Context, in listComponentScenariosInput) (string, error) {
+				return s.listComponentScenarios(in.Component)
+			}))
+		}},
 		{name: "getDraftSlot", modes: all, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "getDraftSlot",
