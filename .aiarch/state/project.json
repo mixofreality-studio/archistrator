@@ -15802,7 +15802,7 @@
             "error": true
           },
           {
-            "name": "OpenTestRunFile",
+            "name": "ReadTestRunFile",
             "params": [
               {
                 "name": "run",

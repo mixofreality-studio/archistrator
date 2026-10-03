@@ -452,7 +452,7 @@ func (e erroringArtifactAccess) GetTestRunIndex(fwra.Context, TestRunRef) (TestR
 	return TestRunIndex{}, e.err
 }
 
-func (e erroringArtifactAccess) OpenTestRunFile(fwra.Context, TestRunRef, string) (ConstructionOutput, error) {
+func (e erroringArtifactAccess) ReadTestRunFile(fwra.Context, TestRunRef, string) (ConstructionOutput, error) {
 	return ConstructionOutput{}, e.err
 }
 
@@ -467,11 +467,11 @@ func (g *GitArtifactAccess) GetTestRunIndex(_ fwra.Context, run TestRunRef) (Tes
 	return TestRunIndex{}, fwra.New(fwra.ContractMisuse, "artifact: GetTestRunIndex is not wired for this profile yet (run "+run.RunID+", artifact "+run.Artifact+"); Plan 2 Task 5")
 }
 
-// OpenTestRunFile reads one file of a test-run artifact (a video, a trace, the go test
+// ReadTestRunFile reads one file of a test-run artifact (a video, a trace, the go test
 // stream) by its path inside the artifact. See GetTestRunIndex for why it is refused
 // until Plan 2 Task 5.
-func (g *GitArtifactAccess) OpenTestRunFile(_ fwra.Context, run TestRunRef, path string) (ConstructionOutput, error) {
-	return ConstructionOutput{}, fwra.New(fwra.ContractMisuse, "artifact: OpenTestRunFile is not wired for this profile yet (run "+run.RunID+", path "+path+"); Plan 2 Task 5")
+func (g *GitArtifactAccess) ReadTestRunFile(_ fwra.Context, run TestRunRef, path string) (ConstructionOutput, error) {
+	return ConstructionOutput{}, fwra.New(fwra.ContractMisuse, "artifact: ReadTestRunFile is not wired for this profile yet (run "+run.RunID+", path "+path+"); Plan 2 Task 5")
 }
 
 // localGitAuth is the LOCAL/embedded profile resolver: a file:// remote needs no
@@ -579,6 +579,6 @@ func (dryRunArtifacts) GetTestRunIndex(_ fwra.Context, _ TestRunRef) (TestRunInd
 	return TestRunIndex{Results: []byte("[]"), Files: []string{}}, nil
 }
 
-func (dryRunArtifacts) OpenTestRunFile(_ fwra.Context, _ TestRunRef, _ string) (ConstructionOutput, error) {
+func (dryRunArtifacts) ReadTestRunFile(_ fwra.Context, _ TestRunRef, _ string) (ConstructionOutput, error) {
 	return ConstructionOutput{Bytes: []byte("dry-run test-run file"), MIMEType: "text/plain"}, nil
 }

@@ -174,10 +174,10 @@ func (i genInvokers) ArtifactGetTestRunIndex(ctx workflow.Context, run artifact.
 	return out, err
 }
 
-// ArtifactOpenTestRunFile invokes activity "artifactAccess.openTestRunFile".
-func (i genInvokers) ArtifactOpenTestRunFile(ctx workflow.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
+// ArtifactReadTestRunFile invokes activity "artifactAccess.readTestRunFile".
+func (i genInvokers) ArtifactReadTestRunFile(ctx workflow.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
 	var out artifact.ConstructionOutput
-	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.openTestRunFile"), "artifactAccess.openTestRunFile", run, path).Get(ctx, &out)
+	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.readTestRunFile"), "artifactAccess.readTestRunFile", run, path).Get(ctx, &out)
 	return out, err
 }
 

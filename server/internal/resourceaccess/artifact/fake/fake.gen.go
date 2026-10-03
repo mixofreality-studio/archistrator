@@ -12,7 +12,7 @@ import (
 // a test needs; calling a method whose Fn is unset panics.
 type FakeArtifactAccess struct {
 	GetTestRunIndexFn            func(rc fwra.Context, run artifact.TestRunRef) (artifact.TestRunIndex, error)
-	OpenTestRunFileFn            func(rc fwra.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error)
+	ReadTestRunFileFn            func(rc fwra.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error)
 	RetrieveConstructionOutputFn func(rc fwra.Context, contentAddress string) (artifact.ConstructionOutput, error)
 	RetrieveOutputTreeFn         func(rc fwra.Context, contentAddress string) (artifact.OutputTree, error)
 	StoreConstructionOutputFn    func(rc fwra.Context, content artifact.ConstructionOutput) (string, error)
@@ -25,11 +25,11 @@ func (f *FakeArtifactAccess) GetTestRunIndex(rc fwra.Context, run artifact.TestR
 	return f.GetTestRunIndexFn(rc, run)
 }
 
-func (f *FakeArtifactAccess) OpenTestRunFile(rc fwra.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
-	if f.OpenTestRunFileFn == nil {
-		panic("FakeArtifactAccess.OpenTestRunFileFn not set")
+func (f *FakeArtifactAccess) ReadTestRunFile(rc fwra.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
+	if f.ReadTestRunFileFn == nil {
+		panic("FakeArtifactAccess.ReadTestRunFileFn not set")
 	}
-	return f.OpenTestRunFileFn(rc, run, path)
+	return f.ReadTestRunFileFn(rc, run, path)
 }
 
 func (f *FakeArtifactAccess) RetrieveConstructionOutput(rc fwra.Context, contentAddress string) (artifact.ConstructionOutput, error) {

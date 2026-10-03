@@ -35,7 +35,7 @@ type TestRunRef struct {
 // ArtifactAccess is the generated service-contract interface for this component.
 type ArtifactAccess interface {
 	GetTestRunIndex(rc fwra.Context, run TestRunRef) (TestRunIndex, error)
-	OpenTestRunFile(rc fwra.Context, run TestRunRef, path string) (ConstructionOutput, error)
+	ReadTestRunFile(rc fwra.Context, run TestRunRef, path string) (ConstructionOutput, error)
 	RetrieveConstructionOutput(rc fwra.Context, contentAddress string) (ConstructionOutput, error)
 	RetrieveOutputTree(rc fwra.Context, contentAddress string) (OutputTree, error)
 	StoreConstructionOutput(rc fwra.Context, content ConstructionOutput) (string, error)

@@ -83,7 +83,7 @@ func (f *fakeRegistry) RegisterActivityWithOptions(_ any, options activity.Regis
 // type no worker serves, and an unregistered Schedule is not a deleted one.
 //
 // Deterministic component testing (Plan 2 Task 1) ADDS four: artifactAccess gained
-// getTestRunIndex and openTestRunFile, registered by the two Managers that depend on
+// getTestRunIndex and readTestRunFile, registered by the two Managers that depend on
 // the RA (delivery, operations). Additions are the safe direction — nothing to drain.
 var registeredTemporalNamesGolden = []string{
 	"activityExecutionAccess.acknowledgeStaleBasis",
@@ -103,8 +103,8 @@ var registeredTemporalNamesGolden = []string{
 	"agenticJobAccess.submitAgenticJob",
 	"artifactAccess.getTestRunIndex",
 	"artifactAccess.getTestRunIndex",
-	"artifactAccess.openTestRunFile",
-	"artifactAccess.openTestRunFile",
+	"artifactAccess.readTestRunFile",
+	"artifactAccess.readTestRunFile",
 	"artifactAccess.retrieveConstructionOutput",
 	"artifactAccess.retrieveConstructionOutput",
 	"artifactAccess.retrieveOutputTree",

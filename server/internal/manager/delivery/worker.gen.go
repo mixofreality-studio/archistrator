@@ -50,7 +50,7 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.PipelineObserveAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.observeAgenticJob"})
 	w.RegisterActivityWithOptions(acts.PipelineSubmitAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.submitAgenticJob"})
 	w.RegisterActivityWithOptions(acts.ArtifactGetTestRunIndex, activity.RegisterOptions{Name: "artifactAccess.getTestRunIndex"})
-	w.RegisterActivityWithOptions(acts.ArtifactOpenTestRunFile, activity.RegisterOptions{Name: "artifactAccess.openTestRunFile"})
+	w.RegisterActivityWithOptions(acts.ArtifactReadTestRunFile, activity.RegisterOptions{Name: "artifactAccess.readTestRunFile"})
 	w.RegisterActivityWithOptions(acts.ArtifactRetrieveConstructionOutput, activity.RegisterOptions{Name: "artifactAccess.retrieveConstructionOutput"})
 	w.RegisterActivityWithOptions(acts.ArtifactRetrieveOutputTree, activity.RegisterOptions{Name: "artifactAccess.retrieveOutputTree"})
 	w.RegisterActivityWithOptions(acts.ArtifactStoreConstructionOutput, activity.RegisterOptions{Name: "artifactAccess.storeConstructionOutput"})

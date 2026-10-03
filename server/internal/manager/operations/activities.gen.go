@@ -168,10 +168,10 @@ func (a *genActivities) ArtifactGetTestRunIndex(ctx context.Context, run artifac
 	return v, fwmanager.MapError(err)
 }
 
-// ArtifactOpenTestRunFile wraps artifactAccess.openTestRunFile.
-// Registered as "artifactAccess.openTestRunFile".
-func (a *genActivities) ArtifactOpenTestRunFile(ctx context.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
-	v, err := a.Artifact.OpenTestRunFile(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, run, path)
+// ArtifactReadTestRunFile wraps artifactAccess.readTestRunFile.
+// Registered as "artifactAccess.readTestRunFile".
+func (a *genActivities) ArtifactReadTestRunFile(ctx context.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
+	v, err := a.Artifact.ReadTestRunFile(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, run, path)
 	return v, fwmanager.MapError(err)
 }
 

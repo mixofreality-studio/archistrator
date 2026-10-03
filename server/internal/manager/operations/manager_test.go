@@ -624,7 +624,7 @@ func (a *fakeArtifacts) GetTestRunIndex(_ fwra.Context, _ artifact.TestRunRef) (
 	return artifact.TestRunIndex{}, nil
 }
 
-func (a *fakeArtifacts) OpenTestRunFile(_ fwra.Context, _ artifact.TestRunRef, _ string) (artifact.ConstructionOutput, error) {
+func (a *fakeArtifacts) ReadTestRunFile(_ fwra.Context, _ artifact.TestRunRef, _ string) (artifact.ConstructionOutput, error) {
 	return artifact.ConstructionOutput{}, nil
 }
 
