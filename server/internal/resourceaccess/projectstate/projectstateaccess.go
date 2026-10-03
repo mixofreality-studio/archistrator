@@ -8846,6 +8846,26 @@ func PumpWroteRow(r ActivityExecution) bool {
 	return r.StartedAt != nil
 }
 
+// activityExitRecorded reports whether this row carries the activity's BINARY EXIT — the
+// one head fact an activity writes only after its work is on main, and therefore the only
+// fact a DEPENDENT may be admitted against.
+//
+// It is named, beside PumpWroteRow, for the same reason PumpWroteRow is named: the reader
+// that must tell "this activity is over" from "this activity's ledger has nothing left to
+// run" should ask ONE question with the measurement that forced the distinction written next
+// to it (ResolveDependencySatisfied). It stays UNEXPORTED because that reader is in this
+// package: PumpWroteRow is exported only because the delivery Manager's own eligibility rule
+// calls it, and an exported identifier here is one more entry the encapsulation gate's
+// allowlist would have to carry for no second caller.
+//
+// It reads CompletedAt alone. It deliberately does NOT also test TailFailureDetail: a row
+// whose exit landed and whose tail then broke IS exited, and whether that still satisfies a
+// dependent is CoarsePhaseFor's answer (ActivityConstructionCompletedNotLanded, which is not
+// Done) — one rule, in the place that already owns it. Nor does it test StartedAt: whether an
+// UNEXITED row's ledger may speak for it is the CALLER's question, and only
+// ResolveDependencySatisfied has a reason to ask it (see the PumpWroteRow pairing there).
+func activityExitRecorded(r ActivityExecution) bool { return r.CompletedAt != nil }
+
 // RequeuedAfterExit reports whether this row was RE-ARMED by an operator requeue after it
 // exited, and is therefore dispatchable again whatever its attempt ledger resolves to.
 //
@@ -8987,6 +9007,37 @@ func ResolveDependencySatisfied(
 	if item, isActivity := itemByName[depID]; isActivity {
 		s, exists := status[depID]
 		if !exists {
+			return DependencyResolution{Satisfied: false}
+		}
+		// THE BINARY EXIT IS WHAT UNBLOCKS A DEPENDENT, AND NOTHING ELSE IS (wedge #6,
+		// measured on the second paid todomvc run). CoarsePhaseFor has TWO ways to answer
+		// Done and only one of them is an exit: the head fact CompletedAt, which the activity
+		// writes AFTER its work is on main, and — falling through it — the attempt LEDGER,
+		// which resolves Done the instant every gate task has a passed attempt. The ledger's
+		// answer is minutes early: between the last gate and the exit sit the branch merge and
+		// the design slot commits, which are the whole of "the work landed".
+		//
+		// WHAT THAT COST: `requirements` passed its last gate at 05:07:05.7Z, the pump opened
+		// `architecture` at 05:07:06.976Z on the strength of it, and the four CommitArtifact
+		// writes that put mission, glossary, volatilities and coreUseCases on main did not
+		// land until 05:07:07.x-05:07:08Z. `activity/architecture` was therefore cut from a
+		// main at v32 — the birth seed, slots {9,10} — while main ended at v40 with all four;
+		// getCommittedSlot reported every one of them "not committed yet" and the draft had
+		// nothing to be grounded in. The agent refused to invent a System, which is the only
+		// reason the run failed loudly instead of shipping a fabricated architecture.
+		//
+		// AND THE RULE IS KEYED ON PumpWroteRow, WHICH IS WHAT KEEPS ARCHITECT RULING Q2
+		// (Task 7a) INTACT. The ledger arm is not wrong; it answers for a row that has
+		// NOTHING ELSE. The migration backfill reconstructed rows from history for activities
+		// whose work really is on main, and it could not synthesise head facts for them — no
+		// StartedAt, no CompletedAt, a fully passed ledger — so for those rows the ledger is
+		// the only record there is and it is Done to the pump, exactly as Q2 ruled. A row the
+		// pump OPENED is the opposite case: StartedAt says the platform is walking it in this
+		// era, so its exit is a fact the platform will write, and a complete ledger on it means
+		// only "every gate passed" — which happens BEFORE the merge tail runs. The same
+		// discriminator already separates these two readings in isActivityDispatchable; this
+		// is the one named question asked by its second reader.
+		if PumpWroteRow(s) && !activityExitRecorded(s) {
 			return DependencyResolution{Satisfied: false}
 		}
 		effective, _ := EffectiveConstructionPhase(s, item)

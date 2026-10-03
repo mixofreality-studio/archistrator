@@ -3565,11 +3565,17 @@ func attemptEvidence(produced producedSubject) (projectstate.EvidenceKind, strin
 	return projectstate.EvidenceNone, ""
 }
 
-// finalizeWalk closes a walk whose every task passed: the policy-gated LOCAL merge, then
-// the clean-pass tail (the architecture +1 relay, the change-reviewed record, the gated
-// merge, and the activity's binary exit). Both are reached through the helpers the
-// construction rail already uses, so "the activity finished" means the same thing on
-// either rail.
+// finalizeWalk closes a walk whose every task passed: the policy-gated LOCAL merge, the
+// clean-pass tail (the architecture +1 relay, the change-reviewed record, the gated merge),
+// the design slot commits, and LAST the activity's binary exit. They are reached through the
+// helpers the construction rail already uses, so "the activity finished" means the same thing
+// on either rail.
+//
+// THE ORDER OF THE LAST TWO IS THE INVARIANT, not a detail (wedge #6): the binary exit is
+// what admits a DEPENDENT (projectstate.ResolveDependencySatisfied), so it may not be written until
+// everything that puts this activity's work on main has put it there. See
+// changeExitAfterTheWorkLands below for the fence that makes the reorder replay-safe, and
+// recordBinaryExit for the measurement.
 //
 // A walk that ran out of ready tasks with some task UNPASSED has not finished, it has
 // STOPPED, and saying otherwise would record a completed activity whose work never
@@ -3646,15 +3652,60 @@ func (wf *csWorkflows) finalizeWalk(
 	// already recorded its binary exit the store keeps the exit and records the tail detail
 	// beside it. Neither arm is a decision taken here — the store owns it, which is why the
 	// rule is written there and not in two callers.
+	//
+	// AND THE EXIT IS THE LAST THING THE TAIL DOES (wedge #6). The fence is what makes the
+	// reorder replay-safe: a history recorded before it has no marker, reads DefaultVersion
+	// and keeps the sequence it recorded (exit, then slot commits); every execution started
+	// after it lands the work first and exits second. The marker is taken unconditionally,
+	// at this one point, before either arm emits a command.
+	exitLast := workflow.GetVersion(ctx, changeExitAfterTheWorkLands, workflow.DefaultVersion, 1) >= 1
 	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred,
-		reconcileTargetOf(lc)); err != nil {
+		reconcileTargetOf(lc), exitLast); err != nil {
 		return wf.recordTailFailure(ctx, in, state, "finalizeActivity", err)
 	}
 	if err := wf.commitDesignArtifacts(ctx, in, lc, ws, state); err != nil {
+		if exitLast {
+			// THE WALK DID COMPLETE ITS WORK; WHAT BROKE IS THE LANDING — so the row must say
+			// both, and on this arm the exit has not been written yet. Writing it here is what
+			// keeps the broken-tail row the SAME shape the pre-fence order left it in:
+			// CompletedAt beside TailFailureDetail, which CoarsePhaseFor derives as
+			// completedNotLanded. That state is what the AUTOMATIC heal keys on
+			// (sweepReopenNotLanded), and it deliberately does NOT heal a Failed row — "Failed
+			// is a decision about the WORK". Without this the reorder would silently turn every
+			// broken landing into a terminal only a human could re-open.
+			//
+			// IT IS NOT AN ADMISSION FACT. completedNotLanded is not Done, so AllDepsSatisfied
+			// keeps the dependents blocked exactly as before; the ordering guarantee this whole
+			// fence buys is about the CLEAN path, where Done now implies landed.
+			//
+			// Its own error is logged and dropped, the way recordTailFailure drops its write
+			// error: the caller must receive the commit's cause and not a report about
+			// bookkeeping.
+			if eerr := wf.recordBinaryExit(ctx, csIn, &state.walk.headVersion, state,
+				state.walk.gitOn, state.walk.cred); eerr != nil {
+				workflow.GetLogger(ctx).Error("the completion a broken landing earned could not be recorded",
+					"activityId", in.ActivityID, "err", eerr.Error(),
+					"consequence", "the row reads failed rather than completedNotLanded, so only an operator can re-open it")
+			}
+		}
 		return wf.recordTailFailure(ctx, in, state, "commitDesignArtifacts", err)
+	}
+	if exitLast {
+		if err := wf.recordBinaryExit(ctx, csIn, &state.walk.headVersion, state,
+			state.walk.gitOn, state.walk.cred); err != nil {
+			return wf.recordTailFailure(ctx, in, state, "recordBinaryExit", err)
+		}
 	}
 	return nil
 }
+
+// changeExitAfterTheWorkLands fences the ORDER of the merge tail's last two steps. Its
+// DefaultVersion arm records the binary exit inside finalizeActivity and then commits the
+// design slots — the order every history captured before wedge #6 was fixed; v1 commits
+// first and exits last, which is what makes CompletedAt mean "this activity's work is on
+// main" and therefore what makes it safe for ResolveDependencySatisfied to admit a dependent
+// against it. Retire it with the other delivery fences after the drain.
+const changeExitAfterTheWorkLands = "delivery-exit-after-the-work-lands"
 
 // recordTailFailure records that an activity's MERGE TAIL broke, and RETURNS THE ORIGINAL
 // ERROR UNCHANGED — the way failWalk returns its cause. The caller and the pump must see the
@@ -3847,12 +3898,20 @@ func (wf *csWorkflows) signalActivityFinished(
 // at all: one activity holds FOUR kinds and one branch, so committing mission when its gate
 // passes would mean four merges of one branch.
 //
-// THE COST: the activity's binary exit is recorded by finalizeActivity BEFORE these commits, so
-// a commit that fails here leaves an activity reading Completed with its slots still
-// AwaitingReview. THAT NOW HEALS (stage 4b1 Task 12, fix round 1, controller carry 4): the
-// operator re-opens the activity (a requeue note clears its terminal), the pump re-selects it,
-// and the re-run commits what is still uncommitted — see the no-work arm below, which had to
-// LEARN to do that. It is still not automatic: nothing re-opens an activity on its own.
+// THE COST IS PAID OFF (wedge #6). It used to read: the activity's binary exit is recorded by
+// finalizeActivity BEFORE these commits, so a commit that fails here leaves an activity
+// reading Completed with its slots still AwaitingReview. That window is what the second paid
+// todomvc run fell into from the OTHER side — not a failed commit, but a successful one that
+// had not happened yet when the next activity's branch was cut off main. finalizeWalk now
+// calls recordBinaryExit AFTER this function, so a commit that fails here leaves NO exit at
+// all: the activity is failed, which is the honest reading of "its work is not on main", and
+// nothing can be admitted against it.
+//
+// THE RE-OPEN HEAL IS UNCHANGED and still the repair path (stage 4b1 Task 12, fix round 1,
+// controller carry 4): the operator re-opens the activity (a requeue note clears its
+// terminal), the pump re-selects it, and the re-run commits what is still uncommitted — see
+// the no-work arm below, which had to LEARN to do that. It is still not automatic: nothing
+// re-opens an activity on its own.
 func (wf *csWorkflows) commitDesignArtifacts(
 	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
 	ws *walkState, state *constructState,
@@ -5048,10 +5107,13 @@ func (wf *csWorkflows) loadReviewSnapshot(
 }
 
 // finalizeActivity runs the clean-pass tail of an attempt (constructionManager.md §6.3
-// steps 5a-8a): relay the architecture +1, record the change reviewed, perform the gated
-// merge (interventionEngine is the App-only-merge authority), record the binary activity
-// exit, and record the per-activity construction COMPLETED. The git-forward steps are
-// no-ops when the slice is unwired.
+// steps 5a-6a): relay the architecture +1, record the change reviewed, and perform the
+// gated merge (interventionEngine is the App-only-merge authority). The git-forward steps
+// are no-ops when the slice is unwired.
+//
+// STEPS 8/8a — THE BINARY EXIT — LEFT THIS FUNCTION (wedge #6). They are recordBinaryExit's
+// now, and finalizeWalk calls it LAST, after commitDesignArtifacts; deferExit is false only
+// on the pre-fence arm, which keeps the old order for a history that recorded it.
 func (wf *csWorkflows) finalizeActivity(
 	ctx workflow.Context,
 	in constructActivityInput,
@@ -5061,6 +5123,7 @@ func (wf *csWorkflows) finalizeActivity(
 	gitOn bool,
 	startedCred railCredEnvelope,
 	preserveKinds []projectstate.ArtifactKind,
+	deferExit bool,
 ) error {
 	// --- Step 5a: relay the architecture +1 and record it (git-forward). ---
 	if err := wf.relayArchApprovalAndRecord(ctx, in, gf, headVersion); err != nil {
@@ -5079,10 +5142,39 @@ func (wf *csWorkflows) finalizeActivity(
 		return err
 	}
 
-	// --- Step 8: record the binary activity exit. Behind the fence RecordActivityOutcome
-	// is the fold of the exited + completed pair below: both stamped the SAME write-once
-	// CompletedAt, which is the whole of an exit now that the coarse roll-up is derived,
-	// so the two calls became one. ---
+	if deferExit {
+		return nil
+	}
+	return wf.recordBinaryExit(ctx, in, headVersion, state, gitOn, startedCred)
+}
+
+// recordBinaryExit is step 8 (and 8a): the activity's BINARY EXIT, and it is the LAST main
+// write an activity makes.
+//
+// THAT POSITION IS THE WHOLE POINT, and it is the invariant wedge #6 broke. CompletedAt is
+// the one fact a DEPENDENT is admitted against (projectstate.ResolveDependencySatisfied asks
+// for it by name), so it may be written only once everything that lands this
+// activity's work on main has landed it: the branch merge AND the N design slot commits. It
+// used to be written BEFORE commitDesignArtifacts — an ordering that function's own header
+// called "THE COST" — so an exit could be true while the artifacts were still AwaitingReview,
+// and the next activity's branch was cut over a main that did not carry them.
+//
+// THE PRECEDENT IS THIS REPOSITORY'S, one level up, in completeProjectDesign: "The commit
+// comes first and the advance second, deliberately: a phase advanced over slots still sitting
+// in AwaitingReview would put the pump into construction against a plan nobody committed."
+// This is the same rule one level down — the activity's exit instead of the phase's advance.
+//
+// Behind the fence RecordActivityOutcome is the fold of the exited + completed pair below:
+// both stamped the SAME write-once CompletedAt, which is the whole of an exit now that the
+// coarse roll-up is derived, so the two calls became one.
+func (wf *csWorkflows) recordBinaryExit(
+	ctx workflow.Context,
+	in constructActivityInput,
+	headVersion *projectstate.Version,
+	state *constructState,
+	gitOn bool,
+	startedCred railCredEnvelope,
+) error {
 	if state.executionLedger {
 		if err := wf.recordExecutionOutcome(ctx, in, state, headVersion, startedCred,
 			projectstate.ActivityOutcomeCompleted, projectstate.FailureReasonUnknown, ""); err != nil {

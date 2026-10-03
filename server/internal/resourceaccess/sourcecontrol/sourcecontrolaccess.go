@@ -2136,6 +2136,13 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 	// Mergeable verdict has the same blind spot. Fix both together with the shared
 	// home, not by copying 200 lines.
 	//
+	// SAME EARMARK, SECOND DEFECT (wedge #7): the push below is a compare-and-swap on main
+	// and a non-fast-forward rejection here is still a terminal Infrastructure fault, where
+	// agenticjob's mergeActivityBranch now re-merges against the main that moved. The
+	// classifier that fix reads git's rejection line with (pushRejectedStaleMain) cannot be
+	// imported from here either — same NoSideways rule — so this realisation carries both
+	// defects until the shared home exists. Off the paid path for the same reason.
+	//
 	// Real --no-ff merge with a pinned author identity (independent of host git config).
 	mergeOut, mErr := gitLocalRun(cloneDir, "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
 		"merge", "--no-ff", "-m", "aiarch: merge "+head, remoteHead)

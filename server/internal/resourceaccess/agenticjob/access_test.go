@@ -2419,6 +2419,126 @@ func TestLocalExecMergeJob_MergesNoFFAndDeletesBranch(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// WEDGE #7 — MAIN MOVED UNDER THE MERGE, so the push of the merged main was
+// REJECTED non-fast-forward.
+//
+// MEASURED, second paid todomvc run, 2026-10-02T22:07:07.142-07:00:
+//
+//	delivery.construction.jobFailed activityId=requirements taskId=merge failureReason=1
+//	  local merge: push of merged main failed: … failed to push some refs to
+//	  'file:///…/state-repo'  hint: Updates were rejected because the remote contains
+//	  work that you do not have locally.
+//
+// It is NOT the state-document text conflict (wedge #4, fixed at 3ce58d31): there is no
+// `CONFLICT (content)` anywhere in that run's log. The merge COMPUTED fine and then lost a
+// race — mergeActivityBranch is a clone→merge→push, which is a read-modify-write on main
+// with no concurrency control of its own, and the thing that moved main underneath it was
+// the pump's OpenActivity for the next activity (wedge #6's dispatch, one second earlier).
+//
+// THE FIX IS AT THIS LAYER AND IT IS THE ORDINARY ONE: a non-fast-forward rejection means
+// "re-fetch and redo", not "fail". The whole body is already idempotent (the already-merged
+// arm) and re-doing it means re-merging against the main that actually exists. It is the
+// same optimistic-concurrency retry the projectstate store's version CAS has had all along
+// — a real precondition that is re-read, not a delay that hopes.
+//
+// THE LEASE IS NOT THE FIX, and this is the measurement that says so: in the run above the
+// merge tail DID hold the main-write lease (`delivery.lease.granted activityId=requirements
+// epoch=1` at 22:07:06.929, 213ms before the rejection). The lease serialises ACTIVITY
+// against ACTIVITY within one pump chain; it does not and cannot serialise the pump's own
+// writes, a round-sweep heal, or anything across a continue-as-new boundary — the pump's
+// module header spells that bound out and calls widening it "a different design". So the
+// push has to survive a main that moved, whoever moved it.
+// ---------------------------------------------------------------------------
+
+// installOneShotPostMergeInterloper makes main move at EXACTLY the measured moment: after
+// the merge commit is computed, before it is pushed. It fires ONCE, from a post-merge hook
+// installed into the merge's OWN throwaway clone through GIT_TEMPLATE_DIR — the only seam a
+// test has into a clone the RA makes for itself, and the only way to reproduce this race
+// deterministically rather than by running two writers and hoping.
+//
+// The interloper advances refs/heads/main directly (commit-tree + update-ref) because the
+// shared repo is checked out detached, and its commit is EMPTY: the subject under test is the
+// rejected push, not a content conflict, which LM2 and the wedge-#4 cases already own.
+func installOneShotPostMergeInterloper(t *testing.T, sharedDir string) (fired func() bool) {
+	t.Helper()
+	tmpl := filepath.Join(t.TempDir(), "tmpl")
+	hooks := filepath.Join(tmpl, "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatalf("mkdir template hooks: %v", err)
+	}
+	marker := filepath.Join(t.TempDir(), "interloper.fired")
+	script := "#!/bin/sh\n" +
+		"if [ -e '" + marker + "' ]; then exit 0; fi\n" +
+		": > '" + marker + "'\n" +
+		"unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_QUARANTINE_PATH GIT_PREFIX\n" +
+		"G=\"git --git-dir=" + filepath.Join(sharedDir, ".git") + "\"\n" +
+		"TREE=$($G rev-parse main^{tree}) || exit 0\n" +
+		"PARENT=$($G rev-parse main) || exit 0\n" +
+		"NEW=$($G commit-tree \"$TREE\" -p \"$PARENT\" -m 'interloper advances main') || exit 0\n" +
+		"$G update-ref refs/heads/main \"$NEW\" || exit 0\n" +
+		"exit 0\n"
+	if err := os.WriteFile(filepath.Join(hooks, "post-merge"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write post-merge hook: %v", err)
+	}
+	t.Setenv("GIT_TEMPLATE_DIR", tmpl)
+	// The caller must be able to prove the race HAPPENED. A hook git silently stopped
+	// installing would leave the case a tautology that passes for the wrong reason.
+	return func() bool { _, err := os.Stat(marker); return err == nil }
+}
+
+// LM10 — main moves between the merge and the push: the rejection is re-merged against the
+// main that actually exists, and BOTH sides survive.
+func TestLocalExecMergeJob_MainMovingUnderTheMergeIsRetried(t *testing.T) {
+	sharedDir, url := newSharedRepo(t)
+	seedActivityBranch(t, sharedDir, "C-M10", "work.txt", "branch content\n")
+	a := newLocalExecForTest(t, url, 0)
+	fired := installOneShotPostMergeInterloper(t, sharedDir)
+
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-key-10"), mergeJobSpec("C-M10"))
+	if err != nil {
+		t.Fatalf("Submit(merge): %v", err)
+	}
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if !fired() {
+		t.Fatal("the interloper never ran, so main never moved under the merge and this case " +
+			"proves nothing — git stopped installing hooks from GIT_TEMPLATE_DIR")
+	}
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded — a non-fast-forward rejection is "+
+			"\"re-fetch and redo\", not a terminal failure of the activity (diagnostic: %q)",
+			obs.Phase, obs.Diagnostic)
+	}
+	// THE INTERLOPER'S COMMIT IS STILL THERE. A retry that forced the push would have fixed
+	// the symptom by destroying somebody else's write, which is worse than the wedge.
+	if got := testGitOut(t, sharedDir, "log", "main", "--format=%s"); !strings.Contains(got, "interloper advances main") {
+		t.Fatalf("the concurrent write was lost from main; the retry must RE-MERGE, never force-push\n%s", got)
+	}
+	// AND THE SECOND PASS WAS A RE-MERGE, not a re-push of the first pass's commit: the
+	// landed merge commit has the INTERLOPER as a parent, which it can only have if it was
+	// computed against the main that moved.
+	parents := strings.Fields(strings.TrimSpace(testGitOut(t, sharedDir, "log", "-1", "--format=%P", "main")))
+	if len(parents) != 2 {
+		t.Fatalf("main tip has %d parents, want 2 (a --no-ff merge commit)", len(parents))
+	}
+	interloper := strings.TrimSpace(testGitOut(t, sharedDir, "rev-list", "-1",
+		"--grep=interloper advances main", "main"))
+	if interloper == "" || (parents[0] != interloper && parents[1] != interloper) {
+		t.Fatalf("the landed merge commit's parents are %v, neither of which is the interloper %q — "+
+			"the retry re-pushed a merge computed against the OLD main", parents, interloper)
+	}
+	// AND THE BRANCH'S WORK LANDED.
+	if got := testGitOut(t, sharedDir, "cat-file", "-p", "main:work.txt"); !strings.Contains(got, "branch content") {
+		t.Fatalf("main:work.txt = %q, want the branch's content", got)
+	}
+	if remoteBranchExists(t, sharedDir, "activity/C-M10") {
+		t.Fatal("activity branch must be deleted after the merge")
+	}
+}
+
 // LM2 — a merge conflict is a FAILED run with a "merge conflict" diagnostic and
 // leaves the shared repo untouched: main unmoved, the branch still present.
 func TestLocalExecMergeJob_ConflictFailsCleanly(t *testing.T) {

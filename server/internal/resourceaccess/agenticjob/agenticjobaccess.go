@@ -3910,6 +3910,64 @@ func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string,
 	a.gitMu.Lock()
 	defer a.gitMu.Unlock()
 
+	// THE PUSH IS A COMPARE-AND-SWAP ON main, SO A LOST RACE IS RE-RUN AND NOT A FAILURE
+	// (wedge #7). Everything below is a clone→merge→push: a read-modify-write on a ref that
+	// other writers advance — the pump's OpenActivity, a round-sweep heal, another activity's
+	// tail across a pump chain boundary. Git already detects the lost race precisely, and
+	// refusing the push is the RIGHT thing for it to do; what was wrong was treating that
+	// refusal as the activity's terminal. A non-fast-forward rejection means the merge was
+	// computed against a main that no longer exists, so the answer is to compute it again
+	// against the one that does — which is exactly what a fresh pass of this body does, since
+	// it clones main anew.
+	//
+	// IT IS NOT A DELAY AND NOT A POLL. Each pass re-reads the precondition and re-does the
+	// work, the same shape the projectstate store's version CAS has always had; there is no
+	// sleep, and a pass that loses the race again only loses it to a writer that really did
+	// land. The bound is small because the clone is of a local repo and the loser does no
+	// work: an exhausted budget is a project under write pressure no merge can get through,
+	// and that is an honest failure with its own diagnostic.
+	//
+	// AND IT NEVER FORCES. --force would fix the symptom by deleting the concurrent write,
+	// which is strictly worse than the wedge; the branch is re-merged on top of it instead.
+	for attempt := 1; ; attempt++ {
+		diagnostic, ok = a.attemptMergeActivityBranch(branch)
+		if ok || !pushRejectedStaleMain(diagnostic) {
+			return diagnostic, ok
+		}
+		if attempt >= maxMergePushAttempts {
+			return diagnostic + " — re-merged against a moving " + localMainBranch + " " +
+				strconv.Itoa(maxMergePushAttempts) + " times and lost the race every time", false
+		}
+	}
+}
+
+// maxMergePushAttempts bounds the re-merge above. Four retries is generous for a race whose
+// window is one local clone wide; what it buys is that the bound exists at all, so a project
+// under continuous main-write pressure fails with a diagnostic instead of spinning.
+const maxMergePushAttempts = 5
+
+// pushRejectedStaleMain reports whether a failed push was refused because the ref was not
+// what the pushing clone thought it was — git's `! [rejected] main -> main (fetch first)`.
+//
+// IT READS THE MARKER, NOT THE REASON, AND THAT IS DELIBERATE: git passes `[rejected]`
+// through as a literal while the parenthetical beside it ("fetch first", "non-fast-forward",
+// "stale info") goes through gettext, so keying on the marker makes the classification
+// independent of the operator's locale. Every reason that prints under this marker is the
+// same shape of fault — the clone's idea of the remote ref is out of date — and every one of
+// them is answered by recomputing from a fresh clone.
+//
+// AND IT IS NARROW. `! [remote rejected]` is a DIFFERENT marker (a receive hook declining the
+// push, which re-merging cannot help) and does not contain this one; neither do
+// `! [remote failure]` or `! [no match]`. A rejection this does not recognise stays the
+// terminal failure it has always been.
+func pushRejectedStaleMain(diagnostic string) bool {
+	return strings.Contains(diagnostic, "! [rejected]")
+}
+
+// attemptMergeActivityBranch is ONE pass of the merge: clone main, merge the branch, push,
+// delete the branch. Every pass starts from a fresh clone, which is what makes re-running it
+// after a lost push race a re-merge against the new main rather than a re-push of a stale one.
+func (a *localExecAccess) attemptMergeActivityBranch(branch string) (diagnostic string, ok bool) {
 	parentDir, err := os.MkdirTemp("", "aiarch-merge-*")
 	if err != nil {
 		return "local merge: create work dir: " + err.Error(), false
@@ -3962,7 +4020,13 @@ func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string,
 		}
 	}
 	if out, err := runGit(cloneDir, "push", "origin", localMainBranch); err != nil {
-		return "local merge: push of merged " + localMainBranch + " failed: " + outputTail(out, 500), false
+		// THE REJECTION LINE IS KEPT WHOLE, and that is load-bearing rather than cosmetic:
+		// outputTail keeps the LAST 500 bytes, and git prints `! [rejected] … (fetch first)`
+		// FIRST and five lines of `hint:` prose after it — so the tail alone dropped the one
+		// line pushRejectedStaleMain reads, and the measured diagnostic began mid-word ("…r:
+		// failed to push"). The classification must not depend on how long git's hints are.
+		return "local merge: push of merged " + localMainBranch + " failed: " +
+			pushRejectionLines(out) + outputTail(out, 500), false
 	}
 	if out, err := runGit(cloneDir, "push", "origin", "--delete", branch); err != nil {
 		// The merge IS landed; a retry takes the already-merged path above and
@@ -3970,6 +4034,22 @@ func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string,
 		return "local merge: merged but branch " + branch + " could not be deleted: " + outputTail(out, 500), false
 	}
 	return "", true
+}
+
+// pushRejectionLines pulls git's own per-ref rejection lines out of a push's output so they
+// survive the tail truncation that follows them. Empty when the failure printed none, which
+// leaves the diagnostic exactly as it was.
+func pushRejectionLines(out string) string {
+	var kept []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, "!") {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) == 0 {
+		return ""
+	}
+	return strings.Join(kept, "; ") + " … "
 }
 
 // ---------------------------------------------------------------------------
@@ -4209,7 +4289,7 @@ func soleLineWithPrefix(lines []string, prefix string) (at int, found bool) {
 // nonEmptyLines splits git's line-oriented output, dropping blanks.
 func nonEmptyLines(out string) []string {
 	var got []string
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if l = strings.TrimSpace(l); l != "" {
 			got = append(got, l)
 		}

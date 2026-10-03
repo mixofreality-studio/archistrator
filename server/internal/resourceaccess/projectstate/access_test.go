@@ -9465,17 +9465,32 @@ func TestPumpWroteRow_IsTheStartStamp(t *testing.T) {
 // that exercise it end to end: an activity is satisfied iff its effective phase is Done;
 // a milestone iff its own dependencies are, recursively; a dangling id and a milestone
 // cycle are plan defects with their own FailureReason; AllDepsSatisfied stops at the
-// first unsatisfied or defective id in authored order.
+// first unsatisfied or defective id in authored order. Wedge #6 added one condition to the
+// activity arm — a row the pump OPENED is satisfied only once its binary exit is recorded,
+// because that is the fact written after the work reaches main — and the A-inTail/A-exited
+// pair is where it is pinned.
 func TestResolveDependencySatisfied_TheMovedPumpRule(t *testing.T) {
 	svc := func(name string) ActivityItem {
 		return ActivityItem{Name: name, WorkerClass: "junior-developer", Coding: true}
 	}
 	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
-	items := map[string]ActivityItem{"A-done": svc("A-done"), "A-partial": svc("A-partial"), "A-norow": svc("A-norow"), "A-stored": svc("A-stored")}
+	items := map[string]ActivityItem{
+		"A-done": svc("A-done"), "A-partial": svc("A-partial"), "A-norow": svc("A-norow"),
+		"A-stored": svc("A-stored"), "A-inTail": svc("A-inTail"), "A-exited": svc("A-exited"),
+	}
 	status := map[string]ActivityExecution{
 		"A-done":    {ActivityID: "A-done", Attempts: constructionLedger("A-done", all...)},
 		"A-partial": {ActivityID: "A-partial", Attempts: constructionLedger("A-partial", all[:len(all)-1]...)},
 		"A-stored":  {ActivityID: "A-stored", CompletedAt: &envelopeStartedAt},
+		// WEDGE #6, AT THE STORE. A-inTail is the shape the paid run's `requirements` row held
+		// at 05:07:05: the pump OPENED it (StartedAt), every gate passed, and the binary exit
+		// is not written yet — because the merge and the four slot commits had not run. Its
+		// ledger resolves Done; it must NOT satisfy a dependent, because its work is not on
+		// main. A-exited is the same row one step later and it does.
+		"A-inTail": {ActivityID: "A-inTail", StartedAt: &envelopeStartedAt,
+			Attempts: constructionLedger("A-inTail", all...)},
+		"A-exited": {ActivityID: "A-exited", StartedAt: &envelopeStartedAt, CompletedAt: &envelopeStartedAt,
+			Attempts: constructionLedger("A-exited", all...)},
 	}
 	milestones := MilestonesByID(&Network{Milestones: []NetworkMilestone{
 		{ID: "M-start"},
@@ -9488,8 +9503,12 @@ func TestResolveDependencySatisfied_TheMovedPumpRule(t *testing.T) {
 		dep  string
 		want DependencyResolution
 	}{
+		// A-done is the BACKFILL shape (a ledger, no head facts at all) and stays satisfied:
+		// architect ruling Q2 / Task 7a, for a row whose ledger is the only record there is.
 		{"A-done", DependencyResolution{Satisfied: true}},
 		{"A-stored", DependencyResolution{Satisfied: true}},
+		{"A-inTail", DependencyResolution{}},
+		{"A-exited", DependencyResolution{Satisfied: true}},
 		{"A-partial", DependencyResolution{}},
 		{"A-norow", DependencyResolution{}},
 		{"M-start", DependencyResolution{Satisfied: true}},

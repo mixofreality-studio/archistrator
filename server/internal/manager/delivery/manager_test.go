@@ -31028,6 +31028,17 @@ func (r *m0GitRig) read(t *testing.T) projectstate.Project {
 // repoURL. An Activity this set forgets surfaces as a loud ActivityNotRegistered rather
 // than as a silent skip — which is the reason the set is explicit rather than inferred.
 func registerDeliveryActivityOverGit(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, repoURL string) {
+	registerDeliveryActivityOverGitWithPipeline(env, wf, repoURL, &csFakePipeline{phase: PipelineSucceeded})
+}
+
+// registerDeliveryActivityOverGitWithPipeline is the same registration with the AGENTIC VENUE
+// supplied by the caller. It is a parameter rather than a second copy of the table because a
+// DESIGN walk needs a venue that commits (designAgentDouble) while a construction walk does
+// not, and two independently-maintained Activity tables is how a case ends up running a
+// different worker than production.
+func registerDeliveryActivityOverGitWithPipeline(
+	env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, repoURL string, pipe agenticjob.AgenticJobAccess,
+) {
 	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow,
 		workflow.RegisterOptions{Name: executionKindDeliveryActivity})
 	acts := &genActivities{
@@ -31037,7 +31048,7 @@ func registerDeliveryActivityOverGit(env *testsuite.TestWorkflowEnvironment, wf 
 		DesignSession:          projectstate.NewGitLocalDesignSessionAccess(repoURL),
 		ActivityExecution:      projectstate.NewGitLocalActivityExecutionAccess(repoURL),
 		Rail:                   sourcecontrol.NewGitLocalSourceControlAccess(repoURL),
-		Pipeline:               &csFakePipeline{phase: PipelineSucceeded},
+		Pipeline:               pipe,
 		Episodes:               &fakeEpisodes{},
 		MessageBus:             &recordingSignalBus{},
 	}
@@ -31331,4 +31342,316 @@ func assertEveryPlannedActivityExited(t *testing.T, rig *m0GitRig) {
 				"the remaining path is NOT clear", a.Name)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// WEDGE #6: AN ACTIVITY'S BRANCH IS CUT FROM A MAIN THAT DOES NOT YET CARRY ITS
+// PREDECESSOR'S WORK.
+//
+// MEASURED, on the second paid todomvc run (2026-10-03T05:07:05-08Z). `requirements`
+// drafted, reviewed and committed all four of its artifacts; `architecture` then failed
+// because it could not see ONE of them. The git timeline on the state repo settles why:
+//
+//	05:07:05  RecordAttemptOutcome  requirements:…:701   <- the LAST GATE passed
+//	05:07:07  OpenActivity          architecture:…:25    <- the next branch is CUT from main
+//	05:07:07  merge activity/requirements                <- the predecessor's branch lands
+//	05:07:07  RecordActivityOutcome requirements:…:775   <- the BINARY EXIT
+//	05:07:07  CommitArtifact        requirements:…:781   <- its artifacts BEGIN landing
+//	05:07:08  CommitArtifact        requirements:…:799   <- main reaches v40
+//
+// main ended at v40 with slots {0,1,3,4,9,10}; `activity/architecture` sat at v32 with
+// {9,10} — the birth seed and nothing else. The agent refused to fabricate a System from
+// nothing, which is the one thing on this list that worked.
+//
+// THE INVARIANT, named: an activity's dependents may open only once the activity's work is
+// ON MAIN. Two separate facts each broke it, and the test below is blind to neither
+// because it asks the question of EVERY commit on main rather than of the end state:
+//
+//  1. ADMISSION read the wrong Done. AllDepsSatisfied → EffectiveConstructionPhase →
+//     CoarsePhaseFor, whose LEDGER arm answers Done the instant every gate task has a
+//     passed attempt — minutes before the merge tail runs. The binary exit (CompletedAt)
+//     is the head fact that means "this activity is over"; a ledger that resolves Done is
+//     the activity's own resumption story and never was an exit.
+//  2. THE EXIT WAS NOT LAST. finalizeWalk recorded the binary exit BEFORE
+//     commitDesignArtifacts landed the design slots on main — an ordering
+//     commitDesignArtifacts' own header called "THE COST". So even an admission rule that
+//     waited for the exit would open the dependent over a main without the artifacts.
+//
+// The precedent for the right order is in this repository already, one level up, in
+// completeProjectDesign: "The commit comes first and the advance second, deliberately".
+// ---------------------------------------------------------------------------
+
+// designAgentDouble is the agentic venue a DESIGN walk actually needs: a job that reports
+// SUCCEEDED *and commits what the real agent commits*.
+//
+// WHY csFakePipeline ALONE CANNOT DRIVE THIS CASE, and it is the same gap
+// TestDryRun_WalksTheWholeDerivedPlan names in its own header: the plain double reports
+// success without writing anything, so stageDesignDraft's read-back finds an empty slot and
+// terminates the walk (ReadBackEmpty). The real design job's whole contract with the
+// read-back is "putDraftModel committed the typed model on the activity branch", so the
+// double honours exactly that — through the SAME RA verb the MCP write path uses, against
+// the SAME on-disk repo — and nothing else. The critique job is left to commit no verdict,
+// which is the production abstention: criticHoldsTheGate holds the gate for a human
+// whatever the policy says, and the operator approve is registered below.
+type designAgentDouble struct {
+	*csFakePipeline
+	t     *testing.T
+	ds    projectstate.DesignSessionAccess
+	id    projectstate.ProjectID
+	model projectstate.ArtifactModel
+
+	// venue is the REAL local venue, and only the MERGE job is routed to it. That routing is
+	// the whole reason the rig runs on a non-bare checkout: a hand-rolled merge in this file
+	// would be a second implementation of mergeActivityBranch — including wedge #4's state-doc
+	// envelope resolution, without which every one of these merges conflicts — and the merge
+	// is exactly the step whose race wedge #7 is about. A design/critique job is NOT routed
+	// there: that would spawn claude.
+	venue agenticjob.AgenticJobAccess
+
+	mu           sync.Mutex
+	staged       int
+	mergeHandles map[agenticjob.PipelineHandle]bool
+}
+
+func (d *designAgentDouble) SubmitAgenticJob(
+	rc fwra.Context, spec agenticjob.PipelineSpec,
+) (agenticjob.PipelineHandle, error) {
+	if spec.DispatchInputs[agenticjob.DispatchInputJobKey] == agenticjob.DispatchJobMerge {
+		h, err := d.venue.SubmitAgenticJob(rc, spec)
+		if err == nil {
+			d.mu.Lock()
+			d.mergeHandles[h] = true
+			d.mu.Unlock()
+		}
+		return h, err
+	}
+	if spec.DispatchInputs[dispatchInputJobMode] == jobModeDraft {
+		d.commitTheDraftTheAgentWouldHave(spec.DispatchInputs[dispatchInputTargetBranch])
+	}
+	return d.csFakePipeline.SubmitAgenticJob(rc, spec)
+}
+
+func (d *designAgentDouble) ObserveAgenticJob(
+	rc fwra.Context, h agenticjob.PipelineHandle,
+) (agenticjob.PipelineObservation, error) {
+	d.mu.Lock()
+	fromVenue := d.mergeHandles[h]
+	d.mu.Unlock()
+	if fromVenue {
+		return d.venue.ObserveAgenticJob(rc, h)
+	}
+	return d.csFakePipeline.ObserveAgenticJob(rc, h)
+}
+
+func (d *designAgentDouble) commitTheDraftTheAgentWouldHave(branch string) {
+	d.mu.Lock()
+	d.staged++
+	key := fmt.Sprintf("agent-double:draft:%d", d.staged)
+	d.mu.Unlock()
+
+	rac := fwra.Context{Context: context.Background(), IdempotencyKey: fwra.IdempotencyKey(key)}
+	env, err := d.ds.ReadProjectOnBranch(rac, d.id, branch)
+	if err != nil {
+		d.t.Errorf("agent double: read %s: %v", branch, err)
+		return
+	}
+	if _, err := d.ds.StageArtifactForReviewOnBranch(rac, d.id, env.Version, branch,
+		mustEncodeModelForTest(d.t, d.model), fwra.IdempotencyKey(key)); err != nil {
+		d.t.Errorf("agent double: stage the draft on %s: %v", branch, err)
+	}
+}
+
+// startLocalStateCheckout is the state repo the LOCAL rail actually runs on: a NON-BARE
+// working checkout with receive.denyCurrentBranch=updateInstead, which is what
+// mergeActivityBranch's clone+push mechanism requires and what the bench scratch repo is.
+// gh.StartLocalGitRepo returns a BARE one, and the local venue refuses to construct over
+// bare (assertTraceSinkOutsideGitDir) — correctly, so this builds the production shape.
+func startLocalStateCheckout(t *testing.T) (repoPath, repoURL string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	repoPath = filepath.Join(t.TempDir(), "state-repo")
+	git := func(wd string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = wd
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git(filepath.Dir(repoPath), "init", "--initial-branch=main", repoPath)
+	git(repoPath, "config", "receive.denyCurrentBranch", "updateInstead")
+	git(repoPath, "config", "user.email", "seed@aiarch.local")
+	git(repoPath, "config", "user.name", "seed")
+	git(repoPath, "commit", "--allow-empty", "-m", "seed")
+	return repoPath, "file://" + repoPath
+}
+
+// newDesignWalkGitRig is m0GitRig with the `architecture` activity's output NOT
+// pre-committed — because this case is about the walk that produces it — over the local
+// rail's own repo shape. It returns the repo's filesystem path, which is what lets the
+// assertion read main's history commit by commit.
+func newDesignWalkGitRig(t *testing.T) (*m0GitRig, string) {
+	t.Helper()
+	repoPath, repoURL := startLocalStateCheckout(t)
+	ps := projectstate.NewGitLocalProjectStateAccess(repoURL)
+	ds := projectstate.NewGitLocalDesignSessionAccess(repoURL)
+	m := newDesignFacade(nil, ps, nil, nil, nil, nil, ds, nil, nil, "")
+	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "fresh-system")
+	if err != nil {
+		t.Fatalf("CreateProject over a fresh state repo: %v", err)
+	}
+	pid := projectstate.ProjectID(id)
+
+	// VIBES, committed: every gate the policy owns auto-approves, so the only holds left are
+	// the ones the PLATFORM floors (an un-judged critique) — which is what a local boot runs.
+	ct := projectstate.NewGitLocalConstructionTransitionAccess(repoURL)
+	proj, err := ps.ReadProject(fwra.Context{Context: context.Background()}, pid)
+	if err != nil {
+		t.Fatalf("ReadProject straight after birth: %v", err)
+	}
+	if _, err := ct.RecordReviewPolicy(fwra.Context{Context: context.Background(), IdempotencyKey: "policy:vibes"},
+		pid, projectstate.Version(proj.Version),
+		projectstate.ReviewPolicy{Preset: ptrTo(projectstate.ReviewPresetVibes)}, projectstate.RepoCredential{},
+		"policy:vibes"); err != nil {
+		t.Fatalf("commit the vibes review policy: %v", err)
+	}
+
+	// The local venue, constructed exactly as the LOCAL composition root constructs it. The
+	// MCP binary is a placeholder because only the merge job is ever routed here and the
+	// merge never spawns claude; it lives OUTSIDE the repo, which the constructor checks.
+	mcpBin := filepath.Join(t.TempDir(), "aiarch-state-mcp")
+	if err := os.WriteFile(mcpBin, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write the placeholder MCP binary: %v", err)
+	}
+	venue, err := agenticjob.NewLocalExecAgenticJobAccess(repoURL, string(pid), mcpBin, time.Minute)
+	if err != nil {
+		t.Fatalf("construct the local venue over %s: %v", repoPath, err)
+	}
+
+	deps := wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       review.NewReviewEngine(),
+		GitStatus:    projectstate.NewGitLocalGitActivityStatusAccess(repoURL),
+		SDPEngines:   shapeSDPEngines(),
+		Repo: func(pid ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(pid)), true
+		},
+	}
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	env.SetTestTimeout(10 * time.Minute)
+	rig := &m0GitRig{env: env, wf: csNewWorkflows(deps), ps: ps, id: pid, repoURL: repoURL}
+	registerDeliveryActivityOverGitWithPipeline(env, rig.wf, repoURL, &designAgentDouble{
+		csFakePipeline: &csFakePipeline{phase: PipelineSucceeded},
+		t:              t, ds: ds, id: pid, venue: venue,
+		model:        &projectstate.System{Components: birthReplacementComponents},
+		mergeHandles: map[agenticjob.PipelineHandle]bool{},
+	})
+	return rig, repoPath
+}
+
+func Test_Pump_AnActivityOpensOnlyAfterItsPredecessorsWorkIsOnMain(t *testing.T) {
+	rig, repoDir := newDesignWalkGitRig(t)
+
+	// `architecture` depends on `requirements`, whose work is two agent episodes. Its row is
+	// stamped through the REAL exit verb, which is all the dependency rule reads.
+	markActivityDone(t, rig.repoURL, rig.id, "requirements", projectstate.ActivityTypeRequirements)
+
+	// The un-judged critique floors the architecture gate for a human whatever the policy
+	// says (criticHoldsTheGate), so the operator approve is what passes it.
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, "architectureReview"), 60*time.Second)
+	rig.env.SetStartWorkflowOptions(client.StartWorkflowOptions{
+		ID: deliveryActivityWorkflowID(ProjectID(rig.id), "architecture")})
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: ProjectID(rig.id), ActivityID: "architecture",
+		Activity: constructionActivity{
+			ActivityID: "architecture", Kind: activityKindConstruction,
+			Type: projectstate.ActivityTypeArchitecture,
+		},
+	})
+	if !rig.env.IsWorkflowCompleted() {
+		t.Fatalf("the architecture walk did not complete")
+	}
+	if err := rig.env.GetWorkflowError(); err != nil {
+		t.Fatalf("the architecture walk failed: %v", err)
+	}
+	final := rig.read(t)
+	if final.SystemDesign.Status != projectstate.ReviewCommitted {
+		t.Fatalf("the architecture walk left slot 5 (system) %v on main, so there is no "+
+			"landed predecessor for this case to be about", final.SystemDesign.Status)
+	}
+
+	// THE WEDGE, asked of EVERY commit on main in order, because the end state cannot see an
+	// ordering defect and the paid run's end state looked fine.
+	//
+	// WHY "ADMITTED AT THIS COMMIT" IS "ITS BRANCH CARRIES THIS COMMIT": the dependent's
+	// branch is cut by sourcecontrol's OpenBranch, which pushes origin/main's TIP to
+	// activity/<id> when the child runs — after admission, never before. So main's tip at the
+	// admission state is a LOWER BOUND on what the branch can see, and if the predecessor's
+	// artifact is not on main there it is not on the branch either. That is the blind
+	// activity/architecture of the paid run: main v40 with four committed slots, the branch
+	// v32 with the birth seed, because the branch was cut two seconds too early.
+	admitted := false
+	for _, sha := range mainHistoryOldestFirst(t, repoDir) {
+		proj, ok := projectAtCommit(t, repoDir, sha, rig.id)
+		if !ok {
+			continue
+		}
+		sel := nextEligibleActivity(proj, pumpEligibilityRule())
+		if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "projectDesign" {
+			continue
+		}
+		admitted = true
+		if proj.SystemDesign.Status != projectstate.ReviewCommitted {
+			t.Fatalf("at main commit %s (v%d, %q) the pump opens projectDesign, but the System "+
+				"its predecessor `architecture` produces is %v on main — a branch cut here cannot see "+
+				"its predecessor's work, which is exactly the blind activity/architecture of the paid run "+
+				"(row: completedAt=%v)",
+				sha[:8], proj.Version, commitSubject(t, repoDir, sha), proj.SystemDesign.Status,
+				proj.ActivityExecution["architecture"].CompletedAt != nil)
+		}
+		break
+	}
+	if !admitted {
+		t.Fatalf("the pump never opened projectDesign over the whole of main's history — the case is vacuous")
+	}
+}
+
+// mainHistoryOldestFirst is every commit on main, oldest first: the state repo's own record
+// of the order its mutations landed in, which is the only oracle that can see an ordering
+// defect after the fact.
+func mainHistoryOldestFirst(t *testing.T, repoDir string) []string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", repoDir, "log", "--reverse", "--format=%H", "main").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git log main: %v\n%s", err, out)
+	}
+	return strings.Fields(string(out))
+}
+
+func commitSubject(t *testing.T, repoDir, sha string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", repoDir, "log", "-1", "--format=%s", sha).CombinedOutput()
+	if err != nil {
+		return "?"
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// projectAtCommit decodes the state document AS OF one commit, through the store's own
+// decoder — so what the assertion reads is what a pump reading main at that moment reads.
+// ok=false for a commit that predates the document (the repo's seed).
+func projectAtCommit(t *testing.T, repoDir, sha string, id projectstate.ProjectID) (projectstate.Project, bool) {
+	t.Helper()
+	raw, err := exec.Command("git", "-C", repoDir, "show", sha+":.aiarch/state/project.json").Output()
+	if err != nil {
+		return projectstate.Project{}, false
+	}
+	proj, found, derr := projectstate.DecodeProjectJSON(raw, id)
+	if derr != nil {
+		t.Fatalf("decode the state document at %s: %v", sha[:8], derr)
+	}
+	return proj, found
 }
