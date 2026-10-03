@@ -7,6 +7,8 @@ on:
       - 'server/**'
       - '.aiarch/**/*.json'
       - '.claude/**'
+      # gen-tests-check also owns the generated Playwright specs + hooks.
+      - 'uitests/generated/**'
       - '.github/workflows/server-checks.yml'
   pull_request:
     branches: [main]
@@ -14,6 +16,8 @@ on:
       - 'server/**'
       - '.aiarch/**/*.json'
       - '.claude/**'
+      # gen-tests-check also owns the generated Playwright specs + hooks.
+      - 'uitests/generated/**'
       - '.github/workflows/server-checks.yml'
 
 jobs:
@@ -95,6 +99,15 @@ jobs:
       # driving framework-go-app-generator/modelgen). Same GOWORK=off-safe shape.
       - name: Generated model layer drift check
         run: make gen-models-check
+
+      # Drift gate for the generated per-component scenario tests (cmd/testgen
+      # of the pinned framework-go-app-generator; deterministic component
+      # testing, spec §5.3). Fails on a stale or orphan *_scenarios.gen_test.go /
+      # *.spec.gen.ts, a hook the committed test plan references that is
+      # missing, or an orphan hook. testgen -check compares on its own (no git
+      # diff) and never rewrites the tree. Same GOWORK=off-safe shape.
+      - name: Generated scenario tests drift check
+        run: make gen-tests-check
 
       # Drift gate for the generated Fake<Iface> test-double layer (cmd/modelgen,
       # driving framework-go-app-generator/modelgen's GenerateFakes). Same
