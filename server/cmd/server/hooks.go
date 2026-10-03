@@ -99,6 +99,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -107,6 +108,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -191,6 +193,13 @@ type appHooks struct {
 	// `claude --version` preflight land with this task per its brief; the eventual
 	// consumer plugs in without touching this file's selection policy.
 	workerProvider workerGenerateProvider
+
+	// testRunFiles is the delivery Manager's one non-contract read: the streaming
+	// test-run file read behind GET /api/v1/delivery/test-run/{runID}/file (spec
+	// §6.3). Captured in WrapManagers from the RAW manager (the auth/logging wraps
+	// carry only the contract surface) and mounted in mountRoutes; nil (tests, or a
+	// manager that does not implement it) answers 503 rather than panicking.
+	testRunFiles delivery.TestRunFileReader
 }
 
 // workerGenerateProvider is the common surface both llm Worker Provider clients
@@ -534,6 +543,9 @@ func (h *appHooks) DevConfig(cfg *Config) web.DevConfig {
 // (projectScopedDeliveryManager / projectScopedOperationsManager), so a denial is
 // answered before any inner work, on either transport.
 func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
+	if reader, ok := managers.DeliveryManager.(delivery.TestRunFileReader); ok {
+		h.testRunFiles = reader
+	}
 	return WebManagers{
 		DeliveryManager: projectScopedDeliveryManager{
 			DeliveryManager: loggingDeliveryManager{inner: managers.DeliveryManager, log: h.logger},
@@ -621,6 +633,19 @@ func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConf
 	// (D9), not on this route's absence.
 	root.Handle("GET /api/v1/projects/{projectID}/operated-app-id",
 		web.AuthMiddleware(dev, validator)(h.handleOperatedAppID()))
+
+	// GET /api/v1/delivery/test-run/{runID}/file?projectId=&path= — the streaming
+	// test-run file read (deterministic component testing, spec §6.3): Playwright
+	// videos and trace zips, results.json and the go test stream, served as BYTES
+	// under a Content-Type the Manager decides. It is the delivery Manager's one
+	// read that is not a contract op, because the generated JSON op surface cannot
+	// carry a video. Same auth boundary as every /api/v1 route, the SAME PDP action
+	// and resource as query-project-view (the view that hands out these paths), and
+	// the same 5xx logging the generated surface gets. projectId rides the query
+	// because the PDP decision is project-scoped and the run's artifact name lives
+	// in that project's run record.
+	root.Handle("GET /api/v1/delivery/test-run/{runID}/file",
+		log5xxResponses(h.logger, web.AuthMiddleware(dev, validator)(h.handleTestRunFile())))
 
 	if resolveProfile(cfg) == "local" {
 		spaSource := spaFS
@@ -742,6 +767,88 @@ func (h *appHooks) handleOperatedAppID() http.HandlerFunc {
 		if err := json.NewEncoder(w).Encode(operatedAppIDResponse{OperatedAppID: OperatedAppIDForProject(projectID).String()}); err != nil {
 			h.logger.Warn("operated-app-id: failed writing response", "err", err)
 		}
+	}
+}
+
+// handleTestRunFile answers GET /api/v1/delivery/test-run/{runID}/file?projectId=&path=
+// (mounted in mountRoutes). The auth middleware has already placed the principal; the
+// handler asks the PDP the SAME question projectScopedDeliveryManager.QueryProjectView
+// asks — query-project-view on {project, projectId} — so a principal who may read the
+// run's view may read its files and nobody else may. Refusals from the Manager map to
+// HTTP by kind exactly as the generated handlers map them (statusForTestRunFileError).
+func (h *appHooks) handleTestRunFile() http.HandlerFunc {
+	sec := security.New(security.WithPolicyDecisionPoint(h.PolicyDecisionPoint()))
+	return func(w http.ResponseWriter, r *http.Request) {
+		runID := r.PathValue("runID")
+		projectID := r.URL.Query().Get("projectId")
+		filePath := r.URL.Query().Get("path")
+		switch {
+		case runID == "":
+			http.Error(w, "missing runID", http.StatusBadRequest)
+			return
+		case projectID == "":
+			http.Error(w, "missing projectId", http.StatusBadRequest)
+			return
+		case filePath == "":
+			http.Error(w, "missing path", http.StatusBadRequest)
+			return
+		}
+		principal, ok := security.PrincipalFrom(r.Context())
+		if !ok {
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		decision, err := sec.Authorize(r.Context(), principal,
+			security.Action{Verb: "query-project-view"},
+			security.ResourceRef{Kind: "project", ID: projectID})
+		if err != nil || !decision.Permit {
+			http.Error(w, "not permitted", http.StatusForbidden)
+			return
+		}
+		if h.testRunFiles == nil {
+			http.Error(w, "test-run files are not served by this composition", http.StatusServiceUnavailable)
+			return
+		}
+		rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+		file, err := h.testRunFiles.ReadTestRunFile(rc, delivery.ProjectID(projectID), runID, filePath)
+		if err != nil {
+			status, detail := statusForTestRunFileError(err)
+			http.Error(w, detail, status)
+			return
+		}
+		w.Header().Set("Content-Type", file.MIMEType)
+		w.Header().Set("Content-Length", strconv.Itoa(len(file.Bytes)))
+		w.Header().Set("Cache-Control", "private, max-age=3600")
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write(file.Bytes); err != nil {
+			h.logger.Warn("test-run file: failed writing response", "runID", runID, "path", filePath, "err", err)
+		}
+	}
+}
+
+// statusForTestRunFileError is the generated handlers' kind→status table (internal/
+// client/web/delivery writeManagerError) applied to the one hand route: a Manager
+// refusal keeps its Detail, anything else is an opaque 500.
+func statusForTestRunFileError(err error) (int, string) {
+	var me *fwmanager.Error
+	if !errors.As(err, &me) {
+		return http.StatusInternalServerError, "internal error"
+	}
+	switch me.Kind {
+	case fwmanager.ContractMisuse:
+		return http.StatusBadRequest, me.Detail
+	case fwmanager.NotFound:
+		return http.StatusNotFound, me.Detail
+	case fwmanager.Unauthorized:
+		return http.StatusForbidden, me.Detail
+	case fwmanager.FailedPrecondition:
+		return http.StatusConflict, me.Detail
+	case fwmanager.Infrastructure:
+		return http.StatusServiceUnavailable, me.Detail
+	case fwmanager.Unknown:
+		return http.StatusInternalServerError, me.Detail
+	default:
+		return http.StatusInternalServerError, me.Detail
 	}
 }
 

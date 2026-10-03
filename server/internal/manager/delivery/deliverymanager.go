@@ -74,6 +74,7 @@ import (
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -5736,6 +5737,12 @@ type constructionManager struct {
 	// with the old branch still calling the deprecated-in-place facets whose activity
 	// names the replay fixtures record. Nothing in this wave CALLS these verbs yet.
 	activityExecution projectstate.ActivityExecutionAccess
+
+	// scenarios is the projection the testRun/scenarios views and the testing gate join
+	// a recorded run against: projectstate.ComponentScenarios in production (the SAME
+	// canonical set the test plan binds and testgen emits against, spec §2.5). A field,
+	// not a call, so a view test projects a hand set (testrunview.go).
+	scenarios scenarioProjector
 }
 
 // newConstructionManager is the hand-written, unexported builder the generated
@@ -5783,6 +5790,7 @@ func newConstructionManager(
 		interventionMode:       interventionMode,
 		repo:                   repo,
 		sdpEngines:             eng,
+		scenarios:              projectstate.ComponentScenarios,
 	}
 }
 
@@ -11192,13 +11200,10 @@ func (m *deliveryManager) QueryProjectView(rc fwmanager.Context, query ProjectVi
 		return m.queryEpisodesView(rc, query, out)
 	case ProjectViewTimeline:
 		return m.queryTimelineView(rc, query, out)
-	case ProjectViewTestRun, ProjectViewScenarios:
-		// Declared with the deterministic component testing model edit (Plan 2 Task 1);
-		// answered by queryTestRunView / queryScenariosView from Plan 2 Task 6 (which
-		// needs Task 2's ComponentScenarios and Task 5's artifact test-run ops). Until
-		// then the kind is refused, never answered empty.
-		return out, newError(fwmanager.ContractMisuse,
-			"deliveryManager.QueryProjectView: the "+string(query.Kind)+" view is not served yet (Plan 2 Task 6)")
+	case ProjectViewTestRun:
+		return m.queryTestRunView(rc, query, out)
+	case ProjectViewScenarios:
+		return m.queryScenariosView(rc, query, out)
 	}
 	return out, nil
 }
@@ -13744,4 +13749,450 @@ func resolvedPhaseCompletions(
 	attempts []projectstate.TaskAttempt,
 ) []projectstate.PhaseCompletion {
 	return projectstate.ResolvePhaseCompletions(profile, attempts)
+}
+
+// ===========================================================================
+// DETERMINISTIC COMPONENT TESTING — the `testRun` and `scenarios` project views and
+// the test-run file read (spec §6.3/§6.4; Plan 2 Task 6).
+//
+// A test run is what the venue recorded: one row in .testingState.testRuns holding
+// the per-scenario results of one `make test-scenarios` over one construction
+// revision. On its own the row cannot render — a reviewer needs to see the scenario
+// behind each id (its title and the guards it took), which scenarios the run never
+// ran, which results name no projected scenario at all, and whether the artifact
+// holding the videos, traces and the go test stream is still there to open. The view
+// is that JOIN, computed on read from three sources that nobody else joins:
+//
+//   - the run row (head state) — results by scenario id;
+//   - projectstate.ComponentScenarios — the canonical scenario set projected onto the
+//     run's component, the SAME set the test plan bound and the generator emitted
+//     against (spec §2.4/§2.5), so an id the run omits is a scenario silently not run;
+//   - artifactAccess.GetTestRunIndex — expired?, and the file list that says whether
+//     each result's videoRef/traceRef and the component's go test stream can be read.
+//
+// Missing and Unknown are the two halves of the set difference the testing gate (Task
+// 7) holds on; the gate reads this same join rather than a second derivation, so what
+// the gate refuses and what the reviewer sees cannot disagree.
+// ===========================================================================
+
+// scenarioProjector is the projection the two views join against: the canonical
+// scenarios of a project projected onto one component. Production wires
+// projectstate.ComponentScenarios (Plan 2 Task 2); it is a field so a view test can
+// project a hand set without authoring a whole use-case diagram.
+type scenarioProjector func(p *projectstate.Project, component string) ([]scenario.Scenario, error)
+
+// scenarioStatusMissing is the status a projected scenario renders with when the run
+// recorded no result for it. It is not a venue status (those are pass/fail/skip) — it
+// is the view saying "never ran", which is what the gate holds on.
+const scenarioStatusMissing = "missing"
+
+// TestRunFile is one file of a test-run artifact as the streaming endpoint serves it:
+// the bytes and the Content-Type the endpoint sets, decided by extension here so the
+// composition root carries no MIME table.
+type TestRunFile struct {
+	Bytes    []byte
+	MIMEType string
+}
+
+// TestRunFileReader is the one read of the delivery Manager that is NOT a contract op:
+// a streaming file read for video/trace bytes, which the JSON op surface cannot carry
+// (spec §6.3: "a streaming file endpoint GET /api/v1/delivery/test-run/{run}/file").
+// The composition root mounts the endpoint over it behind the same auth boundary and
+// the same PDP action as query-project-view; the Manager stays the only caller of
+// artifactAccess, so the layering is unchanged.
+type TestRunFileReader interface {
+	ReadTestRunFile(rc fwmanager.Context, projectID ProjectID, runID, filePath string) (TestRunFile, error)
+}
+
+var _ TestRunFileReader = (*deliveryManager)(nil)
+
+// queryTestRunView answers the `testRun` kind: the latest run recorded for activityId —
+// or the run runId names — joined with its component's projected scenarios and its
+// artifact index.
+func (m *deliveryManager) queryTestRunView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
+	id, err := requireProjectID(query, "testRun")
+	if err != nil {
+		return out, err
+	}
+	if query.ActivityID == nil || *query.ActivityID == "" {
+		return out, missingSelector("testRun", "activityId")
+	}
+	proj, err := m.readProjectForView(rc, id)
+	if err != nil {
+		return out, err
+	}
+	runID := ""
+	if query.RunID != nil {
+		runID = *query.RunID
+	}
+	run, ok := selectTestRun(&proj, *query.ActivityID, runID)
+	if !ok {
+		if runID != "" {
+			return out, newError(fwmanager.NotFound, fmt.Sprintf("activity %q has no test run %q", *query.ActivityID, runID))
+		}
+		return out, newError(fwmanager.NotFound, fmt.Sprintf("activity %q has no recorded test run", *query.ActivityID))
+	}
+	view, err := m.cs.testRunView(rc, &proj, run)
+	if err != nil {
+		return out, err
+	}
+	out.TestRun = &view
+	return out, nil
+}
+
+// queryScenariosView answers the `scenarios` kind: the scenario set projected onto
+// componentId, each carrying the binding the committed test plan gives it (the plan
+// lens of the stp task, spec §6.4).
+func (m *deliveryManager) queryScenariosView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
+	id, err := requireProjectID(query, "scenarios")
+	if err != nil {
+		return out, err
+	}
+	if query.ComponentID == nil || *query.ComponentID == "" {
+		return out, missingSelector("scenarios", "componentId")
+	}
+	proj, err := m.readProjectForView(rc, id)
+	if err != nil {
+		return out, err
+	}
+	projected, err := m.cs.projectScenarios(&proj, *query.ComponentID)
+	if err != nil {
+		return out, err
+	}
+	out.Scenarios = scenariosToContract(projected, testPlanBindings(&proj, *query.ComponentID))
+	return out, nil
+}
+
+// ReadTestRunFile resolves runID to its recorded run (across every activity — a run id
+// is venue-unique), refuses a path that could escape the artifact, and reads the file
+// through artifactAccess under the run's own ref.
+func (m *deliveryManager) ReadTestRunFile(rc fwmanager.Context, projectID ProjectID, runID, filePath string) (TestRunFile, error) {
+	if projectID == "" {
+		return TestRunFile{}, newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if strings.TrimSpace(runID) == "" {
+		return TestRunFile{}, newError(fwmanager.ContractMisuse, "empty runId")
+	}
+	if !safeTestRunPath(filePath) {
+		return TestRunFile{}, newError(fwmanager.ContractMisuse, fmt.Sprintf("test-run file path %q must be a relative path inside the artifact", filePath))
+	}
+	proj, err := m.readProjectForView(rc, projectID)
+	if err != nil {
+		return TestRunFile{}, err
+	}
+	run, ok := testRunByID(&proj, runID)
+	if !ok {
+		return TestRunFile{}, newError(fwmanager.NotFound, fmt.Sprintf("project %q has no test run %q", projectID, runID))
+	}
+	out, err := m.cs.artifact.ReadTestRunFile(fwra.Context{Context: rc.Context}, testRunRef(run), filePath)
+	if err != nil {
+		return TestRunFile{}, sdMapRAError(err, "artifactAccess.ReadTestRunFile")
+	}
+	return TestRunFile{Bytes: out.Bytes, MIMEType: testRunFileMIME(filePath)}, nil
+}
+
+// readProjectForView is the views' one read of head state, with the same NotFound
+// cleanup GetProject applies (a stuttering git cause chain never reaches a client).
+func (m *deliveryManager) readProjectForView(rc fwmanager.Context, projectID ProjectID) (projectstate.Project, error) {
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: rc.Context}, projectstate.ProjectID(projectID))
+	if err != nil {
+		if raErr := (*fwra.Error)(nil); errors.As(err, &raErr) && raErr.Kind == fwra.NotFound {
+			return projectstate.Project{}, fwmanager.Wrap(fwmanager.NotFound, err, fmt.Sprintf("project %q not found", projectID))
+		}
+		return projectstate.Project{}, sdMapRAError(err, "projectStateAccess.ReadProject")
+	}
+	return proj, nil
+}
+
+// testRunView is the join (see the file comment), on the construction half because
+// the testing gate (Task 7) evaluates it from the activity child's worker.
+func (m *constructionManager) testRunView(rc fwmanager.Context, proj *projectstate.Project, run projectstate.TestRun) (DeliveryTestRunView, error) {
+	projected, err := m.projectScenarios(proj, run.Component)
+	if err != nil {
+		return DeliveryTestRunView{}, err
+	}
+	idx, err := m.artifact.GetTestRunIndex(fwra.Context{Context: rc.Context}, testRunRef(run))
+	if err != nil {
+		return DeliveryTestRunView{}, sdMapRAError(err, "artifactAccess.GetTestRunIndex")
+	}
+	return joinTestRun(run, projected, idx), nil
+}
+
+// projectScenarios runs the wired projector, refusing loudly when the composition
+// forgot to wire one rather than answering an empty set (which would read as "every
+// result is unknown").
+func (m *constructionManager) projectScenarios(proj *projectstate.Project, component string) ([]scenario.Scenario, error) {
+	if m.scenarios == nil {
+		return nil, newError(fwmanager.Infrastructure, "deliveryManager: no scenario projector wired")
+	}
+	projected, err := m.scenarios(proj, component)
+	if err != nil {
+		return nil, fwmanager.Wrap(fwmanager.FailedPrecondition, err, fmt.Sprintf("projecting scenarios onto %q", component))
+	}
+	return projected, nil
+}
+
+// joinTestRun is the pure join of one run, its projected scenarios and its artifact
+// index. Scenarios follows the projection's canonical order; a projected scenario the
+// run has no result for renders as `missing`, and a result naming no projected
+// scenario lands in Unknown (never in Scenarios: it has no title, guards or plan line
+// to render under). OutputRef points at the component's go test stream when the
+// artifact still holds one; an expired artifact has no readable files at all.
+func joinTestRun(run projectstate.TestRun, projected []scenario.Scenario, idx artifact.TestRunIndex) DeliveryTestRunView {
+	results := make(map[string]projectstate.ScenarioResult, len(run.Scenarios))
+	for _, r := range run.Scenarios {
+		results[r.Scenario] = r
+	}
+	outputRef := ""
+	if !idx.Expired {
+		if stream := path.Join(run.Component, "go-test.jsonl"); slices.Contains(idx.Files, stream) {
+			outputRef = stream
+		}
+	}
+	view := DeliveryTestRunView{
+		Run:       testRunToContract(run),
+		Scenarios: make([]TestRunScenarioView, 0, len(projected)),
+		Missing:   []string{},
+		Unknown:   []string{},
+		Expired:   idx.Expired,
+		Artifact:  run.Artifact,
+	}
+	seen := make(map[string]bool, len(projected))
+	for _, sc := range projected {
+		seen[sc.ID] = true
+		item := TestRunScenarioView{
+			Id:     sc.ID,
+			Title:  sc.Title,
+			Guards: guardsToContract(sc.Guards),
+			Status: scenarioStatusMissing,
+		}
+		if r, ok := results[sc.ID]; ok {
+			item.Status = r.Status
+			item.DurationMs = int64(r.DurationMs)
+			item.VideoRef = r.VideoRef
+			item.TraceRef = r.TraceRef
+			item.OutputRef = outputRef
+		} else {
+			view.Missing = append(view.Missing, sc.ID)
+		}
+		view.Scenarios = append(view.Scenarios, item)
+	}
+	for _, r := range run.Scenarios {
+		if !seen[r.Scenario] {
+			view.Unknown = append(view.Unknown, r.Scenario)
+		}
+	}
+	return view
+}
+
+// selectTestRun picks the run the view is about: runId when given (it must belong to
+// the activity), else the LATEST run recorded for the activity — latest by end time,
+// then start time, then recording order, never by slice position alone, because the
+// venue may record out of order.
+func selectTestRun(proj *projectstate.Project, activityID, runID string) (projectstate.TestRun, bool) {
+	var best projectstate.TestRun
+	found := false
+	for _, run := range testRuns(proj) {
+		if run.Activity != activityID {
+			continue
+		}
+		if runID != "" {
+			if run.ID == runID {
+				return run, true
+			}
+			continue
+		}
+		if !found || !runBefore(run, best) {
+			best, found = run, true
+		}
+	}
+	return best, found
+}
+
+// runBefore reports whether a ended (or, failing that, started) strictly before b;
+// two runs with no usable times keep recording order (a is not before b).
+func runBefore(a, b projectstate.TestRun) bool {
+	switch {
+	case a.EndedAt != nil && b.EndedAt != nil:
+		return a.EndedAt.Before(*b.EndedAt)
+	case a.StartedAt != nil && b.StartedAt != nil:
+		return a.StartedAt.Before(*b.StartedAt)
+	}
+	return false
+}
+
+// testRunByID finds a run across every activity: run ids are venue-unique.
+func testRunByID(proj *projectstate.Project, runID string) (projectstate.TestRun, bool) {
+	for _, run := range testRuns(proj) {
+		if run.ID == runID {
+			return run, true
+		}
+	}
+	return projectstate.TestRun{}, false
+}
+
+func testRuns(proj *projectstate.Project) []projectstate.TestRun {
+	if proj == nil || proj.TestingState == nil {
+		return nil
+	}
+	return proj.TestingState.TestRuns
+}
+
+func testRunRef(run projectstate.TestRun) artifact.TestRunRef {
+	return artifact.TestRunRef{RunID: run.ID, Artifact: run.Artifact}
+}
+
+// safeTestRunPath admits only a clean relative path that stays inside the artifact:
+// no absolute paths, no `..` segments, no empty path.
+func safeTestRunPath(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") || strings.Contains(p, "\\") {
+		return false
+	}
+	cleaned := path.Clean(p)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return false
+	}
+	for _, seg := range strings.Split(cleaned, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// testRunFileMIME is the endpoint's Content-Type, by extension: the four kinds a run
+// artifact holds (Playwright videos, trace zips, results.json, text streams) and text
+// for anything else, so a browser never sniffs an unknown type into a download.
+func testRunFileMIME(p string) string {
+	switch strings.ToLower(path.Ext(p)) {
+	case ".webm":
+		return "video/webm"
+	case ".mp4":
+		return "video/mp4"
+	case ".zip":
+		return "application/zip"
+	case ".json":
+		return "application/json"
+	default:
+		return "text/plain; charset=utf-8"
+	}
+}
+
+// testPlanBindings is the committed test plan's bindings for one component, by
+// scenario id; nil when the plan has not been authored yet.
+func testPlanBindings(proj *projectstate.Project, component string) map[string]projectstate.ScenarioBinding {
+	if proj == nil || proj.PhaseArtifacts == nil {
+		return nil
+	}
+	rec, ok := proj.PhaseArtifacts.TestPlan[component]
+	if !ok {
+		return nil
+	}
+	out := make(map[string]projectstate.ScenarioBinding, len(rec.Bindings))
+	for _, b := range rec.Bindings {
+		out[b.Scenario] = b
+	}
+	return out
+}
+
+// scenariosToContract maps the projection onto the wire, attaching each scenario's
+// binding when the plan has one. Slices are never nil on the wire.
+func scenariosToContract(projected []scenario.Scenario, bindings map[string]projectstate.ScenarioBinding) []ScenarioView {
+	out := make([]ScenarioView, 0, len(projected))
+	for _, sc := range projected {
+		v := ScenarioView{
+			Id:            sc.ID,
+			UseCase:       sc.UseCase,
+			Title:         sc.Title,
+			Path:          nonNilStrings(sc.Path),
+			Guards:        guardsToContract(sc.Guards),
+			Preconditions: outcomeToContract(sc.Preconditions),
+			Stimuli:       make([]ScenarioStimulusView, 0, len(sc.Stimuli)),
+		}
+		for _, st := range sc.Stimuli {
+			v.Stimuli = append(v.Stimuli, ScenarioStimulusView{
+				Seq:  int64(st.Seq),
+				Node: st.Node,
+				Input: ScenarioInputView{
+					Kind: st.Input.Kind, From: st.Input.From, To: st.Input.To,
+					Op: st.Input.Op, Call: st.Input.Call, Guard: st.Input.Guard,
+				},
+				Outcome: outcomeToContract(st.Outcome),
+			})
+		}
+		if b, ok := bindings[sc.ID]; ok {
+			bv := bindingToContract(b)
+			v.Binding = &bv
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+func guardsToContract(gs []scenario.Guard) []ScenarioGuardView {
+	out := make([]ScenarioGuardView, 0, len(gs))
+	for _, g := range gs {
+		out = append(out, ScenarioGuardView{At: g.At, Guard: g.Guard})
+	}
+	return out
+}
+
+func outcomeToContract(o scenario.Outcome) ScenarioOutcomeView {
+	v := ScenarioOutcomeView{
+		ExpectedOutputs: make([]ScenarioOutputView, 0, len(o.ExpectedOutputs)),
+		ExpectedStates:  make([]ScenarioStateView, 0, len(o.ExpectedStates)),
+		Hints:           nonNilStrings(o.Hints),
+	}
+	for _, out := range o.ExpectedOutputs {
+		v.ExpectedOutputs = append(v.ExpectedOutputs, ScenarioOutputView{Node: out.Node, Kind: out.Kind, To: out.To, Label: out.Label})
+	}
+	for _, st := range o.ExpectedStates {
+		v.ExpectedStates = append(v.ExpectedStates, ScenarioStateView{Node: st.Node, Object: st.Object, InState: st.InState})
+	}
+	return v
+}
+
+func bindingToContract(b projectstate.ScenarioBinding) ScenarioBindingView {
+	v := ScenarioBindingView{Scenario: b.Scenario, Steps: make([]StepBindingView, 0, len(b.Steps))}
+	for _, st := range b.Steps {
+		sv := StepBindingView{
+			Seq:          int64(st.Seq),
+			Operation:    st.Operation,
+			Inputs:       argsToContract(st.Inputs),
+			Expect:       expectToContract(st.Expect),
+			Probes:       make([]ProbeView, 0, len(st.Probes)),
+			Unobservable: nonNilStrings(st.Unobservable),
+			Hook:         st.Hook,
+		}
+		for _, p := range st.Probes {
+			sv.Probes = append(sv.Probes, ProbeView{
+				For: p.For, Component: p.Component, Operation: p.Operation,
+				Inputs: argsToContract(p.Inputs), Expect: expectToContract(p.Expect),
+			})
+		}
+		v.Steps = append(v.Steps, sv)
+	}
+	if b.Skip != nil {
+		v.Skip = &SkipReasonView{Reason: b.Skip.Reason, Until: b.Skip.Until}
+	}
+	return v
+}
+
+func argsToContract(args []projectstate.TestArg) []TestArgView {
+	out := make([]TestArgView, 0, len(args))
+	for _, a := range args {
+		out = append(out, TestArgView{Name: a.Name, Value: a.Value, SchemaRef: a.SchemaRef})
+	}
+	return out
+}
+
+func expectToContract(e projectstate.TestExpect) TestExpectView {
+	return TestExpectView{Result: e.Result, ErrorExpected: e.ErrorExpected, ErrorCode: e.ErrorCode}
+}
+
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
