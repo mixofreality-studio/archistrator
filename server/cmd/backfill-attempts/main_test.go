@@ -28,8 +28,8 @@ import (
 //	R-gamma-store     resource reached by gamma-access              -> qualifies (inferred)
 //	R-delta-gateway   resource reached by delta-access              -> its RA fails
 //	R-orphan          resource no RA reaches                        -> nothing to infer from
-//	N-STP             componentless, no sign-off (retired 2026-10-02) -> no evidence path
-//	N-IT              componentless, no sign-off                    -> no evidence path
+//	N-QA              componentless, no sign-off                    -> no evidence path
+//	N-PERF            componentless, no sign-off                    -> no evidence path
 
 const fixtureHead = "0123456789abcdef0123456789abcdef01234567"
 
@@ -80,8 +80,8 @@ func fixtureProject() projectstate.Project {
 		{Name: "R-gamma-store", WorkerClass: "senior-developer", ComponentID: "gamma-store"},
 		{Name: "R-delta-gateway", WorkerClass: "senior-developer", ComponentID: "delta-gateway"},
 		{Name: "R-orphan", WorkerClass: "senior-developer", ComponentID: "orphan"},
-		{Name: "N-STP", WorkerClass: "test-engineer"},
-		{Name: "N-IT", WorkerClass: "software-tester"},
+		{Name: "N-QA", WorkerClass: "qa-engineer"},
+		{Name: "N-PERF", WorkerClass: "test-engineer"},
 	}}
 	delta := contractFor("deltaAccess", "internal/resourceaccess/delta", "DeltaAccess", deltaOps...)
 	delta.Stub = true
@@ -108,8 +108,8 @@ func fixtureProject() projectstate.Project {
 			{Activity: "R-gamma-store", DependsOn: []string{"M0"}},
 			{Activity: "R-delta-gateway", DependsOn: []string{"M0"}},
 			{Activity: "R-orphan", DependsOn: []string{"M0"}},
-			{Activity: "N-STP", DependsOn: []string{"M0"}},
-			{Activity: "N-IT", DependsOn: []string{"N-STP", "U-SPA-web-client"}},
+			{Activity: "N-QA", DependsOn: []string{"M0"}},
+			{Activity: "N-PERF", DependsOn: []string{"N-QA", "U-SPA-web-client"}},
 		},
 		Milestones: []projectstate.NetworkMilestone{
 			{ID: "M0", Name: "SDP Review Approved", Public: true},
@@ -264,8 +264,8 @@ func TestEvaluate_ExactQualifyingSetOnTheFixture(t *testing.T) {
 		"C-delta-access":   "condition 2: serviceContracts[deltaAccess] is stub: true",
 		"R-delta-gateway":  "its ResourceAccess C-delta-access does not qualify",
 		"R-orphan":         "no ResourceAccess has a slot-5 relationship",
-		"N-STP":            "no founder sign-off is recorded",
-		"N-IT":             "no founder sign-off is recorded",
+		"N-QA":             "no founder sign-off is recorded",
+		"N-PERF":           "no founder sign-off is recorded",
 	}
 	for id, reason := range failing {
 		if v := vs[id]; !strings.Contains(v.Reason, reason) {
@@ -609,14 +609,14 @@ func TestInferredFromAccess_EveryResourceAccessMustQualify(t *testing.T) {
 // ---- the sign-off path ----------------------------------------------------------------
 
 // No sign-off is recorded: the one there was (N-STP, 2026-09-12) was retired with the
-// system test plan (deterministic component testing, spec §7), so N-STP, N-IT and every
-// other componentless activity have no evidence path. A sign-off that reappears here
+// system test plan (deterministic component testing, spec §7), so every componentless
+// activity (the fixture's N-QA and N-PERF) has no evidence path. A sign-off that reappears here
 // must name an artifact the model still has.
 func TestFounderSignOffs_NoneStandAfterTheSystemTestPlanRetired(t *testing.T) {
 	if len(founderSignOffs) != 0 {
 		t.Fatalf("%d sign-offs recorded, want none: the N-STP sign-off's artifact (testingState.systemTestPlan) no longer exists", len(founderSignOffs))
 	}
-	for _, id := range []string{"N-STP", "N-IT"} {
+	for _, id := range []string{"N-QA", "N-PERF"} {
 		if v := evaluateFixture(t, fixtureProject(), fixtureServer(t))[id]; v.Qualifies {
 			t.Errorf("%s qualified with no sign-off: %s", id, v.Basis)
 		}
@@ -890,8 +890,8 @@ func TestBackfill_ANonQualifierWithoutThisGeneratorsAttemptsIsNotARegression(t *
 		t.Fatal(err)
 	}
 	p.ActivityExecution = map[string]projectstate.ActivityExecution{
-		"N-IT": {ActivityID: "N-IT", Attempts: []projectstate.TaskAttempt{
-			{AttemptID: "N-IT:testing:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}},
+		"N-PERF": {ActivityID: "N-PERF", Attempts: []projectstate.TaskAttempt{
+			{AttemptID: "N-PERF:testing:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}},
 		}},
 		"R-orphan": {ActivityID: "R-orphan", Attempts: []projectstate.TaskAttempt{
 			{AttemptID: "R-orphan:construction:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved, Generator: generatorID}},
@@ -1435,7 +1435,7 @@ func TestIntegration_RefusesADependencyGraphThatIsNotWhole(t *testing.T) {
 			dependOn(t, p, "C-alpha-manager", "M2")
 		}, `milestone "M2" depends, directly or transitively, on itself`},
 		{"an activity cycle", func(t *testing.T, p *projectstate.Project) { dependOn(t, p, "C-gamma-access", "C-alpha-manager") },
-			"slot 10 has a dependency cycle; these activities cannot be ordered: C-alpha-manager, C-gamma-access, N-IT, U-SPA-web-client"},
+			"slot 10 has a dependency cycle; these activities cannot be ordered: C-alpha-manager, C-gamma-access, N-PERF, U-SPA-web-client"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -15,9 +15,9 @@ const loading = {
 const landing = { route: '/', ops: {} };
 
 const states = statesFromModules({
-  '/abs/uitests/preview-fixtures/web-client/construction/resting.json': resting,
-  '/abs/uitests/preview-fixtures/web-client/construction/loading.json': loading,
-  '/abs/uitests/preview-fixtures/web-client/landing/resting.json': landing,
+  '/abs/preview/fixtures/web-client/construction/resting.json': resting,
+  '/abs/preview/fixtures/web-client/construction/loading.json': loading,
+  '/abs/preview/fixtures/web-client/landing/resting.json': landing,
 });
 
 void test('indexes fixtures by screen directory and state file name', () => {

@@ -87,17 +87,17 @@ function row(overrides: Partial<ConstructionRow>): ConstructionRow {
 
 void test('a Begin names exactly the unrecorded rows, sorted, with titles where the list has one', () => {
   const rows = {
-    'N-IT': row({ activityId: 'N-IT' }),
+    'N-PERF': row({ activityId: 'N-PERF' }),
     'C-done': row({ activityId: 'C-done', recorded: true, hasBuildEvidence: true }),
     // Recorded but with no evidence yet (started, no phase): under way, not a candidate.
     'C-started': row({ activityId: 'C-started', recorded: true, hasBuildEvidence: false }),
     'C-billing-state-access': row({ activityId: 'C-billing-state-access' }),
   };
-  const titles: Record<string, string> = { 'N-IT': 'System testing' };
+  const titles: Record<string, string> = { 'N-PERF': 'Performance testing' };
   const got = notStartedActivities(rows, (id) => titles[id]);
   assert.deepEqual(got, [
     { activityId: 'C-billing-state-access' },
-    { activityId: 'N-IT', title: 'System testing' },
+    { activityId: 'N-PERF', title: 'Performance testing' },
   ]);
   assert.deepEqual(
     notStartedActivities(undefined, () => undefined),

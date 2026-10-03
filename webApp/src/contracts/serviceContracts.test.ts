@@ -43,8 +43,8 @@ const input: ContractJoinInput = {
     { name: 'R-github', componentId: 'github' },
     { name: 'R-logging', componentId: 'logging' },
     { name: 'U-SPA-web-client', componentId: 'web-client' },
-    { name: 'N-STP' },
-    { name: 'N-IT', componentId: '' },
+    { name: 'N-QA' },
+    { name: 'N-PERF', componentId: '' },
     { name: 'C-ghost', componentId: 'no-such-component' },
   ],
   components: [
@@ -99,8 +99,8 @@ void test('resources and utilities carry no contract by design', () => {
 });
 
 void test('N-* rows build no component', () => {
-  assert.equal(contractJoinFor(input, 'N-STP').kind, 'noComponent');
-  assert.equal(contractJoinFor(input, 'N-IT').kind, 'noComponent');
+  assert.equal(contractJoinFor(input, 'N-QA').kind, 'noComponent');
+  assert.equal(contractJoinFor(input, 'N-PERF').kind, 'noComponent');
 });
 
 void test('the join never falls back to a name heuristic', () => {

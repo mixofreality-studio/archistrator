@@ -94,8 +94,8 @@ function byPhase(construction: Renderer | undefined): Renderer {
  * explicit "no renderer" statement. Populated one type at a time (see the
  * per-type plan).
  *
- * The N-STP (`testing:plan`) and N-IT (`testing:systemTest`) rows are gone with
- * those activities (deterministic component testing, spec §7): every component's
+ * The system test plan (`testing:plan`) and system testing (`testing:systemTest`)
+ * rows are gone with those activities (deterministic component testing, spec §7): every component's
  * own lifecycle renders its scenario plan and its run now.
  */
 export const artifactRenderers: Partial<Record<Classification, Renderer>> = {

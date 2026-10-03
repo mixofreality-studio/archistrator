@@ -7,10 +7,10 @@
  * end collapses into one bucket with it. The (type, variant) pair is what
  * tells them apart, and it is already on the row.
  *
- * N-STP (the side lane) and N-IT (the system-testing row) were retired on
- * 2026-10-02 (deterministic component testing, spec §7): every component's own
- * lifecycle carries its scenario plan and run, so no testing activity has a
- * band of its own any more.
+ * No testing activity has a band of its own: the system test plan's side lane and
+ * the system-testing row were retired on 2026-10-02 (deterministic component
+ * testing, spec §7), because every component's own lifecycle carries its scenario
+ * plan and run.
  *
  * The rows read TOP→DOWN in build order: what nothing depends on is built
  * first (resources), what depends on everything is built last (clients).

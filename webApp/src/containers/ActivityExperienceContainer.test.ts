@@ -15,9 +15,11 @@
  * `node --test 'src/**\/*.test.ts'` over a harness with no DOM and no JSX loader —
  * there is no renderer in this repo's node suite at all (the house idiom for a claim
  * about a container's wiring is the source scan; see `hooks/statusDecides.test.ts`,
- * `api/opsSeam.test.ts`). The BEHAVIOURAL proof that the lens comes back is the
- * preview pair in `uitests/tests/preview/activity-renderers.spec.ts`, which drives a
- * real browser over a fixture whose `operationalConcepts` slot is committed.
+ * `api/opsSeam.test.ts`). The BEHAVIOURAL proof that the lens comes back used to be a
+ * hand-written preview spec driving a real browser over a fixture whose
+ * `operationalConcepts` slot is committed; it went with the hand-written uitests
+ * (deterministic component testing, spec §7), so until the web client's generated
+ * scenario tests cover it, this source scan is the only check.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

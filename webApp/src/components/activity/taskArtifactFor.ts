@@ -82,7 +82,8 @@ export const ARCHITECTURE_ACTIVITY_ID = 'architecture';
  * authored renderer (harness/perf/qaProcess) are absent on purpose: they resolve
  * to `undefined` and fall back to the unknown body, which says plainly that
  * there is nothing recorded to show. An empty renderer frame would say the
- * opposite. `testing:plan` (N-STP) and `testing:systemTest` (N-IT) are gone
+ * opposite. `testing:plan` and `testing:systemTest` (the system test plan and
+ * system testing) are gone
  * with those activities (spec §7): their views moved onto every component's own
  * `test_plan` and `integration` phases.
  */

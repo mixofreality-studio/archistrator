@@ -418,7 +418,7 @@ void test('makes no claim at all about an unclassified row', () => {
 void test('a testing row without a variant has no profile — there is no plan one to fall back to', () => {
   // No `variant` key at all — `exactOptionalPropertyTypes` makes that the only
   // way to express "the server reported none", which is the real wire case: the
-  // zero TestingVariant is None since N-STP (plan) was retired (spec §7).
+  // zero TestingVariant is None since the system test plan variant was retired (spec §7).
   const node = onlyNode([row({ activityId: 'N-X', kind: 'testing' })]);
   assert.deepEqual(
     node.phases.map((p) => p.phase),

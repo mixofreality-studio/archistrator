@@ -13,35 +13,19 @@ import {
 } from './activityViewToGraph.ts';
 import { lifecycleFor } from './lifecycles.gen.ts';
 
-// THE FIXTURES LIVE IN TWO TREES, and this test reads from both. Nearly every
-// activity-experience state is recorded under uitests/preview-fixtures, because that is
-// the root the preview build is pointed at (playwright.config.ts's
-// ARCHISTRATOR_PREVIEW_FIXTURES); one smoke state stays under webApp/preview/fixtures, the
-// recorded-design location the U-SPA-web-client Design phase will fill. A name is looked
-// up in both, in that order, and a miss names both roots rather than the one it happened
-// to try last — a fixture moved between the trees must not read as a fixture deleted.
-const FIXTURE_ROOTS = [
-  '../../../../uitests/preview-fixtures/web-client/activity-experience/',
-  '../../../preview/fixtures/web-client/activity-experience/',
-];
+// The activity-experience states live in ONE tree: webApp/preview/fixtures, the
+// recorded-design location the U-SPA-web-client Design phase fills and the preview build
+// is pointed at. (They used to sit under uitests/preview-fixtures, the hand-written
+// uitests' corpus; that tree went with those specs — deterministic component testing,
+// spec §7 — and the states these tests read moved here.)
+const FIXTURE_ROOT = '../../../preview/fixtures/web-client/activity-experience/';
 
 function fixture(name: string): ActivityViewWire {
-  const tried: string[] = [];
-  for (const root of FIXTURE_ROOTS) {
-    const url = new URL(`${root}${name}.json`, import.meta.url);
-    tried.push(url.pathname);
-    let text: string;
-    try {
-      text = readFileSync(url, 'utf8');
-    } catch {
-      continue;
-    }
-    const doc = JSON.parse(text) as {
-      ops: { deliveryQueryActivityView: { result: ActivityViewWire } };
-    };
-    return doc.ops.deliveryQueryActivityView.result;
-  }
-  throw new Error(`fixture "${name}" is in neither tree: ${tried.join(', ')}`);
+  const url = new URL(`${FIXTURE_ROOT}${name}.json`, import.meta.url);
+  const doc = JSON.parse(readFileSync(url, 'utf8')) as {
+    ops: { deliveryQueryActivityView: { result: ActivityViewWire } };
+  };
+  return doc.ops.deliveryQueryActivityView.result;
 }
 
 void test('a passed task becomes a done node, and a completed phase becomes a passed phase', () => {

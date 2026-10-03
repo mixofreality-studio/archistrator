@@ -9,7 +9,7 @@ void test('the three design activities are the front end, whatever layer the ser
   }
 });
 
-void test('no testing activity has a band: N-STP and N-IT are retired, the rest never had one', () => {
+void test('no testing activity has a band: the plan and systemTest variants are retired, the rest never had one', () => {
   assert.equal(planRowFor({ kind: 'testing', variant: 'harness' }), undefined);
   assert.equal(planRowFor({ kind: 'testing', variant: 'perf' }), undefined);
   assert.equal(planRowFor({ kind: 'testing', variant: 'qaProcess' }), undefined);

@@ -25,16 +25,16 @@ const doc = loadOas();
 const validate = compileFixtureValidator(doc);
 
 // The recorded-design location the U-SPA-web-client Design phase fills (design §2′.5
-// item 4) — the one tree the preview build is pointed at. The test-local corpus the
-// hand-written uitests built the preview over went with them (deterministic component
-// testing, spec §7).
+// item 4) — the one tree the preview build is pointed at. The corpus the hand-written
+// uitests used to hold under uitests/preview-fixtures moved here when those specs went
+// (deterministic component testing, spec §7): the webApp's own unit tests read it.
 const DESIGN_FIXTURES = join(here, '..', 'preview', 'fixtures');
 const FIXTURE_ROOTS = [DESIGN_FIXTURES];
 
 void test('every preview fixture passes the OAS-generated schema (and there are some)', () => {
   const { files, errors } = validateFixtureTree(DESIGN_FIXTURES, { validate });
   assert.deepEqual(errors, []);
-  assert.ok(files.length >= 1, `expected the recorded-design fixture states, found ${files.length}`);
+  assert.ok(files.length >= 3, `expected the recorded fixture states, found ${files.length}`);
 });
 
 // THE SCHEMA SAYS A FIXTURE IS WELL-SHAPED; IT CANNOT SAY IT IS SERVABLE. A
@@ -368,7 +368,22 @@ const activityViews = (root) => {
 
 void test('the activity-experience fixtures are recorded where the preview can open them', () => {
   const states = (root) => activityViews(root).map(([p]) => p.slice(p.lastIndexOf('/') + 1)).sort();
-  assert.deepEqual(states(DESIGN_FIXTURES), ['not-started.json'], 'the one smoke fixture');
+  assert.deepEqual(states(DESIGN_FIXTURES), [
+    'architecture-round.json',
+    'construction-round-withdrawn.json',
+    'deployment-linear.json',
+    'done.json',
+    'escalated.json',
+    'failed.json',
+    'not-started.json',
+    'project-design-m0-defaulted.json',
+    'project-design-m0-history.json',
+    'project-design-m0.json',
+    'requirements-backfilled.json',
+    'review-set-error.json',
+    'service-fork-sent-back.json',
+    'sub-attempts.json',
+  ]);
 });
 
 void test('the activity-experience fixtures answer the one read, with a closed task DAG', () => {

@@ -7675,8 +7675,8 @@ func TestDeriveProduced_Deployment(t *testing.T) {
 func TestDeriveType_Prefixes(t *testing.T) {
 	cases := map[string]ActivityType{
 		"U-SPA-Home": ActivityTypeFrontend,
-		"N-STP":      ActivityTypeTesting,
-		"N-IT":       ActivityTypeTesting,
+		"N-QA":       ActivityTypeTesting,
+		"N-PERF":     ActivityTypeTesting,
 		"C-Orders":   ActivityTypeService,
 		"E-Pricing":  ActivityTypeService,
 	}
@@ -8910,7 +8910,7 @@ func TestArtifactSlot_UnmarshalJSON_RejectsNonEnvelopeModel(t *testing.T) {
 func TestActivityItem_ComponentIDRoundTrips(t *testing.T) {
 	in := ActivityList{Activities: []ActivityItem{
 		{Name: "C-TLM", Title: "TodoListManager", Coding: true, ComponentID: "todo-list-manager"},
-		{Name: "N-STP", Title: "System Test Plan", Coding: false},
+		{Name: "N-QA", Title: "QA Process", Coding: false},
 	}}
 	b, err := json.Marshal(in)
 	if err != nil {
@@ -9225,7 +9225,7 @@ func TestDecodeProjectJSON_ActivityConstructionKeyMismatch_IsTerminal(t *testing
 	for name, rows := range map[string]map[string]ActivityExecution{
 		"matching key":          {"C-a": {ActivityID: "C-a"}},
 		"legacy row with no id": {"C-a": {}},
-		"several matching rows": {"C-a": {ActivityID: "C-a"}, "N-STP": {ActivityID: "N-STP"}},
+		"several matching rows": {"C-a": {ActivityID: "C-a"}, "N-QA": {ActivityID: "N-QA"}},
 	} {
 		if _, _, err := DecodeProjectJSON(encode(rows), id); err != nil {
 			t.Errorf("%s: want a clean decode, got %v", name, err)
