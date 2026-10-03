@@ -16,17 +16,17 @@ import {
 // the task row; a link to a phase opens its activity; an activity link opens nothing.
 void test('a deep link opens exactly its ancestors and targets the selected row', () => {
   assert.deepEqual(
-    deepLinkReveal({ activityId: 'N-STP', lifecyclePhase: 'construction', task: 'codeReview' }),
+    deepLinkReveal({ activityId: 'N-QA', lifecyclePhase: 'construction', task: 'codeReview' }),
     {
-      expand: ['N-STP', 'N-STP::construction'],
-      target: 'N-STP::construction::codeReview',
+      expand: ['N-QA', 'N-QA::construction'],
+      target: 'N-QA::construction::codeReview',
     }
   );
-  assert.deepEqual(deepLinkReveal({ activityId: 'N-STP', lifecyclePhase: 'construction' }), {
-    expand: ['N-STP'],
-    target: 'N-STP::construction',
+  assert.deepEqual(deepLinkReveal({ activityId: 'N-QA', lifecyclePhase: 'construction' }), {
+    expand: ['N-QA'],
+    target: 'N-QA::construction',
   });
-  assert.deepEqual(deepLinkReveal({ activityId: 'N-STP' }), { expand: [], target: null });
+  assert.deepEqual(deepLinkReveal({ activityId: 'N-QA' }), { expand: [], target: null });
   assert.deepEqual(deepLinkReveal({}), { expand: [], target: null });
 });
 
@@ -72,18 +72,18 @@ void test('"Expand to current phase" claims rows for the operator, so a clear ke
 // switch remounts the tree and must not re-open what the operator collapsed.
 void test('a deep link is shown once per selection, however often the tree remounts', () => {
   forgetShownLink();
-  const sel = { activityId: 'N-STP', lifecyclePhase: 'construction', task: 'codeReview' };
+  const sel = { activityId: 'N-QA', lifecyclePhase: 'construction', task: 'codeReview' };
   const link = deepLinkKey('archistrator', sel);
-  assert.equal(link, '["archistrator","N-STP","construction","codeReview"]');
+  assert.equal(link, '["archistrator","N-QA","construction","codeReview"]');
   assert.equal(
-    deepLinkKey('archistrator', { activityId: 'N-STP' }),
-    '["archistrator","N-STP","",""]'
+    deepLinkKey('archistrator', { activityId: 'N-QA' }),
+    '["archistrator","N-QA","",""]'
   );
   assert.equal(linkAlreadyShown(link), false, 'a fresh console reveals it');
   rememberShownLink(link);
   assert.equal(linkAlreadyShown(link), true, 'a remount with the same selection does not');
   const other = deepLinkKey('archistrator', {
-    activityId: 'N-STP',
+    activityId: 'N-QA',
     lifecyclePhase: 'construction',
   });
   assert.equal(linkAlreadyShown(other), false, 'a changed selection does');
@@ -94,7 +94,7 @@ void test('a deep link is shown once per selection, however often the tree remou
 // is a different link, and an in-app switch to it must reveal it.
 void test('the same deep link in a second project is a new link', () => {
   forgetShownLink();
-  const sel = { activityId: 'N-STP', lifecyclePhase: 'construction', task: 'codeReview' };
+  const sel = { activityId: 'N-QA', lifecyclePhase: 'construction', task: 'codeReview' };
   rememberShownLink(deepLinkKey('archistrator', sel));
   assert.equal(linkAlreadyShown(deepLinkKey('gtdapp', sel)), false);
   assert.notEqual(deepLinkKey('a', { activityId: 'b|c' }), deepLinkKey('a|b', { activityId: 'c' }));

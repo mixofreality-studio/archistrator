@@ -98,12 +98,8 @@ export function planStateFor(lifecycle: readonly LifecycleNode[]): PlanState {
 /**
  * Table 11-1's order, top to bottom: the three front-end design activities (and
  * the M0 divider the LIST draws after them), then the build stack in BUILD
- * order, then the side lane, then system testing.
- *
- * The side lane sits SECOND-TO-LAST, not last: N-STP is written early and runs
- * beside the whole stack, but N-IT is the terminal activity of the project —
- * "system testing closes the list" is Table 11-1's own shape, and appending the
- * lane after it would put the plan's last row before its last activity.
+ * order, clients last. (Table 11-1's system test plan and system testing rows are
+ * retired — deterministic component testing, spec §7.)
  */
 export const LIST_ROWS: readonly PlanRow[] = [
   'frontEnd',
@@ -112,8 +108,6 @@ export const LIST_ROWS: readonly PlanRow[] = [
   'engine',
   'manager',
   'client',
-  'sideLane',
-  'systemTesting',
 ];
 
 function dependenciesOf(

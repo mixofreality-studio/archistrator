@@ -4036,10 +4036,10 @@ func TestConstructionRowsToContract_PlannedNoRecordRowIsUnrecordedAndCarriesNoOr
 		"C-BE":    {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
 		"C-EMPTY": {Name: "C-EMPTY", WorkerClass: "junior-developer", Coding: true},
 		"C-PLAN":  {Name: "C-PLAN", WorkerClass: "junior-developer", Coding: true},
-		"N-IT":    {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
+		"N-PERF":  {Name: "N-PERF", WorkerClass: "software-tester", Coding: false},
 	}
 	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})
-	for id, want := range map[string]bool{"C-BE": true, "C-EMPTY": true, "C-PLAN": false, "N-IT": false} {
+	for id, want := range map[string]bool{"C-BE": true, "C-EMPTY": true, "C-PLAN": false, "N-PERF": false} {
 		r := got[id]
 		if r.Recorded != want {
 			t.Errorf("%s: Recorded = %v, want %v", id, r.Recorded, want)
@@ -4059,12 +4059,12 @@ func TestConstructionRowsToContract_RowTakesItsComponentsLayer(t *testing.T) {
 	rows := map[string]projectstate.ActivityExecution{
 		"U-SPA-web-client":  {ActivityID: "U-SPA-web-client"},
 		"C-billing-manager": {ActivityID: "C-billing-manager"},
-		"N-IT":              {ActivityID: "N-IT"},
+		"N-PERF":            {ActivityID: "N-PERF"},
 	}
 	meta := map[string]projectstate.ActivityItem{
 		"U-SPA-web-client":  {Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true, ComponentID: "web-client"},
 		"C-billing-manager": {Name: "C-billing-manager", WorkerClass: "junior-developer", Coding: true, ComponentID: "billing-manager"},
-		"N-IT":              {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
+		"N-PERF":            {Name: "N-PERF", WorkerClass: "software-tester", Coding: false},
 	}
 	componentLayer := map[string]string{"billing-manager": "manager", "web-client": "client"}
 	got := constructionRowsToContract(rows, meta, componentLayer, constructionPlan{})
@@ -4075,8 +4075,8 @@ func TestConstructionRowsToContract_RowTakesItsComponentsLayer(t *testing.T) {
 	if l, b := got["C-billing-manager"].Layer, got["C-billing-manager"].LayerBand; l != "manager" || b != "layered" {
 		t.Errorf("C-billing-manager Layer/LayerBand = %q/%q, want manager/layered", l, b)
 	}
-	if l, b := got["N-IT"].Layer, got["N-IT"].LayerBand; l != "" || b != "projectWide" {
-		t.Errorf("N-IT Layer/LayerBand = %q/%q, want \"\"/projectWide", l, b)
+	if l, b := got["N-PERF"].Layer, got["N-PERF"].LayerBand; l != "" || b != "projectWide" {
+		t.Errorf("N-PERF Layer/LayerBand = %q/%q, want \"\"/projectWide", l, b)
 	}
 }
 

@@ -21,7 +21,7 @@ void test("project A's decision on the wire never reads as in flight for project
     gcTime: Infinity,
   });
   // The same activity id in both projects: only the project tells them apart.
-  void mutation.execute({ activityId: 'N-STP', taskId: 'codeReview', decision: 'approve' });
+  void mutation.execute({ activityId: 'N-QA', taskId: 'codeReview', decision: 'approve' });
   await new Promise((r) => setTimeout(r, 0));
 
   const inFlight = (projectId: string): number =>
@@ -51,8 +51,8 @@ void test('reviewDecisionFilters: the cache read and the guard see only their ow
     });
     void mutation.execute({ activityId, taskId: 'codeReview', decision: 'approve' });
   };
-  held('A', 'N-STP');
-  held('A-2', 'N-STP');
+  held('A', 'N-QA');
+  held('A-2', 'N-QA');
   await new Promise((r) => setTimeout(r, 0));
 
   assert.deepEqual(reviewDecisionFilters('B'), {
@@ -68,9 +68,9 @@ void test('reviewDecisionFilters: the cache read and the guard see only their ow
       ...reviewDecisionFilters(projectId),
       predicate: (m) => (m.state.variables as { activityId?: string }).activityId === activityId,
     });
-  assert.equal(onTheWire('A', 'N-STP'), 1);
-  assert.equal(onTheWire('B', 'N-STP'), 0);
-  assert.equal(onTheWire('A', 'N-IT'), 0);
+  assert.equal(onTheWire('A', 'N-QA'), 1);
+  assert.equal(onTheWire('B', 'N-QA'), 0);
+  assert.equal(onTheWire('A', 'N-PERF'), 0);
   // The project-less key matches every project — what the filter exists to prevent.
   assert.equal(client.isMutating({ mutationKey: ['submitReviewDecision'] }), 2);
   client.clear();

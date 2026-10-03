@@ -25,7 +25,7 @@
  *                contract. A real gap a person should fix (C-design-health-engine).
  *   byDesign     a Resource or Utility: provisioned or shared, never contracted
  *                here (the four R-* rows).
- *   noComponent  the activity builds no component at all (N-STP, N-IT).
+ *   noComponent  the activity builds no component at all (N-QA, N-PERF).
  *   unresolved   the committed data this join reads is not loaded, or does not
  *                place the activity — the console cannot tell, so it says so.
  */

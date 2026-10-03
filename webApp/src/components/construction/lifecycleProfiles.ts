@@ -130,8 +130,8 @@ const PHASE_TASK_ORDER: Partial<Record<string, readonly string[]>> = {
 /**
  * The lifecycle each kind runs. `testing` is ABSENT: a testing activity keys on
  * its variant (VARIANT_LIFECYCLE), and a testing row without one has no
- * lifecycle at all — the zero TestingVariant is None since the plan (N-STP)
- * and systemTest (N-IT) variants were retired (spec §7), not a plan fallback.
+ * lifecycle at all — the zero TestingVariant is None since the system test plan
+ * (`plan`) and system testing (`systemTest`) variants were retired (spec §7), not a plan fallback.
  */
 const KIND_LIFECYCLE: Readonly<Record<Exclude<ActivityKind, 'testing'>, LifecycleTypeKey>> = {
   service: 'service',

@@ -270,7 +270,7 @@ void test('probe only what the pump started and has not finished', () => {
     // Backfilled: integrated from reconstructed evidence, never started by a pump.
     row({ activityId: 'C-backfilled', status: 'integrated' }, 'startedAt'),
     // Planned-no-record: the committed list names it; nothing is stored.
-    row({ activityId: 'N-IT', recorded: false }, 'startedAt', 'status')
+    row({ activityId: 'N-PERF', recorded: false }, 'startedAt', 'status')
   );
   assert.deepEqual(probeCandidatesFor(rows), ['C-live']);
   assert.deepEqual(probeCandidatesFor(undefined), []);

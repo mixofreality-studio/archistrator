@@ -5278,7 +5278,7 @@ type ContractParam struct {
 // "before" | "after" | "onReviewFail"
 // "escalate" | "takeover"
 
-// DefectRecord is one defect filed during system testing (N-IT / §1c).
+// DefectRecord is one defect recorded in TestingState (§1c).
 type DefectRecord struct {
 	ID         string     `json:"id"`
 	Title      string     `json:"title"`
@@ -9084,8 +9084,8 @@ const (
 // carried the MANAGER they screened as componentId, so the id prefix had to overrule the
 // join. D9 removed them.)
 //
-// A componentless activity (N-STP, N-IT, and any additive — an additive may not carry a
-// componentId) gets NO fake layer and renders in the project-wide band, per this repo's
+// A componentless activity (a testing activity such as N-QA, and any additive — an
+// additive may not carry a componentId) gets NO fake layer and renders in the project-wide band, per this repo's
 // ratified utilities-sidebar convention (a side band, with no lines drawn into the
 // layered stack).
 //

@@ -620,8 +620,8 @@ export interface ProducedArtifactRow {
 }
 
 /**
- * The three testing (N-*) variants that still exist. `plan` (N-STP) and
- * `systemTest` (N-IT) were retired on 2026-10-02 (deterministic component
+ * The three testing (N-*) variants that still exist. `plan` (the system test
+ * plan) and `systemTest` (system testing) were retired on 2026-10-02 (deterministic component
  * testing, spec §7): every component's own testing task carries its scenario
  * plan and run now, so a testing row that arrives without a variant has no
  * lifecycle rather than a plan one.
@@ -786,7 +786,7 @@ export interface ConstructionRow {
    * The Method layer this activity is drawn in for the layer-stack projection
    * (server: LayerForActivity) — the layer of the one component the activity
    * builds, looked up through its `componentId`. Every derived activity is 1:1
-   * with a component or project-wide (N-STP, N-IT, …); a project-wide activity
+   * with a component or project-wide (N-QA, N-PERF, …); a project-wide activity
    * builds no component, draws in the side band, and carries no layer. Absent
    * when the server drew no layer for this row; see `layerBand`.
    */

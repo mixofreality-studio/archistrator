@@ -51,7 +51,7 @@ export function activityMetaFor(
         ? { float: cpm.totalFloat, onCriticalPath: cpm.onCriticalPath, band: cpm.band }
         : {}),
       // Task 11's search matches activity id / title / componentId — joined the
-      // same way as `label`; a project-wide activity (N-STP, N-IT, …) builds no
+      // same way as `label`; a project-wide activity (N-QA, N-PERF, …) builds no
       // single component, so it carries none.
       ...(a.componentId !== undefined && a.componentId.length > 0
         ? { componentId: a.componentId }

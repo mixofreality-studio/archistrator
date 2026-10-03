@@ -12,12 +12,12 @@ import { activityMetaFor } from './activityMeta.ts';
 const LIST = [
   { name: 'C-a', title: 'Billing Manager', effortDays: 15, componentId: 'billing-manager' },
   { name: 'C-b', title: '', effortDays: 10, componentId: '' },
-  { name: 'N-STP', title: 'System Test Plan', effortDays: 10 },
+  { name: 'N-QA', title: 'QA Process', effortDays: 10 },
 ];
 
 const COMPUTED = {
   'C-a': { totalFloat: 6, onCriticalPath: false, band: 'yellow' },
-  'N-STP': { totalFloat: 0, onCriticalPath: true, band: 'critical' },
+  'N-QA': { totalFloat: 0, onCriticalPath: true, band: 'critical' },
 };
 
 void test('a computed entry joins float, criticality and band untouched', () => {
@@ -33,10 +33,10 @@ void test('a computed entry joins float, criticality and band untouched', () => 
 });
 
 void test('a true zero float passes through as zero', () => {
-  const stp = activityMetaFor(LIST, COMPUTED)['N-STP'];
-  assert.ok(stp !== undefined);
-  assert.equal(stp.float, 0);
-  assert.equal(stp.onCriticalPath, true);
+  const qa = activityMetaFor(LIST, COMPUTED)['N-QA'];
+  assert.ok(qa !== undefined);
+  assert.equal(qa.float, 0);
+  assert.equal(qa.onCriticalPath, true);
 });
 
 void test('NO computed entry: no float, no band, no criticality — never a fabricated 0', () => {

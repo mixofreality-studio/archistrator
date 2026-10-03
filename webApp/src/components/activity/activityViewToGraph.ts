@@ -59,8 +59,8 @@ export const OUTCOME_TEXT: Readonly<Record<OutcomeWire, string>> = {
  * `projectstate.LifecycleKeyFor` applies server-side: `testing:<variant>` for
  * a testing activity, the bare type for everything else. A testing row that
  * arrived without a variant keys as `testing:none`, which names no lifecycle:
- * the server's zero `TestingVariant` is None since the plan (N-STP) and
- * systemTest (N-IT) variants were retired (spec §7), so there is nothing to
+ * the server's zero `TestingVariant` is None since the system test plan
+ * (`plan`) and system testing (`systemTest`) variants were retired (spec §7), so there is nothing to
  * fall back to.
  */
 export function lifecycleKeyFor(type: string, variant: string | undefined): string {

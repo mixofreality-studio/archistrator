@@ -17,8 +17,8 @@ export type Classification =
   | 'requirements'
   | 'architecture'
   | 'projectDesign'
-  // The three testing variants that remain. `testing:plan` (N-STP) and
-  // `testing:systemTest` (N-IT) were retired with deterministic component testing
+  // The three testing variants that remain. `testing:plan` (the system test plan)
+  // and `testing:systemTest` (system testing) were retired with deterministic component testing
   // (spec §7): a component's scenario plan and run render on its OWN lifecycle.
   | 'testing:harness'
   | 'testing:perf'

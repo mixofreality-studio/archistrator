@@ -78,7 +78,7 @@ export function deepLinkReveal(selection: {
 /**
  * One URL selection as a key: its PROJECT plus its a/p/k (fix-D review M1). Keyed
  * by a/p/k alone, the memory leaked across projects. An in-app switch to a second
- * project with the same N-STP link found the link "already shown", so its row
+ * project with the same activity link found the link "already shown", so its row
  * stayed hidden under a closed chevron.
  */
 export function deepLinkKey(

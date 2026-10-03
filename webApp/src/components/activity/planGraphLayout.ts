@@ -5,17 +5,18 @@
  *
  *   FRONT END   1 Requirements → 2 Architecture → 3 Project Design → ◆ M0
  *   RESOURCES → RESOURCE ACCESS → ENGINES → MANAGERS → CLIENTS
- *   SYSTEM TESTING (N-IT, terminal)
  *
- * plus N-STP in its own side lane, clear of the widest row, running from M0
- * straight down to N-IT — Table 11-1's 4→21 chain.
+ * There is no system-testing row and no side lane: deterministic component testing
+ * (spec §7) retired the system test plan and system testing, so every component's
+ * own lifecycle carries its scenario plan and its run, and the clients close the
+ * network.
  *
  * Every edge is a DEPENDENCY edge pointing DOWN in build order: predecessor →
  * dependent, arrowhead at the dependent (what a tile CALLS is what it depends
  * on, so it is built after). M0 is a FORCED dependency of all construction
  * (Righting Software ch. 11, "About Milestones"): it fans into the graph's
- * BUILD ROOTS — the tiles with no known predecessor (every Resource, any
- * dependency-free ResourceAccess, and N-STP) — and the rest inherit the gate
+ * BUILD ROOTS — the tiles with no known predecessor (every Resource and any
+ * dependency-free ResourceAccess) — and the rest inherit the gate
  * transitively through their own dependency edges ({@link planFocusFor} lights
  * the lot on an M0 hover).
  *
@@ -33,22 +34,13 @@ import { COL_W, NODE_W, ROW_H } from '../flow/flowLayoutCore.ts';
  * was invented. A deployment-type activity takes its component's layer like
  * any other coding activity (planRowFor).
  */
-export type PlanRow =
-  | 'frontEnd'
-  | 'resource'
-  | 'resourceAccess'
-  | 'engine'
-  | 'manager'
-  | 'client'
-  | 'systemTesting'
-  /** N-STP: no horizontal band — a vertical lane beside every row. */
-  | 'sideLane';
+export type PlanRow = 'frontEnd' | 'resource' | 'resourceAccess' | 'engine' | 'manager' | 'client';
 
 export interface PlanTileInput {
   id: string;
   row: PlanRow;
   /** Activities whose components this one CALLS — what it depends on, so the
-   *  callee is built first (Front-end and side-lane tiles carry none). */
+   *  callee is built first (Front-end tiles carry none). */
   calls: readonly string[];
 }
 
@@ -81,8 +73,6 @@ export const PLAN_TILE = { w: NODE_W, h: 96 } as const;
 export const PLAN_MILESTONE = { w: 132, h: 44 } as const;
 export const PLAN_COL_W = COL_W;
 export const PLAN_ROW_H = ROW_H;
-/** Clear space between the widest row and N-STP's side lane. */
-const LANE_GAP = 96;
 /**
  * The room the pinned row gutter's labels keep, in FLOW px: the canvas places
  * an invisible spacer node this wide to the left of every row, so `fitView`
@@ -91,26 +81,23 @@ const LANE_GAP = 96;
  */
 export const PLAN_GUTTER_ROOM = 120;
 
-const ROW_LABEL: Record<Exclude<PlanRow, 'sideLane'>, string> = {
+const ROW_LABEL: Record<PlanRow, string> = {
   frontEnd: 'Front end',
   resource: 'Resources',
   resourceAccess: 'Resource\nAccess',
   engine: 'Engines',
   manager: 'Managers',
   client: 'Clients',
-  systemTesting: 'System\nTesting',
 };
 
 /** The stack, in BUILD order top→down: what nothing depends on comes first,
- *  what depends on everything else (the clients) comes last, System Testing
- *  closes it out. */
-const STACK_ROWS: readonly Exclude<PlanRow, 'frontEnd' | 'sideLane'>[] = [
+ *  what depends on everything else (the clients) comes last. */
+const STACK_ROWS: readonly Exclude<PlanRow, 'frontEnd'>[] = [
   'resource',
   'resourceAccess',
   'engine',
   'manager',
   'client',
-  'systemTesting',
 ];
 
 export function layoutPlanGraph(
@@ -179,18 +166,6 @@ export function layoutPlanGraph(
 
   const height = Math.max(0, cursor - ROW_H + PLAN_TILE.h);
 
-  // N-STP's side lane: clear of the widest row, spanning the full height —
-  // M0 straight down to N-IT, like Table 11-1's 4→21 chain.
-  const lane = tiles.filter((t) => t.row === 'sideLane');
-  const laneX = right + LANE_GAP;
-  if (lane.length > 0) {
-    lane.forEach((t, i) => {
-      const step = lane.length > 1 ? (height * i) / (lane.length - 1) : height / 2;
-      pos.set(t.id, { x: laneX, y: step - PLAN_TILE.h / 2 });
-    });
-    right = laneX + PLAN_TILE.w;
-  }
-
   // Dependency edges: predecessor → dependent, pointing DOWN in build order.
   for (const t of tiles) {
     if (t.row === 'frontEnd') continue;
@@ -200,7 +175,7 @@ export function layoutPlanGraph(
   }
 
   // M0 gates every BUILD ROOT — a tile with no known predecessor: every
-  // Resource, any dependency-free ResourceAccess, and N-STP. Everything else
+  // Resource and any dependency-free ResourceAccess. Everything else
   // inherits the gate transitively through its own dependency edges above.
   if (milestoneId !== undefined && pos.has(milestoneId)) {
     for (const t of tiles) {
@@ -240,9 +215,9 @@ export interface PlanFocus {
  * dependencies; M0's own hover (below) is the one place the gate itself is
  * the point.
  *
- * Hovering the MILESTONE lights everything it gates — all of construction,
- * the side lane and system testing — because that is what a forced dependency
- * means, and M0's own edges reach only the build roots.
+ * Hovering the MILESTONE lights everything it gates — all of construction —
+ * because that is what a forced dependency means, and M0's own edges reach only
+ * the build roots.
  */
 export function planFocusFor(
   hoveredId: string,

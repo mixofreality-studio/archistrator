@@ -118,7 +118,7 @@ import { seqChipLabel } from './seqChipLabel';
 
 /** Per-call status for the test views: 'red' = target/failing, 'green' = passing,
  *  'planned' = a target nothing has run against yet — the same "target" tag in
- *  NEUTRAL ink (a never-run N-IT; designer final items: never-run is not failing). */
+ *  NEUTRAL ink (a scenario never run; designer final items: never-run is not failing). */
 export type StepStatus = 'red' | 'green' | 'planned';
 
 function statusColor(status: StepStatus | undefined, t: Tokens): string | undefined {
