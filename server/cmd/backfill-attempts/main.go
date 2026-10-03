@@ -110,7 +110,7 @@ type founderSignOff struct {
 
 // signedArtifact names the committed artifact a sign-off approved and reads it.
 type signedArtifact struct {
-	// Ref is where the artifact lives in project.json, e.g. "testingState.systemTestPlan".
+	// Ref is where the artifact lives in project.json, e.g. "testingState.qualityAuditReport".
 	Ref string
 	// Describe reads the artifact out of the committed state and returns a short,
 	// countable description of it ("5 scenarios"). It fails when the artifact is absent

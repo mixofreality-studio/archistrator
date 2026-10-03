@@ -3749,9 +3749,8 @@ func claudeSubprocessEnv(rig map[string]string) []string {
 }
 
 // ---------------------------------------------------------------------------
-// git plumbing (raw `git` subprocess calls — no new library dependency; mirrors
-// systemtests/internal/harness/localgit.go's style, production-hardened: errors
-// are returned, never t.Fatalf'd).
+// git plumbing (raw `git` subprocess calls — no new library dependency;
+// production-hardened: errors are returned, never t.Fatalf'd).
 // ---------------------------------------------------------------------------
 
 // localMainBranch is the flat git-forward base every activity branch forks from —
@@ -4302,7 +4301,7 @@ func nonEmptyLines(out string) []string {
 // and returns its combined output wrapped into the error on failure, for a
 // debuggable diagnostic.
 func runGit(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...) //nolint:gosec // fixed trusted binary, internally-derived args (repo URL/branch names), mirrors systemtests/internal/harness/localgit.go
+	cmd := exec.Command("git", args...) //nolint:gosec // fixed trusted binary, internally-derived args (repo URL/branch names)
 	if dir != "" {
 		cmd.Dir = dir
 	}

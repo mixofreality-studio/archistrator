@@ -7,7 +7,7 @@
 version: "2"
 
 linters:
-  # Baseline gate (shared across archistrator-platform, server, systemtests):
+  # Baseline gate (shared across archistrator-platform and server):
   #   default "standard" set = errcheck, govet, ineffassign, staticcheck, unused
   #   + gochecksumtype + gosec. Standard gofmt only (see formatters below).
   # Generated code (// Code generated ... DO NOT EDIT.) is auto-excluded by v2.

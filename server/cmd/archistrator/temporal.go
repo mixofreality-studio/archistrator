@@ -213,7 +213,7 @@ func waitTCPReachable(ctx context.Context, hostport string, timeout time.Duratio
 // override (ARCHISTRATOR_TEMPORAL_HOSTPORT, so an operator can point at an
 // already-running shared dev Temporal), else loopback on archistrator's OWN
 // dedicated port — NOT the well-known 7233 (QA 2026-07-19): other tooling's
-// `temporal server start-dev` (the systemtests suite on this repo, or any
+// `temporal server start-dev` (another suite on this machine, or any
 // unrelated project) defaults to 7233, and adopting a foreign dev server
 // there made every session lookup answer "workflow not found" → an
 // authoritative 404 that reset the SPA wizard mid-use-case.

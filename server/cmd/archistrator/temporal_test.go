@@ -7,9 +7,9 @@ import (
 
 // QA 2026-07-19 (poll-404 wizard reset): the local stack used to target the
 // WELL-KNOWN Temporal frontend port 7233 and silently ADOPT whatever was
-// listening there. On the founder's machine the systemtests suite runs its own
+// listening there. On the founder's machine another suite ran its own
 // `temporal server start-dev` on that same port (persistent aiarch-test.db), so
-// whenever the stack's own dev server died and the systemtests one held the
+// whenever the stack's own dev server died and the foreign one held the
 // port, the server transparently reconnected to a FOREIGN Temporal — every
 // session lookup then answered "workflow not found", the API served an
 // authoritative 404 "no active design session", and the SPA reset the wizard
@@ -19,7 +19,7 @@ func TestDefaultTemporalHostport_DedicatedLocalPort(t *testing.T) {
 	t.Setenv("ARCHISTRATOR_TEMPORAL_HOSTPORT", "")
 	got := defaultTemporalHostport()
 	if got == "127.0.0.1:7233" {
-		t.Fatal("the local stack must NOT default to the shared well-known 7233 (systemtests' dev server lives there); want a dedicated port")
+		t.Fatal("the local stack must NOT default to the shared well-known 7233 (another tool's dev server may live there); want a dedicated port")
 	}
 	if !strings.HasPrefix(got, "127.0.0.1:") {
 		t.Fatalf("default hostport must stay loopback, got %q", got)

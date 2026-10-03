@@ -30358,13 +30358,14 @@ func Test_PreviewFixtureContracts_Write(t *testing.T) {
 	t.Logf("%d of %d fixture file(s) rewritten with %d contracts", written, len(files), len(live))
 }
 
-// previewFixtureFiles is every .json under the two fixture trees: the uitests corpus the
-// preview build is pointed at, and the one recorded-design smoke fixture.
+// previewFixtureFiles is every .json under the preview fixture tree: the recorded-design
+// fixtures the preview build is pointed at (webApp/preview/fixtures). The uitests'
+// test-local corpus it also walked went with the hand-written uitests (deterministic
+// component testing, spec §7).
 func previewFixtureFiles(t *testing.T, root string) []string {
 	t.Helper()
 	var files []string
 	for _, tree := range []string{
-		filepath.Join(root, "uitests", "preview-fixtures"),
 		filepath.Join(root, "webApp", "preview", "fixtures"),
 	} {
 		if err := filepath.WalkDir(tree, func(p string, d fs.DirEntry, err error) error {

@@ -10,8 +10,8 @@
  * hooks that nothing can select — until a reviewer happens to notice two of them.
  *
  * WHAT "REFERENCED" MEANS HERE, EXACTLY. This test reads the SOURCES AS TEXT and
- * looks for the literal token `<Namespace>.<key>` anywhere under `webApp/src` or
- * `uitests/tests`. It is a textual match and nothing more:
+ * looks for the literal token `<Namespace>.<key>` anywhere under `webApp/src`.
+ * It is a textual match and nothing more:
  *   • it cannot see a key composed at runtime — `UI_IDENTIFIERS[ns][key]`, or a
  *     name assembled from a variable, reads here as an orphan (WAIVERS is for
  *     exactly that);
@@ -22,13 +22,11 @@
  * keeps happening, and the opposite failure it cannot catch — a live element that
  * LOST its hook — is only ever found by triaging the list this test prints.
  *
- * THE ALIAS HOP. uitests mostly does not name ids by their own key:
- * `uitests/tests/support/testids.ts` re-exports them flat and camelCase
- * (`constructionListRow: UI_IDENTIFIERS.Construction.listRow`) and the specs say
- * `TESTID.constructionListRow`. So testids.ts is read as an ALIAS MAP, never as a
- * reference site: an id is referenced through it only when some spec uses the
- * alias. Counting the alias definition itself would make this guard blind;
- * ignoring the map would make it a false-positive machine.
+ * ONLY THE SPA VOUCHES. The hand-written uitests that used to count as a reference
+ * site (through their flat TESTID alias map) are gone with the system test plan
+ * (deterministic component testing, spec §7): the generated scenario specs select by
+ * the testid strings the scenario bindings carry, not by these constants. An id a
+ * test named but no element ever carried was always an orphan; now it reads as one.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,9 +35,7 @@ import { dirname, join, relative } from 'node:path';
 
 const HERE = import.meta.dirname;
 const WEBAPP_SRC = join(HERE, '..', '..');
-const UITESTS = join(WEBAPP_SRC, '..', '..', 'uitests', 'tests');
 const IDS_FILE = join(HERE, 'UIIdentifiers.ts');
-const ALIAS_FILE = join(UITESTS, 'support', 'testids.ts');
 
 /** `Namespace.key` → why it may be declared with no textual reference. */
 const WAIVERS: Readonly<Record<string, string>> = {};
@@ -68,37 +64,26 @@ function leafKeys(src: string): string[] {
   return out;
 }
 
-void test('every UI_IDENTIFIERS leaf is referenced by the SPA or a uitests spec', () => {
+void test('every UI_IDENTIFIERS leaf is referenced by the SPA', () => {
   const idsSrc = readFileSync(IDS_FILE, 'utf8');
-  const aliasSrc = readFileSync(ALIAS_FILE, 'utf8');
 
-  // The alias map: `Namespace.key` → the TESTID names the specs would say.
-  const aliases = new Map<string, string[]>();
-  for (const m of aliasSrc.matchAll(/(\w+):[^\n]*?UI_IDENTIFIERS\.(\w+)\.(\w+)/g)) {
-    const id = `${String(m[2])}.${String(m[3])}`;
-    aliases.set(id, [...(aliases.get(id) ?? []), String(m[1])]);
-  }
-
-  // Everything that may REFERENCE an id. The constant's own file and the alias
-  // map are declarations, not references; THIS file names ids in its prose and
-  // would otherwise vouch for them.
-  const corpus = [...sources(WEBAPP_SRC), ...sources(UITESTS)]
-    .filter((f) => f !== IDS_FILE && f !== ALIAS_FILE && f !== import.meta.filename)
+  // Everything that may REFERENCE an id. The constant's own file is a declaration,
+  // not a reference; THIS file names ids in its prose and would otherwise vouch
+  // for them.
+  const corpus = sources(WEBAPP_SRC)
+    .filter((f) => f !== IDS_FILE && f !== import.meta.filename)
     .map((f) => readFileSync(f, 'utf8'))
     .join('\n');
 
   const orphans = leafKeys(idsSrc).filter(
-    (id) =>
-      !Object.hasOwn(WAIVERS, id) &&
-      !corpus.includes(id) &&
-      !(aliases.get(id) ?? []).some((a) => corpus.includes(`TESTID.${a}`))
+    (id) => !Object.hasOwn(WAIVERS, id) && !corpus.includes(id)
   );
 
   assert.deepEqual(
     orphans,
     [],
     `${String(orphans.length)} UI_IDENTIFIERS leaf(s) are declared but referenced nowhere under ` +
-      `${relative(dirname(WEBAPP_SRC), WEBAPP_SRC)} or uitests/tests. Delete the id if its UI is ` +
+      `${relative(dirname(WEBAPP_SRC), WEBAPP_SRC)}. Delete the id if its UI is ` +
       `gone; if its element is still rendered, it LOST its hook — put the hook back. Only an id ` +
       `referenced in a way a textual scan cannot see belongs in WAIVERS, with its reason:\n  ` +
       orphans.join('\n  ')

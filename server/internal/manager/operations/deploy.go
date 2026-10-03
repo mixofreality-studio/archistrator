@@ -238,10 +238,9 @@ func publishRevision(appID operatedAppID, changeID string) string {
 // ---------------------------------------------------------------------------
 const (
 	// selfManagedProjectRef is the well-known project id archistrator uses for its
-	// OWN system design (see cmd/gen-systemtests, cmd/gen-uitests-fixtures,
-	// cmd/gen-uitests-episodes, all of which default their -project/-id flag to
-	// this same literal). A project whose ID matches it is archistrator operating
-	// itself, not a customer-operated tenant.
+	// OWN system design (the id the dogfood project.json carries). A project whose
+	// ID matches it is archistrator operating itself, not a customer-operated
+	// tenant.
 	selfManagedProjectRef = "archistrator"
 
 	// platformDomain is the shared apex domain every operated app is hosted under

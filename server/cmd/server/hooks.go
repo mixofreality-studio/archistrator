@@ -162,7 +162,7 @@ type appHooks struct {
 	// are cloud-arm-only in the deployment model, but their real presence is gated on
 	// the GitHub App creds — ORTHOGONAL to the projectstate substrate profile). The
 	// Finalize hooks select them in the local profile so a local-projectstate boot
-	// WITH github creds (the agentic systemtests) still drives the design-dispatch +
+	// WITH github creds (a local agentic boot) still drives the design-dispatch +
 	// PR rail, exactly as the hand run() did. nil when repo-less (rail dormant).
 	scAccess     sourcecontrol.SourceControlAccess
 	realPipeline agenticjob.AgenticJobAccess
@@ -479,7 +479,7 @@ func (h *appHooks) projectStateCloudPorts(cfg *Config) (webHost, account string,
 
 // resolveProfile maps the loaded config to the active deployment profile. Only two
 // profiles boot: LOCAL (ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true — on-disk git,
-// dev/systemtests) and CLOUD (the GitHub-App-backed production stack). "test" is a
+// dev/dogfood) and CLOUD (the GitHub-App-backed production stack). "test" is a
 // C4-doc-only profile, NOT bootable (usage/opsystemstate/projectstate error on its
 // default arm). A free function so newAppHooks and the ResolveProfile hook agree.
 func resolveProfile(cfg *Config) string {
@@ -505,7 +505,7 @@ func (h *appHooks) PolicyDecisionPoint() security.PolicyDecisionPoint {
 }
 
 // TokenValidator constructs the keycloak access-token validator (authN). nil in dev
-// mode or with no IdP (systemtests) — the auth middleware then injects a dev
+// mode or with no IdP (a local dev boot) — the auth middleware then injects a dev
 // principal or denies.
 func (h *appHooks) TokenValidator(ctx context.Context, cfg *Config) (security.Validator, error) {
 	if cfg.AuthDevMode || cfg.KeycloakJWKSURL == "" {
@@ -985,8 +985,8 @@ func (h *appHooks) FinalizeAgenticJobAccess(cfg *Config, v agenticjob.AgenticJob
 }
 
 // FinalizeSourceControlAccess resolves sourceControlAccess CREDS-WIN: the
-// github-creds-gated real RA when present (local profile WITH creds — the agentic
-// systemtests boot — keeps the REAL GitHub rail, pairing with realPipeline exactly as
+// github-creds-gated real RA when present (local profile WITH creds — a local
+// agentic boot — keeps the REAL GitHub rail, pairing with realPipeline exactly as
 // FinalizeAgenticJobAccess pairs), else the profile arm's build (cloud
 // GitHub, or the local GitLocal PR rail), else nil (rail dormant — a creds-less cloud
 // boot). No dry-run stub — the PR rail simply goes dormant when the RA is nil.

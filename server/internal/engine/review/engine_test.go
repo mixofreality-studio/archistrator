@@ -56,7 +56,7 @@ func Test_ProposeReviews_PerKind(t *testing.T) {
 		{"uiDesign concept", ActivityTypeUIDesign, "detailed_design", "web-client", ReviewKindUIDesign, roleUIDesigner, true},
 		{"deployment spec", ActivityTypeDeployment, "detailed_design", "github", ReviewKindDetailedDesign, roleArchitect, true},
 		{"deployment convergence", ActivityTypeDeployment, "integration", "github", ReviewKindIntegration, roleSeniorReviewer, false},
-		{"N-STP plan review", ActivityTypeTesting, "integration", "", ReviewKindNoncoding, roleArchitect, false},
+		{"N-QA process review", ActivityTypeTesting, "integration", "", ReviewKindNoncoding, roleArchitect, false},
 		{"documentation construction", ActivityTypeDocumentation, "construction", "", ReviewKindNoncoding, roleArchitect, false},
 		{"integration activity", ActivityTypeIntegration, "integration", "", ReviewKindIntegration, roleSeniorReviewer, false},
 		{"integration detailed design", ActivityTypeIntegration, "detailed_design", "", ReviewKindNoncoding, roleArchitect, false},
@@ -127,7 +127,7 @@ func Test_ProposeReviews_EmptyActivityID_ContractMisuse(t *testing.T) {
 // component-typed activity that is gated today.
 func Test_ProposeReviews_AComponentlessActivityDegradesToASignOff(t *testing.T) {
 	e := NewReviewEngine()
-	noComponent := ReviewChange{ActivityID: "N-STP"}
+	noComponent := ReviewChange{ActivityID: "N-QA"}
 	for _, c := range []struct {
 		typ   ActivityType
 		phase string

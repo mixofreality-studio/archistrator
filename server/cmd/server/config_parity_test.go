@@ -67,7 +67,7 @@ func TestLoadConfigParity(t *testing.T) {
 	t.Run("dryrun-false-missing-creds", testLoadConfigParityDryrunFalseMissingCreds)
 }
 
-// testLoadConfigParityDevLocalRig is the systemtests / local-dogfood boot env:
+// testLoadConfigParityDevLocalRig is the local-dogfood boot env:
 // dry-run construction, on-disk git project state, dev auth injected.
 func testLoadConfigParityDevLocalRig(t *testing.T) {
 	clearConfigEnv(t)

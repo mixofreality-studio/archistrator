@@ -24,15 +24,17 @@ const here = dirname(fileURLToPath(import.meta.url));
 const doc = loadOas();
 const validate = compileFixtureValidator(doc);
 
-// The test-local fixtures the uitests build the preview over (design §2′.5 item
-// 4), and the recorded-design location the U-SPA-web-client Design phase will fill.
-const UITESTS_FIXTURES = join(here, '..', '..', 'uitests', 'preview-fixtures');
+// The recorded-design location the U-SPA-web-client Design phase fills (design §2′.5
+// item 4) — the one tree the preview build is pointed at. The test-local corpus the
+// hand-written uitests built the preview over went with them (deterministic component
+// testing, spec §7).
 const DESIGN_FIXTURES = join(here, '..', 'preview', 'fixtures');
+const FIXTURE_ROOTS = [DESIGN_FIXTURES];
 
-void test('every uitests fixture passes the OAS-generated schema (and there are some)', () => {
-  const { files, errors } = validateFixtureTree(UITESTS_FIXTURES, { validate });
+void test('every preview fixture passes the OAS-generated schema (and there are some)', () => {
+  const { files, errors } = validateFixtureTree(DESIGN_FIXTURES, { validate });
   assert.deepEqual(errors, []);
-  assert.ok(files.length >= 3, `expected the uitests fixture states, found ${files.length}`);
+  assert.ok(files.length >= 1, `expected the recorded-design fixture states, found ${files.length}`);
 });
 
 // THE SCHEMA SAYS A FIXTURE IS WELL-SHAPED; IT CANNOT SAY IT IS SERVABLE. A
@@ -76,7 +78,7 @@ const GATE_TASK = {
 };
 
 void test('every construction fixture row is one the server could serve', () => {
-  const { files } = validateFixtureTree(UITESTS_FIXTURES, { validate });
+  const files = FIXTURE_ROOTS.flatMap((root) => validateFixtureTree(root, { validate }).files);
   const offences = [];
   let rowsChecked = 0;
   for (const file of files) {
@@ -349,12 +351,9 @@ void test('it rejects a fixture without an absolute route', () => {
   assert.equal(validate({ ops: {} }), false);
 });
 
-// THE ACTIVITY-EXPERIENCE FIXTURES LIVE IN THE UITESTS TREE, because that is the only one
-// the preview build is pointed at (playwright.config.ts's ARCHISTRATOR_PREVIEW_FIXTURES);
-// a scenario recorded under preview/fixtures is a scenario the suite cannot open. ONE
-// smoke fixture stays behind so the recorded-design location still validates something
-// real and this file's DESIGN_FIXTURES clauses are not vacuous. Every clause below walks
-// BOTH trees, so a fixture is held to the same rules wherever it was recorded.
+// THE ACTIVITY-EXPERIENCE FIXTURES LIVE IN THE RECORDED-DESIGN TREE, the one the preview
+// build is pointed at. Every clause below walks every fixture root, so a fixture is held
+// to the same rules wherever it was recorded.
 const activityViews = (root) => {
   const { files, errors } = validateFixtureTree(root, { validate });
   assert.deepEqual(errors, [], `${root}: fixtures must validate before they are read`);
@@ -365,25 +364,8 @@ const activityViews = (root) => {
     .filter(([, view]) => view !== undefined);
 };
 
-const FIXTURE_ROOTS = [UITESTS_FIXTURES, DESIGN_FIXTURES];
-
 void test('the activity-experience fixtures are recorded where the preview can open them', () => {
   const states = (root) => activityViews(root).map(([p]) => p.slice(p.lastIndexOf('/') + 1)).sort();
-  assert.deepEqual(states(UITESTS_FIXTURES), [
-    'architecture-round.json',
-    'construction-round-withdrawn.json',
-    'deployment-linear.json',
-    'done.json',
-    'escalated.json',
-    'failed.json',
-    'project-design-m0-defaulted.json',
-    'project-design-m0-history.json',
-    'project-design-m0.json',
-    'requirements-backfilled.json',
-    'review-set-error.json',
-    'service-fork-sent-back.json',
-    'sub-attempts.json',
-  ]);
   assert.deepEqual(states(DESIGN_FIXTURES), ['not-started.json'], 'the one smoke fixture');
 });
 
