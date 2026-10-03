@@ -28,7 +28,7 @@ import (
 //	R-gamma-store     resource reached by gamma-access              -> qualifies (inferred)
 //	R-delta-gateway   resource reached by delta-access              -> its RA fails
 //	R-orphan          resource no RA reaches                        -> nothing to infer from
-//	N-STP             componentless, founder sign-off, plan present -> qualifies (sign-off)
+//	N-STP             componentless, no sign-off (retired 2026-10-02) -> no evidence path
 //	N-IT              componentless, no sign-off                    -> no evidence path
 
 const fixtureHead = "0123456789abcdef0123456789abcdef01234567"
@@ -95,9 +95,6 @@ func fixtureProject() projectstate.Project {
 		"gammaFacetAccess": contractFor("gammaAccess", "internal/resourceaccess/gamma", "GammaFacetAccess", "FacetOnly"),
 		"deltaAccess":      delta,
 	}
-	p.TestingState = &projectstate.TestingState{SystemTestPlan: &projectstate.SystemTestPlan{
-		Scenarios: []projectstate.TestScenario{{ID: "STP-1"}, {ID: "STP-2"}, {ID: "STP-3"}},
-	}}
 	// The slot-10 network. By default every QUALIFYING activity depends only on qualifying,
 	// integrated activities (or on M0), so the qualifying set is fully Done; the
 	// integration tests below re-point edges at the non-qualifiers.
@@ -257,7 +254,7 @@ func qualifyingSet(vs map[string]verdict) []string {
 func TestEvaluate_ExactQualifyingSetOnTheFixture(t *testing.T) {
 	vs := evaluateFixture(t, fixtureProject(), fixtureServer(t))
 
-	want := []string{"C-alpha-manager", "C-gamma-access", "N-STP", "R-gamma-store"}
+	want := []string{"C-alpha-manager", "C-gamma-access", "R-gamma-store"}
 	if got := qualifyingSet(vs); !reflect.DeepEqual(got, want) {
 		t.Fatalf("qualifying set = %v, want %v", got, want)
 	}
@@ -267,6 +264,7 @@ func TestEvaluate_ExactQualifyingSetOnTheFixture(t *testing.T) {
 		"C-delta-access":   "condition 2: serviceContracts[deltaAccess] is stub: true",
 		"R-delta-gateway":  "its ResourceAccess C-delta-access does not qualify",
 		"R-orphan":         "no ResourceAccess has a slot-5 relationship",
+		"N-STP":            "no founder sign-off is recorded",
 		"N-IT":             "no founder sign-off is recorded",
 	}
 	for id, reason := range failing {
@@ -610,50 +608,18 @@ func TestInferredFromAccess_EveryResourceAccessMustQualify(t *testing.T) {
 
 // ---- the sign-off path ----------------------------------------------------------------
 
-func TestSignOff_NSTPQualifiesOnTheRecordedSignOffAndTheCountedArtifact(t *testing.T) {
-	vs := evaluateFixture(t, fixtureProject(), fixtureServer(t))
-	v := vs["N-STP"]
-	if !v.Qualifies {
-		t.Fatalf("N-STP did not qualify: %s", v.Reason)
+// No sign-off is recorded: the one there was (N-STP, 2026-09-12) was retired with the
+// system test plan (deterministic component testing, spec §7), so N-STP, N-IT and every
+// other componentless activity have no evidence path. A sign-off that reappears here
+// must name an artifact the model still has.
+func TestFounderSignOffs_NoneStandAfterTheSystemTestPlanRetired(t *testing.T) {
+	if len(founderSignOffs) != 0 {
+		t.Fatalf("%d sign-offs recorded, want none: the N-STP sign-off's artifact (testingState.systemTestPlan) no longer exists", len(founderSignOffs))
 	}
-	const want = `testingState.systemTestPlan (3 scenarios) + founderSignOff[2026-09-12]="stp looks good in the app. sign off. continue"`
-	if v.Basis != want {
-		t.Errorf("basis = %q\nwant    %q", v.Basis, want)
-	}
-	if v.ArtifactRef != "testingState.systemTestPlan" {
-		t.Errorf("artifact ref = %q", v.ArtifactRef)
-	}
-}
-
-// A sign-off never stands alone: with the artifact gone, the activity does not qualify.
-func TestSignOff_DoesNotStandWithoutItsArtifact(t *testing.T) {
-	for name, ts := range map[string]*projectstate.TestingState{
-		"no testing state":         nil,
-		"no system test plan":      {},
-		"a plan with no scenarios": {SystemTestPlan: &projectstate.SystemTestPlan{}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			p := fixtureProject()
-			p.TestingState = ts
-			if v := evaluateFixture(t, p, fixtureServer(t))["N-STP"]; v.Qualifies {
-				t.Errorf("N-STP qualified with %s: %s", name, v.Basis)
-			}
-		})
-	}
-}
-
-// The recorded sign-off is the founder's words, verbatim, and it is the ONLY one: N-IT
-// and every other componentless activity have no evidence path.
-func TestFounderSignOffs_AreExactlyTheRecordedDecision(t *testing.T) {
-	if len(founderSignOffs) != 1 {
-		t.Fatalf("%d sign-offs recorded, want exactly 1 (N-STP, 2026-09-12)", len(founderSignOffs))
-	}
-	s := founderSignOffs[0]
-	if s.ActivityID != "N-STP" || s.Date != "2026-09-12" || s.Quote != "stp looks good in the app. sign off. continue" {
-		t.Errorf("sign-off = %+v", s)
-	}
-	if s.Artifact.Ref != "testingState.systemTestPlan" {
-		t.Errorf("sign-off artifact = %q", s.Artifact.Ref)
+	for _, id := range []string{"N-STP", "N-IT"} {
+		if v := evaluateFixture(t, fixtureProject(), fixtureServer(t))[id]; v.Qualifies {
+			t.Errorf("%s qualified with no sign-off: %s", id, v.Basis)
+		}
 	}
 }
 
@@ -706,14 +672,13 @@ func TestBackfill_EveryAttemptIsValidBackfilledAndCoversTheProfile(t *testing.T)
 		"C-alpha-manager": projectstate.ActivityTypeService,
 		"C-gamma-access":  projectstate.ActivityTypeService,
 		"R-gamma-store":   projectstate.ActivityTypeDeployment,
-		"N-STP":           projectstate.ActivityTypeTesting,
 	}
 	var rows []string
 	for id := range p.ActivityExecution {
 		rows = append(rows, id)
 	}
 	sort.Strings(rows)
-	if want := []string{"C-alpha-manager", "C-gamma-access", "N-STP", "R-gamma-store"}; !reflect.DeepEqual(rows, want) {
+	if want := []string{"C-alpha-manager", "C-gamma-access", "R-gamma-store"}; !reflect.DeepEqual(rows, want) {
 		t.Fatalf("rows = %v, want exactly the qualifying set %v", rows, want)
 	}
 	for id, typ := range wantType {
@@ -737,7 +702,7 @@ func TestBackfill_EveryAttemptIsValidBackfilledAndCoversTheProfile(t *testing.T)
 				t.Errorf("%s: outcome/attempt/id = %v/%d/%s", a.AttemptID, a.Outcome, a.Attempt, a.AttemptID)
 			}
 		}
-		if want := profileTasks(typ, projectstate.TestVariantPlan); !reflect.DeepEqual(got, want) {
+		if want := profileTasks(typ, 0); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: tasks = %v, want the profile minus the conditionals %v", id, got, want)
 		}
 	}
@@ -756,11 +721,6 @@ func TestBackfill_EvidenceRefsPointOnlyAtWhatBacksTheTask(t *testing.T) {
 		}
 		if a.Evidence != want {
 			t.Errorf("%s: evidence = %+v, want %+v", a.AttemptID, a.Evidence, want)
-		}
-	}
-	for _, a := range p.ActivityExecution["N-STP"].Attempts {
-		if a.Evidence != (projectstate.EvidenceRef{Kind: projectstate.EvidenceArtifact, Ref: "testingState.systemTestPlan"}) {
-			t.Errorf("%s: evidence = %+v, want the signed-off artifact", a.AttemptID, a.Evidence)
 		}
 	}
 	for _, a := range p.ActivityExecution["R-gamma-store"].Attempts {
@@ -1042,8 +1002,8 @@ func TestRewrite_AddsTheMemberAtTheCodecPositionAndTouchesNothingElse(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(back.ActivityExecution) != 4 {
-		t.Errorf("decoded %d rows, want the 4 qualifying activities", len(back.ActivityExecution))
+	if len(back.ActivityExecution) != 3 {
+		t.Errorf("decoded %d rows, want the 3 qualifying activities", len(back.ActivityExecution))
 	}
 }
 
@@ -1074,8 +1034,8 @@ func TestRewrite_RefusesToReplaceAMemberTheCodecCannotRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, kept := back.ActivityExecution["C-beta-engine"]; !kept || len(back.ActivityExecution) != 5 {
-		t.Errorf("rows = %d, want the untouched row kept plus the 4 qualifying ones", len(back.ActivityExecution))
+	if _, kept := back.ActivityExecution["C-beta-engine"]; !kept || len(back.ActivityExecution) != 4 {
+		t.Errorf("rows = %d, want the untouched row kept plus the 3 qualifying ones", len(back.ActivityExecution))
 	}
 }
 
@@ -1399,43 +1359,44 @@ func TestIntegration_ADependencyThatIsNotBuiltLeavesTheDependentPending(t *testi
 
 	assertIntegrationPending(t, p, vs, "C-alpha-manager",
 		"Integration pending: dependency C-delta-access is not built; dependency R-orphan is not built.")
-	for _, id := range []string{"C-gamma-access", "R-gamma-store", "N-STP"} {
+	for _, id := range []string{"C-gamma-access", "R-gamma-store"} {
 		assertDone(t, p, vs, id)
 	}
 }
 
-// Transitively: N-STP depends on C-alpha-manager, which qualifies but is itself pending,
-// so N-STP is pending too — and it says its dependency is built but not integrated.
+// Transitively: the edges are re-pointed so C-gamma-access depends on C-alpha-manager,
+// which qualifies but is itself pending, so C-gamma-access is pending too — and it says
+// its dependency is built but not integrated. (N-STP used to play the dependent here; it
+// no longer qualifies, see TestFounderSignOffs_NoneStandAfterTheSystemTestPlanRetired.)
 func TestIntegration_PendingPropagatesToEveryDependent(t *testing.T) {
 	p := fixtureProject()
 	dependOn(t, &p, "C-alpha-manager", "C-delta-access")
-	dependOn(t, &p, "N-STP", "C-alpha-manager")
+	dependOn(t, &p, "C-gamma-access", "C-alpha-manager")
 	p, vs := backfillWith(t, p)
 
 	assertIntegrationPending(t, p, vs, "C-alpha-manager", "Integration pending: dependency C-delta-access is not built.")
-	assertIntegrationPending(t, p, vs, "N-STP", "Integration pending: dependency C-alpha-manager is built but not integrated.")
-	assertDone(t, p, vs, "C-gamma-access")
+	assertIntegrationPending(t, p, vs, "C-gamma-access", "Integration pending: dependency C-alpha-manager is built but not integrated.")
+	assertDone(t, p, vs, "R-gamma-store")
 }
 
 // Every dependency fully Done means Done, even when the dependent comes FIRST in plan
-// order: the gate is computed in topological order, never in plan order. N-STP is moved to
-// the front and depends on C-alpha-manager <- C-gamma-access <- R-gamma-store <- M0.
+// order: the gate is computed in topological order, never in plan order. C-alpha-manager
+// is moved to the front; it depends on C-gamma-access <- R-gamma-store <- M0.
 func TestIntegration_AllDependenciesDoneMeansDoneWhateverThePlanOrder(t *testing.T) {
 	p := fixtureProject()
 	list := p.ActivityList.Model.(*projectstate.ActivityList)
 	for i, a := range list.Activities {
-		if a.Name == "N-STP" {
+		if a.Name == "C-alpha-manager" {
 			list.Activities = append([]projectstate.ActivityItem{a}, append(list.Activities[:i:i], list.Activities[i+1:]...)...)
 			break
 		}
 	}
-	if list.Activities[0].Name != "N-STP" {
+	if list.Activities[0].Name != "C-alpha-manager" {
 		t.Fatal("fixture reorder did not apply")
 	}
-	dependOn(t, &p, "N-STP", "C-alpha-manager")
 	p, vs := backfillWith(t, p)
 
-	for _, id := range []string{"N-STP", "C-alpha-manager", "C-gamma-access", "R-gamma-store"} {
+	for _, id := range []string{"C-alpha-manager", "C-gamma-access", "R-gamma-store"} {
 		assertDone(t, p, vs, id)
 	}
 }
@@ -1731,7 +1692,7 @@ func TestDesignPhaseArtifact_NamesOneSlotOfItsOwnActivityForEveryDesignPhase(t *
 		for _, s := range slots {
 			refs[s.Ref] = true
 		}
-		for _, ph := range projectstate.ProfileFor(typ, projectstate.TestVariantPlan).Phases {
+		for _, ph := range projectstate.ProfileFor(typ, 0).Phases {
 			ref := designPhaseArtifact[ph.Phase]
 			if ref == "" {
 				t.Errorf("%s phase %q names no artifact, so its attempts would carry no evidence", id, ph.Phase)

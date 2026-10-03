@@ -2260,54 +2260,47 @@ func pauseReasonToContract(reason string) *string {
 }
 
 // testingStateToContract converts the head-state TestingState to the contract
-// view. Returns nil when absent so the field is omitted from the read.
+// view. Returns nil when absent so the field is omitted from the read. A test run is
+// one venue run of a component's generated scenario tests (deterministic component
+// testing, spec §6.1); the system test plan the view used to carry is retired (§7).
 func testingStateToContract(ts *projectstate.TestingState) *TestingStateView {
 	if ts == nil {
 		return nil
 	}
 	runs := make([]TestRunView, len(ts.TestRuns))
 	for i, r := range ts.TestRuns {
-		runs[i] = TestRunView{Id: r.ID, Passed: int64(r.Passed), Failed: int64(r.Failed), Note: r.Note}
+		runs[i] = testRunToContract(r)
 	}
 	defects := make([]DefectView, len(ts.Defects))
 	for i, d := range ts.Defects {
 		defects[i] = DefectView{Id: d.ID, Title: d.Title, Severity: d.Severity, Note: d.Note}
 	}
-	return &TestingStateView{TestRuns: runs, Defects: defects, SystemTestPlan: systemTestPlanToContract(ts.SystemTestPlan)}
+	return &TestingStateView{TestRuns: runs, Defects: defects}
 }
 
-// systemTestPlanToContract maps the black-box operation-sequence scenarios of the
-// system test plan. Returns nil when there is no plan or no scenarios (the plan's
-// prose/index fields are not part of this view — only the renderable sequences).
-func systemTestPlanToContract(p *projectstate.SystemTestPlan) *SystemTestPlanView {
-	if p == nil || len(p.Scenarios) == 0 {
-		return nil
-	}
-	scenarios := make([]TestScenarioView, len(p.Scenarios))
-	for i, s := range p.Scenarios {
-		cases := make([]TestCaseView, len(s.Cases))
-		for j, c := range s.Cases {
-			steps := make([]TestStepView, len(c.Steps))
-			for k, st := range c.Steps {
-				inputs := make([]TestArgView, len(st.Inputs))
-				for m, a := range st.Inputs {
-					inputs[m] = TestArgView{Name: a.Name, Value: a.Value, SchemaRef: a.SchemaRef}
-				}
-				steps[k] = TestStepView{
-					Seq:       int64(st.Seq),
-					Component: st.Component,
-					Operation: st.Operation,
-					Status:    st.Status,
-					Inputs:    inputs,
-					Expect:    TestExpectView{Result: st.Expect.Result, ErrorExpected: st.Expect.ErrorExpected, ErrorCode: st.Expect.ErrorCode},
-					Assertion: st.Assertion,
-				}
-			}
-			cases[j] = TestCaseView{Id: c.ID, Kind: c.Kind, Title: c.Title, Proves: c.Proves, ExpectedOutcome: c.ExpectedOutcome, Steps: steps}
+// testRunToContract maps one recorded test run, scenario results included, onto the
+// wire. Scenarios is never nil on the wire: a run with no results is an empty list.
+func testRunToContract(r projectstate.TestRun) TestRunView {
+	scenarios := make([]ScenarioResultView, len(r.Scenarios))
+	for i, sc := range r.Scenarios {
+		scenarios[i] = ScenarioResultView{
+			Scenario:   sc.Scenario,
+			Status:     sc.Status,
+			DurationMs: int64(sc.DurationMs),
+			VideoRef:   sc.VideoRef,
+			TraceRef:   sc.TraceRef,
 		}
-		scenarios[i] = TestScenarioView{Id: s.ID, UseCase: s.UseCase, Title: s.Title, Description: s.Description, Cases: cases}
 	}
-	return &SystemTestPlanView{Scenarios: scenarios}
+	return TestRunView{
+		Id:        r.ID,
+		Activity:  r.Activity,
+		Component: r.Component,
+		Revision:  r.Revision,
+		Artifact:  r.Artifact,
+		StartedAt: r.StartedAt,
+		EndedAt:   r.EndedAt,
+		Scenarios: scenarios,
+	}
 }
 
 // reviewPolicyToContract converts the head-state ReviewPolicy to the contract
@@ -2672,7 +2665,7 @@ func constructionRowsToContract(
 		// actually renders sub-rows for — is empty rather than a seeded skeleton.
 		var (
 			wireType    ActivityType
-			variant     TestingVariant
+			variant     *TestingVariant // present on a testing row only: there is no variant to show otherwise
 			phases      []PhaseCompletion
 			coarsePhase ActivityConstructionPhase
 			buildStatus ActivityBuildStatus
@@ -2680,7 +2673,8 @@ func constructionRowsToContract(
 		if classified {
 			wireType = ActivityType(int(typ))
 			if typ == projectstate.ActivityTypeTesting {
-				variant = TestingVariant(int(typVariant))
+				v := TestingVariant(int(typVariant))
+				variant = &v
 			}
 			// The row's coarse BuildStatus/Phase must be derived from the SAME phase
 			// completions phasesToContract actually emits below — never from the raw
@@ -7745,8 +7739,11 @@ type constructionActivity struct {
 	// stamp (RecordActivityStarted) and the per-phase slash command (CommandFor).
 	// Classify once, carry the result — a second derivation is a second chance to
 	// disagree, which is exactly how a phase profile and its commands drifted apart.
-	// The zero pair (Service, Plan) is what a legacy Temporal payload decodes to,
-	// preserving pre-change behavior for a workflow already in flight.
+	// Variant is marshalled WITHOUT omitempty, so a workflow already in flight carries
+	// its non-testing activity as the pre-rename "Variant":"plan"; projectstate decodes
+	// that legacy name to TestVariantNone (the zero pair is (Service, None)), which is
+	// what keeps every live delivery workflow — not only the retired N-STP/N-IT ones —
+	// replaying across the deploy that renamed ordinal 0.
 	Type    projectstate.ActivityType
 	Variant projectstate.TestingVariant
 }
@@ -11195,6 +11192,13 @@ func (m *deliveryManager) QueryProjectView(rc fwmanager.Context, query ProjectVi
 		return m.queryEpisodesView(rc, query, out)
 	case ProjectViewTimeline:
 		return m.queryTimelineView(rc, query, out)
+	case ProjectViewTestRun, ProjectViewScenarios:
+		// Declared with the deterministic component testing model edit (Plan 2 Task 1);
+		// answered by queryTestRunView / queryScenariosView from Plan 2 Task 6 (which
+		// needs Task 2's ComponentScenarios and Task 5's artifact test-run ops). Until
+		// then the kind is refused, never answered empty.
+		return out, newError(fwmanager.ContractMisuse,
+			"deliveryManager.QueryProjectView: the "+string(query.Kind)+" view is not served yet (Plan 2 Task 6)")
 	}
 	return out, nil
 }

@@ -34,6 +34,8 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 		w.RegisterWorkflowWithOptions(wf.Fn, workflow.RegisterOptions{Name: wf.Name})
 	}
 	acts := &mf.Activities
+	w.RegisterActivityWithOptions(acts.ArtifactGetTestRunIndex, activity.RegisterOptions{Name: "artifactAccess.getTestRunIndex"})
+	w.RegisterActivityWithOptions(acts.ArtifactReadTestRunFile, activity.RegisterOptions{Name: "artifactAccess.readTestRunFile"})
 	w.RegisterActivityWithOptions(acts.ArtifactRetrieveConstructionOutput, activity.RegisterOptions{Name: "artifactAccess.retrieveConstructionOutput"})
 	w.RegisterActivityWithOptions(acts.ArtifactRetrieveOutputTree, activity.RegisterOptions{Name: "artifactAccess.retrieveOutputTree"})
 	w.RegisterActivityWithOptions(acts.ArtifactStoreConstructionOutput, activity.RegisterOptions{Name: "artifactAccess.storeConstructionOutput"})

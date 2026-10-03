@@ -448,6 +448,32 @@ func (e erroringArtifactAccess) RetrieveOutputTree(fwra.Context, string) (Output
 	return OutputTree{}, e.err
 }
 
+func (e erroringArtifactAccess) GetTestRunIndex(fwra.Context, TestRunRef) (TestRunIndex, error) {
+	return TestRunIndex{}, e.err
+}
+
+func (e erroringArtifactAccess) ReadTestRunFile(fwra.Context, TestRunRef, string) (ConstructionOutput, error) {
+	return ConstructionOutput{}, e.err
+}
+
+// GetTestRunIndex is the index half of the contract's test-run ops (deterministic
+// component testing, spec §6.3): the venue's test-results artifact — a GitHub Actions
+// artifact zip in the cloud profile, a directory under .aiarch/test-results in the local
+// one — indexed (results.json + the file list, or Expired). The contract ops land with
+// the model edit (Plan 2 Task 1); the two profile variants are built, test-first, in
+// Plan 2 Task 5. Until then every call is refused as ContractMisuse rather than
+// answered with an empty run that a gate could mistake for evidence.
+func (g *GitArtifactAccess) GetTestRunIndex(_ fwra.Context, run TestRunRef) (TestRunIndex, error) {
+	return TestRunIndex{}, fwra.New(fwra.ContractMisuse, "artifact: GetTestRunIndex is not wired for this profile yet (run "+run.RunID+", artifact "+run.Artifact+"); Plan 2 Task 5")
+}
+
+// ReadTestRunFile reads one file of a test-run artifact (a video, a trace, the go test
+// stream) by its path inside the artifact. See GetTestRunIndex for why it is refused
+// until Plan 2 Task 5.
+func (g *GitArtifactAccess) ReadTestRunFile(_ fwra.Context, run TestRunRef, path string) (ConstructionOutput, error) {
+	return ConstructionOutput{}, fwra.New(fwra.ContractMisuse, "artifact: ReadTestRunFile is not wired for this profile yet (run "+run.RunID+", path "+path+"); Plan 2 Task 5")
+}
+
 // localGitAuth is the LOCAL/embedded profile resolver: a file:// remote needs no
 // HTTP credential.
 func localGitAuth() func(ctx context.Context) (githubinfra.GitAuth, error) {
@@ -547,4 +573,12 @@ func (dryRunArtifacts) RetrieveConstructionOutput(_ fwra.Context, _ string) (Con
 
 func (dryRunArtifacts) RetrieveOutputTree(_ fwra.Context, contentAddress string) (OutputTree, error) {
 	return OutputTree{Root: contentAddress, Entries: map[string]string{}}, nil
+}
+
+func (dryRunArtifacts) GetTestRunIndex(_ fwra.Context, _ TestRunRef) (TestRunIndex, error) {
+	return TestRunIndex{Results: []byte("[]"), Files: []string{}}, nil
+}
+
+func (dryRunArtifacts) ReadTestRunFile(_ fwra.Context, _ TestRunRef, _ string) (ConstructionOutput, error) {
+	return ConstructionOutput{Bytes: []byte("dry-run test-run file"), MIMEType: "text/plain"}, nil
 }

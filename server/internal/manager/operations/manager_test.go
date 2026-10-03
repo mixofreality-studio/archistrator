@@ -620,6 +620,14 @@ func (a *fakeArtifacts) StoreConstructionOutput(_ fwra.Context, _ artifact.Const
 	return "", nil
 }
 
+func (a *fakeArtifacts) GetTestRunIndex(_ fwra.Context, _ artifact.TestRunRef) (artifact.TestRunIndex, error) {
+	return artifact.TestRunIndex{}, nil
+}
+
+func (a *fakeArtifacts) ReadTestRunFile(_ fwra.Context, _ artifact.TestRunRef, _ string) (artifact.ConstructionOutput, error) {
+	return artifact.ConstructionOutput{}, nil
+}
+
 var _ artifact.ArtifactAccess = (*fakeArtifacts)(nil)
 
 // ---- Engine fakes (direct-in-workflow published-contract doubles) ----------

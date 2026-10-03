@@ -114,6 +114,20 @@ func (i genInvokers) ProjectStateSetResearchInput(ctx workflow.Context, projectI
 	return out, err
 }
 
+// ArtifactGetTestRunIndex invokes activity "artifactAccess.getTestRunIndex".
+func (i genInvokers) ArtifactGetTestRunIndex(ctx workflow.Context, run artifact.TestRunRef) (artifact.TestRunIndex, error) {
+	var out artifact.TestRunIndex
+	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.getTestRunIndex"), "artifactAccess.getTestRunIndex", run).Get(ctx, &out)
+	return out, err
+}
+
+// ArtifactReadTestRunFile invokes activity "artifactAccess.readTestRunFile".
+func (i genInvokers) ArtifactReadTestRunFile(ctx workflow.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
+	var out artifact.ConstructionOutput
+	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.readTestRunFile"), "artifactAccess.readTestRunFile", run, path).Get(ctx, &out)
+	return out, err
+}
+
 // ArtifactRetrieveConstructionOutput invokes activity "artifactAccess.retrieveConstructionOutput".
 func (i genInvokers) ArtifactRetrieveConstructionOutput(ctx workflow.Context, contentAddress string) (artifact.ConstructionOutput, error) {
 	var out artifact.ConstructionOutput

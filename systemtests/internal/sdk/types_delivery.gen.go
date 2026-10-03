@@ -30,7 +30,7 @@ type ActivityConstructionStatus struct {
 	ActivityID       string                    `json:"ActivityID"`
 	Type             ActivityType              `json:"Type"`
 	Kind             ActivityType              `json:"Kind"`
-	Variant          TestingVariant            `json:"Variant"`
+	Variant          *TestingVariant           `json:"Variant,omitempty"`
 	Phase            ActivityConstructionPhase `json:"Phase"`
 	Phases           []PhaseCompletion         `json:"Phases"`
 	CurrentPhase     ActivityMethodPhase       `json:"CurrentPhase"`
@@ -309,6 +309,15 @@ type DefectView struct {
 	Note     string `json:"note"`
 }
 
+type DeliveryTestRunView struct {
+	Run       TestRunView           `json:"run"`
+	Scenarios []TestRunScenarioView `json:"scenarios"`
+	Missing   []string              `json:"missing"`
+	Unknown   []string              `json:"unknown"`
+	Expired   bool                  `json:"expired"`
+	Artifact  string                `json:"artifact"`
+}
+
 type DeliveryVersion int64
 
 type DesignArtifactSessionStage int
@@ -557,6 +566,14 @@ const (
 	PipelineCancelled    PipelinePhase = 5
 )
 
+type ProbeView struct {
+	For       string         `json:"for"`
+	Component string         `json:"component"`
+	Operation string         `json:"operation"`
+	Inputs    []TestArgView  `json:"inputs"`
+	Expect    TestExpectView `json:"expect"`
+}
+
 type ProducedArtifact struct {
 	Kind     string `json:"Kind"`
 	Title    string `json:"Title"`
@@ -617,6 +634,8 @@ type ProjectView struct {
 	DesignHealth        *DesignHealth              `json:"designHealth,omitempty"`
 	Episodes            []EpisodeRecordView        `json:"episodes,omitempty"`
 	Timeline            *EpisodeTimeline           `json:"timeline,omitempty"`
+	TestRun             *DeliveryTestRunView       `json:"testRun,omitempty"`
+	Scenarios           []ScenarioView             `json:"scenarios,omitempty"`
 }
 
 type ProjectViewKind string
@@ -629,6 +648,8 @@ const (
 	ProjectViewDesignHealth ProjectViewKind = "designHealth"
 	ProjectViewEpisodes     ProjectViewKind = "episodes"
 	ProjectViewTimeline     ProjectViewKind = "timeline"
+	ProjectViewTestRun      ProjectViewKind = "testRun"
+	ProjectViewScenarios    ProjectViewKind = "scenarios"
 )
 
 type ProjectViewQuery struct {
@@ -638,6 +659,8 @@ type ProjectViewQuery struct {
 	ActivityID   *string         `json:"activityId,omitempty"`
 	ArtifactKind *ArtifactKind   `json:"artifactKind,omitempty"`
 	EpisodeID    *string         `json:"episodeId,omitempty"`
+	ComponentID  *string         `json:"componentId,omitempty"`
+	RunID        *string         `json:"runId,omitempty"`
 }
 
 type PumpResult struct {
@@ -788,6 +811,71 @@ const (
 	SDPRejectAll       SDPDecision = 2
 )
 
+type ScenarioBindingView struct {
+	Scenario string            `json:"scenario"`
+	Steps    []StepBindingView `json:"steps"`
+	Skip     *SkipReasonView   `json:"skip,omitempty"`
+}
+
+type ScenarioGuardView struct {
+	At    string `json:"at"`
+	Guard string `json:"guard"`
+}
+
+type ScenarioInputView struct {
+	Kind  string `json:"kind"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Op    string `json:"op"`
+	Call  string `json:"call"`
+	Guard string `json:"guard"`
+}
+
+type ScenarioOutcomeView struct {
+	ExpectedOutputs []ScenarioOutputView `json:"expectedOutputs"`
+	ExpectedStates  []ScenarioStateView  `json:"expectedStates"`
+	Hints           []string             `json:"hints"`
+}
+
+type ScenarioOutputView struct {
+	Node  string `json:"node"`
+	Kind  string `json:"kind"`
+	To    string `json:"to"`
+	Label string `json:"label"`
+}
+
+type ScenarioResultView struct {
+	Scenario   string `json:"scenario"`
+	Status     string `json:"status"`
+	DurationMs int64  `json:"durationMs"`
+	VideoRef   string `json:"videoRef"`
+	TraceRef   string `json:"traceRef"`
+}
+
+type ScenarioStateView struct {
+	Node    string `json:"node"`
+	Object  string `json:"object"`
+	InState string `json:"inState"`
+}
+
+type ScenarioStimulusView struct {
+	Seq     int64               `json:"seq"`
+	Node    string              `json:"node"`
+	Input   ScenarioInputView   `json:"input"`
+	Outcome ScenarioOutcomeView `json:"outcome"`
+}
+
+type ScenarioView struct {
+	Id            string                 `json:"id"`
+	UseCase       string                 `json:"useCase"`
+	Title         string                 `json:"title"`
+	Path          []string               `json:"path"`
+	Guards        []ScenarioGuardView    `json:"guards"`
+	Preconditions ScenarioOutcomeView    `json:"preconditions"`
+	Stimuli       []ScenarioStimulusView `json:"stimuli"`
+	Binding       *ScenarioBindingView   `json:"binding,omitempty"`
+}
+
 type ServiceContract struct {
 	Component     string             `json:"Component"`
 	Layer         string             `json:"Layer"`
@@ -813,20 +901,31 @@ const (
 	SeverityError   Severity = "error"
 )
 
+type SkipReasonView struct {
+	Reason string `json:"reason"`
+	Until  string `json:"until"`
+}
+
 type StartProjectResult struct {
 	ProjectID ProjectID       `json:"projectId"`
 	Version   DeliveryVersion `json:"version"`
 	Session   *SessionRef     `json:"session,omitempty"`
 }
 
+type StepBindingView struct {
+	Seq          int64          `json:"seq"`
+	Operation    string         `json:"operation"`
+	Inputs       []TestArgView  `json:"inputs"`
+	Expect       TestExpectView `json:"expect"`
+	Probes       []ProbeView    `json:"probes"`
+	Unobservable []string       `json:"unobservable"`
+	Hook         bool           `json:"hook"`
+}
+
 type SubagentSpan struct {
 	ToolUseID string     `json:"toolUseId"`
 	StartedAt *time.Time `json:"startedAt,omitempty"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
-}
-
-type SystemTestPlanView struct {
-	Scenarios []TestScenarioView `json:"scenarios"`
 }
 
 type TaskAttempt struct {
@@ -895,60 +994,45 @@ type TestArgView struct {
 	SchemaRef string `json:"schemaRef"`
 }
 
-type TestCaseView struct {
-	Id              string         `json:"id"`
-	Kind            string         `json:"kind"`
-	Title           string         `json:"title"`
-	Proves          string         `json:"proves"`
-	ExpectedOutcome string         `json:"expectedOutcome"`
-	Steps           []TestStepView `json:"steps"`
-}
-
 type TestExpectView struct {
 	Result        string `json:"result"`
 	ErrorExpected bool   `json:"errorExpected"`
 	ErrorCode     string `json:"errorCode"`
 }
 
+type TestRunScenarioView struct {
+	Id         string              `json:"id"`
+	Title      string              `json:"title"`
+	Guards     []ScenarioGuardView `json:"guards"`
+	Status     string              `json:"status"`
+	DurationMs int64               `json:"durationMs"`
+	VideoRef   string              `json:"videoRef"`
+	TraceRef   string              `json:"traceRef"`
+	OutputRef  string              `json:"outputRef"`
+}
+
 type TestRunView struct {
-	Id     string `json:"id"`
-	Passed int64  `json:"passed"`
-	Failed int64  `json:"failed"`
-	Note   string `json:"note"`
-}
-
-type TestScenarioView struct {
-	Id          string         `json:"id"`
-	UseCase     string         `json:"useCase"`
-	Title       string         `json:"title"`
-	Cases       []TestCaseView `json:"cases"`
-	Description string         `json:"description"`
-}
-
-type TestStepView struct {
-	Seq       int64          `json:"seq"`
-	Component string         `json:"component"`
-	Operation string         `json:"operation"`
-	Status    string         `json:"status"`
-	Inputs    []TestArgView  `json:"inputs"`
-	Expect    TestExpectView `json:"expect"`
-	Assertion string         `json:"assertion"`
+	Id        string               `json:"id"`
+	Activity  string               `json:"activity"`
+	Component string               `json:"component"`
+	Revision  string               `json:"revision"`
+	Artifact  string               `json:"artifact"`
+	StartedAt *time.Time           `json:"startedAt,omitempty"`
+	EndedAt   *time.Time           `json:"endedAt,omitempty"`
+	Scenarios []ScenarioResultView `json:"scenarios"`
 }
 
 type TestingStateView struct {
-	TestRuns       []TestRunView       `json:"testRuns"`
-	Defects        []DefectView        `json:"defects"`
-	SystemTestPlan *SystemTestPlanView `json:"systemTestPlan,omitempty"`
+	TestRuns []TestRunView `json:"testRuns"`
+	Defects  []DefectView  `json:"defects"`
 }
 
 type TestingVariant int
 
 const (
-	TestVariantPlan       TestingVariant = 0
-	TestVariantHarness    TestingVariant = 1
-	TestVariantPerf       TestingVariant = 2
-	TestVariantSystemTest TestingVariant = 3
-	TestVariantQAProcess  TestingVariant = 4
+	TestVariantHarness   TestingVariant = 1
+	TestVariantPerf      TestingVariant = 2
+	TestVariantQAProcess TestingVariant = 4
 )
 
 type TimelineEvent struct {
@@ -1364,6 +1448,10 @@ func ProjectViewKindName(v ProjectViewKind) string {
 		return "ProjectViewEpisodes"
 	case ProjectViewTimeline:
 		return "ProjectViewTimeline"
+	case ProjectViewTestRun:
+		return "ProjectViewTestRun"
+	case ProjectViewScenarios:
+		return "ProjectViewScenarios"
 	default:
 		return ""
 	}
@@ -1470,14 +1558,10 @@ func TaskRevisionProvenanceName(v TaskRevisionProvenance) string {
 // TestingVariantName returns the declared varname of a TestingVariant value.
 func TestingVariantName(v TestingVariant) string {
 	switch v {
-	case TestVariantPlan:
-		return "TestVariantPlan"
 	case TestVariantHarness:
 		return "TestVariantHarness"
 	case TestVariantPerf:
 		return "TestVariantPerf"
-	case TestVariantSystemTest:
-		return "TestVariantSystemTest"
 	case TestVariantQAProcess:
 		return "TestVariantQAProcess"
 	default:

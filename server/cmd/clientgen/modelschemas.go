@@ -121,12 +121,14 @@ func stringEnumTypes() []reflect.Type {
 }
 
 // stringEnumWireValues live-marshals an ordinal enum type's values in ordinal
-// order, starting at 0 and stopping at the first ordinal whose MarshalJSON errors.
-// Both marshalEnum (enumjson.go) and ArtifactKind.MarshalJSON (identity.go) return
-// an error for an out-of-range ordinal ("has no wire name"), which bounds the loop
-// without a hand-maintained count — the marshaller itself defines the valid range.
-// A generous safety bound guards against a hypothetical future all-ordinals-valid
-// marshaller. Returns the decoded wire strings in ordinal order.
+// order over a fixed range, keeping every ordinal that marshals and skipping those
+// that do not. Both marshalEnum (enumjson.go) and ArtifactKind.MarshalJSON
+// (identity.go) return an error for an ordinal with no wire name, so the marshaller
+// itself defines the valid set without a hand-maintained count. The scan does NOT
+// stop at the first failure: an enum may have RETIRED ordinals in the middle of its
+// range (TestingVariant retired 0 and 3 with the system test plan, and ordinals are
+// never reused), and the wire enum must list exactly the ordinals that still marshal.
+// Returns the decoded wire strings in ordinal order.
 func stringEnumWireValues(t reflect.Type) ([]string, error) {
 	const safetyBound = 1024
 	var out []string
@@ -135,7 +137,7 @@ func stringEnumWireValues(t reflect.Type) ([]string, error) {
 		v.SetInt(int64(i))
 		raw, err := json.Marshal(v.Interface())
 		if err != nil {
-			break // ordinal i is out of range — the enum has values 0..i-1
+			continue // ordinal i has no wire name: out of range, or retired
 		}
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
@@ -144,7 +146,7 @@ func stringEnumWireValues(t reflect.Type) ([]string, error) {
 		out = append(out, s)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("string-enum %s produced no wire values (ordinal 0 failed to marshal)", t.Name())
+		return nil, fmt.Errorf("string-enum %s produced no wire values (no ordinal in 0..%d marshals)", t.Name(), safetyBound-1)
 	}
 	return out, nil
 }

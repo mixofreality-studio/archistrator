@@ -51,7 +51,7 @@ type recordPhaseArtifactInput struct {
 // exactly one project-level testing field set). mapKey is unused for testing-state
 // singletons, so it is not an input.
 type recordTestingStateInput struct {
-	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE testing-state field set (SystemTestPlan, HarnessModule, PerfHarness, QualityGate, TestRun, Defect, or QualityAuditReport)"`
+	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE testing-state field set (HarnessModule, PerfHarness, QualityGate, TestRun, Defect, or QualityAuditReport)"`
 }
 
 // applyConstructionMutation is the shared validate-then-write core for the construction

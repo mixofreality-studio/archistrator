@@ -512,7 +512,7 @@ func TestProjectIdentityGuard_CreateProjectRefusesForeignIDAgainstOccupiedRepo(t
 //   7. After ALL phases completed, CoarsePhase = Done.
 //   8. RecordServiceContractProduced writes contract under component key.
 //   9. RecordPhaseArtifactProduced(SRS) → PhaseArtifacts.SRS keyed by mapKey.
-//   10. RecordPhaseArtifactProduced(SystemTestPlan) → TestingState.SystemTestPlan set.
+//   10. RecordPhaseArtifactProduced(TestRun) → TestingState.TestRuns, replacing by run ID.
 //   11. RecordPhaseStarted idempotency — same key, stale version → ledger wins.
 //   12. PhaseArtifactPayload round-trip via EncodeProjectJSON → DecodeProjectJSON.
 
@@ -543,7 +543,7 @@ func readConstructionStatus(t *testing.T, store *GitStore, id ProjectID, cred Re
 // modeRequireExisting verbs have a row to upsert.
 func seedActivity(t *testing.T, store *GitStore, id ProjectID, v Version, cred RepoCredential, activityID string) Version {
 	t.Helper()
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: context.Background()}, id, v, activityID, ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:seed-"+activityID))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: context.Background()}, id, v, activityID, ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:seed-"+activityID))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted(%s): %v", activityID, err)
 	}
@@ -1047,45 +1047,57 @@ func TestRecordPhaseArtifactProduced_SRS(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// STP 10: RecordPhaseArtifactProduced(SystemTestPlan) → TestingState.SystemTestPlan
+// STP 10: RecordPhaseArtifactProduced(TestRun) → TestingState.TestRuns, replacing a
+// run with the same ID (the venue re-records a run it re-ran) and appending otherwise.
+// (Was the SystemTestPlan write; that artifact is retired — deterministic component
+// testing, spec §7.)
 // --------------------------------------------------------------------------
 
-func TestRecordPhaseArtifactProduced_SystemTestPlan(t *testing.T) {
+func TestRecordPhaseArtifactProduced_TestRunReplacesByID(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2 := seedActivity(t, store, id, v, cred, "N001")
+	v2 := seedActivity(t, store, id, v, cred, "C-BG")
 
-	approved := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
-	payload := PhaseArtifactPayload{
-		SystemTestPlan: &SystemTestPlan{
-			UseCaseIndex: []string{"UC1", "UC2"},
-			Entries:      []string{"verify create project", "verify read project"},
-			Status:       "approved",
-			ApprovedAt:   &approved,
-		},
+	ended := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	first := TestRun{
+		ID: "9", Activity: "C-BG", Component: "billingManager", Revision: "abc123", Artifact: "test-results-C-BG-abc123",
+		EndedAt:   &ended,
+		Scenarios: []ScenarioResult{{Scenario: "bill-the-user-for-usage-P1", Status: "fail", DurationMs: 5}},
 	}
-
-	v3, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v2, "N001", "", payload, cred, fwra.IdempotencyKey("wf:artifact-stp"))
+	v3, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v2, "C-BG", "", PhaseArtifactPayload{TestRun: &first}, cred, fwra.IdempotencyKey("wf:testrun-9-a"))
 	if err != nil {
-		t.Fatalf("RecordPhaseArtifactProduced(SystemTestPlan): %v", err)
+		t.Fatalf("RecordPhaseArtifactProduced(TestRun): %v", err)
 	}
 	if v3 != v2+1 {
 		t.Fatalf("version = %d, want %d", v3, v2+1)
 	}
 
+	rerun := first
+	rerun.Revision = "def456"
+	rerun.Scenarios = []ScenarioResult{{Scenario: "bill-the-user-for-usage-P1", Status: "pass", DurationMs: 4}}
+	v4, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v3, "C-BG", "", PhaseArtifactPayload{TestRun: &rerun}, cred, fwra.IdempotencyKey("wf:testrun-9-b"))
+	if err != nil {
+		t.Fatalf("RecordPhaseArtifactProduced(TestRun, same id): %v", err)
+	}
+	other := TestRun{ID: "10", Activity: "C-BG", Component: "billingManager", Revision: "def456", Artifact: "test-results-C-BG-def456"}
+	if _, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v4, "C-BG", "", PhaseArtifactPayload{TestRun: &other}, cred, fwra.IdempotencyKey("wf:testrun-10")); err != nil {
+		t.Fatalf("RecordPhaseArtifactProduced(TestRun, new id): %v", err)
+	}
+
 	p := readProject(t, store, id, cred)
 	if p.TestingState == nil {
-		t.Fatal("TestingState nil after RecordPhaseArtifactProduced(SystemTestPlan)")
+		t.Fatal("TestingState nil after RecordPhaseArtifactProduced(TestRun)")
 	}
-	if p.TestingState.SystemTestPlan == nil {
-		t.Fatal("TestingState.SystemTestPlan nil")
+	runs := p.TestingState.TestRuns
+	if len(runs) != 2 {
+		t.Fatalf("TestRuns = %+v, want the re-recorded run 9 REPLACED in place plus run 10 appended", runs)
 	}
-	if p.TestingState.SystemTestPlan.Status != "approved" {
-		t.Fatalf("SystemTestPlan.Status = %q, want approved", p.TestingState.SystemTestPlan.Status)
+	if runs[0].ID != "9" || runs[0].Revision != "def456" || runs[0].Scenarios[0].Status != "pass" {
+		t.Fatalf("run 9 = %+v, want the re-recorded run (revision def456, pass)", runs[0])
 	}
-	if len(p.TestingState.SystemTestPlan.UseCaseIndex) != 2 {
-		t.Fatalf("UseCaseIndex len = %d, want 2", len(p.TestingState.SystemTestPlan.UseCaseIndex))
+	if runs[1].ID != "10" {
+		t.Fatalf("runs[1] = %+v, want run 10", runs[1])
 	}
 }
 
@@ -1123,6 +1135,27 @@ func TestRecordPhaseStarted_Idempotent(t *testing.T) {
 // STP 12: PhaseArtifactPayload round-trip via EncodeProjectJSON → DecodeProjectJSON
 // --------------------------------------------------------------------------
 
+// assertTypedTestingRoundTrip pins the deterministic-component-testing half of the
+// payload round-trip: the typed bindings of a TestPlanRecord (a bound step with probes,
+// an unobservable output and a hook; a skipped scenario with its reason) and a recorded
+// TestRun come back equal.
+func assertTypedTestingRoundTrip(t *testing.T, got, want Project) {
+	t.Helper()
+	tp, found := got.PhaseArtifacts.TestPlan["svcA"]
+	if !found {
+		t.Fatal("TestPlan[svcA] absent after round-trip")
+	}
+	if !reflect.DeepEqual(tp, want.PhaseArtifacts.TestPlan["svcA"]) {
+		t.Fatalf("TestPlan[svcA] after round-trip = %+v\nwant %+v", tp, want.PhaseArtifacts.TestPlan["svcA"])
+	}
+	if tp.Bindings[1].Skip == nil || tp.Bindings[1].Skip.Until != "C-beta-engine" {
+		t.Fatalf("the skipped binding lost its reason: %+v", tp.Bindings[1])
+	}
+	if got.TestingState == nil || !reflect.DeepEqual(got.TestingState.TestRuns, want.TestingState.TestRuns) {
+		t.Fatalf("TestRuns after round-trip = %+v\nwant %+v", got.TestingState, want.TestingState.TestRuns)
+	}
+}
+
 func TestPhaseArtifactPayload_RoundTrip(t *testing.T) {
 	now := time.Date(2026, 6, 21, 9, 0, 0, 0, time.UTC)
 	p := Project{}
@@ -1131,14 +1164,29 @@ func TestPhaseArtifactPayload_RoundTrip(t *testing.T) {
 			"svcA": {Component: "svcA", Content: "requirements text", AuthoredAt: &now},
 		},
 		TestPlan: map[string]TestPlanRecord{
-			"svcA": {Component: "svcA", Content: "test plan text"},
+			"svcA": {Component: "svcA", Bindings: []ScenarioBinding{{
+				Scenario: "UC1-P1",
+				Steps: []StepBinding{{
+					Seq: 1, Operation: "OpenAlpha",
+					Inputs:       []TestArg{{Name: "id", Value: `"a-1"`, SchemaRef: "AlphaID"}},
+					Expect:       TestExpect{Result: `{"ok":true}`},
+					Probes:       []Probe{{For: "n6", Component: "alphaAccess", Operation: "ReadAlpha", Inputs: []TestArg{}, Expect: TestExpect{Result: `"[open]"`}}},
+					Unobservable: []string{"n5"},
+					Hook:         true,
+				}},
+			}, {
+				Scenario: "UC1-P2",
+				Steps:    []StepBinding{},
+				Skip:     &SkipReason{Reason: "upstream C-beta not integrated", Until: "C-beta-engine"},
+			}}},
 		},
 	}
 	p.TestingState = &TestingState{
-		SystemTestPlan: &SystemTestPlan{
-			UseCaseIndex: []string{"UC1"},
-			Status:       "approved",
-		},
+		TestRuns: []TestRun{{
+			ID: "9", Activity: "C-alpha-manager", Component: "alphaManager", Revision: "abc123", Artifact: "test-results-C-alpha-manager-abc123",
+			StartedAt: &now, EndedAt: &now,
+			Scenarios: []ScenarioResult{{Scenario: "UC1-P1", Status: "pass", DurationMs: 7, TraceRef: "alphaManager/UC1-P1/trace.zip"}},
+		}},
 		QualityAuditReport: "all gates green",
 	}
 
@@ -1167,22 +1215,10 @@ func TestPhaseArtifactPayload_RoundTrip(t *testing.T) {
 	if srs.AuthoredAt == nil || !srs.AuthoredAt.Equal(now) {
 		t.Fatalf("SRS.AuthoredAt = %v, want %v", srs.AuthoredAt, now)
 	}
-	tp, found := got.PhaseArtifacts.TestPlan["svcA"]
-	if !found {
-		t.Fatal("TestPlan[svcA] absent after round-trip")
-	}
-	if tp.Content != "test plan text" {
-		t.Fatalf("TestPlan.Content = %q unexpected", tp.Content)
-	}
+	assertTypedTestingRoundTrip(t, got, p)
 
 	if got.TestingState == nil {
 		t.Fatal("TestingState nil after round-trip")
-	}
-	if got.TestingState.SystemTestPlan == nil {
-		t.Fatal("SystemTestPlan nil after round-trip")
-	}
-	if got.TestingState.SystemTestPlan.Status != "approved" {
-		t.Fatalf("SystemTestPlan.Status = %q, want approved", got.TestingState.SystemTestPlan.Status)
 	}
 	if got.TestingState.QualityAuditReport != "all gates green" {
 		t.Fatalf("QualityAuditReport = %q, want 'all gates green'", got.TestingState.QualityAuditReport)
@@ -3234,7 +3270,7 @@ func rowFromFixtureOrdinals(id string, row operatingFixtureRow) ActivityExecutio
 		out.CompletedAt = &at
 	case ActivityBuildStatus(row.BuildStatus) == BuildIntegrated:
 		out.CompletedAt = &at
-		out.Attempts = constructionLedger(id, ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()...)
+		out.Attempts = constructionLedger(id, ProfileFor(ActivityTypeService, 0).PhaseIDs()...)
 	case ActivityConstructionPhase(row.Phase) == ActivityConstructionDone:
 		out.CompletedAt = &at
 	case ActivityConstructionPhase(row.Phase) == ActivityConstructionRunning:
@@ -3312,9 +3348,9 @@ func TestIsConstructionComplete_ReadsTheLedgerWhereThePumpNeverWrote(t *testing.
 			Phase:        PhaseConstruction,
 			ActivityList: ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: items}},
 			ActivityExecution: map[string]ActivityExecution{
-				"C-a": {ActivityID: "C-a", Attempts: constructionLedger("C-a", ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()...)},
+				"C-a": {ActivityID: "C-a", Attempts: constructionLedger("C-a", ProfileFor(ActivityTypeService, 0).PhaseIDs()...)},
 				"C-b": {ActivityID: "C-b", CompletedAt: &envelopeStartedAt,
-					Attempts: constructionLedger("C-b", ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()...)},
+					Attempts: constructionLedger("C-b", ProfileFor(ActivityTypeService, 0).PhaseIDs()...)},
 			},
 		}
 	}
@@ -4405,7 +4441,7 @@ func TestRecordActivityStarted_BirthsRow(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:started"))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:started"))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
@@ -4433,7 +4469,7 @@ func TestRecordActivityCompleted_AdvancesToDone(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:started-done"))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:started-done"))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
@@ -4462,7 +4498,7 @@ func TestRecordActivityStarted_Idempotent(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:started-idem"))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:started-idem"))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
@@ -4472,7 +4508,7 @@ func TestRecordActivityStarted_Idempotent(t *testing.T) {
 	}
 
 	// Retry with the SAME key but stale expectedVersion=0; dedup must win.
-	v2again, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, 0, "X001", ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:started-idem"))
+	v2again, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, 0, "X001", ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:started-idem"))
 	if err != nil {
 		t.Fatalf("idempotent retry should succeed via ledger, got: %v", err)
 	}
@@ -4800,7 +4836,7 @@ func TestPhaseArtifacts_RoundTrip(t *testing.T) {
 			"projectExport": {Component: "projectExport", Content: "# SRS\n1. export project state", AuthoredAt: &now},
 		},
 		TestPlan: map[string]TestPlanRecord{
-			"projectExport": {Component: "projectExport", Content: "## Test Plan\n- verify export", AuthoredAt: &now},
+			"projectExport": {Component: "projectExport", Bindings: []ScenarioBinding{{Scenario: "UC1-P1", Steps: []StepBinding{}}}, AuthoredAt: &now},
 		},
 		IntegrationNote: map[string]IntegrationNoteRecord{
 			"projectExport": {Component: "projectExport", Content: "integrated OK", AuthoredAt: &now},
@@ -4832,7 +4868,8 @@ func TestTestingState_RoundTrip(t *testing.T) {
 			{ID: "D-001", Title: "null pointer in export", Severity: "high", FiledAt: &now},
 		},
 		TestRuns: []TestRun{
-			{ID: "TR-001", StartedAt: &now, Passed: 42, Failed: 0},
+			{ID: "TR-001", Activity: "C-PE", Component: "projectExport", Revision: "abc123", Artifact: "test-results-C-PE-abc123", StartedAt: &now,
+				Scenarios: []ScenarioResult{{Scenario: "UC1-P1", Status: "pass", DurationMs: 42}}},
 		},
 	}
 	b, err := json.Marshal(ts)
@@ -4849,7 +4886,7 @@ func TestTestingState_RoundTrip(t *testing.T) {
 	if len(got.Defects) != 1 || got.Defects[0].Severity != "high" {
 		t.Errorf("Defects mismatch after round-trip")
 	}
-	if len(got.TestRuns) != 1 || got.TestRuns[0].Passed != 42 {
+	if len(got.TestRuns) != 1 || len(got.TestRuns[0].Scenarios) != 1 || got.TestRuns[0].Scenarios[0].DurationMs != 42 {
 		t.Errorf("TestRuns mismatch after round-trip")
 	}
 }
@@ -4900,12 +4937,6 @@ func TestProjectDoc_PhaseArtifacts_RoundTrip(t *testing.T) {
 			},
 		},
 		TestingState: &TestingState{
-			SystemTestPlan: &SystemTestPlan{
-				UseCaseIndex: []string{"UC1", "UC2"},
-				Entries:      []string{"smoke pass", "export flow"},
-				Status:       "approved",
-				ApprovedAt:   &now,
-			},
 			HarnessModule: &HarnessModule{RepoRef: "corpus/tests/harness", Status: "approved"},
 			PerfHarness:   &PerfHarness{RepoRef: "corpus/tests/perf", Status: ""},
 			QualityGates: []QualityGate{
@@ -4913,7 +4944,8 @@ func TestProjectDoc_PhaseArtifacts_RoundTrip(t *testing.T) {
 			},
 			QualityAuditReport: "All gates green.",
 			TestRuns: []TestRun{
-				{ID: "TR-001", StartedAt: &now, Passed: 100, Failed: 2, Note: "initial run"},
+				{ID: "TR-001", Activity: "C-PE", Component: "projectExport", Revision: "abc123", Artifact: "test-results-C-PE-abc123", StartedAt: &now,
+					Scenarios: []ScenarioResult{{Scenario: "UC1-P1", Status: "pass", DurationMs: 100}, {Scenario: "UC1-P2", Status: "fail", DurationMs: 2}}},
 			},
 			Defects: []DefectRecord{
 				{ID: "D-001", Title: "export returns 500", Severity: "critical", FiledAt: &now},
@@ -4968,12 +5000,6 @@ func assertProjectDocTestingState(t *testing.T, got Project) {
 	if got.TestingState == nil {
 		t.Fatal("TestingState is nil after round-trip")
 	}
-	if got.TestingState.SystemTestPlan == nil || got.TestingState.SystemTestPlan.Status != "approved" {
-		t.Errorf("TestingState.SystemTestPlan status mismatch")
-	}
-	if len(got.TestingState.SystemTestPlan.UseCaseIndex) != 2 {
-		t.Errorf("TestingState.SystemTestPlan.UseCaseIndex len mismatch: got %d", len(got.TestingState.SystemTestPlan.UseCaseIndex))
-	}
 	if got.TestingState.HarnessModule == nil || got.TestingState.HarnessModule.RepoRef != "corpus/tests/harness" {
 		t.Errorf("TestingState.HarnessModule mismatch")
 	}
@@ -4983,7 +5009,7 @@ func assertProjectDocTestingState(t *testing.T, got Project) {
 	if len(got.TestingState.QualityGates) != 1 || got.TestingState.QualityGates[0].Mode != "escalate" {
 		t.Errorf("TestingState.QualityGates mismatch")
 	}
-	if len(got.TestingState.TestRuns) != 1 || got.TestingState.TestRuns[0].Passed != 100 {
+	if len(got.TestingState.TestRuns) != 1 || len(got.TestingState.TestRuns[0].Scenarios) != 2 || got.TestingState.TestRuns[0].Scenarios[1].Status != "fail" {
 		t.Errorf("TestingState.TestRuns mismatch")
 	}
 	if len(got.TestingState.Defects) != 1 || got.TestingState.Defects[0].Severity != "critical" {
@@ -6669,10 +6695,10 @@ func TestActivityType_DesignTypesRoundTripAndKeyTheirLifecycles(t *testing.T) {
 		if err := json.Unmarshal(raw, &back); err != nil || back != c.typ {
 			t.Errorf("round trip %s: got %v, %v", c.name, back, err)
 		}
-		if got := LifecycleKeyFor(c.typ, TestVariantPlan); got != c.name {
+		if got := LifecycleKeyFor(c.typ, 0); got != c.name {
 			t.Errorf("LifecycleKeyFor(%s) = %q, want %q", c.name, got, c.name)
 		}
-		if len(ProfileFor(c.typ, TestVariantPlan).Phases) == 0 {
+		if len(ProfileFor(c.typ, 0).Phases) == 0 {
 			t.Errorf("%s has no lifecycle phases — the method-assets pin does not carry it", c.name)
 		}
 	}
@@ -6698,7 +6724,7 @@ func TestProfileFor_DesignLifecycleShapes(t *testing.T) {
 	}
 	for typ, ids := range want {
 		var got []string
-		for _, p := range ProfileFor(typ, TestVariantPlan).PhaseIDs() {
+		for _, p := range ProfileFor(typ, 0).PhaseIDs() {
 			got = append(got, string(p))
 		}
 		if !slices.Equal(got, ids) {
@@ -7046,11 +7072,11 @@ func TestTestingVariant_String(t *testing.T) {
 		v    TestingVariant
 		want string
 	}{
-		{TestVariantPlan, "plan"},
 		{TestVariantHarness, "harness"},
 		{TestVariantPerf, "perf"},
-		{TestVariantSystemTest, "systemTest"},
 		{TestVariantQAProcess, "qaProcess"},
+		{TestingVariant(0), "none"}, // the zero value: not a wire variant, never a lifecycle
+		{TestingVariant(3), ""},     // retired ordinal (systemTest): no name, never reused
 	}
 	for _, c := range cases {
 		if got := c.v.String(); got != c.want {
@@ -7061,8 +7087,7 @@ func TestTestingVariant_String(t *testing.T) {
 
 func TestTestingVariant_JSONRoundTrip(t *testing.T) {
 	vals := []TestingVariant{
-		TestVariantPlan, TestVariantHarness, TestVariantPerf,
-		TestVariantSystemTest, TestVariantQAProcess,
+		0, TestVariantHarness, TestVariantPerf, TestVariantQAProcess, // 0 = "none": a non-testing activity's variant must cross a Temporal payload
 	}
 	for _, v := range vals {
 		b, err := json.Marshal(v)
@@ -7076,6 +7101,44 @@ func TestTestingVariant_JSONRoundTrip(t *testing.T) {
 		if got != v {
 			t.Errorf("round-trip: got %d, want %d", got, v)
 		}
+	}
+}
+
+// TestTestingVariant_LegacyPlanDecodesToNone pins the in-flight-workflow contract of
+// the ordinal-0 rename (plan → none, deterministic component testing spec §7): every
+// delivery workflow started BEFORE this change carries its classification in a Temporal
+// payload whose Variant was marshalled WITHOUT omitempty — so every non-testing
+// activity's payload reads "Variant":"plan" (the committed replay recordings do). The
+// new worker must decode that payload, or deploying strands every live delivery
+// workflow, not just the retired N-STP/N-IT ones. "plan" is a DECODE-ONLY alias: it
+// never marshals (the F81 wire-map gate holds the map at the contract's four names).
+func TestTestingVariant_LegacyPlanDecodesToNone(t *testing.T) {
+	// The shape a pre-change constructionActivity payload has on the wire.
+	legacy := `{"ActivityID":"C-BG","Type":"service","Variant":"plan"}`
+	var got struct {
+		ActivityID string
+		Type       ActivityType
+		Variant    TestingVariant
+	}
+	if err := json.Unmarshal([]byte(legacy), &got); err != nil {
+		t.Fatalf("a legacy in-flight payload must decode, got: %v", err)
+	}
+	if got.Type != ActivityTypeService || got.Variant != TestVariantNone {
+		t.Fatalf("legacy (service, plan) must decode to (Service, None), got (%v, %v)", got.Type, got.Variant)
+	}
+	var bare TestingVariant
+	if err := json.Unmarshal([]byte(`"plan"`), &bare); err != nil || bare != TestVariantNone {
+		t.Fatalf(`"plan" must decode to TestVariantNone, got %v %v`, bare, err)
+	}
+	// Decode-only: the alias never comes back out, and the retired "systemTest" stays dead.
+	if b, err := json.Marshal(TestVariantNone); err != nil || string(b) != `"none"` {
+		t.Fatalf("TestVariantNone must marshal as \"none\", got %s %v", b, err)
+	}
+	if _, ok := testingVariantByName["plan"]; ok {
+		t.Fatal(`"plan" must not be in the wire-name table — it is a decode alias, not a wire name`)
+	}
+	if err := json.Unmarshal([]byte(`"systemTest"`), &bare); err == nil {
+		t.Fatal(`"systemTest" (retired ordinal 3) must not decode`)
 	}
 }
 
@@ -7286,10 +7349,8 @@ func TestProfileFor_AllCanonicalIDsAndSum100(t *testing.T) {
 		{"frontend", ActivityTypeFrontend, 0, 5},
 		{"deployment", ActivityTypeDeployment, 0, 3},
 		{"documentation", ActivityTypeDocumentation, 0, 3},
-		{"testing_plan", ActivityTypeTesting, TestVariantPlan, 3},
 		{"testing_harness", ActivityTypeTesting, TestVariantHarness, 3},
 		{"testing_perf", ActivityTypeTesting, TestVariantPerf, 3},
-		{"testing_systemtest", ActivityTypeTesting, TestVariantSystemTest, 3},
 		{"testing_qa", ActivityTypeTesting, TestVariantQAProcess, 2},
 	}
 	for _, c := range cases {
@@ -7327,23 +7388,6 @@ func TestProfileFor_ServiceIsCanonicalFive(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("service PhaseIDs[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-}
-
-func TestProfileFor_TestingPlanRelabelsCanonicalIDs(t *testing.T) {
-	pr := ProfileFor(ActivityTypeTesting, TestVariantPlan)
-	want := []ProfilePhase{
-		{MethodPhaseRequirements, 20, "Use-Case Trace"},
-		{MethodPhaseConstruction, 45, "Plan Authoring"},
-		{MethodPhaseIntegration, 35, "Plan Review"},
-	}
-	if len(pr.Phases) != len(want) {
-		t.Fatalf("plan profile len = %d, want %d", len(pr.Phases), len(want))
-	}
-	for i, w := range want {
-		if pr.Phases[i] != w {
-			t.Errorf("plan phase[%d] = %+v, want %+v", i, pr.Phases[i], w)
 		}
 	}
 }
@@ -7451,7 +7495,7 @@ func TestProjectEarnedValue_OneActivity_HalfDone(t *testing.T) {
 }
 
 func TestProjectEarnedValue_TwoActivities(t *testing.T) {
-	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
+	all := ProfileFor(ActivityTypeService, 0).PhaseIDs()
 	rows := []ActivityExecution{
 		ledgerRow("C-A", all...), // 100%
 		ledgerRow("C-B"),         // 0% — an opened row whose gates have decided nothing
@@ -7466,7 +7510,7 @@ func TestProjectEarnedValue_TwoActivities(t *testing.T) {
 
 func TestProjectEarnedValue_NilEffortMap_DefaultsToEqualWeight(t *testing.T) {
 	// When effortDays is nil (or activity missing), each activity defaults to E=1.0.
-	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
+	all := ProfileFor(ActivityTypeService, 0).PhaseIDs()
 	rows := []ActivityExecution{ledgerRow("C-A", all...), ledgerRow("C-B")}
 	rows[1].Attempts = []TaskAttempt{constructionAttempt("C-B", TaskSRS, 1, OutcomePending)}
 	got := ProjectEarnedValue(rows, codingMeta("C-A", "C-B"), nil)
@@ -7643,17 +7687,20 @@ func TestDeriveType_Prefixes(t *testing.T) {
 }
 
 func TestDeriveVariant_TestingPrefixes(t *testing.T) {
-	cases := map[string]TestingVariant{
-		"N-STP":   TestVariantPlan,
-		"N-STH":   TestVariantHarness,
-		"N-PERF":  TestVariantPerf,
-		"N-IT":    TestVariantSystemTest,
-		"N-QA":    TestVariantQAProcess,
-		"N-OTHER": TestVariantPlan, // unknown N- falls back to Plan
+	cases := map[string]struct {
+		want TestingVariant
+		ok   bool
+	}{
+		"N-STH":   {TestVariantHarness, true},
+		"N-PERF":  {TestVariantPerf, true},
+		"N-QA":    {TestVariantQAProcess, true},
+		"N-STP":   {0, false}, // retired with the system test plan (spec §7)
+		"N-IT":    {0, false}, // retired with the system test plan (spec §7)
+		"N-OTHER": {0, false}, // an unknown N- id is no testing variant
 	}
-	for id, want := range cases {
-		if got := deriveVariant(id); got != want {
-			t.Errorf("deriveVariant(%q) = %v, want %v", id, got, want)
+	for id, c := range cases {
+		if got, ok := deriveVariant(id); got != c.want || ok != c.ok {
+			t.Errorf("deriveVariant(%q) = (%v, %v), want (%v, %v)", id, got, ok, c.want, c.ok)
 		}
 	}
 }
@@ -7675,10 +7722,8 @@ func TestCommandFor_NamesTheProfilesCommandFamily(t *testing.T) {
 		{ActivityTypeIntegration, 0, MethodPhaseIntegration, "service-integration"},
 		{ActivityTypeDeployment, 0, MethodPhaseConstruction, "deployment-construction"},
 		{ActivityTypeDocumentation, 0, MethodPhaseConstruction, "documentation-construction"},
-		{ActivityTypeTesting, TestVariantPlan, MethodPhaseConstruction, "testing-plan-construction"},
 		{ActivityTypeTesting, TestVariantHarness, MethodPhaseConstruction, "testing-harness-construction"},
 		{ActivityTypeTesting, TestVariantPerf, MethodPhaseConstruction, "testing-perf-construction"},
-		{ActivityTypeTesting, TestVariantSystemTest, MethodPhaseConstruction, "testing-systemtest-construction"},
 		{ActivityTypeTesting, TestVariantQAProcess, MethodPhaseConstruction, "testing-qa-construction"},
 	}
 	for _, c := range cases {
@@ -7768,10 +7813,8 @@ func allProfileCombos() []profileCombo {
 		{ActivityTypeFrontend, 0},
 		{ActivityTypeDeployment, 0},
 		{ActivityTypeDocumentation, 0},
-		{ActivityTypeTesting, TestVariantPlan},
 		{ActivityTypeTesting, TestVariantHarness},
 		{ActivityTypeTesting, TestVariantPerf},
-		{ActivityTypeTesting, TestVariantSystemTest},
 		{ActivityTypeTesting, TestVariantQAProcess},
 	}
 }
@@ -7827,9 +7870,11 @@ func TestEveryProfilePhaseHasCommandFile(t *testing.T) {
 			}
 		}
 	}
-	// Sanity: the matrix is exactly 30 distinct commands.
-	if len(seen) != 30 {
-		t.Errorf("expected 30 distinct commands, got %d", len(seen))
+	// Sanity: the matrix is exactly 24 distinct commands — 30 before deterministic
+	// component testing (spec §7) retired the testing:plan and testing:systemTest
+	// profiles, each three phases (testing-plan-* and testing-systemtest-*).
+	if len(seen) != 24 {
+		t.Errorf("expected 24 distinct commands, got %d", len(seen))
 	}
 }
 
@@ -9272,7 +9317,7 @@ func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
 		// an id prefix. The neutral id matters: under a U-SPA id, a mutant that dropped
 		// rule 2's coding arm would still reach Frontend through the prefix rule.
 		{"N-UI-BUILD", "ui-designer", true, ActivityTypeFrontend},
-		{"N-IT", "software-tester", false, ActivityTypeTesting},
+		{"N-PERF", "software-tester", false, ActivityTypeTesting},
 		{"I-billing", "senior-developer", false, ActivityTypeIntegration},
 	}
 	for _, c := range cases {
@@ -9283,6 +9328,18 @@ func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
 		}
 		if typ != c.want {
 			t.Errorf("%s: ClassifyType = %v, want %v", c.id, typ, c.want)
+		}
+	}
+}
+
+// A tester-owned activity whose id names no surviving testing variant is NOT a testing
+// activity (deterministic component testing, spec §7: N-STP and N-IT are retired). Nor is
+// it anything else a noncoding software-tester row could be, so the view lens refuses it
+// rather than fabricating a lifecycle.
+func TestClassifyType_RetiredTestingIDsDoNotClassifyAsTesting(t *testing.T) {
+	for _, id := range []string{"N-STP", "N-IT"} {
+		if typ, ok := ClassifyType(id, "software-tester", false, false); ok {
+			t.Errorf("%s: ClassifyType = (%v, ok) — the retired variant must not classify", id, typ)
 		}
 	}
 }
@@ -9303,8 +9360,8 @@ func TestClassifyActivity_DesignPrefixIsTypedAndDispatchable(t *testing.T) {
 	}
 	for _, c := range cases {
 		typ, variant, err := ClassifyActivity(c.id, "system-architect", false)
-		if typ != c.want || variant != TestVariantPlan {
-			t.Errorf("%s -> (%s, %s), want (%s, plan)", c.id, typ, variant, c.want)
+		if typ != c.want || variant != 0 {
+			t.Errorf("%s -> (%s, %s), want (%s, none)", c.id, typ, variant, c.want)
 		}
 		if err != nil {
 			t.Errorf("%s: err = %v, want nil — a design activity classifies cleanly since the sentinel died", c.id, err)
@@ -9339,7 +9396,7 @@ func TestCommandFor_DesignLifecycles(t *testing.T) {
 		{ActivityTypeProjectDesign, "sdp", ""},
 	}
 	for _, c := range cases {
-		if got := CommandFor(c.typ, TestVariantPlan, c.phase); got != c.want {
+		if got := CommandFor(c.typ, 0, c.phase); got != c.want {
 			t.Errorf("CommandFor(%s, %s) = %q, want %q", c.typ, c.phase, got, c.want)
 		}
 	}
@@ -9375,7 +9432,7 @@ func constructionAttempt(activityID string, task MethodTask, n int, outcome Task
 // decides; a row the classifier refuses to type claims nothing from its ledger.
 func TestEffectiveConstructionPhase_HeadFactsThenTheLedger(t *testing.T) {
 	service := ActivityItem{Name: "C-x", WorkerClass: "junior-developer", Coding: true}
-	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
+	all := ProfileFor(ActivityTypeService, 0).PhaseIDs()
 	full := constructionLedger("C-x", all...)
 	partial := constructionLedger("C-x", all[0])
 	at := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
@@ -9452,7 +9509,7 @@ func TestPumpWroteRow_IsTheStartStamp(t *testing.T) {
 	}
 
 	store, id, v, cred := newConstructionStore(t)
-	if _, err := store.RecordActivityStarted(fwra.Context{Context: context.Background()}, id, v, "X001", ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:pump-wrote")); err != nil {
+	if _, err := store.RecordActivityStarted(fwra.Context{Context: context.Background()}, id, v, "X001", ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:pump-wrote")); err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
 	if s := readConstruction(t, store, id, cred, "X001"); !PumpWroteRow(s) {
@@ -9473,7 +9530,7 @@ func TestResolveDependencySatisfied_TheMovedPumpRule(t *testing.T) {
 	svc := func(name string) ActivityItem {
 		return ActivityItem{Name: name, WorkerClass: "junior-developer", Coding: true}
 	}
-	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
+	all := ProfileFor(ActivityTypeService, 0).PhaseIDs()
 	items := map[string]ActivityItem{
 		"A-done": svc("A-done"), "A-partial": svc("A-partial"), "A-norow": svc("A-norow"),
 		"A-stored": svc("A-stored"), "A-inTail": svc("A-inTail"), "A-exited": svc("A-exited"),
@@ -9652,7 +9709,7 @@ func TestTasksForProfile_PerTypeTaskSets(t *testing.T) {
 		}},
 	}
 	for _, c := range cases {
-		got := TasksForProfile(ProfileFor(c.typ, TestVariantPlan))
+		got := TasksForProfile(ProfileFor(c.typ, 0))
 		if len(got) != len(c.want) {
 			t.Errorf("%s: TasksForProfile len = %d, want %d (got %v)", c.name, len(got), len(c.want), got)
 			continue
@@ -9671,16 +9728,14 @@ var allProfiles = []struct {
 	typ     ActivityType
 	variant TestingVariant
 }{
-	{"service", ActivityTypeService, TestVariantPlan},
-	{"frontend", ActivityTypeFrontend, TestVariantPlan},
-	{"uiDesign", ActivityTypeUIDesign, TestVariantPlan},
-	{"deployment", ActivityTypeDeployment, TestVariantPlan},
-	{"documentation", ActivityTypeDocumentation, TestVariantPlan},
-	{"integration", ActivityTypeIntegration, TestVariantPlan},
-	{"testing-plan", ActivityTypeTesting, TestVariantPlan},
+	{"service", ActivityTypeService, 0},
+	{"frontend", ActivityTypeFrontend, 0},
+	{"uiDesign", ActivityTypeUIDesign, 0},
+	{"deployment", ActivityTypeDeployment, 0},
+	{"documentation", ActivityTypeDocumentation, 0},
+	{"integration", ActivityTypeIntegration, 0},
 	{"testing-harness", ActivityTypeTesting, TestVariantHarness},
 	{"testing-perf", ActivityTypeTesting, TestVariantPerf},
-	{"testing-systemtest", ActivityTypeTesting, TestVariantSystemTest},
 	{"testing-qa", ActivityTypeTesting, TestVariantQAProcess},
 }
 
@@ -9927,7 +9982,7 @@ func TestIsConstructionComplete_EmptyCommittedListIsNotComplete(t *testing.T) {
 		ActivityList: ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: []ActivityItem{}}},
 		ActivityExecution: map[string]ActivityExecution{
 			"C-a": {ActivityID: "C-a", CompletedAt: &envelopeStartedAt,
-				Attempts: constructionLedger("C-a", ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()...)},
+				Attempts: constructionLedger("C-a", ProfileFor(ActivityTypeService, 0).PhaseIDs()...)},
 		},
 	}
 	if isConstructionComplete(p) {
@@ -9945,9 +10000,9 @@ func TestResolveConstructionRow_ClassifiesByTheCommittedNameFirst(t *testing.T) 
 		wantType    ActivityType
 		wantVariant TestingVariant
 	}{
-		{"the name decides the type", ActivityExecution{ActivityID: "C-other"}, ActivityItem{Name: "U-SPA-web-client", Coding: true}, ActivityTypeFrontend, TestVariantPlan},
-		{"the name decides the variant", ActivityExecution{ActivityID: "N-STP"}, ActivityItem{Name: "N-IT", WorkerClass: "software-tester"}, ActivityTypeTesting, TestVariantSystemTest},
-		{"the row id when the list does not hold it", ActivityExecution{ActivityID: "U-SPA-web-client"}, ActivityItem{}, ActivityTypeFrontend, TestVariantPlan},
+		{"the name decides the type", ActivityExecution{ActivityID: "C-other"}, ActivityItem{Name: "U-SPA-web-client", Coding: true}, ActivityTypeFrontend, 0},
+		{"the name decides the variant", ActivityExecution{ActivityID: "N-STH"}, ActivityItem{Name: "N-PERF", WorkerClass: "software-tester"}, ActivityTypeTesting, TestVariantPerf},
+		{"the row id when the list does not hold it", ActivityExecution{ActivityID: "U-SPA-web-client"}, ActivityItem{}, ActivityTypeFrontend, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -10580,16 +10635,14 @@ func TestLifecycleKeyFor_CoversEveryTypeAndVariant(t *testing.T) {
 		variant TestingVariant
 		want    string
 	}{
-		{ActivityTypeService, TestVariantPlan, "service"},
-		{ActivityTypeFrontend, TestVariantPlan, "frontend"},
-		{ActivityTypeDeployment, TestVariantPlan, "deployment"},
-		{ActivityTypeDocumentation, TestVariantPlan, "documentation"},
-		{ActivityTypeUIDesign, TestVariantPlan, "uiDesign"},
-		{ActivityTypeIntegration, TestVariantPlan, "integration"},
-		{ActivityTypeTesting, TestVariantPlan, "testing:plan"},
+		{ActivityTypeService, 0, "service"},
+		{ActivityTypeFrontend, 0, "frontend"},
+		{ActivityTypeDeployment, 0, "deployment"},
+		{ActivityTypeDocumentation, 0, "documentation"},
+		{ActivityTypeUIDesign, 0, "uiDesign"},
+		{ActivityTypeIntegration, 0, "integration"},
 		{ActivityTypeTesting, TestVariantHarness, "testing:harness"},
 		{ActivityTypeTesting, TestVariantPerf, "testing:perf"},
-		{ActivityTypeTesting, TestVariantSystemTest, "testing:systemTest"},
 		{ActivityTypeTesting, TestVariantQAProcess, "testing:qaProcess"},
 		{ActivityTypeService, TestVariantHarness, "service"},
 	}
@@ -10734,7 +10787,7 @@ func execRC() fwra.Context { return fwra.Context{Context: context.Background()} 
 // version after the open.
 func openTestActivity(t *testing.T, a ActivityExecutionAccess, id ProjectID, v Version, cred RepoCredential) Version {
 	t.Helper()
-	v2, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan,
+	v2, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, 0,
 		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("wf:open"))
 	if err != nil {
 		t.Fatalf("OpenActivity: %v", err)
@@ -11415,11 +11468,11 @@ func TestActivityExecutionVerbs_RefuseEmptyIdentifiers(t *testing.T) {
 		call func() error
 	}{
 		{"OpenActivity/activityID", func() error {
-			_, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "", ActivityTypeService, TestVariantPlan, LifecyclePin{TypeKey: "service", AssetsVersion: "x"}, cred, k)
+			_, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "", ActivityTypeService, 0, LifecyclePin{TypeKey: "service", AssetsVersion: "x"}, cred, k)
 			return err
 		}},
 		{"OpenActivity/pin", func() error {
-			_, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-Y", ActivityTypeService, TestVariantPlan, LifecyclePin{}, cred, k)
+			_, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-Y", ActivityTypeService, 0, LifecyclePin{}, cred, k)
 			return err
 		}},
 		{"StageTaskOutput/taskID", func() error {
@@ -11591,7 +11644,7 @@ func TestOpenActivity_PinsTheLifecycleOnce(t *testing.T) {
 	v = openTestActivity(t, a, id, v, cred)
 
 	// Re-opening with the SAME pin is the ordinary retry: a no-op success.
-	v2, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan,
+	v2, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, 0,
 		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("m5"))
 	if err != nil {
 		t.Fatalf("re-opening with the same pin must succeed: %v", err)
@@ -11601,7 +11654,7 @@ func TestOpenActivity_PinsTheLifecycleOnce(t *testing.T) {
 	}
 	// A DIFFERENT pin is refused, and the message names both so the caller can see which
 	// release moved under it.
-	_, err = a.OpenActivity(execRC(), id, v2, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan,
+	_, err = a.OpenActivity(execRC(), id, v2, NoActivityVersionExpectation, "C-X", ActivityTypeService, 0,
 		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.10.0"}, cred, fwra.IdempotencyKey("m6"))
 	if err == nil || kindOfErr(err) != fwra.ContractMisuse {
 		t.Fatalf("re-pinning must be ContractMisuse; got %v", err)
@@ -11637,7 +11690,7 @@ func TestOpenActivity_TypesTheRowOnce(t *testing.T) {
 	// THE RETRY. Re-opening with the same pair succeeds and re-dates nothing: this is the
 	// design rails' per-kind re-open (requirements across mission, glossary, …) and the
 	// construction rail's resume, and a refusal here would break both.
-	v2, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan, pin, cred, fwra.IdempotencyKey("t1"))
+	v2, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, 0, pin, cred, fwra.IdempotencyKey("t1"))
 	if err != nil {
 		t.Fatalf("re-opening with the same (typ, variant) must succeed: %v", err)
 	}
@@ -11654,8 +11707,8 @@ func TestOpenActivity_TypesTheRowOnce(t *testing.T) {
 		names   []string
 		key     fwra.IdempotencyKey
 	}{
-		{"a different type", ActivityTypeTesting, TestVariantPlan, []string{"service/plan", "testing/plan"}, "t2"},
-		{"a different variant", ActivityTypeService, TestVariantSystemTest, []string{"service/plan", "service/systemTest"}, "t3"},
+		{"a different type", ActivityTypeTesting, 0, []string{"service/none", "testing/none"}, "t2"},
+		{"a different variant", ActivityTypeService, TestVariantPerf, []string{"service/none", "service/perf"}, "t3"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := a.OpenActivity(execRC(), id, v2, NoActivityVersionExpectation, "C-X", tt.typ, tt.variant, pin, cred, tt.key)
@@ -11667,7 +11720,7 @@ func TestOpenActivity_TypesTheRowOnce(t *testing.T) {
 					t.Fatalf("the refusal must name %q so the caller can see both classifications; got %v", want, err)
 				}
 			}
-			if after := readConstruction(t, store, id, cred, "C-X"); after.Type != ActivityTypeService || after.Variant != TestVariantPlan {
+			if after := readConstruction(t, store, id, cred, "C-X"); after.Type != ActivityTypeService || after.Variant != 0 {
 				t.Fatalf("a refused re-type must not have written; got %s/%s", after.Type, after.Variant)
 			}
 		})
@@ -11677,11 +11730,11 @@ func TestOpenActivity_TypesTheRowOnce(t *testing.T) {
 	// StartedAt — nil until this very call — is what tells the two cases apart (Type cannot:
 	// ActivityTypeService is the zero value, so an untyped row and a service row are the
 	// same bytes).
-	if _, err := a.OpenActivity(execRC(), id, v2, NoActivityVersionExpectation, "N-IT", ActivityTypeTesting, TestVariantSystemTest,
-		LifecyclePin{TypeKey: "testing.systemTest", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("t4")); err != nil {
+	if _, err := a.OpenActivity(execRC(), id, v2, NoActivityVersionExpectation, "N-PERF", ActivityTypeTesting, TestVariantPerf,
+		LifecyclePin{TypeKey: "testing.perf", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("t4")); err != nil {
 		t.Fatalf("a BIRTH must be written whatever the pair: %v", err)
 	}
-	if fresh := readConstruction(t, store, id, cred, "N-IT"); fresh.Type != ActivityTypeTesting || fresh.Variant != TestVariantSystemTest {
+	if fresh := readConstruction(t, store, id, cred, "N-PERF"); fresh.Type != ActivityTypeTesting || fresh.Variant != TestVariantPerf {
 		t.Fatalf("the birth stamps the pair the dispatcher classified; got %s/%s", fresh.Type, fresh.Variant)
 	}
 }
@@ -11708,7 +11761,7 @@ func TestOpenActivity_RefusesToResurrectAFinishedActivity(t *testing.T) {
 			}
 			before := readConstruction(t, store, id, cred, "C-X")
 
-			_, err = a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan,
+			_, err = a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, 0,
 				LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("m8"))
 			if err == nil || kindOfErr(err) != fwra.Conflict {
 				t.Fatalf("re-opening an exited activity must be a Conflict; got %v", err)
@@ -12128,7 +12181,7 @@ func seedStaleGlossary(t *testing.T, store *GitStore, id ProjectID, v Version, c
 func TestActivityExecutionAcceptsTheUnreadPosture(t *testing.T) {
 	a, _, id, v, cred := newExecutionStore(t)
 
-	if _, err := a.OpenActivity(execRC(), id, v, 3, "C-X", ActivityTypeService, TestVariantPlan,
+	if _, err := a.OpenActivity(execRC(), id, v, 3, "C-X", ActivityTypeService, 0,
 		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, "k-phantom"); err == nil {
 		t.Fatal("a held version for a row that does not exist yet must be refused")
 	} else if got := kindOf(t, err); got != fwra.Conflict {
@@ -12192,7 +12245,7 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 			verbDone(store.RecordPhaseCompleted(execRC(), id, v, activity, MethodPhaseRequirements, "srs.md", cred, "k-pc")).must(t)
 		}},
 		{"RecordActivityStarted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(store.RecordActivityStarted(execRC(), id, v, activity, ActivityTypeService, TestVariantPlan, cred, "k-as")).must(t)
+			verbDone(store.RecordActivityStarted(execRC(), id, v, activity, ActivityTypeService, 0, cred, "k-as")).must(t)
 		}},
 		{"RecordActivityCompleted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			verbDone(store.RecordActivityCompleted(execRC(), id, v, activity, cred, "k-ac")).must(t)
@@ -12324,7 +12377,7 @@ func TestLegacyIntegratedRow_StaysIntegratedThroughTheLedger(t *testing.T) {
 		ActivityID:  "C-a",
 		Phase:       LegacyPhaseDone,
 		BuildStatus: BuildIntegrated,
-		Phases:      ProfileFor(ActivityTypeService, TestVariantPlan).toPhaseCompletions(),
+		Phases:      ProfileFor(ActivityTypeService, 0).toPhaseCompletions(),
 	}
 	for i := range legacy.Phases {
 		legacy.Phases[i].Completed = true
@@ -12478,5 +12531,79 @@ func assertRequeuedRow(t *testing.T, row ActivityExecution) {
 	}
 	if notes != 1 {
 		t.Fatalf("the operator's reason is the audit entry and lands in the SAME commit; got %d requeue notes", notes)
+	}
+}
+
+// --- Deterministic component testing (Plan 2, Task 1): the one model edit ---
+
+// TestActivityNodeKindCodecKnowsIOKinds pins the two I/O node kinds the spec adds
+// (§2.2): sendSignal (an output event) and objectNode (an expected observable state,
+// carried in the new inState field).
+func TestActivityNodeKindCodecKnowsIOKinds(t *testing.T) {
+	for name, want := range map[string]ActivityNodeKind{"sendSignal": NodeSendSignal, "objectNode": NodeObjectNode} {
+		var k ActivityNodeKind
+		if err := json.Unmarshal([]byte(`"`+name+`"`), &k); err != nil || k != want {
+			t.Fatalf("%s: %v %v", name, k, err)
+		}
+	}
+	n := ActivityNode{ID: "x", Kind: NodeObjectNode, Label: "Invoice", InState: "[paid]"}
+	b, _ := json.Marshal(n)
+	if !strings.Contains(string(b), `"inState":"[paid]"`) {
+		t.Fatalf("%s", b)
+	}
+}
+
+// TestRequireModelFields_ObjectNodeNeedsInState_NoteAnchorOptional pins the WRITE-PATH
+// shape rule for the two I/O fields (requireIOKindShape, spec §2.2), which the codec test
+// above does not reach: an objectNode is an expected observable state, so a write that
+// omits (or blanks) its inState is refused naming the field; a note's anchor is optional
+// and a string anchor is accepted.
+func TestRequireModelFields_ObjectNodeNeedsInState_NoteAnchorOptional(t *testing.T) {
+	useCase := func(nodes string) []byte {
+		return []byte(`{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Place order","actors":[],"trigger":"clientAction","classification":"core",
+          "activity":{"nodes":[{"id":"s","kind":"start","label":""},{"id":"a","kind":"action","label":"do"},` + nodes + `],
+                      "edges":[{"from":"s","to":"a","kind":"controlFlow","guard":""}]}},
+         "rejectionReason":""}
+      ]
+    }`)
+	}
+	for name, nodes := range map[string]string{
+		"objectNode without inState":    `{"id":"o","kind":"objectNode","label":"Invoice"}`,
+		"objectNode with blank inState": `{"id":"o","kind":"objectNode","label":"Invoice","inState":""}`,
+	} {
+		err := RequireModelFields(KindCoreUseCases, useCase(nodes))
+		if err == nil || !strings.Contains(err.Error(), "inState") {
+			t.Fatalf("%s must be refused naming inState, got: %v", name, err)
+		}
+	}
+	for name, nodes := range map[string]string{
+		"objectNode with inState":     `{"id":"o","kind":"objectNode","label":"Invoice","inState":"[paid]"}`,
+		"note with anchor":            `{"id":"n","kind":"note","label":"total is rounded","anchor":"a"}`,
+		"note without anchor":         `{"id":"n","kind":"note","label":"total is rounded"}`,
+		"sendSignal carries no state": `{"id":"g","kind":"sendSignal","label":"InvoicePaid"}`,
+	} {
+		if err := RequireModelFields(KindCoreUseCases, useCase(nodes)); err != nil {
+			t.Fatalf("%s must be accepted, got: %v", name, err)
+		}
+	}
+	if err := RequireModelFields(KindCoreUseCases, useCase(`{"id":"n","kind":"note","label":"x","anchor":42}`)); err == nil || !strings.Contains(err.Error(), "anchor") {
+		t.Fatalf("a non-string anchor must be refused naming anchor, got: %v", err)
+	}
+}
+
+// TestDeriveVariantNoLongerKnowsPlanOrSystemTest pins the retirement of TestingVariant
+// ordinals 0 (plan) and 3 (systemTest): N-STP and N-IT no longer classify as testing
+// activities at all (spec §7).
+func TestDeriveVariantNoLongerKnowsPlanOrSystemTest(t *testing.T) {
+	if _, ok := deriveVariant("N-STP"); ok {
+		t.Fatal("N-STP must not classify")
+	}
+	if _, ok := deriveVariant("N-IT"); ok {
+		t.Fatal("N-IT must not classify")
+	}
+	if v, ok := deriveVariant("N-PERF"); !ok || v != TestVariantPerf {
+		t.Fatal(v)
 	}
 }

@@ -21,8 +21,21 @@ type OutputTree struct {
 	Entries map[string]string `json:"Entries"`
 }
 
+type TestRunIndex struct {
+	Results []byte   `json:"Results"`
+	Files   []string `json:"Files"`
+	Expired bool     `json:"Expired"`
+}
+
+type TestRunRef struct {
+	RunID    string `json:"RunID"`
+	Artifact string `json:"Artifact"`
+}
+
 // ArtifactAccess is the generated service-contract interface for this component.
 type ArtifactAccess interface {
+	GetTestRunIndex(rc fwra.Context, run TestRunRef) (TestRunIndex, error)
+	ReadTestRunFile(rc fwra.Context, run TestRunRef, path string) (ConstructionOutput, error)
 	RetrieveConstructionOutput(rc fwra.Context, contentAddress string) (ConstructionOutput, error)
 	RetrieveOutputTree(rc fwra.Context, contentAddress string) (OutputTree, error)
 	StoreConstructionOutput(rc fwra.Context, content ConstructionOutput) (string, error)
