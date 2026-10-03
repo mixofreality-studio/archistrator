@@ -2,7 +2,9 @@
 // the webApp's own tests become GENERATED scenario specs, and hand-written
 // node:test files stop being added. `eslint.config.js` forbids every
 // `src/**/*.test.{ts,tsx}` outside this list, so a new unit test fails lint
-// today. The list is the files that pre-date the rule; it ONLY SHRINKS — Plan 3's
+// today. The list is the files that pre-date the rule, plus the one test DCT
+// Plan 2 Task 9 itself mandates (TestRunPanel.logic.test.ts, the results
+// panel's pure rules). It ONLY SHRINKS — Plan 3's
 // migration workflow purges them and empties it — and an entry for a file that
 // no longer exists is a stale line to delete, never a licence to recreate it.
 export const PRE_RULE_TEST_FILES = [

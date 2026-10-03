@@ -18,7 +18,12 @@
  *                    body under `t.Run(id, …)`).
  *   venueRunUrl      the GitHub run page, derived from the activity's PR url
  *                    (same repo); a local run has no page.
+ *   isNoRecordedRun  whether the testRun view's failure is the server's
+ *                    NotFound (404): no run recorded yet, the normal state of
+ *                    every integration task until the venue runs, so the panel
+ *                    shows the empty state rather than an error.
  */
+import { ApiError } from '../../../contracts/errors.ts';
 
 export interface ScenarioStatusCounts {
   pass: number;
@@ -77,4 +82,8 @@ export function venueRunUrl(prUrl: string | undefined, runId: string): string | 
   const m = /^(https:\/\/github\.com\/[^/]+\/[^/]+)\/pull\/\d+/.exec(prUrl);
   if (m?.[1] === undefined) return undefined;
   return `${m[1]}/actions/runs/${encodeURIComponent(runId)}`;
+}
+
+export function isNoRecordedRun(error: Error | null): boolean {
+  return error instanceof ApiError && error.status === 404;
 }

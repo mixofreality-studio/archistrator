@@ -19,6 +19,11 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_OIDC_SCOPE=$VITE_OIDC_SCOPE
 
 COPY package.json package-lock.json ./
+# `npm ci` runs the root postinstall, which self-hosts the Playwright trace
+# viewer from playwright-core into public/trace-viewer/ (gitignored and
+# .dockerignored, so the image ships the copy this install makes). The hook's
+# script must be in this layer before `npm ci` runs.
+COPY scripts/copy-trace-viewer.mjs scripts/
 # @mixofreality-studio/archistrator-platform-framework-web is published to public npmjs.org.
 # No auth or registry override is needed.
 RUN npm ci

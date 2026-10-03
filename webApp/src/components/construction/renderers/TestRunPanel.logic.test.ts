@@ -7,9 +7,11 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { ApiError } from '../../../contracts/errors.ts';
 import {
   goTestNameFor,
   goTestOutputFor,
+  isNoRecordedRun,
   summarize,
   tabsFor,
   venueRunUrl,
@@ -78,4 +80,17 @@ void test('the venue link is the GitHub run page beside the PR, or nothing for a
   assert.equal(venueRunUrl(undefined, '123456'), undefined);
   assert.equal(venueRunUrl('https://github.com/acme/widgets/pull/17', ''), undefined);
   assert.equal(venueRunUrl('not a url', '1'), undefined);
+});
+
+void test('a 404 from the testRun view is "no run recorded yet", every other failure is an error', () => {
+  // queryTestRunView answers fwmanager.NotFound ("activity X has no recorded
+  // test run") until the venue runs, the normal state of an integration task.
+  assert.equal(
+    isNoRecordedRun(new ApiError(404, 'not_found', 'activity "A" has no recorded test run')),
+    true
+  );
+  assert.equal(isNoRecordedRun(new ApiError(500, 'internal', 'boom')), false);
+  assert.equal(isNoRecordedRun(new ApiError(403, 'forbidden', 'no')), false);
+  assert.equal(isNoRecordedRun(new Error('network down')), false);
+  assert.equal(isNoRecordedRun(null), false);
 });
