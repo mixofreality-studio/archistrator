@@ -223,7 +223,7 @@ Stored at `.testingState.testRuns[]` (the existing slot, retyped). Written by th
 
 `infrastructure-github` gains `listArtifacts(runId)` and `downloadArtifact(id) → zip stream` (REST `actions/runs/{id}/artifacts`, `actions/artifacts/{id}/zip`), authenticated with the existing installation token.
 
-The **artifactAccess** resource access (already profile-split, Gitea testinfra) gains ops `GetTestRunIndex(run) → results.json` and `OpenTestRunFile(run, path) → stream` with cloud (GitHub zip, cached on disk per run) and local (directory) variants. DeliveryManager exposes `queryProjectView{kind:"testRun"}` and a streaming file endpoint `GET /api/v1/delivery/test-run/{run}/file?path=` for video/trace bytes.
+The **artifactAccess** resource access (already profile-split, Gitea testinfra) gains ops `GetTestRunIndex(run) → results.json` and `ReadTestRunFile(run, path) → stream` (named `Read…`, not `Open…`: the internal-tool catalog classifies ops by verb prefix, and `Open` is a mutation verb elsewhere on these contracts — `OpenActivity`, `OpenBranch`, `OpenPullRequest`) with cloud (GitHub zip, cached on disk per run) and local (directory) variants. DeliveryManager exposes `queryProjectView{kind:"testRun"}` and a streaming file endpoint `GET /api/v1/delivery/test-run/{run}/file?path=` for video/trace bytes.
 
 ### 6.4 Render
 
@@ -251,7 +251,7 @@ Failure holds the gate with a system comment naming the failing scenarios; revie
 | Item | Where |
 |---|---|
 | N-STP, N-IT emission; `systemTestingActivity`; `addSinkEdges` sink rule → the network's sink becomes the project-end milestone with every terminal activity feeding it directly | `estimationengine.go:1428-1444,1866-1890` |
-| `TestingVariant` Plan / SystemTest; `deriveVariant` rows | `projectstateaccess.go:8523-8540`, `contract.gen.go:951-959` |
+| `TestingVariant` SystemTest (ordinal 3) and the `deriveVariant` N-STP/N-IT rows. Ordinal 0 is re-labelled `TestVariantNone` (wire `"none"`), not retired: it is what every non-testing activity carries across the wire; `"plan"` survives as a decode-only alias of 0 so in-flight delivery workflows replay (Plan 2 Task 1 ratified deviation) | `projectstateaccess.go:8523-8540`, `contract.gen.go:951-959` |
 | `testing:plan`, `testing:systemTest` lifecycles | `method-assets/lifecycles.json:86,134` |
 | Commands `testing-plan-*`, `testing-systemtest-*`; agent `software-tester` | `method-assets/assets/claude/{commands,agents}` + materialized copies |
 | `SystemTestPlan`, `TestCase`, `TestScenario`, `TestStep` types; `systemTestPlan` in `TestingState` | `projectstateaccess.go:5252-5370` |
