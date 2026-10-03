@@ -11058,23 +11058,27 @@ func (a *activityExecutionAccess) ReadActivityExecution(rc fwra.Context, project
 // file of its own because the file-layout gate admits no second handwritten file in
 // a component package.
 
-// ScenarioInputOf builds the derivation input from p. A project without a core
-// use-cases model yields an empty input, not an error: there is nothing to derive
-// yet, which ForComponent reports as an empty set. Mirrors methodcheck.ScenarioInput,
-// which likewise reads the slot's model when present rather than gating on status
-// (the checkout a verb reads is main or a branch of it, where the slot is the
-// committed head).
+// ScenarioInputOf builds the derivation input from p's COMMITTED core use cases
+// (slot 4) and COMMITTED System (slot 5): a slot whose Status is not ReviewCommitted
+// — drafting, awaiting review, rejected (its model is retained as the redraft
+// baseline), withdrawn — contributes nothing, exactly the `Status == committed &&
+// model present` gate methodcheck.ScenarioInput applies through slotByKind. The gate
+// is what keeps the id set canonical on a design branch: with slot 4 rejected,
+// methodcheck's TP-* rules and the platform's testgen derive an empty set, so this
+// adapter must too, or the ids a verb binds split from the ids the rules check. A
+// project without committed use cases yields an empty input, not an error: there is
+// nothing to derive yet, which ForComponent reports as an empty set.
 func ScenarioInputOf(p *Project) (scenario.Input, error) {
 	in := scenario.Input{Actors: map[string]bool{}, Contracts: map[string]scenario.Contract{}}
 	if p == nil {
 		return in, errors.New("projectstate.ScenarioInputOf: nil project")
 	}
-	cu, ok := p.CoreUseCases.Model.(*CoreUseCases)
-	if !ok || cu == nil {
+	cu, ok := scenarioCommittedModel[*CoreUseCases](p, KindCoreUseCases)
+	if !ok {
 		return in, nil
 	}
 	scenarioAddUseCases(&in, cu)
-	if sys, ok := p.SystemDesign.Model.(*System); ok && sys != nil {
+	if sys, ok := scenarioCommittedModel[*System](p, KindSystem); ok {
 		for _, v := range sys.DynamicViews {
 			in.Views = append(in.Views, scenarioViewOf(v))
 		}
@@ -11102,6 +11106,26 @@ func ComponentScenarios(p *Project, component string) ([]scenario.Scenario, erro
 		return nil, fmt.Errorf("projectstate.ComponentScenarios: %w", err)
 	}
 	return scenario.ForComponent(all, component), nil
+}
+
+// scenarioCommittedModel returns the slot's model as M only when the slot is
+// ReviewCommitted and holds a non-nil model of that type — the server-side spelling
+// of methodcheck's Slot.committed() (status == committed && len(model) > 0), via the
+// same slotPtr + Status == ReviewCommitted guard the rest of this file applies.
+func scenarioCommittedModel[M interface {
+	ArtifactModel
+	comparable
+}](p *Project, kind ArtifactKind) (M, bool) {
+	var zero M
+	slot, ok := slotPtr(p, kind)
+	if !ok || slot.Status != ReviewCommitted || slot.Model == nil {
+		return zero, false
+	}
+	m, ok := slot.Model.(M)
+	if !ok || m == zero {
+		return zero, false
+	}
+	return m, true
 }
 
 // scenarioAddUseCases records every use case's actors and one Diagram per use case
