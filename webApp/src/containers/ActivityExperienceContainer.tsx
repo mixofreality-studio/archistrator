@@ -130,6 +130,8 @@ import {
 } from '../hooks/useDeliveryQueries';
 import { useCapabilities } from '../hooks/useCapabilities';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
+import { useComponentScenarios, useTestRun, useTestRunOutputs } from '../hooks/useTestRun';
+import type { TestingArtifactData } from '../components/construction/artifactRenderers';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { operationsEnabled } from '../utilities/capabilities';
 import { isNoSessionError } from '../hooks/sessionPolling';
@@ -389,6 +391,40 @@ export function ActivityExperienceContainer({
     componentId: view?.componentId,
     artifactKind: facts.artifactKind,
   });
+
+  // The two testing-phase reads (spec §6.4), fired only on the phase that renders
+  // them: the component's projected scenarios on `test_plan`, the activity's
+  // latest run on `integration` (its scenarios are already joined with the
+  // projection server-side). Each stays disabled on `undefined` rather than
+  // firing a read for an empty id. `components/` is pure, so the renderers take
+  // these as data through ReviewBody → ArtifactPanel.
+  const testingPhase = artifact.kind === 'classified' ? artifact.phase : undefined;
+  const scenariosQuery = useComponentScenarios(
+    projectId,
+    testingPhase === 'test_plan' ? view?.componentId : undefined
+  );
+  const testRunQuery = useTestRun(
+    projectId,
+    testingPhase === 'integration' ? activityId : undefined
+  );
+  const testRunOutputs = useTestRunOutputs(testRunQuery.data);
+  const testing: TestingArtifactData | undefined =
+    testingPhase === 'test_plan' || testingPhase === 'integration'
+      ? {
+          component: view?.componentId ?? '',
+          scenarios: {
+            data: scenariosQuery.data,
+            error: scenariosQuery.error,
+            isLoading: scenariosQuery.isLoading,
+          },
+          testRun: {
+            data: testRunQuery.data,
+            error: testRunQuery.error,
+            isLoading: testRunQuery.isLoading,
+          },
+          outputs: testRunOutputs,
+        }
+      : undefined;
 
   const thread = toReviewThread(revisionWire?.thread);
   const openThreads = openThreadCount(thread);
@@ -831,6 +867,7 @@ export function ActivityExperienceContainer({
                 : undefined
             }
             systemEnvelope={systemEnvelope}
+            testing={testing}
             title={node.title}
             verdicts={revisionWire?.verdicts}
             vm={vm}

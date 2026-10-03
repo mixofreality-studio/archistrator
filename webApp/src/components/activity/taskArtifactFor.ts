@@ -16,13 +16,15 @@
  *                                   itself, which is KEPT and imported by
  *                                   `ArtifactPanel`; only the path to it moves.
  *   detail/bodies/ArtifactBody.tsx  the BRANCH ORDER, which is the part that
- *                                   must survive: `service` falls to
- *                                   `ServiceContractView` through the contract
- *                                   JOIN (not through the registry, which has no
- *                                   `service` entry); `testing:plan` /
- *                                   `testing:systemTest` / `frontend` /
- *                                   `uiDesign` go to
- *                                   `artifactRenderers[classification]`;
+ *                                   must survive: a `service` design review
+ *                                   falls to `ServiceContractView` through the
+ *                                   contract JOIN (not through the registry);
+ *                                   `service` / `frontend` / `uiDesign` on their
+ *                                   renderer phases go to
+ *                                   `artifactRenderers[classification]`, which
+ *                                   is phase-aware since deterministic
+ *                                   component testing (the scenario plan on
+ *                                   `test_plan`, the test run on `integration`);
  *                                   everything else falls to the unknown body,
  *                                   which is `{ kind: 'unavailable' }` here.
  *
@@ -72,22 +74,19 @@ export const SLOT_KIND: Readonly<Record<string, ArtifactKindFull>> = {
 export const ARCHITECTURE_ACTIVITY_ID = 'architecture';
 
 /**
- * The artifact classifications this stage actually renders — ported verbatim
- * from `bodyDispatch.ts:64`.
+ * The artifact classifications this stage actually renders — ported from
+ * `bodyDispatch.ts:64`, minus the two retired testing variants.
  *
  * A deliberate SUBSET of `Classification`. The three cut kinds
  * (deployment/documentation/integration) and the three testing variants with no
  * authored renderer (harness/perf/qaProcess) are absent on purpose: they resolve
  * to `undefined` and fall back to the unknown body, which says plainly that
  * there is nothing recorded to show. An empty renderer frame would say the
- * opposite.
+ * opposite. `testing:plan` (N-STP) and `testing:systemTest` (N-IT) are gone
+ * with those activities (spec §7): their views moved onto every component's own
+ * `test_plan` and `integration` phases.
  */
-export type ArtifactBodyKind =
-  | 'service'
-  | 'uiDesign'
-  | 'frontend'
-  | 'testing:plan'
-  | 'testing:systemTest';
+export type ArtifactBodyKind = 'service' | 'uiDesign' | 'frontend';
 
 /**
  * WHICH LIFECYCLE PHASE each renderer's artifact actually belongs to — ported
@@ -104,17 +103,16 @@ export type ArtifactBodyKind =
  */
 const ARTIFACT_PHASES: Record<ArtifactBodyKind, readonly string[]> = {
   // The service contract is placed by the contract JOIN rather than a phase
-  // alone: a missing contract and a contract by design need different bodies.
-  service: [],
+  // alone (SERVICE_CONTRACT_PHASE below): a missing contract and a contract by
+  // design need different bodies. The two phases here reach the REGISTRY: the
+  // scenario plan on `test_plan`, the test run on `integration` (spec §6.4).
+  service: ['test_plan', 'integration'],
   // A uiDesign activity's whole output is its Design Concept.
   uiDesign: ['detailed_design'],
-  // FrontendArtifactView renders the built ui-code. The frontend's Detailed
-  // Design is its client contract, placed by the JOIN.
-  frontend: ['construction'],
-  // The STP is written in Plan Authoring and signed off in Plan Review.
-  'testing:plan': ['construction', 'integration'],
-  // SystemTestRunView renders the run: execution, then regression & sign-off.
-  'testing:systemTest': ['construction', 'integration'],
+  // FrontendArtifactView renders the built ui-code on `construction`; the
+  // frontend's Detailed Design is its client contract, placed by the JOIN; its
+  // scenario plan and test run render exactly as a service's do.
+  frontend: ['construction', 'test_plan', 'integration'],
 };
 
 function isArtifactBodyKind(value: string): value is ArtifactBodyKind {
@@ -124,12 +122,12 @@ function isArtifactBodyKind(value: string): value is ArtifactBodyKind {
 /**
  * The ONE phase whose artifact IS the service contract.
  *
- * `ARTIFACT_PHASES.service` is empty on purpose (see its own comment): the
- * contract never reaches the renderer REGISTRY, which has no `service` entry.
- * It is still placed on exactly one phase, and that placement is
- * `artifactPlacement.ts`'s `detailed_design → designPrimary(join)` (:110-118) —
- * named here rather than folded into `ARTIFACT_PHASES`, so that table keeps
- * meaning precisely what it meant: which phases reach `artifactRenderers[...]`.
+ * It is absent from `ARTIFACT_PHASES.service` on purpose: the contract never
+ * reaches the renderer REGISTRY; it is placed through the JOIN, and that
+ * placement is `artifactPlacement.ts`'s `detailed_design → designPrimary(join)`
+ * (:110-118) — named here rather than folded into `ARTIFACT_PHASES`, so that
+ * table keeps meaning precisely what it meant: which phases reach
+ * `artifactRenderers[...]`.
  */
 const SERVICE_CONTRACT_PHASE = 'detailed_design';
 
@@ -145,8 +143,8 @@ export type TaskArtifact =
   | { kind: 'slot'; artifactKind: ArtifactKindFull }
   /** ServiceContractView, over the contract JOIN. */
   | { kind: 'serviceContract'; componentId: string }
-  /** components/construction/artifactRenderers.tsx. */
-  | { kind: 'classified'; classification: Classification }
+  /** components/construction/artifactRenderers.tsx, which dispatches on the phase too. */
+  | { kind: 'classified'; classification: Classification; phase: string }
   /** An honest panel carrying this reason verbatim. */
   | { kind: 'unavailable'; reason: string };
 
@@ -174,10 +172,8 @@ const CLASSIFICATIONS: Readonly<Record<Classification, true>> = {
   documentation: true,
   uiDesign: true,
   integration: true,
-  'testing:plan': true,
   'testing:harness': true,
   'testing:perf': true,
-  'testing:systemTest': true,
   'testing:qaProcess': true,
 };
 
@@ -232,11 +228,9 @@ export function taskArtifactFor(input: {
     return { kind: 'unavailable', reason: artifactUnavailable(classification) };
   }
 
-  // 3. The service contract, through the JOIN and only on its own phase.
-  if (classification === 'service') {
-    if (phase !== SERVICE_CONTRACT_PHASE) {
-      return { kind: 'unavailable', reason: artifactNotOfThisPhase(classification) };
-    }
+  // 3. The service contract, through the JOIN, on its own phase; every other
+  //    service phase goes on to the registry like a frontend's.
+  if (classification === 'service' && phase === SERVICE_CONTRACT_PHASE) {
     const componentId = input.componentId ?? '';
     return componentId.length > 0
       ? { kind: 'serviceContract', componentId }
@@ -245,6 +239,6 @@ export function taskArtifactFor(input: {
 
   // 4. The registry, scoped by ARTIFACT_PHASES.
   return ARTIFACT_PHASES[classification].some((p) => p === phase)
-    ? { kind: 'classified', classification }
+    ? { kind: 'classified', classification, phase }
     : { kind: 'unavailable', reason: artifactNotOfThisPhase(classification) };
 }

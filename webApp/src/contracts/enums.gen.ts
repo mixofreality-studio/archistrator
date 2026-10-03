@@ -775,6 +775,8 @@ export const PROJECT_VIEW_KIND_VALUES = [
   'designHealth',
   'episodes',
   'timeline',
+  'testRun',
+  'scenarios',
 ] as const;
 
 export type ProjectViewKind = (typeof PROJECT_VIEW_KIND_VALUES)[number];
@@ -787,6 +789,8 @@ export const PROJECT_VIEW_KIND_GO_VARNAMES = [
   'ProjectViewDesignHealth',
   'ProjectViewEpisodes',
   'ProjectViewTimeline',
+  'ProjectViewTestRun',
+  'ProjectViewScenarios',
 ] as const;
 
 // --- ReviewDecision ------------------------------------------------------
@@ -961,16 +965,17 @@ export const TASK_REVISION_PROVENANCE_GO_VARNAMES = [
 // --- TestingVariant ------------------------------------------------------
 // Sources: DeliveryTestingVariant
 export const TESTING_VARIANT_GO_VARNAMES = [
-  'TestVariantPlan',
   'TestVariantHarness',
   'TestVariantPerf',
-  'TestVariantSystemTest',
   'TestVariantQAProcess',
 ] as const;
 
 export type TestingVariantGoVarname = (typeof TESTING_VARIANT_GO_VARNAMES)[number];
 
-export const TESTING_VARIANT_ORDINAL_TO_GO_VARNAME: readonly TestingVariantGoVarname[] =
-  TESTING_VARIANT_GO_VARNAMES;
+// Sparse wire values (1, 2, 4): indexed by VALUE, with holes.
+export const TESTING_VARIANT_ORDINAL_TO_GO_VARNAME: readonly (
+  | TestingVariantGoVarname
+  | undefined
+)[] = [undefined, 'TestVariantHarness', 'TestVariantPerf', undefined, 'TestVariantQAProcess'];
 
 // NOT mechanically derivable to an app string: Local type name is "TestingVariant" but the Go consts use the short prefix "Test" (TestVariantPlan, ...) — "Test" is not a whole-word run of "TestingVariant", so no candidate strips and the mechanical derivation falls through to the full lowerFirst varname ("testVariantPlan"). enums.ts testingVariantFromOrdinal instead returns short forms ("plan"/"harness"/"perf"/"systemTest"/"qaProcess"). Not mechanically derivable.

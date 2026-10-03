@@ -32,6 +32,11 @@ export interface ActivityNodeView {
    * absent for every node authored before it existed).
    */
   decidedBy?: string;
+  /**
+   * An `objectNode`'s state, e.g. `[paid]` — the expected state a deterministic
+   * scenario proves (spec §2.2). Undefined for every other kind.
+   */
+  inState?: string;
 }
 
 export interface ActivityEdgeView {
@@ -80,6 +85,7 @@ export function toUseCaseView(decision: UseCaseDecision): UseCaseView {
       label: n.label,
       lane: n.roleName.length > 0 ? n.roleName : 'Machine',
       ...(n.decidedBy != null && n.decidedBy.length > 0 ? { decidedBy: n.decidedBy } : {}),
+      ...(n.inState !== undefined && n.inState.length > 0 ? { inState: n.inState } : {}),
     })
   );
   const edges = rawEdges.map(

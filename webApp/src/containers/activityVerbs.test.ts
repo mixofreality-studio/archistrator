@@ -206,10 +206,10 @@ void test('the two M0 refusals SURVIVE stage 4b1: no send-back and no re-run', (
 void test('a testing activity is a construction activity — variant does not change the rail', () => {
   const v = verbsFor({
     type: 'testing',
-    variant: 'systemTest',
-    taskId: 'stpReview',
-    lifecyclePhase: 'stp',
-    artifactKind: 'STP',
+    variant: 'harness',
+    taskId: 'designReview',
+    lifecyclePhase: 'detailed_design',
+    artifactKind: 'DetailedDesign',
   });
   assert.deepEqual(v.approve, { kind: 'decision', decision: REVIEW_APPROVE });
   assert.equal(v.ask.kind, 'ask');

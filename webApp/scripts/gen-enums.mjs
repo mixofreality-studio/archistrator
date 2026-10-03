@@ -229,6 +229,30 @@ function tsIdent(varnames, quote = "'") {
   return varnames.map((v) => `${quote}${v}${quote}`).join(', ');
 }
 
+/**
+ * The ordinal → varname table, indexed by the WIRE VALUE. A dense enum (0..n-1 in
+ * order) aliases the varname array. A sparse one — `TestingVariant` is `[1, 2, 4]`
+ * since its 0 and 3 were retired — gets a literal with `undefined` holes, so
+ * `TABLE[1]` is the varname of value 1 and never the SECOND varname.
+ */
+function emitOrdinalTable(SNAKE, e) {
+  const name = `${SNAKE}_ORDINAL_TO_GO_VARNAME`;
+  const dense = e.values.every((v, i) => v === i);
+  if (dense) {
+    return `export const ${name}: readonly ${e.outputName}GoVarname[] = ${SNAKE}_GO_VARNAMES;\n`;
+  }
+  const max = Math.max(...e.values);
+  const byValue = new Map(e.values.map((v, i) => [v, e.varnames[i]]));
+  const cells = Array.from({ length: max + 1 }, (_, v) => {
+    const varname = byValue.get(v);
+    return varname === undefined ? 'undefined' : `'${varname}'`;
+  });
+  return (
+    `// Sparse wire values (${e.values.join(', ')}): indexed by VALUE, with holes.\n` +
+    `export const ${name}: readonly (${e.outputName}GoVarname | undefined)[] = [${cells.join(', ')}];\n`
+  );
+}
+
 function emitConstArray(name, values, quote = "'") {
   return `export const ${name} = [${tsIdent(values, quote)}] as const;\n`;
 }
@@ -348,9 +372,7 @@ function emitBlock(e) {
 
   out.push(emitConstArray(`${SNAKE}_GO_VARNAMES`, e.varnames));
   out.push(`export type ${e.outputName}GoVarname = (typeof ${SNAKE}_GO_VARNAMES)[number];\n`);
-  out.push(
-    `export const ${SNAKE}_ORDINAL_TO_GO_VARNAME: readonly ${e.outputName}GoVarname[] = ${SNAKE}_GO_VARNAMES;\n`
-  );
+  out.push(emitOrdinalTable(SNAKE, e));
 
   const nonMechanicalReason = NON_MECHANICAL[e.outputName];
   if (nonMechanicalReason !== undefined) {

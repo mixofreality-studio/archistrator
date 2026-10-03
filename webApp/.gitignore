@@ -18,3 +18,7 @@ dist-ssr
 .idea
 .DS_Store
 *.sw?
+
+# The self-hosted Playwright trace viewer, copied from playwright-core on
+# postinstall (scripts/copy-trace-viewer.mjs) — never committed.
+public/trace-viewer/

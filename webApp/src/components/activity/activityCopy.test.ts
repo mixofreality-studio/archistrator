@@ -46,8 +46,8 @@ void test('the eyebrow names the activity and its type, or its plan position whe
     'ACTIVITY 2 · ARCHITECTURE'
   );
   assert.equal(
-    eyebrowFor({ activityId: 'N-STP', type: 'testing', variant: 'plan' }),
-    'N-STP · TESTING:PLAN'
+    eyebrowFor({ activityId: 'N-PERF', type: 'testing', variant: 'perf' }),
+    'N-PERF · TESTING:PERF'
   );
 });
 

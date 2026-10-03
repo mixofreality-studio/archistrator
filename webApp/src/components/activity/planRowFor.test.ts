@@ -9,9 +9,11 @@ void test('the three design activities are the front end, whatever layer the ser
   }
 });
 
-void test('N-STP is the side lane and N-IT is system testing — the server calls both projectWide', () => {
-  assert.equal(planRowFor({ kind: 'testing', variant: 'plan' }), 'sideLane');
-  assert.equal(planRowFor({ kind: 'testing', variant: 'systemTest' }), 'systemTesting');
+void test('no testing activity has a band: N-STP and N-IT are retired, the rest never had one', () => {
+  assert.equal(planRowFor({ kind: 'testing', variant: 'harness' }), undefined);
+  assert.equal(planRowFor({ kind: 'testing', variant: 'perf' }), undefined);
+  assert.equal(planRowFor({ kind: 'testing', variant: 'qaProcess' }), undefined);
+  assert.equal(planRowFor({ kind: 'testing' }), undefined);
 });
 
 void test('a coding activity takes its component layer', () => {
@@ -39,12 +41,12 @@ void test('an UNCLASSIFIED row is undefined — the server refused to guess and 
   assert.equal(planRowFor({ layer: 'engine' }), 'engine', 'a classified layer still places it');
 });
 
-void test('the live plan places 29 of its 32 activities and says which three it cannot', () => {
+void test('every live activity shape places', () => {
   // The repo's own committed list (slot 9): requirements/architecture/
   // projectDesign → frontEnd, 4 R-* → resource, 10 C-*-access → resourceAccess,
-  // 7 C-*-engine → engine, 5 C-*-manager → manager, U-SPA-web-client → client,
-  // N-STP → sideLane, N-IT → systemTesting. That is all 32, with nothing unplaced —
-  // pinned here so a model change that orphans a tile fails a test, not a screen.
+  // 7 C-*-engine → engine, 5 C-*-manager → manager, U-SPA-web-client → client.
+  // Nothing unplaced — pinned here so a model change that orphans a tile fails a
+  // test, not a screen.
   const live: PlanRowInput[] = [
     { kind: 'requirements' },
     { kind: 'architecture' },
@@ -54,8 +56,6 @@ void test('the live plan places 29 of its 32 activities and says which three it 
     { kind: 'service', layer: 'engine' },
     { kind: 'service', layer: 'manager' },
     { kind: 'frontend', layer: 'client' },
-    { kind: 'testing', variant: 'plan' },
-    { kind: 'testing', variant: 'systemTest' },
   ];
   assert.ok(
     live.every((r) => planRowFor(r) !== undefined),

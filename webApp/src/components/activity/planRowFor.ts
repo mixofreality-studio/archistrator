@@ -2,14 +2,19 @@
  * Which BUILD-ORDER row of the plan graph an activity sits in (spec §7.3).
  *
  * The server cannot answer this. `LayerForActivity` gives a componentless
- * activity `("", "projectWide")`, so requirements, architecture,
- * projectDesign, N-STP and N-IT all arrive indistinguishable — front end,
- * side lane and system testing collapse into one bucket. The (type, variant)
- * pair is what tells them apart, and it is already on the row.
+ * activity `("", "projectWide")`, so requirements, architecture and
+ * projectDesign arrive indistinguishable from a testing activity — the front
+ * end collapses into one bucket with it. The (type, variant) pair is what
+ * tells them apart, and it is already on the row.
+ *
+ * N-STP (the side lane) and N-IT (the system-testing row) were retired on
+ * 2026-10-02 (deterministic component testing, spec §7): every component's own
+ * lifecycle carries its scenario plan and run, so no testing activity has a
+ * band of its own any more.
  *
  * The rows read TOP→DOWN in build order: what nothing depends on is built
- * first (resources), what depends on everything is built last (clients),
- * system testing closes. That is the exact REVERSE of the architecture
+ * first (resources), what depends on everything is built last (clients).
+ * That is the exact REVERSE of the architecture
  * diagram's order (`activityGraphModel.LAYERED_ROWS` = client-first) — this
  * is a project network, not an architecture, and reusing that list would
  * draw the plan upside down.
@@ -46,8 +51,6 @@ export function planRowFor(input: PlanRowInput): PlanRow | undefined {
     return 'frontEnd';
   }
   if (input.kind === 'testing') {
-    if (input.variant === 'plan') return 'sideLane';
-    if (input.variant === 'systemTest') return 'systemTesting';
     return undefined; // harness / perf / qaProcess have no band
   }
   return input.layer === undefined ? undefined : LAYER_ROW[input.layer];

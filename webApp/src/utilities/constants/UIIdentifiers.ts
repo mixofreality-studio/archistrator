@@ -388,19 +388,32 @@ export const UI_IDENTIFIERS = {
     // artifact renderers the Activity Experience reaches through ArtifactPanel.
     // A rebuilt surface mints its own ids rather than reviving stale ones.
     AWAITING: 'construction-awaiting',
-    SYSTEM_TEST_VIEW: 'construction-system-test-view',
-    TEST_PLAN_VIEW: 'construction-test-plan-view',
+    // Deterministic component testing (spec §6.4): a component's scenario plan
+    // (the `stp` / `stpReview` tasks) and its test run (the `testing` task).
+    SCENARIO_PLAN_VIEW: 'construction-scenario-plan-view',
+    /** The selected scenario's binding standing: bound / n/m bound / unbound / skipped. */
+    SCENARIO_BINDING_CHIP: 'construction-scenario-binding-chip',
+    /** The plain statement under an unbound scenario's step-through. */
+    SCENARIO_UNBOUND: 'construction-scenario-unbound',
+    TEST_RUN_PANEL: 'construction-test-run-panel',
+    /** The venue artifact has expired (GitHub 410): re-run integration. */
+    TEST_RUN_EXPIRED: 'construction-test-run-expired',
+    /** Projected scenarios the run never reported (the gate names them too). */
+    TEST_RUN_MISSING: 'construction-test-run-missing',
+    /** The "Open in venue" link on the run header (GitHub run page). */
+    TEST_RUN_VENUE_LINK: 'construction-test-run-venue-link',
+    /** The selected scenario's filtered `go test -json` output. */
+    TEST_RUN_OUTPUT: 'construction-test-run-output',
+    /** The selected UI scenario's `<video>` — only ever mounted over a videoRef. */
+    TEST_RUN_VIDEO: 'construction-test-run-video',
+    /** "Open trace": the self-hosted Playwright trace viewer, in a new tab. */
+    TEST_RUN_OPEN_TRACE: 'construction-test-run-open-trace',
     FRONTEND_VIEW: 'construction-frontend-view',
     // No live preview iframe: the app refuses to be framed (a4130340). A built
     // surface's route opens in a new tab; with none recorded, the §5.5 empty state.
     FRONTEND_OPEN_LINK: 'construction-frontend-open-link',
     FRONTEND_NO_SURFACES: 'construction-frontend-no-surfaces',
     SCENARIO_PICKER: 'construction-scenario-picker',
-    caseChip: (caseId: string) => `construction-case-chip-${caseId}`,
-    /** The selected case's "what this proves / expected outcome" box (its left
-     *  border carries the case's ink) and the EXPECT label inside it. */
-    ACTIVE_CASE: 'construction-active-case',
-    CASE_EXPECT: 'construction-case-expect',
     BEGIN_BUTTON: 'construction-begin',
     /** The alert a failed Begin dispatch raises — failures are loud (spec §6). */
     BEGIN_ERROR: 'construction-begin-error',
@@ -448,8 +461,6 @@ export const UI_IDENTIFIERS = {
     // and tier 2), so a screen of task rows never fills with chips.
     PROVENANCE_RAIL: 'construction-provenance-rail',
     PROVENANCE_BADGE: 'construction-provenance-badge',
-    /** The narrow scenario browser's case dropdown (more than 3 cases). */
-    CASE_PICKER: 'construction-case-picker',
   },
   // The GIT-FORWARD per-activity row cluster (U-SPA-GIT: ROW_META, PR_LINK,
   // BRANCH, MERGED, CR_LABEL, ARCH_APPROVED, ciStatus) was the construction

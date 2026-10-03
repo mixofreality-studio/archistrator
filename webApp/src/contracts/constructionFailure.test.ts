@@ -49,7 +49,6 @@ function wireRow(over: Partial<WireConstructionStatus>): WireConstructionStatus 
     Phases: null,
     Produced: null,
     Type: 0,
-    Variant: 0,
     // These rows are all classified by construction (Type/Kind 0 ⇒ 'service')
     // and carry build evidence — the classification/evidence-gate tests live in
     // constructionAdapters.test.ts, not here.

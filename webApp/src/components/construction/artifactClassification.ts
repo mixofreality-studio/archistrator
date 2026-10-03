@@ -17,20 +17,23 @@ export type Classification =
   | 'requirements'
   | 'architecture'
   | 'projectDesign'
-  | 'testing:plan'
+  // The three testing variants that remain. `testing:plan` (N-STP) and
+  // `testing:systemTest` (N-IT) were retired with deterministic component testing
+  // (spec §7): a component's scenario plan and run render on its OWN lifecycle.
   | 'testing:harness'
   | 'testing:perf'
-  | 'testing:systemTest'
   | 'testing:qaProcess';
 
 /**
  * Map a construction row to its artifact classification (the renderer key).
- * Undefined when the row is unclassified — never invent a kind to classify by.
+ * Undefined when the row is unclassified — never invent a kind to classify by —
+ * and undefined for a testing row without a variant: there is no plan variant
+ * to default to any more.
  */
 export function classify(row: ConstructionRow): Classification | undefined {
   if (row.kind === undefined) return undefined;
   if (row.kind === 'testing') {
-    return `testing:${row.variant ?? 'plan'}`;
+    return row.variant === undefined ? undefined : `testing:${row.variant}`;
   }
   return row.kind;
 }

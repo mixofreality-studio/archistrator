@@ -404,15 +404,9 @@ export function ciVerdictFor(ci: CiStatus | undefined): CiVerdict {
 }
 
 /** The size and shape of what the human is about to read — only what is known. */
-export function shapeFor(
-  kind: ActivityKind | undefined,
-  facts: { contractOps?: number; scenarios?: number }
-): string {
+export function shapeFor(kind: ActivityKind | undefined, facts: { contractOps?: number }): string {
   if (kind === 'service' && facts.contractOps !== undefined) {
     return `Contract · ${plural(facts.contractOps, 'op', 'ops')}`;
-  }
-  if (kind === 'testing' && facts.scenarios !== undefined) {
-    return `Test plan · ${plural(facts.scenarios, 'scenario', 'scenarios')}`;
   }
   return '—';
 }

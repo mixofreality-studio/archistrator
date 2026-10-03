@@ -332,7 +332,8 @@ export interface components {
       Phases: null | components['schemas']['DeliveryPhaseCompletion'][];
       Produced: null | components['schemas']['DeliveryProducedArtifact'][];
       Type: components['schemas']['DeliveryActivityType'];
-      Variant: components['schemas']['DeliveryTestingVariant'];
+      /** @description The testing variant of a testing activity; absent on every other row (the zero value is no variant, and ordinals 0 and 3 are retired). */
+      Variant?: components['schemas']['DeliveryTestingVariant'];
       attempts?: components['schemas']['DeliveryTaskAttempt'][];
       classified: boolean;
       /** Format: date-time */
@@ -576,6 +577,15 @@ export interface components {
       severity: string;
       title: string;
     };
+    /** @description The testing task's run as the results panel renders it: the recorded run, every projected scenario joined with its result, the projected ids with no result (missing), the results with no projected scenario (unknown), and whether the venue artifact has expired. */
+    DeliveryDeliveryTestRunView: {
+      artifact: string;
+      expired: boolean;
+      missing: null | string[];
+      run: components['schemas']['DeliveryTestRunView'];
+      scenarios: null | components['schemas']['DeliveryTestRunScenarioView'][];
+      unknown: null | string[];
+    };
     /**
      * @description The stages the DERIVED design-artifact session view can report, and all of them. This is a REPLACEMENT of the eight-member SessionStage, not a renumbering of it: the door is committedSessionView, a projection of one durable ArtifactSlot, so a committed slot reads committed, a withdrawn one withdrawn, and every other terminal-but-uncommitted status reads an honest draftFailed. Drafting, awaitingReview, redrafting and refused had no producer left once stage 4b1 retired the live design rail, and StageDrafting in particular is the value an SPA wedges a spinner on. SessionStageUnknown stays at 0 deliberately: a three-member enum would make the ZERO VALUE mean committed, and a zero-valued view reading as a committed artifact is the same defect class as ArtifactKind's KindMission == 0.
      * @enum {integer}
@@ -776,6 +786,13 @@ export interface components {
     DeliveryPhaseDecision: 0 | 1 | 2;
     /** @enum {integer} */
     DeliveryPipelinePhase: 0 | 1 | 2 | 3 | 4 | 5;
+    DeliveryProbeView: {
+      component: string;
+      expect: components['schemas']['DeliveryTestExpectView'];
+      for: string;
+      inputs: null | components['schemas']['DeliveryTestArgView'][];
+      operation: string;
+    };
     DeliveryProducedArtifact: {
       Kind: string;
       Note: string;
@@ -837,8 +854,10 @@ export interface components {
       kind: components['schemas']['DeliveryProjectViewKind'];
       projects?: null | components['schemas']['DeliveryProjectSummary'][];
       pump?: components['schemas']['DeliveryPumpStatus'];
+      scenarios?: null | components['schemas']['DeliveryScenarioView'][];
       session?: components['schemas']['DeliveryDesignArtifactSessionView'];
       summary?: components['schemas']['DeliveryProjectState'];
+      testRun?: components['schemas']['DeliveryDeliveryTestRunView'];
       timeline?: components['schemas']['DeliveryEpisodeTimeline'];
     };
     /** @enum {string} */
@@ -849,14 +868,18 @@ export interface components {
       | 'pump'
       | 'designHealth'
       | 'episodes'
-      | 'timeline';
+      | 'timeline'
+      | 'testRun'
+      | 'scenarios';
     DeliveryProjectViewQuery: {
       activityId?: null | string;
       artifactKind?: components['schemas']['DeliveryArtifactKind'];
+      componentId?: null | string;
       episodeId?: null | string;
       kind: components['schemas']['DeliveryProjectViewKind'];
       owner?: components['schemas']['DeliveryOwnerScope'];
       projectId?: null | string;
+      runId?: null | string;
     };
     DeliveryPumpResult: {
       /** @description DEPRECATED, and populated with the FIRST element of activityIds. A parallel pump dispatches a whole frontier in one tick, so one id is a lie about N; read activityIds. Kept because a reader written against the singular field still gets a true answer about one of the activities that started. */
@@ -1005,6 +1028,63 @@ export interface components {
     DeliveryRuleID: string;
     /** @enum {integer} */
     DeliverySDPDecision: 0 | 1 | 2;
+    DeliveryScenarioBindingView: {
+      scenario: string;
+      skip?: components['schemas']['DeliverySkipReasonView'];
+      steps: null | components['schemas']['DeliveryStepBindingView'][];
+    };
+    DeliveryScenarioGuardView: {
+      at: string;
+      guard: string;
+    };
+    DeliveryScenarioInputView: {
+      call: string;
+      from: string;
+      guard: string;
+      kind: string;
+      op: string;
+      to: string;
+    };
+    DeliveryScenarioOutcomeView: {
+      expectedOutputs: null | components['schemas']['DeliveryScenarioOutputView'][];
+      expectedStates: null | components['schemas']['DeliveryScenarioStateView'][];
+      hints: null | string[];
+    };
+    DeliveryScenarioOutputView: {
+      kind: string;
+      label: string;
+      node: string;
+      to: string;
+    };
+    DeliveryScenarioResultView: {
+      durationMs: number;
+      scenario: string;
+      status: string;
+      traceRef: string;
+      videoRef: string;
+    };
+    DeliveryScenarioStateView: {
+      inState: string;
+      node: string;
+      object: string;
+    };
+    DeliveryScenarioStimulusView: {
+      input: components['schemas']['DeliveryScenarioInputView'];
+      node: string;
+      outcome: components['schemas']['DeliveryScenarioOutcomeView'];
+      seq: number;
+    };
+    /** @description One deterministic scenario projected onto a component (framework-go/scenario.ForComponent): the stimuli into it, what is observed after each, and the committed binding for it when the test plan has one. */
+    DeliveryScenarioView: {
+      binding?: components['schemas']['DeliveryScenarioBindingView'];
+      guards: null | components['schemas']['DeliveryScenarioGuardView'][];
+      id: string;
+      path: null | string[];
+      preconditions: components['schemas']['DeliveryScenarioOutcomeView'];
+      stimuli: null | components['schemas']['DeliveryScenarioStimulusView'][];
+      title: string;
+      useCase: string;
+    };
     DeliveryServiceContract: {
       Component: string;
       DataContracts: null | string[];
@@ -1022,10 +1102,23 @@ export interface components {
     DeliverySessionRef: string;
     /** @enum {string} */
     DeliverySeverity: 'info' | 'warning' | 'error';
+    DeliverySkipReasonView: {
+      reason: string;
+      until: string;
+    };
     DeliveryStartProjectResult: {
       projectId: components['schemas']['DeliveryProjectID'];
       session?: components['schemas']['DeliverySessionRef'];
       version: components['schemas']['DeliveryVersion'];
+    };
+    DeliveryStepBindingView: {
+      expect: components['schemas']['DeliveryTestExpectView'];
+      hook: boolean;
+      inputs: null | components['schemas']['DeliveryTestArgView'][];
+      operation: string;
+      probes: null | components['schemas']['DeliveryProbeView'][];
+      seq: number;
+      unobservable: null | string[];
     };
     DeliverySubagentSpan: {
       /** Format: date-time */
@@ -1033,9 +1126,6 @@ export interface components {
       /** Format: date-time */
       startedAt?: string;
       toolUseId: string;
-    };
-    DeliverySystemTestPlanView: {
-      scenarios: null | components['schemas']['DeliveryTestScenarioView'][];
     };
     DeliveryTaskAttempt: {
       actor?: string;
@@ -1117,48 +1207,40 @@ export interface components {
       schemaRef: string;
       value: string;
     };
-    DeliveryTestCaseView: {
-      expectedOutcome: string;
-      id: string;
-      kind: string;
-      proves: string;
-      steps: null | components['schemas']['DeliveryTestStepView'][];
-      title: string;
-    };
     DeliveryTestExpectView: {
       errorCode: string;
       errorExpected: boolean;
       result: string;
     };
-    DeliveryTestRunView: {
-      failed: number;
+    /** @description One projected scenario joined with its result in a test run: the title and guards from the projection, the status/duration/refs from results.json, and the artifact path of the go test -json stream (outputRef) its output is filtered from. */
+    DeliveryTestRunScenarioView: {
+      durationMs: number;
+      guards: null | components['schemas']['DeliveryScenarioGuardView'][];
       id: string;
-      note: string;
-      passed: number;
-    };
-    DeliveryTestScenarioView: {
-      cases: null | components['schemas']['DeliveryTestCaseView'][];
-      description: string;
-      id: string;
-      title: string;
-      useCase: string;
-    };
-    DeliveryTestStepView: {
-      assertion: string;
-      component: string;
-      expect: components['schemas']['DeliveryTestExpectView'];
-      inputs: null | components['schemas']['DeliveryTestArgView'][];
-      operation: string;
-      seq: number;
+      outputRef: string;
       status: string;
+      title: string;
+      traceRef: string;
+      videoRef: string;
+    };
+    DeliveryTestRunView: {
+      activity: string;
+      artifact: string;
+      component: string;
+      /** Format: date-time */
+      endedAt?: null | string;
+      id: string;
+      revision: string;
+      scenarios: null | components['schemas']['DeliveryScenarioResultView'][];
+      /** Format: date-time */
+      startedAt?: null | string;
     };
     DeliveryTestingStateView: {
       defects: null | components['schemas']['DeliveryDefectView'][];
-      systemTestPlan?: components['schemas']['DeliverySystemTestPlanView'];
       testRuns: null | components['schemas']['DeliveryTestRunView'][];
     };
     /** @enum {integer} */
-    DeliveryTestingVariant: 0 | 1 | 2 | 3 | 4;
+    DeliveryTestingVariant: 1 | 2 | 4;
     DeliveryTimelineEvent: {
       eventType: string;
       raw?: null;
@@ -1189,8 +1271,10 @@ export interface components {
       activities: null | components['schemas']['ModelActivityItem'][];
     };
     ModelActivityNode: {
+      anchor?: string;
       decidedBy?: null | string;
       id: string;
+      inState?: string;
       /** @enum {string} */
       kind:
         | 'start'
@@ -1207,7 +1291,9 @@ export interface components {
         | 'goto'
         | 'interruptEdge'
         | 'timeEvent'
-        | 'acceptEvent';
+        | 'acceptEvent'
+        | 'sendSignal'
+        | 'objectNode';
       label: string;
       linkedActorId: null | string;
       roleName: string;
