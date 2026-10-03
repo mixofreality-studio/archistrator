@@ -93,7 +93,9 @@ export function useTestRun(
       if (run === undefined) {
         throw new ApiError(200, 'empty_body', 'the testRun project view carried no testRun');
       }
-      return mapTestRunPanel(run, (path) => testRunFileUrl(run.run.id, path));
+      // The file endpoint authorizes on the project (handleTestRunFile asks the
+      // PDP the question this view was guarded by), so every file URL names it.
+      return mapTestRunPanel(run, (path) => testRunFileUrl(projectId, run.run.id, path));
     },
     enabled: projectId.length > 0 && activity.length > 0,
     // A run is written once by the venue; the panel is not a live surface.
