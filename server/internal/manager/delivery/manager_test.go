@@ -6093,6 +6093,43 @@ func TestMaterializePhase2DraftRefusesToStageAnEmptyDerivedPlan(t *testing.T) {
 	}
 }
 
+// The empty System is no longer the only input that derives zero construction work. Since
+// deterministic component testing (spec 2026-10-02 §7) retired the always-emitted
+// N-STP/N-IT, a System WITH components derives nothing beyond the design prefix when every
+// component is suppressed — here each one is buildStatus "planned", which codingActivityFor,
+// provisioningActivityFor and clientAppActivityFor all skip. A component-count guard would
+// stage that design-prefix-only plan silently; the guard must key on the construction work
+// actually derived, for both slots.
+func TestMaterializePhase2DraftRefusesAFullySuppressedSystem(t *testing.T) {
+	planned := func() *string { s := "planned"; return &s }
+	sys := &projectstate.System{
+		Components: []projectstate.Component{
+			{ID: "order-manager", Name: "OrderManager", Kind: projectstate.CompManager, BuildStatus: planned()},
+			{ID: "order-access", Name: "OrderAccess", Kind: projectstate.CompResourceAccess, BuildStatus: planned()},
+			{ID: "stripe", Name: "Stripe", Kind: projectstate.CompResource, BuildStatus: planned()},
+		},
+		Relationships: []projectstate.Relationship{{From: "order-manager", To: "order-access"}},
+	}
+	proj := projectstate.Project{}
+	proj.SystemDesign = pdCommittedSlot(sys)
+
+	for _, tc := range []struct {
+		kind  projectstate.ArtifactKind
+		draft projectstate.ArtifactModel
+	}{
+		{projectstate.KindActivityList, decodeArchivedEmptyActivityList(t)},
+		{projectstate.KindNetwork, &projectstate.Network{}},
+	} {
+		_, err := materializePhase2Draft(proj, tc.kind, tc.draft)
+		if err == nil {
+			t.Fatalf("%v: a System whose every component is suppressed derives zero construction activities and must be refused, not staged as a design-prefix-only plan", tc.kind)
+		}
+		if !strings.Contains(err.Error(), "ZERO construction activities") {
+			t.Errorf("%v: the error must say what went wrong, got %q", tc.kind, err.Error())
+		}
+	}
+}
+
 // An uncommitted systemDesign is a precondition failure, not a nil-deref and not an empty
 // plan: the whole derivation reads slot 5, so there is nothing to derive from.
 func TestMaterializePhase2DraftRequiresACommittedSystem(t *testing.T) {
