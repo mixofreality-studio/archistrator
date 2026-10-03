@@ -102,6 +102,7 @@ type NetworkDependency struct {
 
 type NetworkMilestone struct {
 	Id        string   `json:"id"`
+	Name      *string  `json:"name,omitempty"`
 	DependsOn []string `json:"dependsOn,omitempty"`
 }
 

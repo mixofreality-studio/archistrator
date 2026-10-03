@@ -4725,7 +4725,17 @@ func toProjectStateActivityList(plan estimation.DerivedPlan) projectstate.Activi
 func toProjectStateMilestones(plan estimation.DerivedPlan) []projectstate.NetworkMilestone {
 	out := make([]projectstate.NetworkMilestone, 0, len(plan.Milestones))
 	for _, m := range plan.Milestones {
-		out = append(out, projectstate.NetworkMilestone{ID: m.Id, DependsOn: m.DependsOn})
+		// Name rides across (2026-10-02). M0-M3 are Method-FIXED events, so the derivation
+		// owns their names (estimation.milestoneNames) and materializeNetwork no longer
+		// needs a project to have authored them. An ADDITIVE milestone still arrives
+		// NAMELESS — it is genuinely per-project — and takes the authored-decoration path;
+		// nil flattens to "" here, which is the one value materializeNetwork treats as
+		// "the derivation said nothing, go ask the draft".
+		name := ""
+		if m.Name != nil {
+			name = *m.Name
+		}
+		out = append(out, projectstate.NetworkMilestone{ID: m.Id, Name: name, DependsOn: m.DependsOn})
 	}
 	return out
 }
@@ -4780,10 +4790,13 @@ func MaterializeActivityPlan(
 // classification rule already cost this codebase a week of mis-dispatched construction
 // commands for (see classifyActivityKind's note).
 //
-// MILESTONE NAMES are the one thing it authors, because they are the one thing the
-// derivation has no source for: NetworkMilestone.Name/Public are display decorations
-// materializeNetwork carries across from the AUTHORED document, and a derived milestone
-// with no decoration is refused LOUDLY there rather than committed anonymous.
+// IT AUTHORS NOTHING AT ALL, not even the milestone names. Those used to be a local table
+// here (birthMilestoneNames, deleted 2026-10-02) because NetworkMilestone.Name had no
+// derivation source — which was the wrong contract for a Method-FIXED event and was the
+// next wall behind this one: it named M0 and left the full plan's M1-M3 anonymous, so the
+// re-derivation at M0 refused and the project wedged one activity later, after paying for
+// the two most expensive design episodes. estimation.milestoneNames owns the names now, so
+// the ONLY authored decoration left at birth is Public, M0's customer visibility.
 func birthDesignPrefixPlan() (projectstate.ActivityList, projectstate.Network, error) {
 	list, deps, milestones, err := MaterializeActivityPlan(projectstate.System{}, estimation.ActivityListDeltas{})
 	if err != nil {
@@ -4791,9 +4804,7 @@ func birthDesignPrefixPlan() (projectstate.ActivityList, projectstate.Network, e
 	}
 	authored := projectstate.Network{Milestones: make([]projectstate.NetworkMilestone, 0, len(milestones))}
 	for _, m := range milestones {
-		authored.Milestones = append(authored.Milestones, projectstate.NetworkMilestone{
-			ID: m.ID, Name: birthMilestoneNames[m.ID], Public: true,
-		})
+		authored.Milestones = append(authored.Milestones, projectstate.NetworkMilestone{ID: m.ID, Public: true})
 	}
 	net, err := materializeNetwork(list, deps, milestones, authored)
 	if err != nil {
@@ -4801,25 +4812,6 @@ func birthDesignPrefixPlan() (projectstate.ActivityList, projectstate.Network, e
 	}
 	return list, net, nil
 }
-
-// birthMilestoneNames decorates the milestones the EMPTY-system derivation emits, which
-// is M0 alone — the SDP review, the event projectDesign ends with. The name is the one a
-// drafting agent authors for the full plan, which matters beyond display: at M0
-// committedNetworkDecorations reads the COMMITTED slot 10 for the decorations the
-// re-derivation carries across, and from now on that committed slot 10 is this one.
-// M1-M3 are NOT here and must not be: the empty-system derivation does not emit them, and
-// materializeNetwork drops any authored milestone the derivation does not produce.
-//
-// EARMARK (2026-10-02), PRE-EXISTING AND NOT CLOSED BY THIS CHANGE. The FULL derivation
-// over a committed architecture emits M1/M2/M3 as well, and their Name has no derivation
-// source either — so on a project nobody hand-decorated, materializeNetwork refuses the
-// re-derivation with `derived milestone "M1" has no authored Name` and the deterministic
-// Project Design cannot complete. Before the birth seed that refusal fired on M0, the
-// first milestone; now it fires on M1. Closing it needs a ruling on whether a derived
-// milestone's display name is authored (today's doctrine) or derived — the estimation
-// Engine's NetworkMilestone carries no Name field, so the fix is a contract change, not
-// a line here.
-var birthMilestoneNames = map[string]string{"M0": "SDP Review Approved"}
 
 // materializePhase2Draft is the PRODUCTION caller of MaterializeActivityPlan — the
 // render-on-read `the-method-activity-list` mandates: "the server applies the deltas onto
@@ -4914,16 +4906,53 @@ func materializePhase2Draft(
 // the derivation does not produce is dropped, and M0 keeps the [projectDesign] fan-in the
 // derivation gives it (the SDP review is what that activity ends with), never whatever
 // the draft typed.
-// Each milestone's Name and Public are carried across from the authored network by id:
-// they are display decorations with no derivation source (see toProjectStateMilestones).
+//
+// EACH MILESTONE'S NAME COMES FROM THE DERIVATION, and the authored network is only the
+// FALLBACK (2026-10-02). It used to be the other way round, and that wedged the platform:
+// M0-M3 are Method-FIXED events (the SDP review, then provisioning / engines / managers
+// complete), so no project ever had anything to author for them, while this function
+// refused an unnamed milestone and read its decorations from the COMMITTED slot 10
+// (committedNetworkDecorations) — not from the draft, so an agent naming them on the
+// session branch could not help either. On any project nobody had hand-backfilled the
+// re-derivation therefore died on the first milestone, the deterministic Project Design
+// could not complete, M0 never sealed and construction never started — and because
+// `projectDesign` is the THIRD design activity, a paid run would discover that only after
+// paying for `requirements` and `architecture`, the two most expensive design episodes.
+//
+// DERIVED WINS OUTRIGHT; THE DRAFT CANNOT OVERRIDE IT. That precedence is a DELIBERATE
+// CHOICE, not an accident of writing order, so do not turn it back into
+// derived-with-authored-override: renaming "SDP Review Approved" is not a project's
+// decision to make, because M0-M3 are the Method's own events and the console, the
+// customer-facing milestone list and the drift gate all read them as such. A project that
+// genuinely needs a milestone of its own ADDS one — and that one it does name.
+//
+// WHICH IS EXACTLY WHAT KEEPS THE AUTHORED FALLBACK REACHABLE. Do not delete it as dead
+// code: estimation.applyAdditiveMilestones appends `NetworkMilestone{Id, DependsOn}` with
+// NO name, because AdditiveMilestone carries id/dependsOn/justification and nothing else,
+// so the sanctioned additive (C4's M5 "v1 Production Live") can ONLY be named through the
+// authored decoration. EARMARK: the cleaner close is a `name` on AdditiveMilestone, so the
+// delta that adds a milestone also names it. Deliberately NOT done here — it would give one
+// milestone TWO naming channels (the delta and the decoration) while the authored-deltas
+// document cannot even reach DerivePlan yet (materializePhase2Draft's own note carries that
+// contract gap), so it belongs to the change that closes the gap, with a ruling on which
+// channel wins.
+//
+// Public stays authored outright — a customer-visibility choice with a safe false default
+// and no refusal attached to it.
+//
 // criticalPath is recomputed by ComputeNetwork over the derived graph and written as the
 // alphabetically-sorted zero-float activity set (projectstate.Network.CriticalPath).
 //
-// A derived milestone with no authored decoration matching its id — the drafting agent
-// omitted it, or typo'd the id — has no Name to carry across. NetworkMilestone.Name has no
-// non-emptiness check anywhere else, and the founder ruled (2026-08-13) that non-emptiness
-// is enforced in Go code, not by a schema minLength: so this is refused LOUDLY, naming the
-// anonymous milestone, rather than silently committing it with an empty Name.
+// THE LOUD REFUSAL STAYS, for a milestone NEITHER source names: projectstate's
+// NetworkMilestone.Name has no non-emptiness check anywhere else, and the founder ruled
+// (2026-08-13) that non-emptiness is enforced in Go code, not by a schema minLength — which
+// is also why estimation's `name` is NOT in its schema's `required` set: those generated
+// defs are the input schemas of agent-visible internal MCP tools (estimationComputeNetwork,
+// estimationEstimateForOption), a nameless milestone is a VALID input to both (the CPM solve
+// has no use for a name, and four call sites build them exactly that way), and requiring
+// presence there would refuse correct payloads. What this refusal now catches is a FIXED
+// milestone the derivation has no entry for — an unfinished derivation — or an additive
+// nobody named.
 //
 // It is the one function both the co-author staging seam and the drift gate
 // (TestDerivedPlanMatchesCommittedState) run, so what a real first run stages and what CI
@@ -4943,11 +4972,15 @@ func materializeNetwork(
 		a := decorations[m.ID]
 		// The guard and the stored value read the SAME trimmed name: a guard that
 		// refuses "   " but then stores "  Engines Complete " would commit the padding
-		// it just judged meaningless.
-		name := strings.TrimSpace(a.Name)
+		// it just judged meaningless. The DERIVED name wins; the authored decoration is
+		// consulted only when the derivation supplied none (an additive milestone).
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			name = strings.TrimSpace(a.Name)
+		}
 		if name == "" {
 			return projectstate.Network{}, newError(fwmanager.ContractMisuse,
-				fmt.Sprintf("derived milestone %q has no authored Name — the draft must author a Name (and Public) decoration for this milestone id", m.ID))
+				fmt.Sprintf("milestone %q has no name from either source: the derivation emitted none (estimation.milestoneNames has no entry for this id) and no authored decoration supplies one", m.ID))
 		}
 		outMilestones = append(outMilestones, projectstate.NetworkMilestone{
 			ID: m.ID, Name: name, Public: a.Public, DependsOn: m.DependsOn,

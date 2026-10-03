@@ -1324,7 +1324,7 @@ func (EstimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, delta
 		return DerivedPlan{
 			Activities:   designPrefixActivities(),
 			Dependencies: designPrefixDependencies(),
-			Milestones:   []NetworkMilestone{{Id: sdpReviewMilestone, DependsOn: []string{projectDesignActivity}}},
+			Milestones:   []NetworkMilestone{namedMilestone(sdpReviewMilestone, []string{projectDesignActivity})},
 		}, nil
 	}
 	acts := deriveActivities(system)
@@ -1447,6 +1447,69 @@ const systemTestingActivity = "N-IT"
 // construction activities should start before the SDP review"). The source rule hangs
 // every activity with no other predecessor off it.
 const sdpReviewMilestone = "M0"
+
+// The layer-completion milestones, M1-M3. Named constants rather than inline literals
+// because the name table below is keyed by them and a typo'd key would produce an
+// anonymous milestone, which materializeNetwork refuses on the far side of the seam.
+const (
+	infrastructureMilestone = "M1"
+	enginesMilestone        = "M2"
+	managersMilestone       = "M3"
+)
+
+// milestoneNames is the DERIVATION'S OWN name for every milestone it emits (2026-10-02).
+//
+// WHY THE DERIVATION AND NOT THE DRAFT. M0-M3 are Method-FIXED events — the SDP review,
+// then provisioning, engines and managers complete — not per-project choices, so there was
+// never anything for a project to author. Treating the name as an authored decoration was
+// the wrong contract, and it WEDGED the platform: the Manager's materializeNetwork
+// hard-refuses a milestone with no name, it reads its decorations from the COMMITTED slot
+// 10, and on a project nobody had hand-decorated that slot named none of them — so the
+// deterministic Project Design could not complete, M0 never sealed, and construction never
+// started. The one project that worked (this repo's own) worked because its slot 10 had
+// been hand-backfilled, which is also why every gate stayed green over it.
+//
+// These four strings are therefore the SAME strings that repo's slot 10 already holds; the
+// derived-plan drift gate (TestDerivedPlanMatchesCommittedState) compares the two and is
+// what keeps them from parting.
+//
+// An id with no entry here yields a NAMELESS milestone (Name nil, not ""), which is a
+// distinct, meaningful state — see nameOf — and is refused LOUDLY by the Manager if nothing
+// else supplies a name. That is the correct answer for a FIXED milestone: a new one without
+// an entry is an unfinished derivation, not a project's missing decoration.
+var milestoneNames = map[string]string{
+	sdpReviewMilestone:      "SDP Review Approved",
+	infrastructureMilestone: "Infrastructure Provisioned",
+	enginesMilestone:        "Engines Complete",
+	managersMilestone:       "Managers Complete",
+}
+
+// nameOf returns the derivation's name for a milestone id, or nil when it has none.
+//
+// NIL, NOT THE EMPTY STRING, and NetworkMilestone.Name is a *string for exactly this
+// reason: "this derivation does not name this milestone" is a real state, held by every
+// ADDITIVE milestone (applyAdditiveMilestones) and by the four nameless milestones the
+// Manager builds purely to feed the CPM solve, which has no use for a name. Collapsing it
+// into "" would make those indistinguishable from a milestone named badly.
+//
+// The field is deliberately NOT in the schema's `required` set. This contract's generated
+// defs are also the input schemas of agent-visible internal MCP tools
+// (estimationComputeNetwork, estimationEstimateForOption), and a nameless milestone is a
+// perfectly VALID input to both — so requiring presence there would refuse payloads that
+// are correct. Presence is what `required` means; non-emptiness is enforced in Go (founder
+// ruling 2026-08-13), and the Manager's refusal is where that happens.
+func nameOf(id string) *string {
+	name, ok := milestoneNames[id]
+	if !ok {
+		return nil
+	}
+	return &name
+}
+
+// namedMilestone builds one milestone with the derivation's own name for its id.
+func namedMilestone(id string, dependsOn []string) NetworkMilestone {
+	return NetworkMilestone{Id: id, Name: nameOf(id), DependsOn: dependsOn}
+}
 
 // The design prefix: Table 11-1 #1-3, Requirements, Architecture and Project Design.
 // They are ACTIVITIES of this plan, not a separate rail — Löwy plans the design work in
@@ -1974,10 +2037,10 @@ func deriveMilestones(system SystemView, acts []DerivedActivity) []NetworkMilest
 	}
 
 	return []NetworkMilestone{
-		{Id: sdpReviewMilestone, DependsOn: []string{projectDesignActivity}}, // SDP Review Approved
-		{Id: "M1", DependsOn: provisioning},
-		{Id: "M2", DependsOn: engines},
-		{Id: "M3", DependsOn: managers},
+		namedMilestone(sdpReviewMilestone, []string{projectDesignActivity}),
+		namedMilestone(infrastructureMilestone, provisioning),
+		namedMilestone(enginesMilestone, engines),
+		namedMilestone(managersMilestone, managers),
 	}
 }
 

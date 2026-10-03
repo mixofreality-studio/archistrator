@@ -22628,6 +22628,9 @@
             "id": {
               "type": "string"
             },
+            "name": {
+              "type": "string"
+            },
             "dependsOn": {
               "type": [
                 "null",

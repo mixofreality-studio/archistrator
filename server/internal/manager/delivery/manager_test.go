@@ -6193,15 +6193,23 @@ func TestMaterializePhase2DraftStagesTheDerivedNetwork(t *testing.T) {
 	}
 }
 
-// The milestone Name and Public are AUTHORED decorations (see toProjectStateMilestones):
-// the derivation has no opinion on them, so the materializer must carry each one across
-// from the draft by id — while the milestone SET and fan-in come only from the derivation
-// (M0 stays without predecessors; a milestone the derivation does not produce is dropped).
-func TestMaterializePhase2DraftKeepsAuthoredMilestoneNameAndPublic(t *testing.T) {
+// MILESTONE NAMES COME FROM THE DERIVATION, Public from the draft (2026-10-02 ruling).
+//
+// This test used to assert the opposite — that the authored name won — and that rule is
+// what wedged every un-backfilled project: M0-M3 are Method-FIXED events, so no project
+// ever had anything to author for them, while materializeNetwork refused an unnamed
+// milestone and read its decorations from the COMMITTED slot 10. Project Design could not
+// complete, M0 never sealed, construction never started.
+//
+// The milestone SET and fan-in have always come only from the derivation; the name now
+// joins them. Public stays authored — a customer-visibility choice with a safe default.
+func TestMaterializePhase2DraftTakesTheDerivedMilestoneNameAndTheAuthoredPublic(t *testing.T) {
 	sys := loadCommittedStateForTest(t)
 	proj := projectstate.Project{}
 	proj.SystemDesign = pdCommittedSlot(&sys)
 
+	// The draft authors a DIFFERENT name for every milestone ("Authored Zero" …). The
+	// derivation must win all four, or the assertion is not measuring precedence.
 	got, err := materializePhase2Draft(proj, projectstate.KindNetwork, authoredNetworkDraftForTest())
 	if err != nil {
 		t.Fatalf("materializePhase2Draft(KindNetwork): %v", err)
@@ -6216,10 +6224,10 @@ func TestMaterializePhase2DraftKeepsAuthoredMilestoneNameAndPublic(t *testing.T)
 		public bool
 	}
 	want := map[string]decoration{
-		"M0": {"Authored Zero", true},
-		"M1": {"Authored One", false},
-		"M2": {"Authored Two", true},
-		"M3": {"Authored Three", false},
+		"M0": {"SDP Review Approved", true},
+		"M1": {"Infrastructure Provisioned", false},
+		"M2": {"Engines Complete", true},
+		"M3": {"Managers Complete", false},
 	}
 	gotByID := map[string]projectstate.NetworkMilestone{}
 	for _, m := range staged.Milestones {
@@ -6231,8 +6239,11 @@ func TestMaterializePhase2DraftKeepsAuthoredMilestoneNameAndPublic(t *testing.T)
 			t.Errorf("derived milestone %q is missing from the staged network", id)
 			continue
 		}
-		if m.Name != w.name || m.Public != w.public {
-			t.Errorf("milestone %q: staged name/public %q/%v, the draft authored %q/%v", id, m.Name, m.Public, w.name, w.public)
+		if m.Name != w.name {
+			t.Errorf("milestone %q: staged name %q, want the DERIVED %q (the draft authored something else)", id, m.Name, w.name)
+		}
+		if m.Public != w.public {
+			t.Errorf("milestone %q: staged public %v, want the draft's %v", id, m.Public, w.public)
 		}
 	}
 	if _, ok := gotByID["MX"]; ok {
@@ -6246,101 +6257,79 @@ func TestMaterializePhase2DraftKeepsAuthoredMilestoneNameAndPublic(t *testing.T)
 	}
 }
 
-// authoredNetworkDraftMissingMilestoneNameForTest is what a drafting agent commits when it
-// omits — or typo's the id of — one derived milestone's authored decoration: M2 carries no
-// decoration at all, so materializeNetwork would otherwise commit it with an empty Name.
-// NetworkMilestone.Name had no non-emptiness check anywhere (I1, 2026-09-12); the founder
-// ruled (2026-08-13) that non-emptiness is enforced in Go code, not by a schema minLength.
-func authoredNetworkDraftMissingMilestoneNameForTest() *projectstate.Network {
-	return &projectstate.Network{
-		Dependencies: []projectstate.NetworkDependency{{Activity: "C-agent-typed", DependsOn: []string{"C-also-agent-typed"}}},
-		CriticalPath: []string{"C-agent-typed"},
-		Milestones: []projectstate.NetworkMilestone{
-			{ID: "M0", Name: "Authored Zero", Public: true, DependsOn: []string{"C-agent-typed"}},
-			{ID: "M1", Name: "Authored One", Public: false},
-			// M2 omitted — the agent forgot it, or typo'd its id.
-			{ID: "M3", Name: "Authored Three", Public: false, DependsOn: []string{"C-agent-typed"}},
-		},
+// A MILESTONE THE DERIVATION DOES NOT NAME still takes the authored decoration, and that
+// arm must not go dead: an ADDITIVE milestone (M5 "v1 Production Live") is genuinely
+// per-project, so its name has no derivation source and the fallback is the only thing
+// that names it.
+func TestMaterializeNetworkFallsBackToTheAuthoredNameForAnUnnamedMilestone(t *testing.T) {
+	list := projectstate.ActivityList{Activities: []projectstate.ActivityItem{{Name: "N-DEPLOY", EffortDays: 5}}}
+	derived := []projectstate.NetworkMilestone{{ID: "M5", DependsOn: []string{"N-DEPLOY"}}} // no Name: additive
+	authored := projectstate.Network{Milestones: []projectstate.NetworkMilestone{
+		{ID: "M5", Name: "v1 Production Live", Public: true},
+	}}
+
+	net, err := materializeNetwork(list, nil, derived, authored)
+	if err != nil {
+		t.Fatalf("an additive milestone named only by the draft must materialize: %v", err)
+	}
+	if len(net.Milestones) != 1 {
+		t.Fatalf("materialized %d milestones, want 1", len(net.Milestones))
+	}
+	if got := net.Milestones[0]; got.Name != "v1 Production Live" || !got.Public {
+		t.Errorf("M5 materialized as %q/%v, want the authored \"v1 Production Live\"/true", got.Name, got.Public)
 	}
 }
 
-// A derived milestone with no matching authored decoration (or an authored decoration whose
-// Name is blank) must FAIL LOUDLY, never commit an anonymous milestone.
-func TestMaterializePhase2DraftRefusesAnonymousMilestone(t *testing.T) {
-	sys := loadCommittedStateForTest(t)
-	proj := projectstate.Project{}
-	proj.SystemDesign = pdCommittedSlot(&sys)
-
-	_, err := materializePhase2Draft(proj, projectstate.KindNetwork, authoredNetworkDraftMissingMilestoneNameForTest())
-	if err == nil {
-		t.Fatal("a derived milestone with no authored Name must be an error, not a silently anonymous milestone")
-	}
-	if !strings.Contains(err.Error(), "M2") {
-		t.Errorf("the error must name the anonymous milestone (M2), got %q", err.Error())
-	}
-}
-
-// The other half of the refusal above: the draft DOES carry a decoration for the derived
-// milestone, but its Name is blank or whitespace-only. A present-but-blank Name is just as
-// anonymous as an omitted one, so it must be refused with the same kind (ContractMisuse —
-// a malformed draft at the façade boundary), naming the milestone.
-func TestMaterializePhase2DraftRefusesAPresentButBlankMilestoneName(t *testing.T) {
-	sys := loadCommittedStateForTest(t)
-	proj := projectstate.Project{}
-	proj.SystemDesign = pdCommittedSlot(&sys)
-
-	for _, blank := range []string{"", "   ", "\t \n"} {
-		t.Run(strconv.Quote(blank), func(t *testing.T) {
-			draft := authoredNetworkDraftForTest()
-			for i := range draft.Milestones {
-				if draft.Milestones[i].ID == "M2" {
-					draft.Milestones[i].Name = blank
+// THE LOUD REFUSAL IS INTACT, re-aimed at the only case that can still reach it: NEITHER
+// source names the milestone. Before the ruling this fired whenever the DRAFT omitted a
+// name, which is what made it a wedge; it must still fire when there is genuinely no name
+// to be had, because an anonymous committed milestone is the silent corruption the founder
+// ruled (2026-08-13) must be refused in Go rather than by a schema minLength.
+func TestMaterializeNetworkRefusesAMilestoneNeitherSourceNames(t *testing.T) {
+	list := projectstate.ActivityList{Activities: []projectstate.ActivityItem{{Name: "N-DEPLOY", EffortDays: 5}}}
+	blanks := []string{"", "   ", "\t \n"}
+	for _, derivedName := range blanks {
+		for _, authoredName := range blanks {
+			t.Run(strconv.Quote(derivedName)+"/"+strconv.Quote(authoredName), func(t *testing.T) {
+				derived := []projectstate.NetworkMilestone{{ID: "M5", Name: derivedName, DependsOn: []string{"N-DEPLOY"}}}
+				authored := projectstate.Network{Milestones: []projectstate.NetworkMilestone{
+					{ID: "M5", Name: authoredName},
+				}}
+				_, err := materializeNetwork(list, nil, derived, authored)
+				if err == nil {
+					t.Fatalf("derived name %q + authored name %q leaves M5 anonymous; it must be refused, not committed", derivedName, authoredName)
 				}
+				if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+					t.Errorf("want ContractMisuse, got %d", got)
+				}
+				if !strings.Contains(err.Error(), "M5") {
+					t.Errorf("the error must name the anonymous milestone (M5), got %q", err.Error())
+				}
+			})
+		}
+	}
+}
+
+// The guard judges the TRIMMED name, so the stored Name is the trimmed name too — for
+// BOTH sources. Padding the guard just called meaningless must not be committed around it.
+func TestMaterializeNetworkStoresTheTrimmedMilestoneName(t *testing.T) {
+	list := projectstate.ActivityList{Activities: []projectstate.ActivityItem{{Name: "N-DEPLOY", EffortDays: 5}}}
+	for _, tc := range []struct{ label, derived, authored string }{
+		{"derived name padded", " \tEngines Complete \n", "Authored"},
+		{"authored fallback padded", "", " \tv1 Production Live \n"},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			derived := []projectstate.NetworkMilestone{{ID: "M5", Name: tc.derived, DependsOn: []string{"N-DEPLOY"}}}
+			authored := projectstate.Network{Milestones: []projectstate.NetworkMilestone{{ID: "M5", Name: tc.authored}}}
+			net, err := materializeNetwork(list, nil, derived, authored)
+			if err != nil {
+				t.Fatalf("a padded but non-blank Name must materialize, got %v", err)
 			}
-			_, err := materializePhase2Draft(proj, projectstate.KindNetwork, draft)
-			if err == nil {
-				t.Fatalf("milestone M2 is present in the draft with Name %q; it must be refused, not committed anonymous", blank)
-			}
-			if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
-				t.Errorf("want ContractMisuse, got %d", got)
-			}
-			if !strings.Contains(err.Error(), "M2") {
-				t.Errorf("the error must name the anonymous milestone (M2), got %q", err.Error())
+			if got := net.Milestones[0].Name; got != strings.TrimSpace(got) {
+				t.Errorf("milestone M5 stored Name %q, want it trimmed", got)
 			}
 		})
 	}
-}
-
-// The guard above judges the TRIMMED name, so the stored Name is the trimmed name too: padding
-// the guard just called meaningless must not be committed around an authored Name.
-func TestMaterializePhase2DraftStoresTheTrimmedMilestoneName(t *testing.T) {
-	sys := loadCommittedStateForTest(t)
-	proj := projectstate.Project{}
-	proj.SystemDesign = pdCommittedSlot(&sys)
-
-	draft := authoredNetworkDraftForTest()
-	for i := range draft.Milestones {
-		if draft.Milestones[i].ID == "M2" {
-			draft.Milestones[i].Name = " \tAuthored Two \n"
-		}
-	}
-	got, err := materializePhase2Draft(proj, projectstate.KindNetwork, draft)
-	if err != nil {
-		t.Fatalf("a padded but non-blank Name must materialize, got %v", err)
-	}
-	staged, ok := got.(*projectstate.Network)
-	if !ok {
-		t.Fatalf("staged model is not *projectstate.Network: %T", got)
-	}
-	for _, m := range staged.Milestones {
-		if m.ID == "M2" {
-			if m.Name != "Authored Two" {
-				t.Fatalf("milestone M2 stored Name %q, want the trimmed %q", m.Name, "Authored Two")
-			}
-			return
-		}
-	}
-	t.Fatal("derived milestone M2 is missing from the staged network")
 }
 
 // The sibling of the refusal above: a draft that authors every derived milestone's Name still
@@ -30479,4 +30468,61 @@ var birthReplacementComponents = []projectstate.Component{
 	compE("todo-list-manager", "TodoListManager", projectstate.CompManager, projectstate.LayerManager, "the todo use cases"),
 	compE("todo-rank-engine", "TodoRankEngine", projectstate.CompEngine, projectstate.LayerEngine, "ranking policy"),
 	compE("todo-store-access", "TodoStoreAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "the todo store atom"),
+}
+
+// THE NEXT WALL AFTER THE BIRTH SEED, and the one that would have burned real money.
+//
+// `projectDesign` is the third design activity, so a paid run reaches it only after paying
+// for `requirements` and `architecture` — the two most expensive design episodes there are.
+// And it could not complete on ANY project nobody had hand-decorated: computeProjectPlanSlots
+// re-derives slot 10 with committedNetworkDecorations, which reads the COMMITTED slot 10 (not
+// the staged draft, so an agent authoring names on the session branch cannot help), and
+// materializeNetwork HARD-REFUSES a derived milestone with no authored Name. The full
+// derivation emits M0 AND M1/M2/M3, so the refusal fired on the first one nobody had named:
+// before the birth seed that was M0, after it M1.
+//
+// This drives the REAL production path — computeProjectPlanSlots, what sdpComputeStrategy
+// runs — over a project born through CreateProject and given nothing but a committed
+// architecture. A test that only exercised birthDesignPrefixPlan() over the empty System
+// would pass either way and prove nothing.
+func TestProjectDesign_ComputesTheWholePlanOverABirthSeededProjectWithNoHandDecoration(t *testing.T) {
+	proj, ps, ds, _, id := birthProjectOverGit(t)
+	ctx := context.Background()
+
+	// The `architecture` activity's output, and NOTHING else: no hand-authored slot 10, no
+	// milestone decorations beyond what birth itself committed.
+	sys := &projectstate.System{Components: birthReplacementComponents}
+	commitSlotForTest(t, ds, id, projectstate.Version(proj.Version), projectstate.KindSystem, sys, "sys")
+	withArchitecture, err := ps.ReadProject(fwra.Context{Context: ctx}, id)
+	if err != nil {
+		t.Fatalf("ReadProject after the System commit: %v", err)
+	}
+
+	slots, _, err := computeProjectPlanSlots(withArchitecture, shapeSDPEngines())
+	if err != nil {
+		t.Fatalf("the deterministic Project Design must complete on a project whose ONLY authored input is the committed architecture; it failed with: %v", err)
+	}
+	if got, want := len(slots), len(projectDesignComputedKinds()); got != want {
+		t.Fatalf("the compute staged %d slots, want all %d", got, want)
+	}
+
+	// Every milestone the derivation emits comes out NAMED — the condition
+	// materializeNetwork refuses on, now satisfied by the derivation itself.
+	var net *projectstate.Network
+	for _, s := range slots {
+		if s.Kind == projectstate.KindNetwork {
+			net, _ = s.Model.(*projectstate.Network)
+		}
+	}
+	if net == nil {
+		t.Fatal("the compute staged no network slot")
+	}
+	if len(net.Milestones) < 4 {
+		t.Fatalf("the derived network holds %d milestones, want M0-M3", len(net.Milestones))
+	}
+	for _, m := range net.Milestones {
+		if strings.TrimSpace(m.Name) == "" {
+			t.Errorf("derived milestone %q came out anonymous — materializeNetwork refuses that, so Project Design cannot complete", m.ID)
+		}
+	}
 }
