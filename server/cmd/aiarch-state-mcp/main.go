@@ -51,6 +51,13 @@ func runOneShotCommand(argv []string) (handled bool, err error) {
 	// the SAME method-assets manifest, so the two rails cannot diverge.
 	case "step-tools":
 		return true, wrapOneShot("step-tools", runStepTools(argv[1:], os.Stdout))
+	// `record-test-run` is the construction VENUE's write of a deterministic test run
+	// (recordtestrun.go): after the scenario tests, the workflow step turns
+	// test-results/<component>/results.json into a TestRun on .testingState.testRuns
+	// through the same validated construction-mutation path the construct verbs use.
+	// The agent never records a run; the venue measures it.
+	case "record-test-run":
+		return true, wrapOneShot("record-test-run", runRecordTestRun(argv[1:], nil))
 	}
 	return false, nil
 }
