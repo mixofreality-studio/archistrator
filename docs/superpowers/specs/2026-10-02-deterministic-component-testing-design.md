@@ -284,3 +284,19 @@ Committed `.activityList` / `.network` / solution slots contain N-STP and N-IT t
 - Boundary-value generation from param schemas (`minimum`/`maxLength`) as additional deterministic cases.
 - Other-language emitters beyond Go and TypeScript.
 - Retention: GitHub artifacts expire (default 90 days); a run whose artifact is gone renders as "expired" and cannot re-pass the gate without a re-run.
+
+## 11. Amendment A (2026-10-03): per-component IOAD, op resolution, entries, alts
+
+Measured on the first migration run (report `docs/bugs/2026-10-02-dct-migration-report.md` on the branch): 60 scenarios, 150 unreached ops, Engines/RA received zero stimuli. The data was complete; §2.2–§2.4 under-specified the projection. Rulings (founder, 2026-10-03):
+
+| # | Ruling |
+|---|---|
+| A1 | **Each component's callers are its actors.** For every node on a path, every `TraceCall` of that node's `CallStep` whose `To` is a component yields a stimulus into `To`, in call order — whether `From` is an actor or another component. `InputEv.Kind` is the node kind for actor-originated calls and `"call"` for component-originated ones; `InputEv.From` is the caller. A decision node's guard is carried on the stimuli of that node. Layers are therefore tested directly (Engines and RA included), not only through Managers. |
+| A2 | **Op resolution reads the label's leading identifiers.** Split the label on ` — `, `→`, then on `/`, `·`, `;`; for each piece take the identifier before `(` or whitespace; a piece that normalizes to an op name resolves; several resolved pieces yield several stimuli (same `Call` provenance, index suffix). Unresolved stays `""` and the binding's `Operation` is required (TP-STEP-OP). |
+| A3 | **Entries:** when a diagram has both a `start` node and event entries, path families from `start` that contain zero stimuli are dropped and design health reports `UC-START-REDUNDANT` (Warning). A `start`-family path with stimuli is kept. |
+| A4 | **`alt` groups:** calls sharing an `Alt` tag inside one step are alternatives. For a callee that is a component, alternatives collapse to one stimulus carrying `Via []string` (the alternative callers); client components in the group each keep their own stimulus. |
+| A5 | **Every API has a use case.** After A1–A2, each op still reported by TP-OP-REACHED is a design defect: the system architect adds or extends a use case and its dynamic view, or the op is **deleted** (model edit). Breaking/backwards-incompatible changes are allowed; there is no production usage. `constructionTransitionAccess` is deleted, not deprecated. |
+| A6 | Purges stand (R-A): a package whose in-package tests were removed stays removed; coverage is restored by scenarios, never by restoring hand-written tests. |
+| A7 | Unbindable scenarios are design changes, not skips: add the missing read-only op / move the op onto the right interface / give `design-health-engine` a contract. |
+
+Expected states, outputs and hints still attach to the **last stimulus before them on the path** (now usually an RA or Engine stimulus); TP-STATE applies to whichever component owns that stimulus, and a probe may name any component's read-only op.
