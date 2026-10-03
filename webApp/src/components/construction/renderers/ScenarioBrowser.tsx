@@ -10,7 +10,12 @@ import type { ScenarioView, StepBindingView, TestExpectView } from '../../../con
 import type { C4Component, DynamicViewModel, SequencedCall } from '../../../contracts/adapters';
 import type { Tokens } from '../../../utilities/theme/themes';
 import { DynamicViewFlow, type StepDetail, type StepStatus } from '../../flow/DynamicViewFlow';
-import { useComments, testPlanStepAnchor } from '../../comments/CommentContext';
+import {
+  useComments,
+  testPlanBindingAnchor,
+  testPlanStepAnchor,
+} from '../../comments/CommentContext';
+import { CommentableList } from '../../comments/CommentableList';
 import { ScenarioLinkContext } from './scenarioLink';
 import { activeScenarioId } from './scenarioSelection.ts';
 
@@ -294,19 +299,45 @@ export function ScenarioBrowser({
 
       {active !== undefined && seq !== null ? (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            <Chip
-              label={active.useCase}
-              size="small"
-              sx={{ height: 18, fontSize: 9, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
-            />
-            <Typography sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 14, color: t.ink }}>
-              {active.title}
-            </Typography>
-            <Box sx={{ flexGrow: 1 }} />
-            {bindingChip(active, t)}
-            {statusChip?.(active)}
-          </Box>
+          {/* The scenario's header is the scenario-level anchor (spec §6.4):
+              `…testPlan[<comp>].bindings[scenario=<id>]`, the binding as a whole — a
+              skip reason, a missing binding — where a step anchor would be the wrong
+              grain. The step-through below arms the per-step child. */}
+          <CommentableList
+            ariaLabel="Scenario binding"
+            getAnchor={(s) => ({
+              kind: 'node',
+              label: `scenario:${s.id}`,
+              source: `${component} · ${s.id}`,
+              jsonPath: testPlanBindingAnchor(component, s.id),
+            })}
+            getKey={(s) => s.id}
+            getLabel={(s) => `${s.id} ${s.title}`}
+            getLabelKind={() => 'scenario binding'}
+            items={[active]}
+            renderItem={(s) => (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <Chip
+                  label={s.useCase}
+                  size="small"
+                  sx={{
+                    height: 18,
+                    fontSize: 9,
+                    bgcolor: t.chatArchitectBg,
+                    color: t.chatArchitectFg,
+                  }}
+                />
+                <Typography
+                  sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 14, color: t.ink }}
+                >
+                  {s.title}
+                </Typography>
+                <Box sx={{ flexGrow: 1 }} />
+                {bindingChip(s, t)}
+                {statusChip?.(s)}
+              </Box>
+            )}
+          />
 
           {/* the path's guards: what must hold for this scenario to be the one taken */}
           {active.guards.length > 0 ? (
