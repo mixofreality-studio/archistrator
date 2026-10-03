@@ -64,6 +64,9 @@ components:
                     $ref: '#/components/schemas/DeliveryActivityType'
                 Variant:
                     $ref: '#/components/schemas/DeliveryTestingVariant'
+                    description: The testing variant of a testing activity; absent on every other row (the zero value is no variant, and ordinals 0 and 3 are retired).
+                    type:
+                        - "null"
                 attempts:
                     items:
                         $ref: '#/components/schemas/DeliveryTaskAttempt'
@@ -110,7 +113,6 @@ components:
                 - ActivityID
                 - Type
                 - Kind
-                - Variant
                 - Phase
                 - Phases
                 - CurrentPhase
@@ -781,6 +783,42 @@ components:
                 - severity
                 - note
             type: object
+        DeliveryDeliveryTestRunView:
+            additionalProperties: false
+            description: 'The testing task''s run as the results panel renders it: the recorded run, every projected scenario joined with its result, the projected ids with no result (missing), the results with no projected scenario (unknown), and whether the venue artifact has expired.'
+            properties:
+                artifact:
+                    type: string
+                expired:
+                    type: boolean
+                missing:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                run:
+                    $ref: '#/components/schemas/DeliveryTestRunView'
+                scenarios:
+                    items:
+                        $ref: '#/components/schemas/DeliveryTestRunScenarioView'
+                    type:
+                        - "null"
+                        - array
+                unknown:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - run
+                - scenarios
+                - missing
+                - unknown
+                - expired
+                - artifact
+            type: object
         DeliveryDesignArtifactSessionStage:
             description: 'The stages the DERIVED design-artifact session view can report, and all of them. This is a REPLACEMENT of the eight-member SessionStage, not a renumbering of it: the door is committedSessionView, a projection of one durable ArtifactSlot, so a committed slot reads committed, a withdrawn one withdrawn, and every other terminal-but-uncommitted status reads an honest draftFailed. Drafting, awaitingReview, redrafting and refused had no producer left once stage 4b1 retired the live design rail, and StageDrafting in particular is the value an SPA wedges a spinner on. SessionStageUnknown stays at 0 deliberately: a three-member enum would make the ZERO VALUE mean committed, and a zero-valued view reading as a committed artifact is the same defect class as ArtifactKind''s KindMission == 0.'
             enum:
@@ -1384,6 +1422,30 @@ components:
                 - PipelineFailed
                 - PipelineCancelled
             x-go-base: int
+        DeliveryProbeView:
+            additionalProperties: false
+            properties:
+                component:
+                    type: string
+                expect:
+                    $ref: '#/components/schemas/DeliveryTestExpectView'
+                for:
+                    type: string
+                inputs:
+                    items:
+                        $ref: '#/components/schemas/DeliveryTestArgView'
+                    type:
+                        - "null"
+                        - array
+                operation:
+                    type: string
+            required:
+                - for
+                - component
+                - operation
+                - inputs
+                - expect
+            type: object
         DeliveryProducedArtifact:
             additionalProperties: false
             properties:
@@ -1557,12 +1619,22 @@ components:
                     $ref: '#/components/schemas/DeliveryPumpStatus'
                     type:
                         - "null"
+                scenarios:
+                    items:
+                        $ref: '#/components/schemas/DeliveryScenarioView'
+                    type:
+                        - "null"
+                        - array
                 session:
                     $ref: '#/components/schemas/DeliveryDesignArtifactSessionView'
                     type:
                         - "null"
                 summary:
                     $ref: '#/components/schemas/DeliveryProjectState'
+                    type:
+                        - "null"
+                testRun:
+                    $ref: '#/components/schemas/DeliveryDeliveryTestRunView'
                     type:
                         - "null"
                 timeline:
@@ -1581,6 +1653,8 @@ components:
                 - designHealth
                 - episodes
                 - timeline
+                - testRun
+                - scenarios
             type: string
             x-enum-varnames:
                 - ProjectViewSummary
@@ -1590,6 +1664,8 @@ components:
                 - ProjectViewDesignHealth
                 - ProjectViewEpisodes
                 - ProjectViewTimeline
+                - ProjectViewTestRun
+                - ProjectViewScenarios
             x-go-base: string
         DeliveryProjectViewQuery:
             additionalProperties: false
@@ -1603,6 +1679,11 @@ components:
                     $ref: '#/components/schemas/DeliveryArtifactKind'
                     type:
                         - "null"
+                componentId:
+                    type:
+                        - "null"
+                        - string
+                    x-go-name: ComponentID
                 episodeId:
                     type:
                         - "null"
@@ -1619,6 +1700,11 @@ components:
                         - "null"
                         - string
                     x-go-name: ProjectID
+                runId:
+                    type:
+                        - "null"
+                        - string
+                    x-go-name: RunID
             required:
                 - kind
             type: object
@@ -2014,6 +2100,196 @@ components:
                 - SDPCommit
                 - SDPRejectAll
             x-go-base: int
+        DeliveryScenarioBindingView:
+            additionalProperties: false
+            properties:
+                scenario:
+                    type: string
+                skip:
+                    $ref: '#/components/schemas/DeliverySkipReasonView'
+                    type:
+                        - "null"
+                steps:
+                    items:
+                        $ref: '#/components/schemas/DeliveryStepBindingView'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - scenario
+                - steps
+            type: object
+        DeliveryScenarioGuardView:
+            additionalProperties: false
+            properties:
+                at:
+                    type: string
+                guard:
+                    type: string
+            required:
+                - at
+                - guard
+            type: object
+        DeliveryScenarioInputView:
+            additionalProperties: false
+            properties:
+                call:
+                    type: string
+                from:
+                    type: string
+                guard:
+                    type: string
+                kind:
+                    type: string
+                op:
+                    type: string
+                to:
+                    type: string
+            required:
+                - kind
+                - from
+                - to
+                - op
+                - call
+                - guard
+            type: object
+        DeliveryScenarioOutcomeView:
+            additionalProperties: false
+            properties:
+                expectedOutputs:
+                    items:
+                        $ref: '#/components/schemas/DeliveryScenarioOutputView'
+                    type:
+                        - "null"
+                        - array
+                expectedStates:
+                    items:
+                        $ref: '#/components/schemas/DeliveryScenarioStateView'
+                    type:
+                        - "null"
+                        - array
+                hints:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - expectedOutputs
+                - expectedStates
+                - hints
+            type: object
+        DeliveryScenarioOutputView:
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                label:
+                    type: string
+                node:
+                    type: string
+                to:
+                    type: string
+            required:
+                - node
+                - kind
+                - to
+                - label
+            type: object
+        DeliveryScenarioResultView:
+            additionalProperties: false
+            properties:
+                durationMs:
+                    type: integer
+                scenario:
+                    type: string
+                status:
+                    type: string
+                traceRef:
+                    type: string
+                videoRef:
+                    type: string
+            required:
+                - scenario
+                - status
+                - durationMs
+                - videoRef
+                - traceRef
+            type: object
+        DeliveryScenarioStateView:
+            additionalProperties: false
+            properties:
+                inState:
+                    type: string
+                node:
+                    type: string
+                object:
+                    type: string
+            required:
+                - node
+                - object
+                - inState
+            type: object
+        DeliveryScenarioStimulusView:
+            additionalProperties: false
+            properties:
+                input:
+                    $ref: '#/components/schemas/DeliveryScenarioInputView'
+                node:
+                    type: string
+                outcome:
+                    $ref: '#/components/schemas/DeliveryScenarioOutcomeView'
+                seq:
+                    type: integer
+            required:
+                - seq
+                - node
+                - input
+                - outcome
+            type: object
+        DeliveryScenarioView:
+            additionalProperties: false
+            description: 'One deterministic scenario projected onto a component (framework-go/scenario.ForComponent): the stimuli into it, what is observed after each, and the committed binding for it when the test plan has one.'
+            properties:
+                binding:
+                    $ref: '#/components/schemas/DeliveryScenarioBindingView'
+                    type:
+                        - "null"
+                guards:
+                    items:
+                        $ref: '#/components/schemas/DeliveryScenarioGuardView'
+                    type:
+                        - "null"
+                        - array
+                id:
+                    type: string
+                path:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                preconditions:
+                    $ref: '#/components/schemas/DeliveryScenarioOutcomeView'
+                stimuli:
+                    items:
+                        $ref: '#/components/schemas/DeliveryScenarioStimulusView'
+                    type:
+                        - "null"
+                        - array
+                title:
+                    type: string
+                useCase:
+                    type: string
+            required:
+                - id
+                - useCase
+                - title
+                - path
+                - guards
+                - preconditions
+                - stimuli
+            type: object
         DeliveryServiceContract:
             additionalProperties: false
             properties:
@@ -2088,6 +2364,17 @@ components:
                 - SeverityWarning
                 - SeverityError
             x-go-base: string
+        DeliverySkipReasonView:
+            additionalProperties: false
+            properties:
+                reason:
+                    type: string
+                until:
+                    type: string
+            required:
+                - reason
+                - until
+            type: object
         DeliveryStartProjectResult:
             additionalProperties: false
             properties:
@@ -2103,6 +2390,44 @@ components:
             required:
                 - projectId
                 - version
+            type: object
+        DeliveryStepBindingView:
+            additionalProperties: false
+            properties:
+                expect:
+                    $ref: '#/components/schemas/DeliveryTestExpectView'
+                hook:
+                    type: boolean
+                inputs:
+                    items:
+                        $ref: '#/components/schemas/DeliveryTestArgView'
+                    type:
+                        - "null"
+                        - array
+                operation:
+                    type: string
+                probes:
+                    items:
+                        $ref: '#/components/schemas/DeliveryProbeView'
+                    type:
+                        - "null"
+                        - array
+                seq:
+                    type: integer
+                unobservable:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - seq
+                - operation
+                - inputs
+                - expect
+                - probes
+                - unobservable
+                - hook
             type: object
         DeliverySubagentSpan:
             additionalProperties: false
@@ -2122,18 +2447,6 @@ components:
                     x-go-name: ToolUseID
             required:
                 - toolUseId
-            type: object
-        DeliverySystemTestPlanView:
-            additionalProperties: false
-            properties:
-                scenarios:
-                    items:
-                        $ref: '#/components/schemas/DeliveryTestScenarioView'
-                    type:
-                        - "null"
-                        - array
-            required:
-                - scenarios
             type: object
         DeliveryTaskAttempt:
             additionalProperties: false
@@ -2325,33 +2638,6 @@ components:
                 - value
                 - schemaRef
             type: object
-        DeliveryTestCaseView:
-            additionalProperties: false
-            properties:
-                expectedOutcome:
-                    type: string
-                id:
-                    type: string
-                kind:
-                    type: string
-                proves:
-                    type: string
-                steps:
-                    items:
-                        $ref: '#/components/schemas/DeliveryTestStepView'
-                    type:
-                        - "null"
-                        - array
-                title:
-                    type: string
-            required:
-                - id
-                - kind
-                - title
-                - proves
-                - expectedOutcome
-                - steps
-            type: object
         DeliveryTestExpectView:
             additionalProperties: false
             properties:
@@ -2366,76 +2652,80 @@ components:
                 - errorExpected
                 - errorCode
             type: object
-        DeliveryTestRunView:
+        DeliveryTestRunScenarioView:
             additionalProperties: false
+            description: 'One projected scenario joined with its result in a test run: the title and guards from the projection, the status/duration/refs from results.json, and the artifact path of the go test -json stream (outputRef) its output is filtered from.'
             properties:
-                failed:
+                durationMs:
                     type: integer
-                id:
-                    type: string
-                note:
-                    type: string
-                passed:
-                    type: integer
-            required:
-                - id
-                - passed
-                - failed
-                - note
-            type: object
-        DeliveryTestScenarioView:
-            additionalProperties: false
-            properties:
-                cases:
+                guards:
                     items:
-                        $ref: '#/components/schemas/DeliveryTestCaseView'
+                        $ref: '#/components/schemas/DeliveryScenarioGuardView'
                     type:
                         - "null"
                         - array
-                description:
-                    type: string
                 id:
+                    type: string
+                outputRef:
+                    type: string
+                status:
                     type: string
                 title:
                     type: string
-                useCase:
+                traceRef:
+                    type: string
+                videoRef:
                     type: string
             required:
                 - id
-                - useCase
                 - title
-                - description
-                - cases
+                - guards
+                - status
+                - durationMs
+                - videoRef
+                - traceRef
+                - outputRef
             type: object
-        DeliveryTestStepView:
+        DeliveryTestRunView:
             additionalProperties: false
             properties:
-                assertion:
+                activity:
+                    type: string
+                artifact:
                     type: string
                 component:
                     type: string
-                expect:
-                    $ref: '#/components/schemas/DeliveryTestExpectView'
-                inputs:
+                endedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+                id:
+                    type: string
+                revision:
+                    type: string
+                scenarios:
                     items:
-                        $ref: '#/components/schemas/DeliveryTestArgView'
+                        $ref: '#/components/schemas/DeliveryScenarioResultView'
                     type:
                         - "null"
                         - array
-                operation:
-                    type: string
-                seq:
-                    type: integer
-                status:
-                    type: string
+                startedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
             required:
-                - seq
+                - id
+                - activity
                 - component
-                - operation
-                - status
-                - inputs
-                - expect
-                - assertion
+                - revision
+                - artifact
+                - scenarios
             type: object
         DeliveryTestingStateView:
             additionalProperties: false
@@ -2446,8 +2736,6 @@ components:
                     type:
                         - "null"
                         - array
-                systemTestPlan:
-                    $ref: '#/components/schemas/DeliverySystemTestPlanView'
                 testRuns:
                     items:
                         $ref: '#/components/schemas/DeliveryTestRunView'
@@ -2460,17 +2748,13 @@ components:
             type: object
         DeliveryTestingVariant:
             enum:
-                - 0
                 - 1
                 - 2
-                - 3
                 - 4
             type: integer
             x-enum-varnames:
-                - TestVariantPlan
                 - TestVariantHarness
                 - TestVariantPerf
-                - TestVariantSystemTest
                 - TestVariantQAProcess
             x-go-base: int
         DeliveryTimelineEvent:
@@ -2569,11 +2853,15 @@ components:
         ModelActivityNode:
             additionalProperties: false
             properties:
+                anchor:
+                    type: string
                 decidedBy:
                     type:
                         - "null"
                         - string
                 id:
+                    type: string
+                inState:
                     type: string
                 kind:
                     enum:
@@ -2592,6 +2880,8 @@ components:
                         - interruptEdge
                         - timeEvent
                         - acceptEvent
+                        - sendSignal
+                        - objectNode
                     type: string
                 label:
                     type: string

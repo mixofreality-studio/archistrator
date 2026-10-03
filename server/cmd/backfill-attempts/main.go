@@ -118,32 +118,16 @@ type signedArtifact struct {
 	Describe func(projectstate.Project) (string, error)
 }
 
-// systemTestPlanArtifact is .testingState.systemTestPlan, described by its scenario count.
-var systemTestPlanArtifact = signedArtifact{
-	Ref: "testingState.systemTestPlan",
-	Describe: func(p projectstate.Project) (string, error) {
-		if p.TestingState == nil || p.TestingState.SystemTestPlan == nil {
-			return "", errors.New("no .testingState.systemTestPlan is committed")
-		}
-		n := len(p.TestingState.SystemTestPlan.Scenarios)
-		if n == 0 {
-			return "", errors.New(".testingState.systemTestPlan holds no scenarios")
-		}
-		return fmt.Sprintf("%d scenarios", n), nil
-	},
-}
-
-// founderSignOffs is every recorded founder sign-off.
-//
-// N-STP (2026-09-12): the founder reviewed the system test plan in the app at
-// /project/archistrator/construction?lens=list&a=N-STP and said, verbatim, "stp looks
-// good in the app. sign off. continue".
-var founderSignOffs = []founderSignOff{{
-	ActivityID: "N-STP",
-	Date:       "2026-09-12",
-	Quote:      "stp looks good in the app. sign off. continue",
-	Artifact:   systemTestPlanArtifact,
-}}
+// founderSignOffs is every recorded founder sign-off. It is EMPTY: the one sign-off it
+// carried — N-STP (2026-09-12), the founder's verbatim "stp looks good in the app. sign
+// off. continue" over .testingState.systemTestPlan, counted by its scenarios — was
+// retired on 2026-10-02 with the system test plan itself (deterministic component
+// testing, spec §7: N-STP/N-IT are no longer derived and SystemTestPlan is no longer a
+// type the model has). A sign-off never stands without its artifact, so with the
+// artifact gone from the model the entry could only ever say "does not stand"; it is
+// removed rather than kept as a permanent refusal. The mechanism stays: it is the
+// evidence path for any future componentless activity whose product is an artifact.
+var founderSignOffs = []founderSignOff{}
 
 // signOffBasis is the provenance basis of a sign-off: the artifact (counted from the
 // file) and the decision, in the founder's words.
@@ -1076,7 +1060,7 @@ func classify(item projectstate.ActivityItem, hasContract bool) (projectstate.Ac
 	if !ok {
 		return 0, 0, fmt.Errorf("%s: ClassifyType refused (workerClass %q, coding %v)", item.Name, item.WorkerClass, item.Coding)
 	}
-	variant := projectstate.TestVariantPlan
+	var variant projectstate.TestingVariant // the zero value: no variant (non-testing)
 	if typ == projectstate.ActivityTypeTesting {
 		_, variant, _ = projectstate.ClassifyActivity(item.Name, item.WorkerClass, item.Coding)
 	}

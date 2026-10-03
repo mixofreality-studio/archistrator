@@ -1454,7 +1454,7 @@ func Test_AskArtifactQuestions_Phase2_SeedsOnMain(t *testing.T) {
 // conflates testing, infra, deployment, and documentation).
 func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 	rows := map[string]projectstate.ActivityExecution{
-		"N-IT":             {ActivityID: "N-IT"},                                                                        // software-tester, noncoding → testing:systemTest
+		"N-PERF":           {ActivityID: "N-PERF"},                                                                      // software-tester, noncoding → testing:perf
 		"N-SC":             {ActivityID: "N-SC", Produced: []projectstate.ProducedArtifact{{Kind: "service-contract"}}}, // built a contract → service
 		"N-CI":             {ActivityID: "N-CI"},                                                                        // senior-developer, noncoding → deployment
 		"N-ADR":            {ActivityID: "N-ADR"},                                                                       // system-architect, noncoding → documentation
@@ -1462,7 +1462,7 @@ func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 		"U-SPA-web-client": {ActivityID: "U-SPA-web-client"},                                                            // U-SPA prefix → frontend
 	}
 	meta := map[string]projectstate.ActivityItem{
-		"N-IT":             {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
+		"N-PERF":           {Name: "N-PERF", WorkerClass: "software-tester", Coding: false},
 		"N-SC":             {Name: "N-SC", WorkerClass: "senior-developer", Coding: false},
 		"N-CI":             {Name: "N-CI", WorkerClass: "senior-developer", Coding: false},
 		"N-ADR":            {Name: "N-ADR", WorkerClass: "system-architect", Coding: false},
@@ -1470,17 +1470,18 @@ func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 		"U-SPA-web-client": {Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true},
 	}
 	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})
+	perf := TestingVariant(int(projectstate.TestVariantPerf))
 	cases := []struct {
 		id       string
 		wantType ActivityType
-		wantVar  TestingVariant
+		wantVar  *TestingVariant // present on a testing row only
 	}{
-		{"N-IT", ActivityType(int(projectstate.ActivityTypeTesting)), TestingVariant(int(projectstate.TestVariantSystemTest))},
-		{"N-SC", ActivityType(int(projectstate.ActivityTypeService)), 0},
-		{"N-CI", ActivityType(int(projectstate.ActivityTypeDeployment)), 0},
-		{"N-ADR", ActivityType(int(projectstate.ActivityTypeDocumentation)), 0},
-		{"C-BE", ActivityType(int(projectstate.ActivityTypeService)), 0},
-		{"U-SPA-web-client", ActivityType(int(projectstate.ActivityTypeFrontend)), 0},
+		{"N-PERF", ActivityType(int(projectstate.ActivityTypeTesting)), &perf},
+		{"N-SC", ActivityType(int(projectstate.ActivityTypeService)), nil},
+		{"N-CI", ActivityType(int(projectstate.ActivityTypeDeployment)), nil},
+		{"N-ADR", ActivityType(int(projectstate.ActivityTypeDocumentation)), nil},
+		{"C-BE", ActivityType(int(projectstate.ActivityTypeService)), nil},
+		{"U-SPA-web-client", ActivityType(int(projectstate.ActivityTypeFrontend)), nil},
 	}
 	for _, c := range cases {
 		t.Run(c.id, func(t *testing.T) {
@@ -1491,8 +1492,8 @@ func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 			if r.Type != c.wantType {
 				t.Errorf("%s: Type = %d, want %d", c.id, r.Type, c.wantType)
 			}
-			if r.Variant != c.wantVar {
-				t.Errorf("%s: Variant = %d, want %d", c.id, r.Variant, c.wantVar)
+			if !reflect.DeepEqual(r.Variant, c.wantVar) {
+				t.Errorf("%s: Variant = %v, want %v", c.id, r.Variant, c.wantVar)
 			}
 		})
 	}
@@ -1929,15 +1930,21 @@ func TestTestingStateToContract(t *testing.T) {
 		t.Fatalf("nil input: got %v, want nil", got)
 	}
 	in := &projectstate.TestingState{
-		TestRuns: []projectstate.TestRun{{ID: "run-1", Passed: 12, Failed: 1, Note: "nightly"}},
-		Defects:  []projectstate.DefectRecord{{ID: "D-1", Title: "flake", Severity: "high", Note: "retry"}},
+		TestRuns: []projectstate.TestRun{{
+			ID: "run-1", Activity: "C-BG", Component: "billingManager", Revision: "abc123", Artifact: "test-results-C-BG-abc123",
+			Scenarios: []projectstate.ScenarioResult{{Scenario: "bill-the-user-for-usage-P1", Status: "pass", DurationMs: 12}},
+		}},
+		Defects: []projectstate.DefectRecord{{ID: "D-1", Title: "flake", Severity: "high", Note: "retry"}},
 	}
 	got := testingStateToContract(in)
 	if got == nil {
 		t.Fatal("populated input: got nil")
 	}
-	if len(got.TestRuns) != 1 || got.TestRuns[0].Id != "run-1" || got.TestRuns[0].Passed != 12 {
+	if len(got.TestRuns) != 1 || got.TestRuns[0].Id != "run-1" || got.TestRuns[0].Revision != "abc123" || got.TestRuns[0].Component != "billingManager" {
 		t.Errorf("TestRuns mapped wrong: %+v", got.TestRuns)
+	}
+	if sc := got.TestRuns[0].Scenarios; len(sc) != 1 || sc[0].Scenario != "bill-the-user-for-usage-P1" || sc[0].Status != "pass" || sc[0].DurationMs != 12 {
+		t.Errorf("Scenarios mapped wrong: %+v", sc)
 	}
 	if len(got.Defects) != 1 || got.Defects[0].Id != "D-1" || got.Defects[0].Severity != "high" {
 		t.Errorf("Defects mapped wrong: %+v", got.Defects)
@@ -3666,8 +3673,8 @@ func TestConstructionRowsToContract_UnclassifiableAssertsNoLifecycle(t *testing.
 	if len(got.Phases) != 0 {
 		t.Errorf("Phases = %+v, want none — an unclassifiable row renders no lifecycle sub-rows", got.Phases)
 	}
-	if got.Variant != 0 {
-		t.Errorf("Variant = %d, want 0 — an untyped row cannot be a testing variant", got.Variant)
+	if got.Variant != nil {
+		t.Errorf("Variant = %d, want absent — an untyped row cannot be a testing variant", *got.Variant)
 	}
 	// Type/Kind are undefined while Classified is false and must not be read; they are
 	// pinned to the zero value only so nothing downstream sees a stale classification.
@@ -3970,13 +3977,13 @@ func TestConstructionRowsToContract_ListedActivityWithNoRowIsPlannedNoRecord(t *
 	meta := map[string]projectstate.ActivityItem{
 		"C-BE":   {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
 		"C-PLAN": {Name: "C-PLAN", WorkerClass: "junior-developer", Coding: true},
-		"N-IT":   {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
+		"N-PERF": {Name: "N-PERF", WorkerClass: "software-tester", Coding: false},
 	}
 	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})
 	if len(got) != 3 {
 		t.Fatalf("len(got) = %d, want 3 (one stored row + two listed-with-no-row)", len(got))
 	}
-	for _, id := range []string{"C-PLAN", "N-IT"} {
+	for _, id := range []string{"C-PLAN", "N-PERF"} {
 		r, ok := got[id]
 		if !ok {
 			t.Fatalf("%s: a listed activity with no stored row is missing from the view", id)
@@ -4000,9 +4007,9 @@ func TestConstructionRowsToContract_ListedActivityWithNoRowIsPlannedNoRecord(t *
 	if got["C-PLAN"].Type != ActivityType(int(projectstate.ActivityTypeService)) {
 		t.Errorf("C-PLAN Type = %d, want Service", got["C-PLAN"].Type)
 	}
-	if got["N-IT"].Type != ActivityType(int(projectstate.ActivityTypeTesting)) ||
-		got["N-IT"].Variant != TestingVariant(int(projectstate.TestVariantSystemTest)) {
-		t.Errorf("N-IT Type/Variant = %d/%d, want Testing/SystemTest", got["N-IT"].Type, got["N-IT"].Variant)
+	perf := TestingVariant(int(projectstate.TestVariantPerf))
+	if got["N-PERF"].Type != ActivityType(int(projectstate.ActivityTypeTesting)) || !reflect.DeepEqual(got["N-PERF"].Variant, &perf) {
+		t.Errorf("N-PERF Type/Variant = %d/%v, want Testing/Perf", got["N-PERF"].Type, got["N-PERF"].Variant)
 	}
 	if !got["C-BE"].HasBuildEvidence || len(got["C-BE"].Phases) == 0 {
 		t.Errorf("the stored C-BE row lost its evidence in the merge")
@@ -4192,7 +4199,7 @@ func TestConstructionRowsToContract_PendingResume(t *testing.T) {
 	svc := func(name string) projectstate.ActivityItem {
 		return projectstate.ActivityItem{Name: name, WorkerClass: "junior-developer", Coding: true}
 	}
-	all := projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan).PhaseIDs()
+	all := projectstate.ProfileFor(projectstate.ActivityTypeService, 0).PhaseIDs()
 	fourOfFive := all[:len(all)-1]
 	ids := []string{"C-billing-manager", "C-billing-engine", "C-billing-state-access", "C-merchant-gateway-access",
 		"C-operations-manager", "C-next", "C-live", "C-live-phases", "C-both", "C-done", "C-planned"}
@@ -4290,7 +4297,7 @@ func TestConstructionRowsToContract_PendingResumeNeedsARunningLedger(t *testing.
 	svc := func(name string) projectstate.ActivityItem {
 		return projectstate.ActivityItem{Name: name, WorkerClass: "junior-developer", Coding: true}
 	}
-	all := projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan).PhaseIDs()
+	all := projectstate.ProfileFor(projectstate.ActivityTypeService, 0).PhaseIDs()
 	gate := projectstate.GateTaskFor(projectstate.MethodPhaseRequirements)
 	if gate == "" {
 		t.Fatal("Requirements has no gate task; the fixtures below need one")
@@ -8673,19 +8680,6 @@ func TestHydrateConstructionActivity_ClientAppStampsTheClientLayer(t *testing.T)
 	}
 }
 
-func TestHydrateConstructionActivity_TestingPlanIsThreePhases(t *testing.T) {
-	item := projectstate.ActivityItem{WorkerClass: "test-engineer"}
-	typ, variant := classifyForTest(t, "N-STP", item)
-	got := hydrateConstructionActivity("N-STP", item, nil, typ, variant)
-	if got.Type != projectstate.ActivityTypeTesting || got.Variant != projectstate.TestVariantPlan {
-		t.Fatalf("(Type, Variant) = (%v, %v), want (Testing, Plan)", got.Type, got.Variant)
-	}
-	assertLifecyclePhases(t, got, []projectstate.ActivityMethodPhase{
-		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseConstruction,
-		projectstate.MethodPhaseIntegration,
-	})
-}
-
 func TestDispatchInputsForIncludesCommand(t *testing.T) {
 	// A service construction phase -> service-construction command.
 	in := dispatchInputsFor(pipelineSpec{
@@ -9655,7 +9649,7 @@ func TestNextEligibleActivity_ComponentlessActivitiesDispatch(t *testing.T) {
 		item projectstate.ActivityItem
 	}{
 		{"nonstructural coding", projectstate.ActivityItem{Name: "I-UC1", Title: "Integrate use case 1", Coding: true}},
-		{"noncoding", projectstate.ActivityItem{Name: "N-STP", Title: "System Test Plan", WorkerClass: "test-engineer", Coding: false}},
+		{"noncoding", projectstate.ActivityItem{Name: "N-QA", Title: "QA Process", WorkerClass: "qa-engineer", Coding: false}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			proj := projWithActivities(
@@ -9849,7 +9843,7 @@ func ledgerChain() projectstate.Project {
 	)
 }
 
-var servicePhases = projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan).PhaseIDs()
+var servicePhases = projectstate.ProfileFor(projectstate.ActivityTypeService, 0).PhaseIDs()
 
 // Task 7a (architect ruling Q2): a row the backfill wrote — a fully passed ledger and NO
 // stored phase/phases/buildStatus — is Done to the pump. It satisfies its dependent, and
@@ -12371,7 +12365,7 @@ func appErrType(err error) string {
 // attempt exactly as csWorkflows.openActivity does.
 func openRowProbe(wf *csWorkflows, ctx workflow.Context, st *constructState, expected projectstate.Version) (projectstate.Version, error) {
 	return wf.Acts.ActivityExecutionOpenActivity(ctx, projectstate.ProjectID("p"), expected,
-		st.activityVersion, rowProbeActivity, projectstate.ActivityTypeService, projectstate.TestVariantPlan,
+		st.activityVersion, rowProbeActivity, projectstate.ActivityTypeService, 0,
 		projectstate.LifecyclePin{}, projectstate.RepoCredential{})
 }
 
@@ -15444,7 +15438,7 @@ func TestSeedResumeFromLedger_RealIntegrationPendingRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := &constructState{completedPhases: map[projectstate.ActivityMethodPhase]bool{}}
-	seedResumeFromLedger(state, constructionActivity{Type: projectstate.ActivityTypeService, Variant: projectstate.TestVariantPlan}, row)
+	seedResumeFromLedger(state, constructionActivity{Type: projectstate.ActivityTypeService, Variant: 0}, row)
 	want := map[projectstate.ActivityMethodPhase]bool{
 		projectstate.MethodPhaseRequirements: true, projectstate.MethodPhaseTestPlan: true,
 		projectstate.MethodPhaseDetailedDesign: true, projectstate.MethodPhaseConstruction: true,
@@ -15474,7 +15468,7 @@ func TestSeedResumeFromLedger_TheLedgerDecidesWhatItHasDecided(t *testing.T) {
 	attempts = append(attempts, ledgerAttempt("A", projectstate.TaskTesting, 3, projectstate.OutcomeRejected))
 	row := projectstate.ActivityExecution{ActivityID: "A", Attempts: attempts}
 	state := &constructState{completedPhases: map[projectstate.ActivityMethodPhase]bool{}}
-	seedResumeFromLedger(state, constructionActivity{Type: projectstate.ActivityTypeService, Variant: projectstate.TestVariantPlan}, row)
+	seedResumeFromLedger(state, constructionActivity{Type: projectstate.ActivityTypeService, Variant: 0}, row)
 	want := map[projectstate.ActivityMethodPhase]bool{
 		projectstate.MethodPhaseRequirements: true, projectstate.MethodPhaseTestPlan: true, projectstate.MethodPhaseDetailedDesign: true,
 	}
@@ -16321,7 +16315,7 @@ func avObserved(task projectstate.MethodTask, n int, outcome projectstate.TaskOu
 // ONE reconciled phase set, never the raw row.Phases. The C-X fixtures are all service
 // activities, so the profile is fixed and the variant unused.
 func avResolved(row projectstate.ActivityExecution) []projectstate.PhaseCompletion {
-	profile := projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan)
+	profile := projectstate.ProfileFor(projectstate.ActivityTypeService, 0)
 	return projectstate.ResolvePhaseCompletions(profile, row.Attempts)
 }
 
@@ -16888,7 +16882,7 @@ func TestActivityViewFrom_PhaseCompletionIsTheResolvedSet(t *testing.T) {
 	// (states[ph.Gate] == taskPassed) says nothing is complete.
 	// TestingVariant is an int enum; a service row's variant is never read (only a
 	// testing row emits one), so the zero value stands for "no variant".
-	got := activityViewFrom("C-X", projectstate.ActivityItem{Name: "C-X"}, projectstate.ActivityTypeService, projectstate.TestVariantPlan, lc, resolved, nil)
+	got := activityViewFrom("C-X", projectstate.ActivityItem{Name: "C-X"}, projectstate.ActivityTypeService, 0, lc, resolved, nil)
 	for _, ph := range got.Phases {
 		want := ph.ID == string(projectstate.MethodPhaseRequirements)
 		if ph.Completed != want {
@@ -17492,16 +17486,14 @@ func TestQueryActivityView_EveryLifecycleKeyResolvesInThePinnedAssets(t *testing
 		typ     projectstate.ActivityType
 		variant projectstate.TestingVariant
 	}{
-		{projectstate.ActivityTypeService, projectstate.TestVariantPlan},
-		{projectstate.ActivityTypeFrontend, projectstate.TestVariantPlan},
-		{projectstate.ActivityTypeDeployment, projectstate.TestVariantPlan},
-		{projectstate.ActivityTypeDocumentation, projectstate.TestVariantPlan},
-		{projectstate.ActivityTypeUIDesign, projectstate.TestVariantPlan},
-		{projectstate.ActivityTypeIntegration, projectstate.TestVariantPlan},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeService, 0},
+		{projectstate.ActivityTypeFrontend, 0},
+		{projectstate.ActivityTypeDeployment, 0},
+		{projectstate.ActivityTypeDocumentation, 0},
+		{projectstate.ActivityTypeUIDesign, 0},
+		{projectstate.ActivityTypeIntegration, 0},
 		{projectstate.ActivityTypeTesting, projectstate.TestVariantHarness},
 		{projectstate.ActivityTypeTesting, projectstate.TestVariantPerf},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantSystemTest},
 		{projectstate.ActivityTypeTesting, projectstate.TestVariantQAProcess},
 	} {
 		key := projectstate.LifecycleKeyFor(c.typ, c.variant)
@@ -21633,8 +21625,7 @@ func lifecyclePairForKey(key string) (projectstate.ActivityType, projectstate.Te
 		projectstate.ActivityTypeArchitecture, projectstate.ActivityTypeProjectDesign,
 	}
 	variants := []projectstate.TestingVariant{
-		projectstate.TestVariantPlan, projectstate.TestVariantHarness, projectstate.TestVariantPerf,
-		projectstate.TestVariantSystemTest, projectstate.TestVariantQAProcess,
+		0, projectstate.TestVariantHarness, projectstate.TestVariantPerf, projectstate.TestVariantQAProcess,
 	}
 	for _, typ := range types {
 		for _, variant := range variants {
@@ -31249,8 +31240,8 @@ func markActivityDone(t *testing.T, repoURL string, id projectstate.ProjectID,
 		t.Fatalf("ReadProjectVersion: %v", err)
 	}
 	v, err = ae.OpenActivity(rcx("open:"+activityID), id, v, projectstate.NoActivityVersionExpectation,
-		activityID, typ, projectstate.TestVariantPlan,
-		projectstate.LifecyclePin{TypeKey: projectstate.LifecycleKeyFor(typ, projectstate.TestVariantPlan),
+		activityID, typ, 0,
+		projectstate.LifecyclePin{TypeKey: projectstate.LifecycleKeyFor(typ, 0),
 			AssetsVersion: methodassets.Version()},
 		projectstate.RepoCredential{}, fwra.IdempotencyKey("open:"+activityID))
 	if err != nil {

@@ -2081,7 +2081,7 @@ func (c localProjectCatalog) ListProjectRepos(ctx context.Context, _ OwnerScope,
 // field is non-zero and routes it to the right map in PhaseArtifacts or
 // TestingState. mapKey is the component/surface/resource/doc name used as the
 // map key for PhaseArtifacts fields; it is unused for pointer-scalar TestingState
-// fields (SystemTestPlan, HarnessModule, PerfHarness, QualityAuditReport).
+// fields (HarnessModule, PerfHarness, QualityAuditReport).
 // Convention: exactly one field per call. This is NOT enforced at runtime (multiple
 // set fields will route all of them). A typed sum type would enforce the invariant,
 // which now may be feasible since cs.Type/cs.Variant are populated by seed-construction.
@@ -2096,13 +2096,14 @@ type PhaseArtifactPayload struct {
 	DeployNote       *DeployNoteRecord
 	DocOutline       *DocOutlineRecord
 	DocNote          *DocNoteRecord
-	// TestingState fields (project-level singletons / slices)
-	SystemTestPlan *SystemTestPlan
-	HarnessModule  *HarnessModule
-	PerfHarness    *PerfHarness
-	QualityGate    *QualityGate
-	TestRun        *TestRun
-	Defect         *DefectRecord
+	// TestingState fields (project-level singletons / slices). TestRun REPLACES a
+	// recorded run with the same ID (the venue re-records a run it re-ran) and appends
+	// otherwise.
+	HarnessModule *HarnessModule
+	PerfHarness   *PerfHarness
+	QualityGate   *QualityGate
+	TestRun       *TestRun
+	Defect        *DefectRecord
 	// QualityAuditReport replaces the string in TestingState when non-empty.
 	QualityAuditReport string
 }
@@ -2570,9 +2571,6 @@ func applyTestingStatePayload(p *Project, payload PhaseArtifactPayload) {
 		}
 		return p.TestingState
 	}
-	if payload.SystemTestPlan != nil {
-		ensureTestingState().SystemTestPlan = payload.SystemTestPlan
-	}
 	if payload.HarnessModule != nil {
 		ensureTestingState().HarnessModule = payload.HarnessModule
 	}
@@ -2585,7 +2583,16 @@ func applyTestingStatePayload(p *Project, payload PhaseArtifactPayload) {
 	}
 	if payload.TestRun != nil {
 		ts := ensureTestingState()
-		ts.TestRuns = append(ts.TestRuns, *payload.TestRun)
+		replaced := false
+		for i := range ts.TestRuns {
+			if ts.TestRuns[i].ID == payload.TestRun.ID {
+				ts.TestRuns[i] = *payload.TestRun
+				replaced = true
+			}
+		}
+		if !replaced {
+			ts.TestRuns = append(ts.TestRuns, *payload.TestRun)
+		}
 	}
 	if payload.Defect != nil {
 		ts := ensureTestingState()
@@ -4789,6 +4796,10 @@ func NewSystem(components []Component, relationships []Relationship, dynamicView
 // UML-general
 // UML-general, a UML time event (an elapsed-timer entry point)
 // UML-general, a UML accept-event action (a bus/queue-message entry point)
+// UML-general, a UML send-signal action: the paper's OUTPUT event; LinkedActorID names
+//   the receiving actor (deterministic component testing, spec §2.2)
+// UML-general, a UML 2.5 §15.4 ObjectNode: Label is the object, InState its expected
+//   observable state at that point on the path (deterministic component testing, §2.2)
 
 // BookEnumerated reports whether a node kind is in the book's closed set (vs UML-general).
 // WARNING: the iota ordering is load-bearing — book-enumerated node kinds must be
@@ -4813,6 +4824,11 @@ func (k ActivityNodeKind) BookEnumerated() bool { return k <= NodeNote }
 // a Component.ID or the owning use case's Actor.ID. Illegal placement (any other
 // kind) or a value resolving to neither is CC-DECIDED-BY (methodcheck/designhealth,
 // not enforced by this write-path shape validator — see requireActivityNodes).
+//
+// InState / Anchor (deterministic component testing, spec §2.2): InState is the
+// expected observable state of a NodeObjectNode ("[paid]"), required on that kind and
+// meaningless on every other; Anchor is the id of the path node a NodeNote rides along
+// with (its text becomes a scenario hint), optional and legal only on notes.
 type ActivityNode struct {
 	ID    string           `json:"id"`
 	Kind  ActivityNodeKind `json:"kind"`
@@ -4822,6 +4838,9 @@ type ActivityNode struct {
 	LinkedActorID *string `json:"linkedActorId"`
 	// DecidedBy: see doc comment above.
 	DecidedBy *string `json:"decidedBy,omitempty"`
+	// InState / Anchor: see doc comment above.
+	InState string `json:"inState,omitempty"`
+	Anchor  string `json:"anchor,omitempty"`
 }
 
 // EdgeKind is the closed set of activity-edge kinds. (projectStateAccess.md §3.4)
@@ -5219,9 +5238,10 @@ type ContractParam struct {
 
 // SRSRecord is the Requirements phase artifact for a service or deployment activity.
 
-// TestPlanRecord is the TestPlan phase artifact (per-service/frontend slice).
-// Author per Correction 1: the constructing developer (junior under senior hand-off),
-// NOT the test-engineer. System-level test activities use TestingState.SystemTestPlan.
+// TestPlanRecord is the TestPlan phase artifact (per-service/frontend slice): the
+// typed bindings of every scenario projected onto the component (spec §3), authored by
+// the test engineer against listComponentScenarios. There is no system-level test plan
+// any more (spec §7).
 
 // IntegrationNoteRecord is the Integration phase artifact produced when the
 // senior-developer integrates the component and merges the integration PR.
@@ -5267,88 +5287,13 @@ type DefectRecord struct {
 	Note       string     `json:"note,omitempty"`
 }
 
-// TestRun is one system-test execution record (N-IT / §1c).
-type TestRun struct {
-	ID        string     `json:"id"`
-	StartedAt *time.Time `json:"startedAt,omitempty"`
-	EndedAt   *time.Time `json:"endedAt,omitempty"`
-	Passed    int        `json:"passed"`
-	Failed    int        `json:"failed"`
-	Note      string     `json:"note,omitempty"`
-}
-
-// TestArg is one concrete input argument to a step's operation call: the param
-// name, a concrete VALUE (JSON-encoded text, so the N-STH harness generator can emit
-// runnable code), and an optional schemaRef naming the contract param's type.
-type TestArg struct {
-	Name      string `json:"name"`
-	Value     string `json:"value"`               // concrete value as JSON/text, e.g. "\"approve\""
-	SchemaRef string `json:"schemaRef,omitempty"` // contract param type name ($def), optional
-}
-
-// TestExpect is the expected outcome of a step: either an expected result value
-// (Result, JSON/text) OR an expected error (ErrorExpected + ErrorCode). A negative
-// case asserts the system produces the specific failure; a happy step asserts the
-// result. Per Righting Software App A: cover "every parameter, condition, and
-// error-handling path".
-type TestExpect struct {
-	Result        string `json:"result,omitempty"`    // expected result value/shape (empty when error-expected)
-	ErrorExpected bool   `json:"errorExpected"`       // true → the call is expected to fail
-	ErrorCode     string `json:"errorCode,omitempty"` // expected error code / type
-}
-
-// TestStep is one black-box step in a system-test case: a single manager operation
-// call with its concrete inputs and expected outcome. It is TRANSPORT-AGNOSTIC — it
-// names the {component, operation} (the manager method), NOT an HTTP route, because
-// the REST/MCP/(future) gRPC clients are all generated bindings of the same manager
-// operation. The N-STH harness generator turns these steps into per-transport code.
-type TestStep struct {
-	Seq       int        `json:"seq"`                 // 1-based order within the case
-	Component string     `json:"component"`           // manager/component that owns the operation
-	Operation string     `json:"operation"`           // manager method name (e.g. "startSystemDesign")
-	Status    string     `json:"status,omitempty"`    // last-run result: "" | "red" (failing) | "green" (passing)
-	Inputs    []TestArg  `json:"inputs,omitempty"`    // concrete input arguments
-	Expect    TestExpect `json:"expect"`              // expected result or expected error
-	Assertion string     `json:"assertion,omitempty"` // human-readable assertion
-}
-
-// TestCase is one falsification attempt within a scenario: an ordered sequence of
-// manager-operation calls asserting a specific expected outcome — a happy path, a
-// negative (error-path) case, or a boundary case. Per Righting Software ch.14 the
-// value of the plan is the adversarial coverage ("all the ways to break the system
-// and prove it does not work"), so negative/boundary cases are first-class.
-type TestCase struct {
-	ID    string `json:"id"`
-	Kind  string `json:"kind"` // "happy" | "negative" | "boundary"
-	Title string `json:"title"`
-	// Proves is "what this proves" — the failure mode this case is designed to expose.
-	Proves          string     `json:"proves,omitempty"`
-	ExpectedOutcome string     `json:"expectedOutcome,omitempty"` // overall success OR the specific expected failure
-	Steps           []TestStep `json:"steps,omitempty"`
-}
-
-// TestScenario is one black-box system-test scenario: a core use case and the set of
-// test cases (happy + adversarial) that prove it holds — or catch where it breaks —
-// end-to-end, black-box at the client surface.
-type TestScenario struct {
-	ID      string `json:"id"`
-	UseCase string `json:"useCase"` // the core use case this scenario traces to
-	Title   string `json:"title"`
-	// Description is the "what this proves and why it matters" — the failure modes
-	// the scenario is designed to expose (system-level QC per Righting Software
-	// ch.14: prove the integrated system fails, don't unit-test in isolation).
-	Description string     `json:"description,omitempty"`
-	Cases       []TestCase `json:"cases,omitempty"`
-}
-
-// SystemTestPlan is the output of the N-STP activity (§1c TestVariantPlan).
-type SystemTestPlan struct {
-	UseCaseIndex []string       `json:"useCaseIndex,omitempty"` // traced UC ids
-	Entries      []string       `json:"entries,omitempty"`      // plan entry descriptions
-	Scenarios    []TestScenario `json:"scenarios,omitempty"`    // black-box operation sequences
-	Status       string         `json:"status,omitempty"`       // "" | "approved"
-	ApprovedAt   *time.Time     `json:"approvedAt,omitempty"`
-}
+// TestRun, ScenarioResult, TestArg, TestExpect, Probe, StepBinding, SkipReason and
+// ScenarioBinding are GENERATED from $defs (contract.gen.go) since the deterministic
+// component testing wave (spec §3, §6.1): a TestRun is one venue run of a component's
+// generated scenario tests, recorded by the venue through record-test-run; a
+// TestPlanRecord is the typed set of bindings, one per projected scenario. The former
+// hand-written TestStep/TestCase/TestScenario/SystemTestPlan (the N-STP system test
+// plan) are retired with the activity that authored them (spec §7).
 
 // HarnessModule is the output of the N-STH activity (§1c TestVariantHarness).
 type HarnessModule struct {
@@ -5364,16 +5309,17 @@ type PerfHarness struct {
 	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
 }
 
-// TestingState holds the project-level testing artifacts produced by N-* activities.
-// Additive: nil until the first testing activity produces output.
+// TestingState holds the project-level testing artifacts produced by N-* activities
+// and, since the deterministic component testing wave, the per-component test runs
+// the venue records on the testing task (TestRuns, spec §6.1). Additive: nil until the
+// first testing activity produces output.
 type TestingState struct {
-	SystemTestPlan     *SystemTestPlan `json:"systemTestPlan,omitempty"`
-	HarnessModule      *HarnessModule  `json:"harnessModule,omitempty"`
-	PerfHarness        *PerfHarness    `json:"perfHarness,omitempty"`
-	QualityGates       []QualityGate   `json:"qualityGates,omitempty"`
-	QualityAuditReport string          `json:"qualityAuditReport,omitempty"`
-	TestRuns           []TestRun       `json:"testRuns,omitempty"`
-	Defects            []DefectRecord  `json:"defects,omitempty"`
+	HarnessModule      *HarnessModule `json:"harnessModule,omitempty"`
+	PerfHarness        *PerfHarness   `json:"perfHarness,omitempty"`
+	QualityGates       []QualityGate  `json:"qualityGates,omitempty"`
+	QualityAuditReport string         `json:"qualityAuditReport,omitempty"`
+	TestRuns           []TestRun      `json:"testRuns,omitempty"`
+	Defects            []DefectRecord `json:"defects,omitempty"`
 }
 
 // OperatingModel declares WHO OPERATES the built application — a PROJECT-LEVEL
@@ -6291,8 +6237,25 @@ func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasEn
 		if e := requireOptionalStringField(obj, "decidedBy", label); e != nil {
 			return false, false, e
 		}
+		if e := requireIOKindShape(obj, nk, label); e != nil {
+			return false, false, e
+		}
 	}
 	return hasEntry, hasAction, nil
+}
+
+// requireIOKindShape is the write-path shape check for the two fields the deterministic
+// component testing wave added to ActivityNode (spec §2.2): an objectNode is an expected
+// observable state, so it MUST say which state (inState); a note's anchor is optional.
+// Both are plain strings on the wire; the codec already refused an unknown kind. Legality
+// beyond shape (anchor only on notes, naming a node on the path) is a methodcheck rule.
+func requireIOKindShape(obj map[string]json.RawMessage, nk ActivityNodeKind, label string) error {
+	if nk == NodeObjectNode {
+		if e := requireNonEmptyString(obj, "inState", label+" (objectNode)"); e != nil {
+			return e
+		}
+	}
+	return requireOptionalStringField(obj, "anchor", label)
 }
 
 // activityIncomingEdgeCounts returns, for each node ID targeted by an edge's "to", the
@@ -7144,6 +7107,8 @@ var activityNodeKindNames = map[ActivityNodeKind]string{
 	NodeInterruptEdge: "interruptEdge",
 	NodeTimeEvent:     "timeEvent",
 	NodeAcceptEvent:   "acceptEvent",
+	NodeSendSignal:    "sendSignal",
+	NodeObjectNode:    "objectNode",
 }
 var activityNodeKindByName = invert(activityNodeKindNames)
 
@@ -7274,12 +7239,19 @@ func (t *ActivityType) UnmarshalJSON(data []byte) error {
 
 // ---- TestingVariant ----
 
+// "plan" (N-STP, ordinal 0) and "systemTest" (N-IT, ordinal 3) are RETIRED
+// (deterministic component testing, spec §7): neither is a testing variant again and
+// ordinal 3 is never reused. Ordinal 0 is the zero value, TestVariantNone: what every
+// non-testing activity carries. It is declared in the contract — the F81 wire-map gate
+// requires the map and the contract to agree — because it has to cross a wire: the
+// construction workflow hands (type, variant) to its Temporal activities as positional
+// arguments, where no `omitempty` hides a zero. "plan" is not accepted on decode; a
+// stored "plan" is the retired artifact's row and fails loudly.
 var testingVariantNames = map[TestingVariant]string{
-	TestVariantPlan:       "plan",
-	TestVariantHarness:    "harness",
-	TestVariantPerf:       "perf",
-	TestVariantSystemTest: "systemTest",
-	TestVariantQAProcess:  "qaProcess",
+	TestVariantNone:      "none",
+	TestVariantHarness:   "harness",
+	TestVariantPerf:      "perf",
+	TestVariantQAProcess: "qaProcess",
 }
 var testingVariantByName = invert(testingVariantNames)
 
@@ -8232,35 +8204,37 @@ const (
 	ActivityKindTesting  = ActivityTypeTesting
 )
 
-// TestingVariant discriminates the five N-* testing activity sub-types. Only
+// TestingVariant discriminates the three N-* testing activity sub-types. Only
 // meaningful when ActivityType == ActivityTypeTesting. Variant is chosen from the
-// activity name prefix (N-STP → Plan, N-STH → Harness, N-PERF → Perf,
-// N-IT → SystemTest, N-QA → QAProcess).
+// activity name prefix (N-STH → Harness, N-PERF → Perf, N-QA → QAProcess). The former
+// Plan (N-STP, ordinal 0) and SystemTest (N-IT, ordinal 3) variants are retired with
+// the system test plan (deterministic component testing, spec §7); those ordinals are
+// never reused.
 
-// N-STP: system test plan
 // N-STH: test harness construction
 // N-PERF: performance rig
-// N-IT: system test execution (terminal/critical)
 // N-QA: QA process definition
 
-// String returns the canonical wire name.
+// TestVariantNone (the zero value) is what every non-testing activity carries. It is
+// not a testing variant and it is not the retired ordinal-0 "plan" coming back under
+// another name: a tester-owned id that names no surviving variant does not classify
+// as Testing at all (deriveVariant).
+
+// String returns the canonical wire name, and "" for an out-of-range (retired)
+// ordinal. "none" names no lifecycle: LifecycleKeyFor spells a testing key only for
+// ActivityTypeTesting, and lifecycleFor falls back to service.
 func (v TestingVariant) String() string {
 	switch v {
 	case TestVariantHarness:
 		return "harness"
 	case TestVariantPerf:
 		return "perf"
-	case TestVariantSystemTest:
-		return "systemTest"
 	case TestVariantQAProcess:
 		return "qaProcess"
-	case TestVariantPlan:
-		return "plan"
+	case TestVariantNone:
+		return "none"
 	}
-	// Unreachable for the five defined TestingVariant values above (the exhaustive
-	// linter enforces that every real variant has its own case); kept as a
-	// defensive fallback for an out-of-range ordinal.
-	return "plan"
+	return ""
 }
 
 // ActivityMethodPhase is one App-A internal phase within a construction activity.
@@ -8534,24 +8508,21 @@ func DeriveType(activityID string) ActivityType {
 	}
 }
 
-// deriveVariant maps a testing activity id prefix to its TestingVariant. Meaningful
-// only when DeriveType == ActivityTypeTesting; unknown N- ids fall back to Plan.
-// Order matters: N-STH / N-STP share the "N-ST" stem, so match the longer first.
-func deriveVariant(activityID string) TestingVariant {
+// deriveVariant maps a testing activity id prefix to its TestingVariant. ok is false
+// for an id that is no testing variant at all — including N-STP and N-IT, whose
+// variants are retired (spec §7) — and ClassifyActivity then treats the activity as
+// not-Testing and lets the remaining rules classify it.
+func deriveVariant(activityID string) (v TestingVariant, ok bool) {
 	id := strings.ToUpper(activityID)
 	switch {
 	case strings.HasPrefix(id, "N-STH"):
-		return TestVariantHarness
-	case strings.HasPrefix(id, "N-STP"):
-		return TestVariantPlan
+		return TestVariantHarness, true
 	case strings.HasPrefix(id, "N-PERF"):
-		return TestVariantPerf
-	case strings.HasPrefix(id, "N-IT"):
-		return TestVariantSystemTest
+		return TestVariantPerf, true
 	case strings.HasPrefix(id, "N-QA"):
-		return TestVariantQAProcess
+		return TestVariantQAProcess, true
 	default:
-		return TestVariantPlan
+		return TestVariantNone, false
 	}
 }
 
@@ -8604,8 +8575,9 @@ func designActivityType(id string) (ActivityType, bool) {
 //     must be checked FIRST: all three are authored system-architect/coding=false, so
 //     rule 6 would type them Documentation and the pump would resolve a construction
 //     phase profile for a design lifecycle.
-//  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} → Testing, with the
-//     variant read off the id (deriveVariant)
+//  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} AND the id names a
+//     testing variant (deriveVariant ok) → Testing with that variant; an id that names
+//     none (N-STP/N-IT are retired, spec §7) falls through to the rules below
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
 //  3. id prefix U-SPA                 → Frontend
 //  4. id prefix I-                    → Integration
@@ -8622,37 +8594,39 @@ func designActivityType(id string) (ActivityType, bool) {
 // have rendered. `err != nil` is now the whole question.
 //
 // The returned TestingVariant is meaningful only when the type is Testing; it is the
-// zero value (TestVariantPlan) otherwise.
+// zero value (no variant) otherwise.
 func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, TestingVariant, error) {
 	if typ, ok := designActivityType(id); ok {
-		return typ, TestVariantPlan, nil
+		return typ, 0, nil
 	}
 	switch workerClass {
 	case "software-tester", "test-engineer", "qa-engineer":
-		return ActivityTypeTesting, deriveVariant(id), nil
+		if v, ok := deriveVariant(id); ok {
+			return ActivityTypeTesting, v, nil
+		}
 	case "ui-designer":
 		if coding {
-			return ActivityTypeFrontend, TestVariantPlan, nil
+			return ActivityTypeFrontend, 0, nil
 		}
-		return ActivityTypeUIDesign, TestVariantPlan, nil
+		return ActivityTypeUIDesign, 0, nil
 	}
 	upper := strings.ToUpper(id)
 	if strings.HasPrefix(upper, "U-SPA") {
-		return ActivityTypeFrontend, TestVariantPlan, nil
+		return ActivityTypeFrontend, 0, nil
 	}
 	if strings.HasPrefix(upper, "I-") {
-		return ActivityTypeIntegration, TestVariantPlan, nil
+		return ActivityTypeIntegration, 0, nil
 	}
 	if coding {
-		return ActivityTypeService, TestVariantPlan, nil
+		return ActivityTypeService, 0, nil
 	}
 	switch workerClass {
 	case "system-architect", "project-manager", "product-manager":
-		return ActivityTypeDocumentation, TestVariantPlan, nil
+		return ActivityTypeDocumentation, 0, nil
 	case "senior-developer", "junior-developer":
-		return ActivityTypeDeployment, TestVariantPlan, nil
+		return ActivityTypeDeployment, 0, nil
 	}
-	return ActivityTypeService, TestVariantPlan, fmt.Errorf(
+	return ActivityTypeService, 0, fmt.Errorf(
 		"activity %s: workerClass %q with coding=%v matches no classification rule", id, workerClass, coding)
 }
 
@@ -8736,7 +8710,7 @@ func ResolveConstructionRow(
 		return typ, variant, nil, false
 	}
 	if typ == ActivityTypeTesting {
-		variant = deriveVariant(id)
+		variant, _ = deriveVariant(id)
 	}
 	return typ, variant, ResolvePhaseCompletions(ProfileFor(typ, variant), r.Attempts), true
 }

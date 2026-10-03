@@ -88,6 +88,8 @@ const (
 	NodeInterruptEdge ActivityNodeKind = 12
 	NodeTimeEvent     ActivityNodeKind = 13
 	NodeAcceptEvent   ActivityNodeKind = 14
+	NodeSendSignal    ActivityNodeKind = 15
+	NodeObjectNode    ActivityNodeKind = 16
 )
 
 type ActivityOutcome int
@@ -618,6 +620,14 @@ type PlanningAssumptions struct {
 	RateCard            map[string]WorkerRateSpec `json:"rateCard,omitempty"`
 }
 
+type Probe struct {
+	For       string     `json:"for"`
+	Component string     `json:"component"`
+	Operation string     `json:"operation"`
+	Inputs    []TestArg  `json:"inputs"`
+	Expect    TestExpect `json:"expect"`
+}
+
 type ProducedArtifact struct {
 	Kind     string `json:"Kind"`
 	Title    string `json:"Title"`
@@ -844,7 +854,21 @@ type ScalingPolicy struct {
 	TargetUtilizationPct int64 `json:"targetUtilizationPct"`
 }
 
+type ScenarioBinding struct {
+	Scenario string        `json:"scenario"`
+	Steps    []StepBinding `json:"steps"`
+	Skip     *SkipReason   `json:"skip,omitempty"`
+}
+
 type ScenarioKind string
+
+type ScenarioResult struct {
+	Scenario   string `json:"scenario"`
+	Status     string `json:"status"`
+	DurationMs int    `json:"durationMs"`
+	VideoRef   string `json:"videoRef"`
+	TraceRef   string `json:"traceRef"`
+}
 
 type ScheduleKind int
 
@@ -881,6 +905,11 @@ type SettlementTerms struct {
 	Schedule             ScheduleKind    `json:"schedule"`
 }
 
+type SkipReason struct {
+	Reason string `json:"reason"`
+	Until  string `json:"until"`
+}
+
 type SoftwareSystemInstance struct {
 	Key         string      `json:"key"`
 	Name        string      `json:"name"`
@@ -908,6 +937,16 @@ type StagedRef struct {
 
 type StandardCheck struct {
 	Items []CheckItem `json:"items"`
+}
+
+type StepBinding struct {
+	Seq          int        `json:"seq"`
+	Operation    string     `json:"operation"`
+	Inputs       []TestArg  `json:"inputs"`
+	Expect       TestExpect `json:"expect"`
+	Probes       []Probe    `json:"probes"`
+	Unobservable []string   `json:"unobservable"`
+	Hook         bool       `json:"hook"`
 }
 
 type SubjectKind string
@@ -942,20 +981,42 @@ type TaskAttemptInput struct {
 	Detail       string       `json:"detail"`
 }
 
+type TestArg struct {
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	SchemaRef string `json:"schemaRef"`
+}
+
+type TestExpect struct {
+	Result        string `json:"result"`
+	ErrorExpected bool   `json:"errorExpected"`
+	ErrorCode     string `json:"errorCode"`
+}
+
 type TestPlanRecord struct {
-	Component  string     `json:"component"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+	Component  string            `json:"component"`
+	Bindings   []ScenarioBinding `json:"bindings"`
+	AuthoredAt *time.Time        `json:"authoredAt,omitempty"`
+}
+
+type TestRun struct {
+	ID        string           `json:"id"`
+	Activity  string           `json:"activity"`
+	Component string           `json:"component"`
+	Revision  string           `json:"revision"`
+	Artifact  string           `json:"artifact"`
+	StartedAt *time.Time       `json:"startedAt,omitempty"`
+	EndedAt   *time.Time       `json:"endedAt,omitempty"`
+	Scenarios []ScenarioResult `json:"scenarios"`
 }
 
 type TestingVariant int
 
 const (
-	TestVariantPlan       TestingVariant = 0
-	TestVariantHarness    TestingVariant = 1
-	TestVariantPerf       TestingVariant = 2
-	TestVariantSystemTest TestingVariant = 3
-	TestVariantQAProcess  TestingVariant = 4
+	TestVariantNone      TestingVariant = 0
+	TestVariantHarness   TestingVariant = 1
+	TestVariantPerf      TestingVariant = 2
+	TestVariantQAProcess TestingVariant = 4
 )
 
 type TraceCall struct {

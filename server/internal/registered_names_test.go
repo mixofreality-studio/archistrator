@@ -81,6 +81,10 @@ func (f *fakeRegistry) RegisterActivityWithOptions(_ any, options activity.Regis
 // BEFORE this deploys — see Task 10. Stage 4b2 adds delivery:replanSweep to that
 // deletion list: the workflow behind it is gone, so the Schedule now fires into a
 // type no worker serves, and an unregistered Schedule is not a deleted one.
+//
+// Deterministic component testing (Plan 2 Task 1) ADDS four: artifactAccess gained
+// getTestRunIndex and openTestRunFile, registered by the two Managers that depend on
+// the RA (delivery, operations). Additions are the safe direction — nothing to drain.
 var registeredTemporalNamesGolden = []string{
 	"activityExecutionAccess.acknowledgeStaleBasis",
 	"activityExecutionAccess.appendReviewVerdict",
@@ -97,6 +101,10 @@ var registeredTemporalNamesGolden = []string{
 	"agenticJobAccess.cancelAgenticJob",
 	"agenticJobAccess.observeAgenticJob",
 	"agenticJobAccess.submitAgenticJob",
+	"artifactAccess.getTestRunIndex",
+	"artifactAccess.getTestRunIndex",
+	"artifactAccess.openTestRunFile",
+	"artifactAccess.openTestRunFile",
 	"artifactAccess.retrieveConstructionOutput",
 	"artifactAccess.retrieveConstructionOutput",
 	"artifactAccess.retrieveOutputTree",

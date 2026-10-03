@@ -109,6 +109,20 @@ func (a *genActivities) ProjectStateSetResearchInput(ctx context.Context, projec
 	return v, fwmanager.MapError(err)
 }
 
+// ArtifactGetTestRunIndex wraps artifactAccess.getTestRunIndex.
+// Registered as "artifactAccess.getTestRunIndex".
+func (a *genActivities) ArtifactGetTestRunIndex(ctx context.Context, run artifact.TestRunRef) (artifact.TestRunIndex, error) {
+	v, err := a.Artifact.GetTestRunIndex(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, run)
+	return v, fwmanager.MapError(err)
+}
+
+// ArtifactOpenTestRunFile wraps artifactAccess.openTestRunFile.
+// Registered as "artifactAccess.openTestRunFile".
+func (a *genActivities) ArtifactOpenTestRunFile(ctx context.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
+	v, err := a.Artifact.OpenTestRunFile(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, run, path)
+	return v, fwmanager.MapError(err)
+}
+
 // ArtifactRetrieveConstructionOutput wraps artifactAccess.retrieveConstructionOutput.
 // Registered as "artifactAccess.retrieveConstructionOutput".
 func (a *genActivities) ArtifactRetrieveConstructionOutput(ctx context.Context, contentAddress string) (artifact.ConstructionOutput, error) {
