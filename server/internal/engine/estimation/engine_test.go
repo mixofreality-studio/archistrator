@@ -718,22 +718,6 @@ func TestWorkerClassFor(t *testing.T) {
 	}
 }
 
-// The always-emit noncoding inventory has FIXED worker classes per Löwy ch. 9's distinct
-// quality roles — the test engineer writes the system test plan, the software tester
-// runs system testing. They must never collapse into one class. (The QA engineer is the
-// third role, but a ROLE booked as indirect cost, not an activity — so it has no row.)
-func TestWorkerClassForNoncodingInventory(t *testing.T) {
-	cases := map[string]string{
-		"N-STP": "test-engineer",
-		"N-IT":  "software-tester",
-	}
-	for name, want := range cases {
-		if got := noncodingInventoryClass(name); got != want {
-			t.Errorf("noncodingInventoryClass(%q) = %q, want %q", name, got, want)
-		}
-	}
-}
-
 func TestDefaultEffortFor(t *testing.T) {
 	cases := []struct {
 		kind string
@@ -974,8 +958,8 @@ func TestDeriveActivitiesNoSPAWorkWithoutAUISurface(t *testing.T) {
 }
 
 // Ruling 2 (founder, 2026-08-09): no I-* integration activity is ever derived. Table
-// 11-1 has none — only System Testing (N-IT) — and App A makes integration a PHASE of
-// every activity's own lifecycle, so a separate I-* would charge the same work twice.
+// 11-1 has none, and App A makes integration a PHASE of every activity's own lifecycle,
+// so a separate I-* would charge the same work twice.
 func TestDeriveActivitiesEmitsNoIntegrationActivities(t *testing.T) {
 	for _, a := range deriveActivities(sampleSystem()) {
 		if len(a.Name) > 2 && a.Name[:2] == "I-" {
@@ -984,27 +968,18 @@ func TestDeriveActivitiesEmitsNoIntegrationActivities(t *testing.T) {
 	}
 }
 
-// Table 11-1's noncoding activities are exactly the test plan (#4) and system testing
-// (#21); its design phases (#1-3) are Phases 1-2 here and appear only as M0. There is
-// NO harness (#5 — platform-generated), no smoke/build automation (platform
-// infrastructure), no performance testing (not in Table 11-1; a justified additive if a
-// project needs it) and no QA activity (QA is a role, booked as indirect cost). The SET
-// is asserted, so re-adding any of them fails.
-func TestDeriveActivitiesAlwaysEmitsTheTestingInventory(t *testing.T) {
-	got := names(deriveActivities(sampleSystem()))
-	var noncoding []string
-	for name := range got {
+// No N-* noncoding activity is derived. Table 11-1's test plan (#4) and system testing
+// (#21) were the always-emit inventory until deterministic component testing (spec
+// 2026-10-02 §7): each component's test plan is now derived and bound inside its own
+// lifecycle, and the testing task's gate replaces the terminal system test. The rest were
+// never derived: no harness (#5 — platform-generated), no smoke/build automation
+// (platform infrastructure), no performance testing (not in Table 11-1; a justified
+// additive if a project needs it) and no QA activity (QA is a role, booked as indirect
+// cost). The design phases (#1-3) are the design prefix. Re-adding any N-* row fails here.
+func TestDeriveActivitiesEmitsNoNoncodingInventory(t *testing.T) {
+	for name := range names(deriveActivities(sampleSystem())) {
 		if strings.HasPrefix(name, "N-") {
-			noncoding = append(noncoding, name)
-		}
-	}
-	sort.Strings(noncoding)
-	if want := []string{"N-IT", "N-STP"}; !reflect.DeepEqual(noncoding, want) {
-		t.Errorf("noncoding inventory = %v, want exactly %v", noncoding, want)
-	}
-	for _, name := range noncoding {
-		if a := got[name]; a.WorkerClass != noncodingInventoryClass(name) || a.Coding || a.ComponentID != "" {
-			t.Errorf("%s = %+v, want noncoding, componentless, worker class %q", name, a, noncodingInventoryClass(name))
+			t.Errorf("derived the noncoding activity %s; N-* rows are additives, never derived (spec §7)", name)
 		}
 	}
 }
@@ -1317,34 +1292,60 @@ func TestDeriveDependenciesRoutesTheClientAppToTheManagersItCalls(t *testing.T) 
 	}
 }
 
-// The SINK rule: system testing (N-IT) depends on every activity that nothing else
-// depends on — Table 11-1 #21 → 5, 19, 20. Here the sinks are the client app, the test
-// plan, and the vendor resource no component relationship reaches.
-func TestDeriveDependenciesSinkRuleFeedsSystemTesting(t *testing.T) {
+// terminalActivities returns the derived activities nothing else depends on, the design
+// prefix excluded (projectDesign's successor is the M0 milestone, which an activity-only
+// index cannot see).
+func terminalActivities(acts []DerivedActivity, deps map[string][]string) []string {
+	hasSuccessor := map[string]bool{}
+	for _, preds := range deps {
+		for _, p := range preds {
+			hasSuccessor[p] = true
+		}
+	}
+	var out []string
+	for _, a := range acts {
+		if !isDesignPrefix(a.Name) && !hasSuccessor[a.Name] {
+			out = append(out, a.Name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// There is NO sink rule (deterministic component testing, spec 2026-10-02 §7): system
+// testing (N-IT) is not derived, so nothing fans the terminals into one activity. The
+// network ends at every terminal: here the client app at the end of the longest chain
+// and the vendor resource no component relationship reaches.
+func TestDeriveDependenciesEndAtEveryTerminalActivity(t *testing.T) {
 	sys := edgeSystem()
-	got := depsByActivity(deriveDependencies(sys, deriveActivities(sys)))
-	if want := []string{"N-STP", "R-stripe", "U-SPA-web-client"}; !reflect.DeepEqual(got["N-IT"], want) {
-		t.Errorf("N-IT dependsOn = %v, want %v", got["N-IT"], want)
+	acts := deriveActivities(sys)
+	got := depsByActivity(deriveDependencies(sys, acts))
+	if _, ok := got["N-IT"]; ok {
+		t.Fatalf("a dependency row for N-IT survived: %v", got["N-IT"])
+	}
+	if want := []string{"R-stripe", "U-SPA-web-client"}; !reflect.DeepEqual(terminalActivities(acts, got), want) {
+		t.Errorf("terminal activities = %v, want %v", terminalActivities(acts, got), want)
 	}
 }
 
-// The sink rule is general: a headless system (no UI surface, so no client activity)
-// needs no special case — its managers simply become the sinks N-IT depends on.
-func TestDeriveDependenciesSinkRuleIsHeadlessSafe(t *testing.T) {
+// The absence of a sink rule is general: a headless system (no UI surface, so no client
+// activity) needs no special case — its manager simply becomes a terminal.
+func TestDeriveDependenciesTerminalsAreHeadlessSafe(t *testing.T) {
 	sys := edgeSystem()
 	for i := range sys.Components {
 		sys.Components[i].UiSurface = false
 	}
-	got := depsByActivity(deriveDependencies(sys, deriveActivities(sys)))
-	if want := []string{"C-order-manager", "N-STP", "R-stripe"}; !reflect.DeepEqual(got["N-IT"], want) {
-		t.Errorf("headless N-IT dependsOn = %v, want %v", got["N-IT"], want)
+	acts := deriveActivities(sys)
+	got := depsByActivity(deriveDependencies(sys, acts))
+	if want := []string{"C-order-manager", "R-stripe"}; !reflect.DeepEqual(terminalActivities(acts, got), want) {
+		t.Errorf("headless terminal activities = %v, want %v", terminalActivities(acts, got), want)
 	}
 }
 
 // The SOURCE rule: every activity with no other predecessor depends on M0, the SDP
 // review (ch. 11 "About Milestones": no construction activity starts before it) —
-// Table 11-1 #4, #9, #10 → 3. Here the roots are the test plan, the leaf utility and
-// the vendor resource; no other activity depends on M0.
+// Table 11-1 #4, #9, #10 → 3. Here the roots are the leaf utility and the vendor
+// resource; no other activity depends on M0.
 func TestDeriveDependenciesSourceRuleHangsEveryRootOffM0(t *testing.T) {
 	sys := edgeSystem()
 	got := depsByActivity(deriveDependencies(sys, deriveActivities(sys)))
@@ -1358,14 +1359,16 @@ func TestDeriveDependenciesSourceRuleHangsEveryRootOffM0(t *testing.T) {
 		}
 	}
 	sort.Strings(roots)
-	if want := []string{"C-logging", "N-STP", "R-stripe"}; !reflect.DeepEqual(roots, want) {
+	if want := []string{"C-logging", "R-stripe"}; !reflect.DeepEqual(roots, want) {
 		t.Errorf("activities hung off M0 = %v, want %v", roots, want)
 	}
 }
 
-// Together the two rules make the network one graph from M0 to N-IT: every activity has
-// a predecessor (so it has a CPM node and cannot start before the SDP review) and every
-// activity but N-IT has a successor (so none is an island off the schedule).
+// The source rule makes the network one graph rooted at M0: every activity has a
+// predecessor (so it has a CPM node and cannot start before the SDP review). With no
+// sink rule the graph has several ends: exactly the terminal activities have no activity
+// successor, and the set is asserted so an activity that silently lost its edges (an
+// island off the schedule) and a terminal that silently gained one both fail.
 //
 // The design prefix sits OUTSIDE that span, on purpose: `requirements` is the plan's true
 // root and so has no predecessor at all, and `projectDesign`'s only successor is M0 — a
@@ -1374,10 +1377,12 @@ func TestDeriveDependenciesSourceRuleHangsEveryRootOffM0(t *testing.T) {
 func TestDeriveDependenciesLeavesNoIsland(t *testing.T) {
 	for _, headless := range []bool{false, true} {
 		sys := edgeSystem()
+		terminals := map[string]bool{"R-stripe": true, "U-SPA-web-client": true}
 		if headless {
 			for i := range sys.Components {
 				sys.Components[i].UiSurface = false
 			}
+			terminals = map[string]bool{"R-stripe": true, "C-order-manager": true}
 		}
 		acts := deriveActivities(sys)
 		deps := depsByActivity(deriveDependencies(sys, acts))
@@ -1394,7 +1399,7 @@ func TestDeriveDependenciesLeavesNoIsland(t *testing.T) {
 					headless, a.Name, deps[a.Name], wantNoPredecessor)
 			}
 			// projectDesign's successor is the M0 milestone, not an activity.
-			wantNoActivitySuccessor := a.Name == "N-IT" || a.Name == "projectDesign"
+			wantNoActivitySuccessor := terminals[a.Name] || a.Name == "projectDesign"
 			if got := !hasSuccessor[a.Name]; got != wantNoActivitySuccessor {
 				t.Errorf("headless=%v: %s hasActivitySuccessor=%v, want %v",
 					headless, a.Name, hasSuccessor[a.Name], !wantNoActivitySuccessor)
@@ -1619,9 +1624,12 @@ func TestAdditiveMilestoneIsAppended(t *testing.T) {
 			Name: "N-DEP", Title: "Production deployment", EffortDays: 10, RiskBucket: 3,
 			WorkerClass: "senior-developer", Justification: "deployment is componentless project work",
 		}},
+		// The terminal release milestone fans in the deployment additive and the
+		// derived terminals (spec 2026-10-02 §7: with no derived N-IT, a project-end
+		// marker over the terminal activities is exactly what an additive milestone is for).
 		AdditiveMilestones: []AdditiveMilestone{{
-			Id: "M5", DependsOn: []string{"N-DEP", "N-IT"},
-			Justification: "v1 production live gates on deployment plus the terminal system-testing gate",
+			Id: "M5", DependsOn: []string{"N-DEP", "R-stripe", "U-SPA-web-client"},
+			Justification: "v1 production live gates on deployment plus every terminal activity",
 		}},
 	})
 	var found bool
@@ -1852,9 +1860,9 @@ func TestParityEmitsNoCodingActivityForProvidedUtilities(t *testing.T) {
 }
 
 // Ruling 2 (founder, 2026-08-09): no I-* integration activity is ever derived. Löwy's
-// Table 11-1 has none — only System Testing (N-IT) — and App A makes integration a
-// PHASE of every activity's own lifecycle, so a separate I-* would charge the same work
-// twice. Reachable: the fixture's 5 core use cases fed I-UC1..I-UC5 before this task.
+// Table 11-1 has none, and App A makes integration a PHASE of every activity's own
+// lifecycle, so a separate I-* would charge the same work twice. Reachable: the
+// fixture's 5 core use cases fed I-UC1..I-UC5 before this task.
 func TestParityEmitsNoIntegrationActivities(t *testing.T) {
 	for name := range parityNames(parityPlan(t)) {
 		if len(name) > 2 && name[:2] == "I-" {
@@ -1864,13 +1872,13 @@ func TestParityEmitsNoIntegrationActivities(t *testing.T) {
 }
 
 // table11_1Set is Löwy's Table 11-1 applied to the committed architecture (architect
-// ruling A1, 2026-09-12): #1-3 the design prefix, #4 test plan, #9-10 the vendor
-// resources, #11-13 the ResourceAccess components, #14-16 the Engines, #17-18 the
-// Managers, #19 the one UI-surface client, #21 system testing. #5 (harness) is
+// ruling A1, 2026-09-12): #1-3 the design prefix, #9-10 the vendor resources, #11-13
+// the ResourceAccess components, #14-16 the Engines, #17-18 the Managers, #19 the one
+// UI-surface client. #4 (test plan) and #21 (system testing) are retired by
+// deterministic component testing (spec 2026-10-02 §7, T5), #5 (harness) is
 // platform-generated, #6-8 (logging/security/pub-sub) are provided utilities.
 var table11_1Set = []string{
 	"requirements", "architecture", "projectDesign",
-	"N-STP",
 	"R-construction-pipeline-runtime", "R-github", "R-merchant-gateway", "R-operated-runtime",
 	"C-agentic-job-access", "C-artifact-access", "C-billing-state-access", "C-episode-access",
 	"C-merchant-gateway-access", "C-operated-runtime-access", "C-operated-system-state-access",
@@ -1879,13 +1887,14 @@ var table11_1Set = []string{
 	"C-intervention-engine", "C-operation-estimation-engine", "C-review-engine",
 	"C-billing-manager", "C-delivery-manager", "C-operations-manager",
 	"U-SPA-web-client",
-	"N-IT",
 }
 
 // The derived SET is an exact invariant, not a count or a lower bound — an emission rule
 // regressing to add or drop any activity fails here, by name. The 2026-09-12 founder
 // ruling (D9) removed twelve activities from the previous 40: G-SPA, U-SPA-S, the five
 // per-manager U-SPA-* screen activities, N-STH, N-RTH, N-SMOKE, N-PERF and N-QA.
+// Deterministic component testing (2026-10-02, spec §7) removed the last two N-* rows,
+// N-STP and N-IT, leaving 28.
 func TestParityDerivesExactlyTheTable11_1ActivitySet(t *testing.T) {
 	plan := parityPlan(t)
 	got := make([]string, 0, len(plan.Activities))
@@ -1902,10 +1911,11 @@ func TestParityDerivesExactlyTheTable11_1ActivitySet(t *testing.T) {
 
 // The network over the committed architecture: one dependency row per activity; the
 // client app depends (after transitive reduction) on exactly the managers it calls that
-// no other called manager already reaches; system testing depends on the two sinks; and
-// the 18 CONSTRUCTION roots — the four vendor resources, the seven engines, the six
-// ResourceAccess components that front no vendor resource, and the test plan — each hang
-// off M0. The design prefix is not among them: it runs UPSTREAM of M0.
+// no other called manager already reaches; the client app is the one terminal (every
+// other construction activity feeds a chain that ends in it — there is no N-IT fan-in
+// any more); and the 17 CONSTRUCTION roots — the four vendor resources, the seven
+// engines and the six ResourceAccess components that front no vendor resource — each
+// hang off M0. The design prefix is not among them: it runs UPSTREAM of M0.
 func TestParityDerivesTheTable11_1Network(t *testing.T) {
 	plan := parityPlan(t)
 	deps := depsByActivity(plan.Dependencies)
@@ -1916,8 +1926,8 @@ func TestParityDerivesTheTable11_1Network(t *testing.T) {
 	if want := []string{"C-billing-manager", "C-delivery-manager"}; !reflect.DeepEqual(deps["U-SPA-web-client"], want) {
 		t.Errorf("U-SPA-web-client dependsOn = %v, want %v", deps["U-SPA-web-client"], want)
 	}
-	if want := []string{"N-STP", "U-SPA-web-client"}; !reflect.DeepEqual(deps["N-IT"], want) {
-		t.Errorf("N-IT dependsOn = %v, want %v", deps["N-IT"], want)
+	if want := []string{"U-SPA-web-client"}; !reflect.DeepEqual(terminalActivities(plan.Activities, deps), want) {
+		t.Errorf("terminal activities = %v, want %v", terminalActivities(plan.Activities, deps), want)
 	}
 	var roots []string
 	for activity, preds := range deps {
@@ -1931,17 +1941,85 @@ func TestParityDerivesTheTable11_1Network(t *testing.T) {
 			roots = append(roots, activity)
 		}
 	}
-	if len(roots) != 18 {
-		t.Errorf("%d activities hang off M0, want 18: %v", len(roots), roots)
+	if len(roots) != 17 {
+		t.Errorf("%d activities hang off M0, want 17: %v", len(roots), roots)
 	}
 	for _, want := range []string{
-		"N-STP", "R-construction-pipeline-runtime", "R-github", "R-merchant-gateway", "R-operated-runtime",
+		"R-construction-pipeline-runtime", "R-github", "R-merchant-gateway", "R-operated-runtime",
 		"C-autoscaler-engine", "C-billing-engine", "C-design-health-engine", "C-estimation-engine",
 		"C-intervention-engine", "C-operation-estimation-engine", "C-review-engine",
 	} {
 		if !slices.Contains(roots, want) {
 			t.Errorf("%s is not hung off M0 (dependsOn %v)", want, deps[want])
 		}
+	}
+}
+
+// Deterministic component testing (spec 2026-10-02 §7, T5): the system test plan (N-STP)
+// and system testing (N-IT) are no longer derived — every component's tests are derived
+// from the dynamic views and bound in its own stp task — and nothing else may still
+// name N-IT as a predecessor. Asserted over the live-System fixture so a regression that
+// re-emits either row, or leaves a sink edge behind, fails by name.
+func TestDerivedPlanHasNoSystemTestActivities(t *testing.T) {
+	plan := parityPlan(t)
+	for _, a := range plan.Activities {
+		if a.Name == "N-STP" || a.Name == "N-IT" {
+			t.Fatalf("derived %s; the system test plan and system testing are retired (spec §7)", a.Name)
+		}
+	}
+	for _, d := range plan.Dependencies {
+		for _, p := range d.DependsOn {
+			if p == "N-IT" {
+				t.Fatalf("%s depends on N-IT; the sink rule is gone, so no edge may feed system testing", d.Activity)
+			}
+		}
+	}
+}
+
+// computeNetworkFor solves the CPM network over a derived plan, carrying the derived
+// efforts across as the activity list the solver prices from.
+func computeNetworkFor(t *testing.T, plan DerivedPlan) NetworkSolution {
+	t.Helper()
+	al := ActivityList{Activities: make([]ActivityItem, 0, len(plan.Activities))}
+	for _, a := range plan.Activities {
+		al.Activities = append(al.Activities, ActivityItem{Name: a.Name, EffortDays: a.EffortDays})
+	}
+	sol, err := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, Network{Dependencies: plan.Dependencies, Milestones: plan.Milestones})
+	if err != nil {
+		t.Fatalf("ComputeNetwork: %v", err)
+	}
+	return sol
+}
+
+// Without the sink rule the network ends at every terminal activity, not at one N-IT
+// fan-in. edgeSystem has two such terminals — the client app at the end of the longest
+// chain and the vendor resource nothing fronts — and the solver must still find the
+// critical path (the longest chain) and give the shorter terminal positive float, rather
+// than assuming a single sink.
+func TestNetworkWithMultipleSinksComputesFloat(t *testing.T) {
+	sys := edgeSystem()
+	plan, err := NewEstimationEngine().DerivePlan(fweng.Context{}, sys, ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("DerivePlan: %v", err)
+	}
+	sinks := terminalActivities(plan.Activities, depsByActivity(plan.Dependencies))
+	if want := []string{"R-stripe", "U-SPA-web-client"}; !reflect.DeepEqual(sinks, want) {
+		t.Fatalf("terminal activities = %v, want %v (two sinks, no N-IT)", sinks, want)
+	}
+
+	net := computeNetworkFor(t, plan)
+	if net.Summary.CriticalPathActivityCount == 0 || net.Summary.CriticalPathDays <= 0 {
+		t.Fatalf("critical path empty with multiple sinks: %+v", net.Summary)
+	}
+	client, stripe := net.Nodes["U-SPA-web-client"], net.Nodes["R-stripe"]
+	if !client.OnCriticalPath || client.TotalFloat > floatEpsilon {
+		t.Errorf("U-SPA-web-client ends the longest chain and must be critical: %+v", client)
+	}
+	if stripe.OnCriticalPath || stripe.TotalFloat <= 0 {
+		t.Errorf("R-stripe is the shorter terminal and must carry positive float: %+v", stripe)
+	}
+	if !approx(stripe.LatestFinish, net.Summary.TotalDurationDays) {
+		t.Errorf("a terminal activity's latest finish is the project end: LF %v, duration %v", stripe.LatestFinish, net.Summary.TotalDurationDays)
 	}
 }
 
@@ -2002,9 +2080,9 @@ func assertDesignPrefixChainsIntoM0(t *testing.T, plan DerivedPlan) {
 	}
 }
 
-// assertConstructionHangsOffM0NotThePrefix: M0 still fans OUT to every construction root,
-// no construction root accidentally acquired a design activity as a predecessor, and N-IT
-// is still the only sink — the prefix must not be swept into the sink rule.
+// assertConstructionHangsOffM0NotThePrefix: M0 still fans OUT to every construction root
+// and no construction activity acquired a design activity as a predecessor — the design
+// prefix's only way into construction is through M0.
 func assertConstructionHangsOffM0NotThePrefix(t *testing.T, plan DerivedPlan) {
 	t.Helper()
 	for _, d := range plan.Dependencies {
@@ -2015,11 +2093,6 @@ func assertConstructionHangsOffM0NotThePrefix(t *testing.T, plan DerivedPlan) {
 			if isDesignPrefix(p) {
 				t.Errorf("%s depends directly on the design activity %s; construction hangs off M0, not off the prefix", d.Activity, p)
 			}
-		}
-	}
-	for _, p := range depsByActivity(plan.Dependencies)["N-IT"] {
-		if isDesignPrefix(p) {
-			t.Errorf("system testing depends on %s; the design prefix ends at M0, not at N-IT", p)
 		}
 	}
 }
