@@ -23441,7 +23441,73 @@ func TestSDDispatchAnswerJob_LogsSubmitFailure(t *testing.T) {
 // it wires the projectState + (optional) rail + estimator + repoBase deps and leaves
 // the Temporal client / pipeline / repo-resolver nil (those ops never touch them).
 func newCatalogMgr(ps projectstate.ProjectStateAccess, sc sourcecontrol.SourceControlAccess, est estimation.EstimationEngine, repoBase string) *deliveryManager {
-	return newDesignFacade(nil, ps, nil, sc, nil, est, nil, nil, nil, repoBase)
+	return newCatalogMgrOrdered(ps, sc, est, repoBase, nil)
+}
+
+// newCatalogMgrOrdered is newCatalogMgr with the designSessionAccess the birth
+// design-prefix seed writes slots 9/10 through (seedDesignPrefixPlan). It is NOT optional:
+// a project born without a committed activityList/network cannot dispatch its first
+// activity, so the seam refuses rather than skipping, and every catalog-op test therefore
+// has to wire it. order, when non-nil, records the seed's calls so the birth call-ORDER
+// test can assert them beside the adopt/seat/create sequence.
+func newCatalogMgrOrdered(ps projectstate.ProjectStateAccess, sc sourcecontrol.SourceControlAccess,
+	est estimation.EstimationEngine, repoBase string, order *callOrder) *deliveryManager {
+	return newDesignFacade(nil, ps, nil, sc, nil, est, &fakeDesignSession{order: order}, nil, nil, repoBase)
+}
+
+// fakeDesignSession is the test double over the PUBLISHED
+// projectstate.DesignSessionAccess for the catalog ops. Only the two verbs project birth
+// drives — StageArtifactForReviewOnBranch and CommitArtifactWithProvenance — do anything;
+// it hands back a monotonically rising Version so the seed's optimistic-concurrency
+// threading is exercised, and records what it staged and committed.
+type fakeDesignSession struct {
+	order *callOrder
+
+	version projectstate.Version
+	staged  []projectstate.ArtifactKind
+	commits []projectstate.ArtifactKind
+}
+
+var _ projectstate.DesignSessionAccess = (*fakeDesignSession)(nil)
+
+func (f *fakeDesignSession) next() projectstate.Version {
+	f.version++
+	return f.version
+}
+
+func (f *fakeDesignSession) StageArtifactForReviewOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, model projectstate.ModelEnvelope, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.staged = append(f.staged, model.Kind)
+	if f.order != nil {
+		f.order.record("stage:" + model.Kind.WireName())
+	}
+	return f.next(), nil
+}
+
+func (f *fakeDesignSession) CommitArtifactWithProvenance(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _, _ string) (projectstate.Version, error) {
+	f.commits = append(f.commits, kind)
+	if f.order != nil {
+		f.order.record("commit:" + kind.WireName())
+	}
+	return f.next(), nil
+}
+
+func (f *fakeDesignSession) ReadProjectOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ string) (projectstate.ProjectEnvelope, error) {
+	return projectstate.ProjectEnvelope{}, nil
+}
+func (f *fakeDesignSession) RejectArtifactOnBranchWithComments(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeDesignSession) WithdrawArtifactOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeDesignSession) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeDesignSession) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeDesignSession) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
 }
 
 // TestCreateProject_NameIsIdentityAndCallsRAOnce proves NAME-AS-IDENTITY (C-PM-Δ):
@@ -23527,7 +23593,7 @@ func TestCreateProject_AdoptThenSeatThenCreate(t *testing.T) {
 	order := &callOrder{}
 	ps := &orderingProjectState{fakeProjectStateAccess: &fakeProjectStateAccess{}, order: order}
 	sc := &fakeSourceControl{order: order}
-	m := newCatalogMgr(ps, sc, nil, "")
+	m := newCatalogMgrOrdered(ps, sc, nil, "", order)
 
 	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "my-cool-system")
 	if err != nil {
@@ -23543,7 +23609,10 @@ func TestCreateProject_AdoptThenSeatThenCreate(t *testing.T) {
 	if ps.createCalls != 1 {
 		t.Fatalf("projectState.CreateProject called %d times, want 1", ps.createCalls)
 	}
-	want := []string{"adoptProjectRepo", "getInstallationToken", "commitManagedFiles", "createProject"}
+	// The design-prefix seed is the FOURTH step of birth and it lands LAST, after the row
+	// exists: slot 9 then slot 10, each staged then committed.
+	want := []string{"adoptProjectRepo", "getInstallationToken", "commitManagedFiles", "createProject",
+		"stage:activityList", "commit:activityList", "stage:network", "commit:network"}
 	if len(order.seq) != len(want) {
 		t.Fatalf("call order = %v, want %v", order.seq, want)
 	}
@@ -30226,25 +30295,15 @@ func Test_NextEligible_ACommittedPlanBelowConstructionSelectsNoConstructionWork(
 func TestCreateProject_BirthSeededPlanIsReplacedByTheDerivedPlan(t *testing.T) {
 	proj, ps, ds, _, id := birthProjectOverGit(t)
 	ctx := context.Background()
-	rac := func(key string) fwra.Context {
-		return fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(key)}
-	}
 	if proj.ActivityList.Revisions != 1 {
 		t.Fatalf("the birth activityList carries Revisions=%d, want 1 (one commit)", proj.ActivityList.Revisions)
 	}
 
 	// 1. The `architecture` activity commits slot 5. That is an UPSTREAM commit, so it
-	//    flags the two already-committed plan slots stale — which is the one new
-	//    behaviour the birth seed introduces and is exactly what an amendment does.
+	//    flags the two already-committed plan slots stale — the one new behaviour the
+	//    birth seed introduces, and exactly what any amendment does.
 	sys := &projectstate.System{Components: birthReplacementComponents}
-	v, err := ds.StageArtifactForReviewOnBranch(rac("sys:stage"), id, projectstate.Version(proj.Version), "",
-		mustEncodeModelForTest(t, sys), "sys:stage")
-	if err != nil {
-		t.Fatalf("stage the committed System: %v", err)
-	}
-	if v, err = ds.CommitArtifactWithProvenance(rac("sys:commit"), id, v, projectstate.KindSystem, "architect", "agent"); err != nil {
-		t.Fatalf("commit the System: %v", err)
-	}
+	v := commitSlotForTest(t, ds, id, projectstate.Version(proj.Version), projectstate.KindSystem, sys, "sys")
 	after, err := ps.ReadProject(fwra.Context{Context: ctx}, id)
 	if err != nil {
 		t.Fatalf("ReadProject after the System commit: %v", err)
@@ -30255,55 +30314,89 @@ func TestCreateProject_BirthSeededPlanIsReplacedByTheDerivedPlan(t *testing.T) {
 	}
 
 	// 2. M0's own path: re-derive over the committed architecture and commit both slots.
-	listModel, err := materializePhase2Draft(after, projectstate.KindActivityList, nil)
-	if err != nil {
-		t.Fatalf("materializePhase2Draft(activityList) over the committed System: %v", err)
-	}
-	// The birth-seeded slot 10 is where M0 reads its milestone decorations from
-	// (committedNetworkDecorations), and it names M0. The full derivation ALSO emits
-	// M1/M2/M3, whose Name has no derivation source at all, so the decorations are
-	// topped up here exactly as a drafting agent authors them on the dogfood project.
-	// EARMARK, PRE-EXISTING AND OUT OF THIS CHANGE'S SCOPE: on a real fresh project
-	// nobody tops them up, and materializeNetwork refuses the first anonymous milestone
-	// ("derived milestone \"M1\" has no authored Name"). The birth seed moves that
-	// refusal from M0 to M1; closing it needs a ruling on whether a derived milestone's
-	// name is authored or derived. See birthMilestoneNames.
-	decorations := committedNetworkDecorations(after)
-	authoredNet, ok := decorations.(*projectstate.Network)
-	if !ok {
-		t.Fatalf("committedNetworkDecorations returned %T, want *Network", decorations)
-	}
-	for id, name := range map[string]string{
-		"M1": "Infrastructure Provisioned", "M2": "Engines Complete", "M3": "Managers Complete",
-	} {
-		authoredNet.Milestones = append(authoredNet.Milestones,
-			projectstate.NetworkMilestone{ID: id, Name: name})
-	}
-	netModel, err := materializePhase2Draft(after, projectstate.KindNetwork, authoredNet)
-	if err != nil {
-		t.Fatalf("materializePhase2Draft(network) over the committed System: %v", err)
-	}
-	for i, slot := range []computedSlot{
-		{Kind: projectstate.KindActivityList, Model: listModel},
-		{Kind: projectstate.KindNetwork, Model: netModel},
-	} {
-		key := fmt.Sprintf("m0:%d", i)
-		if v, err = ds.StageArtifactForReviewOnBranch(rac(key+":stage"), id, v, "",
-			mustEncodeModelForTest(t, slot.Model), fwra.IdempotencyKey(key+":stage")); err != nil {
-			t.Fatalf("stage the derived %s: %v", slot.Kind.WireName(), err)
-		}
-		if v, err = ds.CommitArtifactWithProvenance(rac(key+":commit"), id, v, slot.Kind,
-			gateActorOperator, projectDesignDraftedBy); err != nil {
-			t.Fatalf("commit the derived %s: %v", slot.Kind.WireName(), err)
-		}
-	}
+	listModel, netModel := rederivedPlanSlotsForTest(t, after)
+	v = commitSlotForTest(t, ds, id, v, projectstate.KindActivityList, listModel, "m0:list")
+	_ = commitSlotForTest(t, ds, id, v, projectstate.KindNetwork, netModel, "m0:net")
 
 	// 3. Read back: the full derived plan has REPLACED the birth prefix.
 	final, err := ps.ReadProject(fwra.Context{Context: ctx}, id)
 	if err != nil {
 		t.Fatalf("ReadProject after M0: %v", err)
 	}
-	wantList, _, _, err := MaterializeActivityPlan(*sys, estimation.ActivityListDeltas{})
+	assertPlanReplaced(t, final, *sys)
+
+	// And the pump, at PhaseConstruction, now selects off the FULL plan.
+	final.Phase = projectstate.PhaseConstruction
+	final.ActivityExecution = map[string]projectstate.ActivityExecution{}
+	if sel := nextEligibleActivity(final, pumpEligibilityRule()); sel.Verdict != verdictDispatch ||
+		sel.Activity.ActivityID != "requirements" {
+		t.Fatalf("the replaced plan must still be selectable, got %+v", sel)
+	}
+}
+
+// commitSlotForTest stages a model on main and commits it, through the SAME two
+// designSessionAccess verbs the birth seed and M0 both use. Returns the new head version.
+func commitSlotForTest(t *testing.T, ds projectstate.DesignSessionAccess, id projectstate.ProjectID,
+	version projectstate.Version, kind projectstate.ArtifactKind, model projectstate.ArtifactModel, key string,
+) projectstate.Version {
+	t.Helper()
+	ctx := context.Background()
+	rac := func(k string) fwra.Context {
+		return fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(k)}
+	}
+	staged, err := ds.StageArtifactForReviewOnBranch(rac(key+":stage"), id, version, "",
+		mustEncodeModelForTest(t, model), fwra.IdempotencyKey(key+":stage"))
+	if err != nil {
+		t.Fatalf("stage %s: %v", kind.WireName(), err)
+	}
+	committed, err := ds.CommitArtifactWithProvenance(rac(key+":commit"), id, staged, kind,
+		gateActorOperator, projectDesignDraftedBy)
+	if err != nil {
+		t.Fatalf("commit %s: %v", kind.WireName(), err)
+	}
+	return committed
+}
+
+// rederivedPlanSlotsForTest runs the re-derivation computeProjectPlanSlots runs for slots
+// 9 and 10 over a project whose architecture is committed.
+//
+// The birth-seeded slot 10 is where M0 reads its milestone decorations from
+// (committedNetworkDecorations), and it names M0. The full derivation ALSO emits
+// M1/M2/M3, whose Name has no derivation source at all, so the decorations are topped up
+// here exactly as a drafting agent authors them on the dogfood project.
+//
+// EARMARK, PRE-EXISTING AND OUTSIDE THIS CHANGE'S SCOPE: on a real fresh project nobody
+// tops them up, and materializeNetwork refuses the first anonymous milestone (`derived
+// milestone "M1" has no authored Name`). The birth seed moves that refusal from M0 to M1;
+// closing it needs a ruling on whether a derived milestone's name is authored or derived.
+// See birthMilestoneNames (deliverymanager.go).
+func rederivedPlanSlotsForTest(t *testing.T, proj projectstate.Project) (projectstate.ArtifactModel, projectstate.ArtifactModel) {
+	t.Helper()
+	listModel, err := materializePhase2Draft(proj, projectstate.KindActivityList, nil)
+	if err != nil {
+		t.Fatalf("materializePhase2Draft(activityList) over the committed System: %v", err)
+	}
+	authoredNet, ok := committedNetworkDecorations(proj).(*projectstate.Network)
+	if !ok {
+		t.Fatal("committedNetworkDecorations did not return a *Network")
+	}
+	authoredNet.Milestones = append(authoredNet.Milestones, []projectstate.NetworkMilestone{
+		{ID: "M1", Name: "Infrastructure Provisioned"},
+		{ID: "M2", Name: "Engines Complete"},
+		{ID: "M3", Name: "Managers Complete"},
+	}...)
+	netModel, err := materializePhase2Draft(proj, projectstate.KindNetwork, authoredNet)
+	if err != nil {
+		t.Fatalf("materializePhase2Draft(network) over the committed System: %v", err)
+	}
+	return listModel, netModel
+}
+
+// assertPlanReplaced is the read-back half: the full derived plan, committed as the SECOND
+// revision of each slot, with the staleness the upstream commit set now reconciled.
+func assertPlanReplaced(t *testing.T, final projectstate.Project, sys projectstate.System) {
+	t.Helper()
+	wantList, _, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("MaterializeActivityPlan: %v", err)
 	}
@@ -30311,11 +30404,11 @@ func TestCreateProject_BirthSeededPlanIsReplacedByTheDerivedPlan(t *testing.T) {
 	for _, a := range wantList.Activities {
 		wantNames = append(wantNames, a.Name)
 	}
-	if got := activityNamesOf(t, final); !slices.Equal(got, wantNames) {
-		t.Fatalf("after M0 the committed plan = %v, want the full derived plan %v", got, wantNames)
-	}
 	if len(wantNames) <= 3 {
 		t.Fatal("the replacement fixture derives no construction work, so this test would pass vacuously")
+	}
+	if got := activityNamesOf(t, final); !slices.Equal(got, wantNames) {
+		t.Fatalf("after M0 the committed plan = %v, want the full derived plan %v", got, wantNames)
 	}
 	if final.ActivityList.Status != projectstate.ReviewCommitted || final.Network.Status != projectstate.ReviewCommitted {
 		t.Fatalf("the replaced slots are %v/%v, want both ReviewCommitted", final.ActivityList.Status, final.Network.Status)
@@ -30328,15 +30421,7 @@ func TestCreateProject_BirthSeededPlanIsReplacedByTheDerivedPlan(t *testing.T) {
 		t.Errorf("re-committing IS the reconcile: both plan slots must come out un-stale (activityList=%v network=%v)",
 			final.ActivityList.StaleBasis, final.Network.StaleBasis)
 	}
-	// And the pump, at PhaseConstruction, now selects off the FULL plan.
-	final.Phase = projectstate.PhaseConstruction
-	final.ActivityExecution = map[string]projectstate.ActivityExecution{}
-	if sel := nextEligibleActivity(final, pumpEligibilityRule()); sel.Verdict != verdictDispatch ||
-		sel.Activity.ActivityID != "requirements" {
-		t.Fatalf("the replaced plan must still be selectable, got %+v", sel)
-	}
 }
-
 func mustEncodeModelForTest(t *testing.T, model projectstate.ArtifactModel) projectstate.ModelEnvelope {
 	t.Helper()
 	env, err := encodeModel(model)
