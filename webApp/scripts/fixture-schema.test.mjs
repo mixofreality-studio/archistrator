@@ -44,7 +44,8 @@ void test('every uitests fixture passes the OAS-generated schema (and there are 
 // renamed by hand and two rows kept a CurrentPhase the new derivation no longer produces.
 // So the fixtures are checked against the SERVER'S OWN RULES, not merely against the
 // shape, and a future hand-edit fails here instead of in a preview nobody re-recorded.
-const firstIncompletePhase = (phases) => (phases ?? []).find((p) => !p.Completed)?.Phase ?? '';
+const firstIncompletePhase = (phases) =>
+  (phases ?? []).find((p) => !p.Completed)?.Phase ?? '';
 
 // The GATE task of each lifecycle phase, mirroring projectstate's own lifecyclePhaseTasks
 // (the method-assets lifecycles' `gate`). It is keyed on the PHASE ID alone, exactly as
@@ -83,7 +84,8 @@ void test('every construction fixture row is one the server could serve', () => 
     // The head-state read is the merged project view's `summary` kind (stage 4a):
     // ops.deliveryQueryProjectView.summary.result IS a DeliveryProjectView, and the
     // project state is its `summary` member.
-    const rows = doc_.ops?.deliveryQueryProjectView?.summary?.result?.summary?.activityExecution;
+    const rows =
+      doc_.ops?.deliveryQueryProjectView?.summary?.result?.summary?.activityExecution;
     if (!rows) continue;
     for (const [id, row] of Object.entries(rows)) {
       rowsChecked += 1;
@@ -92,9 +94,7 @@ void test('every construction fixture row is one the server could serve', () => 
       // zero value rather than deriving from a profile it refused to pick.
       const wantPhase = row.classified ? firstIncompletePhase(row.Phases) : '';
       if ((row.CurrentPhase ?? '') !== wantPhase) {
-        offences.push(
-          `${where}: CurrentPhase ${JSON.stringify(row.CurrentPhase)}, derived ${JSON.stringify(wantPhase)}`
-        );
+        offences.push(`${where}: CurrentPhase ${JSON.stringify(row.CurrentPhase)}, derived ${JSON.stringify(wantPhase)}`);
       }
       // `hasBuildEvidence` is `len(resolved) > 0`, and `resolved` is nil for an empty
       // ledger (projectstate.ResolvePhaseCompletions returns nil when there are no
@@ -102,14 +102,10 @@ void test('every construction fixture row is one the server could serve', () => 
       // the emitted `Phases` must agree, being the same resolved set.
       const wantEvidence = row.classified ? (row.attempts ?? []).length > 0 : false;
       if (row.hasBuildEvidence !== wantEvidence) {
-        offences.push(
-          `${where}: hasBuildEvidence ${row.hasBuildEvidence}, derived ${wantEvidence} from ${(row.attempts ?? []).length} attempts`
-        );
+        offences.push(`${where}: hasBuildEvidence ${row.hasBuildEvidence}, derived ${wantEvidence} from ${(row.attempts ?? []).length} attempts`);
       }
-      if ((row.Phases ?? []).length > 0 !== wantEvidence) {
-        offences.push(
-          `${where}: ${(row.Phases ?? []).length} emitted phases over ${(row.attempts ?? []).length} attempts — the phase set IS the resolved ledger`
-        );
+      if (((row.Phases ?? []).length > 0) !== wantEvidence) {
+        offences.push(`${where}: ${(row.Phases ?? []).length} emitted phases over ${(row.attempts ?? []).length} attempts — the phase set IS the resolved ledger`);
       }
       // THE LEDGER IS THE ONLY THING THAT CAN COMPLETE A PHASE. App A's binary exit
       // criterion, as projectstate.phaseCompleteFromAttempts implements it: a phase is
@@ -121,9 +117,7 @@ void test('every construction fixture row is one the server could serve', () => 
         if (!phase.Completed) continue;
         const gate = GATE_TASK[phase.Phase];
         if (gate === undefined) {
-          offences.push(
-            `${where}: ${phase.Phase} is a lifecycle phase GATE_TASK cannot name; add its gate from methodassets.Lifecycles()`
-          );
+          offences.push(`${where}: ${phase.Phase} is a lifecycle phase GATE_TASK cannot name; add its gate from methodassets.Lifecycles()`);
           continue;
         }
         const attempts = (row.attempts ?? []).filter((a) => a.task === gate);
@@ -188,7 +182,8 @@ void test('every preview fixture describes the contracts the model actually hold
     assert.deepEqual(errors, [], `${root}: fixtures must validate before they are read`);
     for (const file of files) {
       const where = file.split('/').slice(-2).join('/');
-      const summary = JSON.parse(readFileSync(file, 'utf8')).ops?.deliveryQueryProjectView?.summary;
+      const summary = JSON.parse(readFileSync(file, 'utf8')).ops?.deliveryQueryProjectView
+        ?.summary;
       if (summary?.result === undefined) {
         skipped.push(where);
         continue;
@@ -375,10 +370,7 @@ const activityViews = (root) => {
 const FIXTURE_ROOTS = [UITESTS_FIXTURES, DESIGN_FIXTURES];
 
 void test('the activity-experience fixtures are recorded where the preview can open them', () => {
-  const states = (root) =>
-    activityViews(root)
-      .map(([p]) => p.slice(p.lastIndexOf('/') + 1))
-      .sort();
+  const states = (root) => activityViews(root).map(([p]) => p.slice(p.lastIndexOf('/') + 1)).sort();
   assert.deepEqual(states(UITESTS_FIXTURES), [
     'architecture-round.json',
     'construction-round-withdrawn.json',
@@ -402,16 +394,10 @@ void test('the activity-experience fixtures answer the one read, with a closed t
     for (const [f, view] of activityViews(root)) {
       const ids = new Set(view.tasks.map((t) => t.id));
       for (const t of view.tasks) {
-        for (const dep of t.dependsOn)
-          assert.ok(ids.has(dep), `${f}: ${t.id} depends on unknown ${dep}`);
-        if (t.reviews !== undefined)
-          assert.ok(ids.has(t.reviews), `${f}: ${t.id} reviews unknown ${t.reviews}`);
+        for (const dep of t.dependsOn) assert.ok(ids.has(dep), `${f}: ${t.id} depends on unknown ${dep}`);
+        if (t.reviews !== undefined) assert.ok(ids.has(t.reviews), `${f}: ${t.id} reviews unknown ${t.reviews}`);
       }
-      assert.equal(
-        view.phases.reduce((sum, p) => sum + p.weight, 0),
-        100,
-        `${f}: weights`
-      );
+      assert.equal(view.phases.reduce((sum, p) => sum + p.weight, 0), 100, `${f}: weights`);
     }
   }
 });
@@ -431,10 +417,7 @@ void test('every activity-experience fixture is a view the server could derive',
       const byId = new Map(view.tasks.map((t) => [t.id, t]));
       for (const phase of view.phases) {
         const gate = byId.get(phase.gateTaskId);
-        assert.ok(
-          gate !== undefined,
-          `${path}: phase ${phase.id} names a gate task that is not in tasks[]`
-        );
+        assert.ok(gate !== undefined, `${path}: phase ${phase.id} names a gate task that is not in tasks[]`);
         assert.equal(
           phase.completed,
           gate.state === 'passed',
@@ -443,25 +426,15 @@ void test('every activity-experience fixture is a view the server could derive',
       }
       for (const task of view.tasks) {
         const ns = task.revisions.map((r) => r.n);
-        assert.deepEqual(
-          ns,
-          [...ns].sort((a, b) => a - b),
-          `${path}: ${task.id} revisions must be oldest first`
-        );
-        assert.ok(
-          ns.every((n) => n >= 1),
-          `${path}: ${task.id} revisions are 1-based`
-        );
+        assert.deepEqual(ns, [...ns].sort((a, b) => a - b), `${path}: ${task.id} revisions must be oldest first`);
+        assert.ok(ns.every((n) => n >= 1), `${path}: ${task.id} revisions are 1-based`);
         // A dispatch task and its reviewer share revision numbers: revision n IS the n-th
         // work that reached the gate and the n-th gate attempt that judged it. A review
         // cannot judge work that was never produced.
         if (task.reviews !== undefined) {
           const work = byId.get(task.reviews).revisions.map((r) => r.n);
           for (const n of ns) {
-            assert.ok(
-              work.includes(n),
-              `${path}: ${task.id} judges revision ${n}, which ${task.reviews} never produced`
-            );
+            assert.ok(work.includes(n), `${path}: ${task.id} judges revision ${n}, which ${task.reviews} never produced`);
           }
         }
       }
@@ -505,12 +478,10 @@ void test('the activity-experience fixtures hold a persisted round AND a reconst
         const where = `${f.slice(f.lastIndexOf('/') + 1)} ${task.id}#${rev.n}`;
         const round = ROUND_ONLY.some((k) => rev[k] !== undefined);
         if (task.kind === 'dispatch') {
-          if (round || rev.round !== undefined)
-            offences.push(`${where}: a dispatch revision has no round`);
+          if (round || rev.round !== undefined) offences.push(`${where}: a dispatch revision has no round`);
           continue;
         }
-        if (rev.round === undefined)
-          offences.push(`${where}: a review revision carries the round it is`);
+        if (rev.round === undefined) offences.push(`${where}: a review revision carries the round it is`);
         if (!round) {
           reconstructed += 1;
           if (rev.provenance === 'observed') {
@@ -519,43 +490,31 @@ void test('the activity-experience fixtures hold a persisted round AND a reconst
           continue;
         }
         persisted += 1;
-        if (rev.provenance !== 'observed')
-          offences.push(`${where}: a round a run wrote is observed, not ${rev.provenance}`);
+        if (rev.provenance !== 'observed') offences.push(`${where}: a round a run wrote is observed, not ${rev.provenance}`);
         for (const k of ['subjectRef', 'reviewers']) {
           if (rev[k] === undefined) offences.push(`${where}: a persisted round carries ${k}`);
         }
-        if (rev.startedAt === undefined)
-          offences.push(`${where}: a round is opened before it is judged, so it has a startedAt`);
+        if (rev.startedAt === undefined) offences.push(`${where}: a round is opened before it is judged, so it has a startedAt`);
         // WITHDRAWN IS A DECISION TOO, and one nobody judged. `WithdrawReviewRound`
         // decides the round `RoundWithdrawn` with `decidedByOperator` (deliverymanager.go),
         // and `roundRevisions` derives `endedAt` FROM `decidedAt` for every round alike —
         // so a withdrawn round carries the same decision stamps a passed one does. What it
         // does NOT carry is a verdict (nobody reviewed it) or a gate attempt (the rail
         // never wrote one), which is why those two arms name `judged` instead.
-        const decided =
-          rev.outcome === 'passed' || rev.outcome === 'sentBack' || rev.outcome === 'withdrawn';
+        const decided = rev.outcome === 'passed' || rev.outcome === 'sentBack' || rev.outcome === 'withdrawn';
         const judged = rev.outcome === 'passed' || rev.outcome === 'sentBack';
-        if (decided !== (rev.decidedBy !== undefined))
-          offences.push(`${where}: outcome ${rev.outcome} vs decidedBy ${rev.decidedBy}`);
-        if (decided !== (rev.decidedAt !== undefined))
-          offences.push(`${where}: outcome ${rev.outcome} vs decidedAt ${rev.decidedAt}`);
+        if (decided !== (rev.decidedBy !== undefined)) offences.push(`${where}: outcome ${rev.outcome} vs decidedBy ${rev.decidedBy}`);
+        if (decided !== (rev.decidedAt !== undefined)) offences.push(`${where}: outcome ${rev.outcome} vs decidedAt ${rev.decidedAt}`);
         if ((rev.endedAt ?? undefined) !== rev.decidedAt) {
-          offences.push(
-            `${where}: a round ends when it is decided — endedAt ${rev.endedAt} vs decidedAt ${rev.decidedAt}`
-          );
+          offences.push(`${where}: a round ends when it is decided — endedAt ${rev.endedAt} vs decidedAt ${rev.decidedAt}`);
         }
         if (!judged && rev.attemptIds.length > 0) {
-          offences.push(
-            `${where}: a round nobody judged has no gate attempt, but cites ${rev.attemptIds}`
-          );
+          offences.push(`${where}: a round nobody judged has no gate attempt, but cites ${rev.attemptIds}`);
         }
         if (judged && (rev.verdicts ?? []).length === 0) {
           offences.push(`${where}: a decided round carries the deciding reviewer's verdict`);
         }
-        if (
-          rev.outcome === 'sentBack' &&
-          !(rev.verdicts ?? []).some((v) => v.verdict === 'sendBack')
-        ) {
+        if (rev.outcome === 'sentBack' && !(rev.verdicts ?? []).some((v) => v.verdict === 'sendBack')) {
           offences.push(`${where}: a sentBack round was sent back by someone`);
         }
         // `note` is the send-back's prose and nothing else: a round that PASSED over one
@@ -564,26 +523,15 @@ void test('the activity-experience fixtures hold a persisted round AND a reconst
         if ((rev.note !== undefined) !== (rev.outcome === 'sentBack')) {
           offences.push(`${where}: outcome ${rev.outcome} vs note ${JSON.stringify(rev.note)}`);
         }
-        if (
-          (rev.thread ?? []).length !== rev.commentCount ||
-          (rev.comments ?? []).length !== rev.commentCount
-        ) {
-          offences.push(
-            `${where}: comments are the thread's flat projection — ${(rev.thread ?? []).length} thread, ${(rev.comments ?? []).length} comments, count ${rev.commentCount}`
-          );
+        if ((rev.thread ?? []).length !== rev.commentCount || (rev.comments ?? []).length !== rev.commentCount) {
+          offences.push(`${where}: comments are the thread's flat projection — ${(rev.thread ?? []).length} thread, ${(rev.comments ?? []).length} comments, count ${rev.commentCount}`);
         }
       }
     }
   }
   assert.deepEqual(offences, []);
-  assert.ok(
-    persisted > 0,
-    'no fixture exercises a persisted round; the new members render nowhere'
-  );
-  assert.ok(
-    reconstructed > 0,
-    'no fixture exercises a pre-ledger row; the reconstruction renders nowhere'
-  );
+  assert.ok(persisted > 0, 'no fixture exercises a persisted round; the new members render nowhere');
+  assert.ok(reconstructed > 0, 'no fixture exercises a pre-ledger row; the reconstruction renders nowhere');
 });
 
 // A REVIEW REVISION IS EITHER A PROJECTION OR A RECONSTRUCTION, AND NEVER BOTH. The test
@@ -604,51 +552,24 @@ void test('a revision provenance matches what it carries', () => {
       for (const rev of task.revisions) {
         const where = `${path.slice(path.lastIndexOf('/') + 1)}: ${task.id} rev ${rev.n}`;
         const unjudgedRound =
-          rev.round !== undefined &&
-          (rev.outcome === 'awaitingHuman' || rev.outcome === 'withdrawn');
+          rev.round !== undefined && (rev.outcome === 'awaitingHuman' || rev.outcome === 'withdrawn');
         if (!unjudgedRound) {
-          assert.ok(
-            rev.attemptIds.length >= 1,
-            `${where}: a revision is its attempts, and cites none`
-          );
+          assert.ok(rev.attemptIds.length >= 1, `${where}: a revision is its attempts, and cites none`);
         } else {
-          assert.deepEqual(
-            rev.attemptIds,
-            [],
-            `${where}: a round nobody judged has no gate attempt`
-          );
+          assert.deepEqual(rev.attemptIds, [], `${where}: a round nobody judged has no gate attempt`);
         }
         if (task.kind !== 'review') continue;
         reviewRevisions += 1;
         if (rev.provenance === 'backfilled' || rev.provenance === 'synthesized') {
-          assert.deepEqual(
-            rev.reviewers ?? [],
-            [],
-            `${where}: a reconstructed revision has an empty roster`
-          );
-          assert.equal(
-            rev.decidedAt,
-            undefined,
-            `${where}: a reconstructed revision carries no decision stamp`
-          );
-          assert.equal(
-            rev.subjectRef,
-            undefined,
-            `${where}: a reconstructed revision names no subject`
-          );
+          assert.deepEqual(rev.reviewers ?? [], [], `${where}: a reconstructed revision has an empty roster`);
+          assert.equal(rev.decidedAt, undefined, `${where}: a reconstructed revision carries no decision stamp`);
+          assert.equal(rev.subjectRef, undefined, `${where}: a reconstructed revision names no subject`);
         }
         // An OBSERVED review revision is a round, and a round that reached a terminal was
         // decided by someone at a moment the store stamped. `running` and `awaitingHuman`
         // are the two outcomes that mean it has not: the round is open.
-        if (
-          rev.provenance === 'observed' &&
-          rev.outcome !== 'running' &&
-          rev.outcome !== 'awaitingHuman'
-        ) {
-          assert.ok(
-            rev.decidedAt !== undefined,
-            `${where}: a decided, observed revision carries decidedAt`
-          );
+        if (rev.provenance === 'observed' && rev.outcome !== 'running' && rev.outcome !== 'awaitingHuman') {
+          assert.ok(rev.decidedAt !== undefined, `${where}: a decided, observed revision carries decidedAt`);
         }
       }
     }
