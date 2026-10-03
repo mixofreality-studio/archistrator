@@ -17,6 +17,7 @@ import type { ArtifactRendererProps, AsyncArtifactData } from '../artifactRender
 import { StatTile } from '../primitives/StatTile';
 import {
   goTestOutputFor,
+  isNoRecordedRun,
   summarize,
   tabsFor,
   venueRunUrl,
@@ -223,7 +224,7 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
         data-testid={UI_IDENTIFIERS.Construction.TEST_RUN_PANEL}
         sx={{ color: t.muted, fontSize: 12.5, lineHeight: 1.5 }}
       >
-        {q.error !== null
+        {q.error !== null && !isNoRecordedRun(q.error)
           ? `No test run to show: ${q.error.message}`
           : 'No test run recorded for this activity yet. The venue records one when the integration task runs the generated scenarios.'}
       </Typography>

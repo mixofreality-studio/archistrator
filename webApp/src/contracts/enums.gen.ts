@@ -978,4 +978,4 @@ export const TESTING_VARIANT_ORDINAL_TO_GO_VARNAME: readonly (
   | undefined
 )[] = [undefined, 'TestVariantHarness', 'TestVariantPerf', undefined, 'TestVariantQAProcess'];
 
-// NOT mechanically derivable to an app string: Local type name is "TestingVariant" but the Go consts use the short prefix "Test" (TestVariantPlan, ...) — "Test" is not a whole-word run of "TestingVariant", so no candidate strips and the mechanical derivation falls through to the full lowerFirst varname ("testVariantPlan"). enums.ts testingVariantFromOrdinal instead returns short forms ("plan"/"harness"/"perf"/"systemTest"/"qaProcess"). Not mechanically derivable.
+// NOT mechanically derivable to an app string: Local type name is "TestingVariant" but the Go consts use the short prefix "Test" (TestVariantHarness, ...) — "Test" is not a whole-word run of "TestingVariant", so no candidate strips and the mechanical derivation falls through to the full lowerFirst varname ("testVariantHarness"). enumMappings.ts testingVariantFromOrdinal instead returns short forms ("harness"/"perf"/"qaProcess"). Not mechanically derivable.

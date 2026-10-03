@@ -158,10 +158,10 @@ const NON_MECHANICAL = {
     'entirely for 2 of 3 members. Semantic naming diff, not a bug.',
   TestingVariant:
     'Local type name is "TestingVariant" but the Go consts use the short prefix "Test" ' +
-    '(TestVariantPlan, ...) — "Test" is not a whole-word run of "TestingVariant", so no ' +
+    '(TestVariantHarness, ...) — "Test" is not a whole-word run of "TestingVariant", so no ' +
     'candidate strips and the mechanical derivation falls through to the full lowerFirst ' +
-    'varname ("testVariantPlan"). enums.ts testingVariantFromOrdinal instead returns short ' +
-    'forms ("plan"/"harness"/"perf"/"systemTest"/"qaProcess"). Not mechanically derivable.',
+    'varname ("testVariantHarness"). enumMappings.ts testingVariantFromOrdinal instead returns ' +
+    'short forms ("harness"/"perf"/"qaProcess"). Not mechanically derivable.',
 };
 
 /** Logical output names with no existing hand-table counterpart to verify
