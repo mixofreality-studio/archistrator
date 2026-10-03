@@ -2011,6 +2011,48 @@ func TestProjectEnvelope_RoundTrip_PreservesOperatorPaused(t *testing.T) {
 	}
 }
 
+// The venue's recorded runs cross the readProjectOnBranch boundary (deterministic component
+// testing §6.5): the testing gate reads them off the ACTIVITY BRANCH through the envelope,
+// so an envelope that dropped .testingState would hand the gate a run-less project and hold
+// every service/frontend activity. A project with no testing state keeps its payload
+// byte-identical (no key).
+func TestProjectEnvelope_RoundTrip_PreservesTestingState(t *testing.T) {
+	run := TestRun{ID: "r1", Activity: "C-BG", Component: "billingManager", Revision: "C-BG:integration:1", Artifact: "test-results-C-BG-r1",
+		Scenarios: []ScenarioResult{{Scenario: "s1", Status: "pass", DurationMs: 3}}}
+	p := Project{ID: ProjectID(uuid.NewString()), Version: 7, TestingState: &TestingState{TestRuns: []TestRun{run}}}
+	env, err := EncodeProject(p)
+	if err != nil {
+		t.Fatalf("EncodeProject: %v", err)
+	}
+	raw, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	var wire ProjectEnvelope
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	got, err := wire.Decode()
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if got.TestingState == nil || len(got.TestingState.TestRuns) != 1 || !reflect.DeepEqual(got.TestingState.TestRuns[0], run) {
+		t.Fatalf("Decode dropped the recorded run: %+v", got.TestingState)
+	}
+
+	bare, err := EncodeProject(Project{ID: ProjectID(uuid.NewString()), Version: 1})
+	if err != nil {
+		t.Fatalf("EncodeProject(bare): %v", err)
+	}
+	rawBare, err := json.Marshal(bare)
+	if err != nil {
+		t.Fatalf("marshal bare envelope: %v", err)
+	}
+	if bytes.Contains(rawBare, []byte("testingState")) {
+		t.Fatalf("an envelope with no testing state must omit the key, got %s", rawBare)
+	}
+}
+
 func TestEncodeProject_SkipsUnpopulatedSlots(t *testing.T) {
 	p := Project{ID: "proj-1", Version: 3, Phase: 1}
 	env, err := EncodeProject(p)

@@ -49,9 +49,10 @@ type recordPhaseArtifactInput struct {
 
 // recordTestingStateInput carries a testing-state payload (a PhaseArtifactPayload with
 // exactly one project-level testing field set). mapKey is unused for testing-state
-// singletons, so it is not an input.
+// singletons, so it is not an input. TestRun is NOT among the admitted fields: the run is
+// the venue's record (record-test-run), never the agent's claim.
 type recordTestingStateInput struct {
-	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE testing-state field set (HarnessModule, PerfHarness, QualityGate, TestRun, Defect, or QualityAuditReport)"`
+	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE testing-state field set (HarnessModule, PerfHarness, QualityGate, Defect, or QualityAuditReport); a TestRun is refused — the venue's record-test-run step records runs"`
 }
 
 // applyConstructionMutation is the shared validate-then-write core for the construction
@@ -139,6 +140,13 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 
 // recordTestingState routes a testing-state payload into .testingState (project-level
 // singletons/slices; mapKey unused), via the same server routing.
+//
+// THE RUN HALF IS REFUSED (deterministic component testing, §6.1: record-test-run
+// "replaces the run half of recordTestingState"). The testing gate judges the venue's
+// evidence, not an agent's claim, and a verb the agent can call that appended a TestRun
+// would let a fabricated all-pass run, stamped with the judged attempt id, pass that gate.
+// The routing (ApplyPhaseArtifactPayload) still carries TestRun because the venue's
+// subcommand goes through it; only this agent-facing entry closes the door.
 func (s *Session) recordTestingState(payload map[string]any) error {
 	if s.ActivityID == "" {
 		return fmt.Errorf("recordTestingState needs the ambient activity (AIARCH_ACTIVITY_ID); this construct job has none")
@@ -146,6 +154,11 @@ func (s *Session) recordTestingState(payload map[string]any) error {
 	pl, err := decodePhaseArtifactPayload(payload)
 	if err != nil {
 		return err
+	}
+	if pl.TestRun != nil {
+		return fmt.Errorf("recordTestingState does not record test runs: a run is the venue's measured evidence, " +
+			"recorded by the workflow's `record-test-run` step from the test-results the scenario host flushed — " +
+			"an agent cannot claim one")
 	}
 	return s.applyConstructionMutation("testing state", func(p *projectstate.Project) error {
 		projectstate.ApplyPhaseArtifactPayload(p, "", pl)

@@ -3744,6 +3744,13 @@ type ProjectEnvelope struct {
 	LegacyActivityConstruction map[string]LegacyActivityConstructionRow `json:"activityConstruction,omitempty"`
 	ServiceContracts           map[string]ServiceContract               `json:"serviceContracts,omitempty"`
 	ReviewPolicy               *ReviewPolicy                            `json:"reviewPolicy,omitempty"`
+	// TestingState is the fourth construction-fidelity section (deterministic component
+	// testing, §6.5): the venue's recorded runs (.testingState.testRuns) live on the
+	// ACTIVITY BRANCH until finalizeWalk merges it, and the testing gate reads them across
+	// this boundary — readProjectOnBranch is the one branch-aware read a workflow has, and
+	// without this member it decoded a project with no runs on it. omitempty keeps every
+	// payload without a testing state byte-identical to before.
+	TestingState *TestingState `json:"testingState,omitempty"`
 
 	// OperatorPaused / PauseReason carry the operator's RECORDED pause
 	// (RecordOperatorPaused) across the boundary: the construction pump's
@@ -3766,6 +3773,7 @@ func EncodeProject(p Project) (ProjectEnvelope, error) {
 	// (omitempty), so non-construction payloads are byte-identical to before.
 	out.ActivityExecution = p.ActivityExecution
 	out.ServiceContracts = p.ServiceContracts
+	out.TestingState = p.TestingState
 	out.OperatorPaused = p.OperatorPaused
 	out.PauseReason = p.PauseReason
 	if len(p.ReviewPolicy.GatedPhasesByType) != 0 || p.ReviewPolicy.Preset != nil {
@@ -3803,6 +3811,7 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 	// decode to nil/zero, exactly the pre-construction Project state.
 	p.ActivityExecution = activityExecutionOrLegacy(e.ActivityExecution, e.LegacyActivityConstruction)
 	p.ServiceContracts = e.ServiceContracts
+	p.TestingState = e.TestingState
 	p.OperatorPaused = e.OperatorPaused
 	p.PauseReason = e.PauseReason
 	if e.ReviewPolicy != nil {
