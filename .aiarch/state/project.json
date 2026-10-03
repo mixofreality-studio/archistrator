@@ -440,19 +440,6 @@
             ]
           },
           {
-            "activity": "N-IT",
-            "dependsOn": [
-              "N-STP",
-              "U-SPA-web-client"
-            ]
-          },
-          {
-            "activity": "N-STP",
-            "dependsOn": [
-              "M0"
-            ]
-          },
-          {
             "activity": "R-construction-pipeline-runtime",
             "dependsOn": [
               "M0"
@@ -500,7 +487,6 @@
           "C-billing-manager",
           "C-operated-runtime-access",
           "C-operations-manager",
-          "N-IT",
           "R-operated-runtime",
           "U-SPA-web-client",
           "architecture",
@@ -549,6 +535,14 @@
               "C-billing-manager",
               "C-delivery-manager",
               "C-operations-manager"
+            ]
+          },
+          {
+            "id": "MEND",
+            "name": "Project End",
+            "public": false,
+            "dependsOn": [
+              "U-SPA-web-client"
             ]
           }
         ]
@@ -9714,22 +9708,6 @@
             "riskBucket": 2,
             "title": "Build UsageAccess",
             "componentId": "usage-access"
-          },
-          {
-            "name": "N-IT",
-            "effortDays": 30,
-            "workerClass": "software-tester",
-            "coding": false,
-            "riskBucket": 5,
-            "title": "System testing (terminal gate)"
-          },
-          {
-            "name": "N-STP",
-            "effortDays": 15,
-            "workerClass": "test-engineer",
-            "coding": false,
-            "riskBucket": 3,
-            "title": "System test plan (all core use cases)"
           },
           {
             "name": "R-construction-pipeline-runtime",
