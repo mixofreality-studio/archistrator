@@ -4871,7 +4871,8 @@ func materializePhase2Draft(
 	// the work that produces it — so the activity list is never empty and the old form of
 	// this guard would now be dead code. It is the same reachable rule stated where it is
 	// still true: the empty System was always the only input that produced an empty list
-	// (a fully suppressed architecture still derives N-STP and N-IT).
+	// (a fully suppressed architecture still derives the design prefix; it no longer
+	// derives N-STP/N-IT either — deterministic component testing, spec §7).
 	if len(sys.Components) == 0 {
 		return nil, fwmanager.New(fwmanager.FailedPrecondition,
 			"the committed systemDesign holds ZERO components, so it derives ZERO construction activities — fix slot 5 before staging a plan")
