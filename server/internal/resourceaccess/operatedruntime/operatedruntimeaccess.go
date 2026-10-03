@@ -39,7 +39,7 @@ import (
 // the one generated constructor, selected by the composition root:
 //
 //   - LOCAL / dry-run (RuntimeProfileLocal): a deterministic, side-effect-free impl for
-//     dogfood / dev / systemtests. Publishes and withdraws are accepted no-ops; the
+//     dogfood / dev. Publishes and withdraws are accepted no-ops; the
 //     observe reads report a fixed Healthy / SLO-met snapshot; ReadComputeAttribution
 //     invents NO usage facts (empty RuntimeEventID ⇒ the Manager appends nothing). This
 //     mirrors the construction DRYRUN profile (cmd/server/construction_dryrun.go).

@@ -890,10 +890,7 @@ func TestDedupTokenDeterminism(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // newSharedRepo creates the real throwaway SHARED repo the local executor operates
-// `git worktree` on, seeded with one empty commit on "main". Mirrors
-// systemtests/internal/harness/localgit.go's StartLocalGitRepo but reimplemented
-// here (this test lives in the server module; the harness module is a sibling
-// the RA layer must not import).
+// `git worktree` on, seeded with one empty commit on "main".
 //
 // NON-BARE, deliberately (SP1 capture seam, Task 5): the per-episode trace sink
 // is <repoPath>/.aiarch/traces, and THE TRUST RULE

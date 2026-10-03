@@ -15,5 +15,4 @@ use (
 	../archistrator-platform/framework-go-scenariohost
 	../archistrator-platform/method-assets
 	./server
-	./systemtests
 )

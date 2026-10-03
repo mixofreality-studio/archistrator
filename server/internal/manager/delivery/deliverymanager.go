@@ -457,8 +457,8 @@ func mapSignalError(err error) error {
 // QA 2026-07-19 (poll-404 wizard reset): this used to substring-match "not
 // found"/"NotFound" over ANY error, which classified *serviceerror.
 // NamespaceNotFound ("Namespace default is not found" — the server talking to
-// a wrong/foreign Temporal backend, observed live when the systemtests dev
-// server took over the shared port) as the authoritative "no active design
+// a wrong/foreign Temporal backend, observed live when another tool's dev
+// Temporal took over the shared port) as the authoritative "no active design
 // session" NotFound. The SPA trusts that 404 and resets the wizard, so a
 // backend-identity fault destroyed client state. Only the typed
 // execution-NotFound may claim session absence; everything else stays an

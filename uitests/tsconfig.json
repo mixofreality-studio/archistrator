@@ -13,5 +13,5 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["tests", "playwright.config.ts"]
+  "include": ["generated"]
 }
