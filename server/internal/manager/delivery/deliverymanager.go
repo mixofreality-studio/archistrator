@@ -1525,6 +1525,9 @@ func episodeIDSafe(s string) string {
 //     commit the claude-code-action DESIGN workflow file.
 //  3. creates the head-state row (projectStateAccess.CreateProject), STRICTLY AFTER
 //     the above, keyed on the repo name as identity.
+//  4. SEEDS THE DESIGN PREFIX: commits slots 9 and 10 holding the three reserved design
+//     activities and their edges (seedDesignPrefixPlan). Without this the project cannot
+//     get past its first activity — see that function's own note.
 //
 // Returns the project id (== the adopted repo name). Validation errors (empty
 // owner/name) surface as ContractMisuse before any RA call. Every write is idempotent
@@ -1572,8 +1575,100 @@ func (m *deliveryManager) CreateProject(rc fwmanager.Context, owner OwnerScope, 
 		projectstate.ProjectID(projectID), projectstate.OwnerScope(owner), name); err != nil {
 		return "", sdMapRAError(err, "projectStateAccess.CreateProject")
 	}
+	if err := m.seedDesignPrefixPlan(ctx, projectID, key); err != nil {
+		return "", err
+	}
 	return projectID, nil
 }
+
+// seedDesignPrefixPlan commits slots 9 (activityList) and 10 (network) at project birth,
+// holding the design prefix and nothing else (birthDesignPrefixPlan).
+//
+// THE WEDGE IT CLEARS. Before it, a brand-new project seeded only owner/name/phase/
+// operatingModel, and nothing after `requirements` was dispatchable or even addressable:
+// the pump's committedPlanInputs requires BOTH slots committed, so nextEligibleActivity
+// answered verdictQuiescent on every tick ({"dispatched":false}) and every
+// activity-scoped read — QueryActivityView, DispatchActivityTask, SubmitReviewDecision,
+// AcknowledgeStaleBasis — 404'd with "no activity architecture in the committed activity
+// list". startSystemDesign's own doc comment promised that "from its exit onward the
+// pump's own eligibility ... carries the project"; it could not, because the plan that
+// eligibility reads is written by M0, three activities later. The chicken-and-egg was
+// total: MaterializeActivityPlan needs a committed systemDesign, which is exactly what
+// the `architecture` activity produces.
+//
+// WHY THE MANAGER AND NOT GitStore.CreateProject. The seed is a DERIVATION, and the
+// derivation is an Engine (estimationEngine.DerivePlan). A ResourceAccess may not import
+// an Engine — strictly closed downward imports, arch-checker-enforced (TestMethodLayering)
+// — so projectstate cannot derive the prefix, and hand-authoring it there would be the
+// second copy hard-ruled out. The Manager is the one layer that sees both the Engine that
+// derives the plan and the RA that commits it, so project birth happens here, in the op
+// the user calls, through the SAME two verbs M0 uses to replace this plan with the full
+// one (stage on main, then commit with provenance).
+//
+// A COMMITTED PLAN IS NOT AUTHORIZATION TO BUILD. Nothing about this seed moves the phase:
+// the project is still born PhaseSystemDesign, and admissibleInPhase still requires the
+// M0 / Phase-2 seal of every CONSTRUCTION activity. What the seed makes selectable is
+// exactly the three activities whose own phase floor is the phase they produce.
+func (m *deliveryManager) seedDesignPrefixPlan(ctx context.Context, projectID ProjectID, key fwra.IdempotencyKey) error {
+	if m.designSession == nil {
+		return newError(fwmanager.FailedPrecondition,
+			"cannot seed the birth design prefix: no designSessionAccess is wired, and a project born without a committed activityList/network cannot dispatch its first activity")
+	}
+	psID := projectstate.ProjectID(projectID)
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
+	if err != nil {
+		return sdMapRAError(err, "projectStateAccess.ReadProject")
+	}
+	// RESUME KEEPS WHAT IS ALREADY THERE. CreateProject is idempotent by design — a second
+	// call over a repo that already holds committed state RESUMES and returns the existing
+	// version — so the seed must refuse to run over a plan that exists. Re-seeding would
+	// replace the ~30-activity plan M0 committed with this three-activity prefix, which is
+	// the worst data loss this change could cause; the guard reads the slots rather than
+	// trusting the create's return, because the create cannot say which of the two it did.
+	if proj.ActivityList.Status != projectstate.ReviewNone || proj.Network.Status != projectstate.ReviewNone {
+		return nil
+	}
+	list, net, err := birthDesignPrefixPlan()
+	if err != nil {
+		return err
+	}
+	version := projectstate.Version(proj.Version)
+	// Slot 9 before slot 10, the SAME order projectDesignComputedKinds stages them in: the
+	// network names the activities, so a reader that caught the write half-done sees a plan
+	// with activities and no edges rather than edges naming activities that do not exist.
+	for _, slot := range []computedSlot{
+		{Kind: projectstate.KindActivityList, Model: &list},
+		{Kind: projectstate.KindNetwork, Model: &net},
+	} {
+		env, encErr := encodeModel(slot.Model)
+		if encErr != nil {
+			return fwmanager.MapError(encErr)
+		}
+		slotKey := fwra.IdempotencyKey(string(key) + ":seedPlan:" + slot.Kind.WireName())
+		staged, sErr := m.designSession.StageArtifactForReviewOnBranch(
+			fwra.Context{Context: ctx, IdempotencyKey: slotKey}, psID, version, "", env, slotKey)
+		if sErr != nil {
+			return sdMapRAError(sErr, "designSessionAccess.StageArtifactForReviewOnBranch")
+		}
+		committed, cErr := m.designSession.CommitArtifactWithProvenance(
+			fwra.Context{Context: ctx, IdempotencyKey: slotKey + ":commit"}, psID, staged, slot.Kind,
+			birthPlanApprovedBy, birthPlanDraftedBy)
+		if cErr != nil {
+			return sdMapRAError(cErr, "designSessionAccess.CommitArtifactWithProvenance")
+		}
+		version = committed
+	}
+	return nil
+}
+
+// birthPlanApprovedBy / birthPlanDraftedBy are the commit provenance on the two slots a
+// project is born with. They name the PLATFORM, not a person and not an agent charter,
+// for the same reason projectDesignDraftedBy does: nothing drafted the design prefix and
+// nobody approved it — it is The Method's Table 11-1 front end, derived.
+const (
+	birthPlanApprovedBy = "platform:project-birth"
+	birthPlanDraftedBy  = "platform:design-prefix-derivation"
+)
 
 // SetOperatingModel records the project-level WHO-OPERATES choice (founder ruling
 // 2026-07-05). SYNCHRONOUS, non-Temporal, mirroring SetResearchInput: a single
@@ -4669,6 +4764,62 @@ func MaterializeActivityPlan(
 	}
 	return toProjectStateActivityList(plan), deps, toProjectStateMilestones(plan), nil
 }
+
+// birthDesignPrefixPlan derives the plan a project is BORN with: the three reserved
+// design activities (requirements -> architecture -> projectDesign), the serial chain
+// between them, and M0.
+//
+// THE ONE SOURCE OF TRUTH IS NOT HERE. The ids, titles, efforts, worker class, coding
+// flag and the edges are not written in this function: it runs MaterializeActivityPlan
+// over the EMPTY System, which is estimation.DerivePlan's own empty-system arm — "a
+// project before its architecture is committed still owes the work that produces it" —
+// so the prefix lives in exactly one place (estimationengine.go's
+// designPrefixActivities / designPrefixDependencies) and the plan a project is born with
+// cannot drift from the plan M0 later derives over the committed architecture. A second
+// hand-authored copy of these three rows would be the same mistake a duplicated
+// classification rule already cost this codebase a week of mis-dispatched construction
+// commands for (see classifyActivityKind's note).
+//
+// MILESTONE NAMES are the one thing it authors, because they are the one thing the
+// derivation has no source for: NetworkMilestone.Name/Public are display decorations
+// materializeNetwork carries across from the AUTHORED document, and a derived milestone
+// with no decoration is refused LOUDLY there rather than committed anonymous.
+func birthDesignPrefixPlan() (projectstate.ActivityList, projectstate.Network, error) {
+	list, deps, milestones, err := MaterializeActivityPlan(projectstate.System{}, estimation.ActivityListDeltas{})
+	if err != nil {
+		return projectstate.ActivityList{}, projectstate.Network{}, err
+	}
+	authored := projectstate.Network{Milestones: make([]projectstate.NetworkMilestone, 0, len(milestones))}
+	for _, m := range milestones {
+		authored.Milestones = append(authored.Milestones, projectstate.NetworkMilestone{
+			ID: m.ID, Name: birthMilestoneNames[m.ID], Public: true,
+		})
+	}
+	net, err := materializeNetwork(list, deps, milestones, authored)
+	if err != nil {
+		return projectstate.ActivityList{}, projectstate.Network{}, err
+	}
+	return list, net, nil
+}
+
+// birthMilestoneNames decorates the milestones the EMPTY-system derivation emits, which
+// is M0 alone — the SDP review, the event projectDesign ends with. The name is the one a
+// drafting agent authors for the full plan, which matters beyond display: at M0
+// committedNetworkDecorations reads the COMMITTED slot 10 for the decorations the
+// re-derivation carries across, and from now on that committed slot 10 is this one.
+// M1-M3 are NOT here and must not be: the empty-system derivation does not emit them, and
+// materializeNetwork drops any authored milestone the derivation does not produce.
+//
+// EARMARK (2026-10-02), PRE-EXISTING AND NOT CLOSED BY THIS CHANGE. The FULL derivation
+// over a committed architecture emits M1/M2/M3 as well, and their Name has no derivation
+// source either — so on a project nobody hand-decorated, materializeNetwork refuses the
+// re-derivation with `derived milestone "M1" has no authored Name` and the deterministic
+// Project Design cannot complete. Before the birth seed that refusal fired on M0, the
+// first milestone; now it fires on M1. Closing it needs a ruling on whether a derived
+// milestone's display name is authored (today's doctrine) or derived — the estimation
+// Engine's NetworkMilestone carries no Name field, so the fix is a contract change, not
+// a line here.
+var birthMilestoneNames = map[string]string{"M0": "SDP Review Approved"}
 
 // materializePhase2Draft is the PRODUCTION caller of MaterializeActivityPlan — the
 // render-on-read `the-method-activity-list` mandates: "the server applies the deltas onto

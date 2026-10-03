@@ -63,6 +63,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -30042,4 +30043,355 @@ func endOfJSONObject(body string, open int) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("unterminated object at offset %d", open)
+}
+
+// ---------------------------------------------------------------------------
+// BIRTH DESIGN PREFIX (2026-10-02). A brand-new project is BORN with slots 9 and 10
+// COMMITTED, holding exactly the three reserved design activities
+// (requirements → architecture → projectDesign) and their edges.
+//
+// WHY THESE TESTS DRIVE A REAL GIT STORE AND NOT A FIXTURE. Every other
+// delivery-manager test reaches for planWithDesignPrefix(), whose slot 9 is ALREADY
+// committed — and the existence of that fixture is precisely what hid this defect for
+// the project's whole life: the gates were green over a shape production never
+// produced. The claim under test is what project.json HOLDS after birth, so the only
+// honest input is a project born through the production path over a real on-disk state
+// repo.
+// ---------------------------------------------------------------------------
+
+// birthProjectOverGit births one project through the real manager path over a throwaway
+// on-disk git state repo and hands back the committed head-state, the manager and the
+// two RA handles, so a test can go on to replace the seeded plan exactly as M0 does.
+func birthProjectOverGit(t *testing.T) (projectstate.Project, projectstate.ProjectStateAccess, projectstate.DesignSessionAccess, *deliveryManager, projectstate.ProjectID) {
+	t.Helper()
+	repo := gh.StartLocalGitRepo(t, "main")
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+	ds := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+	m := newDesignFacade(nil, ps, nil, nil, nil, nil, ds, nil, nil, "")
+	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "fresh-system")
+	if err != nil {
+		t.Fatalf("CreateProject over a fresh state repo: %v", err)
+	}
+	proj, err := ps.ReadProject(fwra.Context{Context: context.Background()}, projectstate.ProjectID(id))
+	if err != nil {
+		t.Fatalf("ReadProject straight after birth: %v", err)
+	}
+	return proj, ps, ds, m, projectstate.ProjectID(id)
+}
+
+// activityNamesOf reads the committed activity names out of a head-state, in
+// declaration order — which IS the pump's selection order.
+func activityNamesOf(t *testing.T, proj projectstate.Project) []string {
+	t.Helper()
+	list, ok := proj.ActivityList.Model.(*projectstate.ActivityList)
+	if !ok || list == nil {
+		t.Fatalf("slot 9 holds %T, not an *ActivityList", proj.ActivityList.Model)
+	}
+	out := make([]string, 0, len(list.Activities))
+	for _, a := range list.Activities {
+		out = append(out, a.Name)
+	}
+	return out
+}
+
+func TestCreateProject_BirthCommitsTheDesignPrefixPlan(t *testing.T) {
+	proj, _, _, _, _ := birthProjectOverGit(t)
+
+	if proj.ActivityList.Status != projectstate.ReviewCommitted {
+		t.Errorf("slot 9 (activityList) is %v at birth, want ReviewCommitted — the pump selects from the COMMITTED list", proj.ActivityList.Status)
+	}
+	if proj.Network.Status != projectstate.ReviewCommitted {
+		t.Errorf("slot 10 (network) is %v at birth, want ReviewCommitted", proj.Network.Status)
+	}
+	if proj.ActivityList.Status != projectstate.ReviewCommitted || proj.Network.Status != projectstate.ReviewCommitted {
+		t.FailNow()
+	}
+	if got, want := activityNamesOf(t, proj), []string{"requirements", "architecture", "projectDesign"}; !slices.Equal(got, want) {
+		t.Fatalf("the birth activity list = %v, want exactly the design prefix %v", got, want)
+	}
+	net, ok := proj.Network.Model.(*projectstate.Network)
+	if !ok || net == nil {
+		t.Fatalf("slot 10 holds %T, not a *Network", proj.Network.Model)
+	}
+	wantDeps := map[string][]string{
+		"architecture":  {"requirements"},
+		"projectDesign": {"architecture"},
+	}
+	gotDeps := map[string][]string{}
+	for _, d := range net.Dependencies {
+		gotDeps[d.Activity] = d.DependsOn
+	}
+	if !maps.EqualFunc(gotDeps, wantDeps, slices.Equal) {
+		t.Errorf("the birth network's edges = %v, want the prefix's serial chain %v", gotDeps, wantDeps)
+	}
+	if len(net.Milestones) != 1 || net.Milestones[0].ID != "M0" {
+		t.Fatalf("the birth network's milestones = %+v, want M0 alone (the SDP review ends projectDesign)", net.Milestones)
+	}
+	if strings.TrimSpace(net.Milestones[0].Name) == "" {
+		t.Error("M0 is committed anonymous — materializeNetwork refuses an unnamed milestone, so the re-derivation at M0 would die on it")
+	}
+}
+
+// THE BUG, AS THE PUMP SEES IT. Before the birth seed, committedPlanInputs found no
+// committed slot 9 and nextEligibleActivity answered verdictQuiescent on tick one —
+// ExecuteNextActivity returned {"dispatched":false} for the whole life of every fresh
+// project. The bootstrap's own doc comment promised the pump would carry the project
+// from `requirements`' exit onward; it could not, because the pump still asked for a
+// committed plan three activities away.
+func TestCreateProject_BirthShapeDispatchesRequirementsOnTickOne(t *testing.T) {
+	proj, _, _, _, _ := birthProjectOverGit(t)
+
+	sel := nextEligibleActivity(proj, pumpEligibilityRule())
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("tick one over a brand-new project = %+v, want verdictDispatch", sel)
+	}
+	if sel.Activity.ActivityID != "requirements" {
+		t.Fatalf("tick one dispatched %q, want requirements (the plan's root)", sel.Activity.ActivityID)
+	}
+	if sel.Activity.Type != projectstate.ActivityTypeRequirements {
+		t.Errorf("the dispatched activity carries type %s, want requirements", sel.Activity.Type)
+	}
+}
+
+// THE 404 LEG. QueryActivityView / DispatchActivityTask / SubmitReviewDecision /
+// AcknowledgeStaleBasis all resolve their activity through committedActivityItem, which
+// answered false for all three design ids on a fresh project — a NotFound reading "no
+// activity architecture in the committed activity list".
+func TestCreateProject_BirthShapeResolvesEveryDesignActivity(t *testing.T) {
+	proj, _, _, _, _ := birthProjectOverGit(t)
+
+	for _, id := range []string{"requirements", "architecture", "projectDesign"} {
+		item, ok := committedActivityItem(proj, id)
+		if !ok {
+			t.Errorf("activity %s does not resolve against the birth plan — every activity-scoped read 404s on it", id)
+			continue
+		}
+		if _, _, err := projectstate.ClassifyActivity(id, item.WorkerClass, item.Coding); err != nil {
+			t.Errorf("activity %s resolves but does not classify (workerClass %q, coding=%v): %v", id, item.WorkerClass, item.Coding, err)
+		}
+	}
+}
+
+// THE PHASE GATE MUST KEEP PROTECTING CONSTRUCTION. A committed ActivityList at birth
+// must NOT make construction work selectable: the M0 / Phase-2 seal is still the only
+// thing that moves a project to PhaseConstruction, and admissibleInPhase is what holds
+// that line per activity. Driven with the three design activities DONE and a
+// construction activity whose dependencies are ALL satisfied, so nothing but the phase
+// floor can be refusing it.
+func Test_NextEligible_ACommittedPlanBelowConstructionSelectsNoConstructionWork(t *testing.T) {
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{
+			{Name: "requirements", Title: "Requirements", WorkerClass: "system-architect"},
+			{Name: "architecture", Title: "Architecture & Call Chains", WorkerClass: "system-architect"},
+			{Name: "projectDesign", Title: "Project Design (SDP Review · M0)", WorkerClass: "system-architect"},
+			{Name: "C-todo-list-manager", Title: "TodoListManager", WorkerClass: "junior-developer",
+				Coding: true, ComponentID: "todo-list-manager"},
+		},
+		[]projectstate.NetworkDependency{
+			{Activity: "architecture", DependsOn: []string{"requirements"}},
+			{Activity: "projectDesign", DependsOn: []string{"architecture"}},
+		},
+	)
+	done := time.Now()
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"requirements": {ActivityID: "requirements",
+			Attempts: passedLedgerFor("requirements", projectstate.ActivityTypeRequirements, done)},
+		"architecture": {ActivityID: "architecture",
+			Attempts: passedLedgerFor("architecture", projectstate.ActivityTypeArchitecture, done)},
+		"projectDesign": {ActivityID: "projectDesign",
+			Attempts: passedLedgerFor("projectDesign", projectstate.ActivityTypeProjectDesign, done)},
+	}
+	for _, phase := range []projectstate.Phase{projectstate.PhaseSystemDesign, projectstate.PhaseProjectDesign} {
+		proj.Phase = phase
+		sel := nextEligibleActivity(proj, pumpEligibilityRule())
+		if sel.Verdict != verdictQuiescent {
+			t.Fatalf("phase %v: a committed plan must not make construction selectable before the seal, got %+v", phase, sel)
+		}
+	}
+	// And the gate is not vacuous: the SAME plan at PhaseConstruction dispatches it.
+	proj.Phase = projectstate.PhaseConstruction
+	if sel := nextEligibleActivity(proj, pumpEligibilityRule()); sel.Verdict != verdictDispatch ||
+		sel.Activity.ActivityID != "C-todo-list-manager" {
+		t.Fatalf("at PhaseConstruction the construction activity must dispatch, got %+v", sel)
+	}
+}
+
+// THE LATER REPLACEMENT MUST STILL WORK. computeProjectPlanSlots REPLACES slots 9/10
+// with the plan derived from the committed architecture, and M0 commits that through the
+// same two verbs the birth seed used. Before the seed, those two slots were ReviewNone
+// when M0 ran; now they are ReviewCommitted with Revisions 1, so this drives the whole
+// handover over a real store: birth, commit a System, re-derive, stage, commit, and read
+// back — the 3-activity plan must become the full derived plan, with the version counter
+// and the staleBasis machinery landing where an amendment lands them.
+func TestCreateProject_BirthSeededPlanIsReplacedByTheDerivedPlan(t *testing.T) {
+	proj, ps, ds, _, id := birthProjectOverGit(t)
+	ctx := context.Background()
+	rac := func(key string) fwra.Context {
+		return fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(key)}
+	}
+	if proj.ActivityList.Revisions != 1 {
+		t.Fatalf("the birth activityList carries Revisions=%d, want 1 (one commit)", proj.ActivityList.Revisions)
+	}
+
+	// 1. The `architecture` activity commits slot 5. That is an UPSTREAM commit, so it
+	//    flags the two already-committed plan slots stale — which is the one new
+	//    behaviour the birth seed introduces and is exactly what an amendment does.
+	sys := &projectstate.System{Components: birthReplacementComponents}
+	v, err := ds.StageArtifactForReviewOnBranch(rac("sys:stage"), id, projectstate.Version(proj.Version), "",
+		mustEncodeModelForTest(t, sys), "sys:stage")
+	if err != nil {
+		t.Fatalf("stage the committed System: %v", err)
+	}
+	if v, err = ds.CommitArtifactWithProvenance(rac("sys:commit"), id, v, projectstate.KindSystem, "architect", "agent"); err != nil {
+		t.Fatalf("commit the System: %v", err)
+	}
+	after, err := ps.ReadProject(fwra.Context{Context: ctx}, id)
+	if err != nil {
+		t.Fatalf("ReadProject after the System commit: %v", err)
+	}
+	if !after.ActivityList.StaleBasis || !after.Network.StaleBasis {
+		t.Errorf("committing slot 5 over a birth-seeded plan must flag slots 9/10 stale (activityList=%v network=%v)",
+			after.ActivityList.StaleBasis, after.Network.StaleBasis)
+	}
+
+	// 2. M0's own path: re-derive over the committed architecture and commit both slots.
+	listModel, err := materializePhase2Draft(after, projectstate.KindActivityList, nil)
+	if err != nil {
+		t.Fatalf("materializePhase2Draft(activityList) over the committed System: %v", err)
+	}
+	// The birth-seeded slot 10 is where M0 reads its milestone decorations from
+	// (committedNetworkDecorations), and it names M0. The full derivation ALSO emits
+	// M1/M2/M3, whose Name has no derivation source at all, so the decorations are
+	// topped up here exactly as a drafting agent authors them on the dogfood project.
+	// EARMARK, PRE-EXISTING AND OUT OF THIS CHANGE'S SCOPE: on a real fresh project
+	// nobody tops them up, and materializeNetwork refuses the first anonymous milestone
+	// ("derived milestone \"M1\" has no authored Name"). The birth seed moves that
+	// refusal from M0 to M1; closing it needs a ruling on whether a derived milestone's
+	// name is authored or derived. See birthMilestoneNames.
+	decorations := committedNetworkDecorations(after)
+	authoredNet, ok := decorations.(*projectstate.Network)
+	if !ok {
+		t.Fatalf("committedNetworkDecorations returned %T, want *Network", decorations)
+	}
+	for id, name := range map[string]string{
+		"M1": "Infrastructure Provisioned", "M2": "Engines Complete", "M3": "Managers Complete",
+	} {
+		authoredNet.Milestones = append(authoredNet.Milestones,
+			projectstate.NetworkMilestone{ID: id, Name: name})
+	}
+	netModel, err := materializePhase2Draft(after, projectstate.KindNetwork, authoredNet)
+	if err != nil {
+		t.Fatalf("materializePhase2Draft(network) over the committed System: %v", err)
+	}
+	for i, slot := range []computedSlot{
+		{Kind: projectstate.KindActivityList, Model: listModel},
+		{Kind: projectstate.KindNetwork, Model: netModel},
+	} {
+		key := fmt.Sprintf("m0:%d", i)
+		if v, err = ds.StageArtifactForReviewOnBranch(rac(key+":stage"), id, v, "",
+			mustEncodeModelForTest(t, slot.Model), fwra.IdempotencyKey(key+":stage")); err != nil {
+			t.Fatalf("stage the derived %s: %v", slot.Kind.WireName(), err)
+		}
+		if v, err = ds.CommitArtifactWithProvenance(rac(key+":commit"), id, v, slot.Kind,
+			gateActorOperator, projectDesignDraftedBy); err != nil {
+			t.Fatalf("commit the derived %s: %v", slot.Kind.WireName(), err)
+		}
+	}
+
+	// 3. Read back: the full derived plan has REPLACED the birth prefix.
+	final, err := ps.ReadProject(fwra.Context{Context: ctx}, id)
+	if err != nil {
+		t.Fatalf("ReadProject after M0: %v", err)
+	}
+	wantList, _, _, err := MaterializeActivityPlan(*sys, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("MaterializeActivityPlan: %v", err)
+	}
+	wantNames := make([]string, 0, len(wantList.Activities))
+	for _, a := range wantList.Activities {
+		wantNames = append(wantNames, a.Name)
+	}
+	if got := activityNamesOf(t, final); !slices.Equal(got, wantNames) {
+		t.Fatalf("after M0 the committed plan = %v, want the full derived plan %v", got, wantNames)
+	}
+	if len(wantNames) <= 3 {
+		t.Fatal("the replacement fixture derives no construction work, so this test would pass vacuously")
+	}
+	if final.ActivityList.Status != projectstate.ReviewCommitted || final.Network.Status != projectstate.ReviewCommitted {
+		t.Fatalf("the replaced slots are %v/%v, want both ReviewCommitted", final.ActivityList.Status, final.Network.Status)
+	}
+	if final.ActivityList.Revisions != 2 || final.Network.Revisions != 2 {
+		t.Errorf("replacing a birth-seeded slot must land as the SECOND commit (activityList=%d network=%d, want 2 each)",
+			final.ActivityList.Revisions, final.Network.Revisions)
+	}
+	if final.ActivityList.StaleBasis || final.Network.StaleBasis {
+		t.Errorf("re-committing IS the reconcile: both plan slots must come out un-stale (activityList=%v network=%v)",
+			final.ActivityList.StaleBasis, final.Network.StaleBasis)
+	}
+	// And the pump, at PhaseConstruction, now selects off the FULL plan.
+	final.Phase = projectstate.PhaseConstruction
+	final.ActivityExecution = map[string]projectstate.ActivityExecution{}
+	if sel := nextEligibleActivity(final, pumpEligibilityRule()); sel.Verdict != verdictDispatch ||
+		sel.Activity.ActivityID != "requirements" {
+		t.Fatalf("the replaced plan must still be selectable, got %+v", sel)
+	}
+}
+
+func mustEncodeModelForTest(t *testing.T, model projectstate.ArtifactModel) projectstate.ModelEnvelope {
+	t.Helper()
+	env, err := encodeModel(model)
+	if err != nil {
+		t.Fatalf("encodeModel(%T): %v", model, err)
+	}
+	return env
+}
+
+// ONE SOURCE OF TRUTH FOR THE PREFIX, MEASURED. The birth plan is not a second copy of
+// the three design activities: it is MaterializeActivityPlan over the EMPTY System, so
+// every field of every prefix row must be byte-identical to the prefix the FULL
+// derivation emits over a real architecture. A hand-authored copy would drift the first
+// time an effort or a title changed on one side, and nothing else in the suite would see
+// it — the derived-plan drift gate compares the committed plan to the derivation, not
+// the birth seed to the derivation.
+func TestBirthDesignPrefixPlan_IsTheDerivationsOwnPrefixNotACopy(t *testing.T) {
+	birthList, birthNet, err := birthDesignPrefixPlan()
+	if err != nil {
+		t.Fatalf("birthDesignPrefixPlan: %v", err)
+	}
+	fullList, fullDeps, _, err := MaterializeActivityPlan(
+		projectstate.System{Components: birthReplacementComponents}, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("MaterializeActivityPlan over a real System: %v", err)
+	}
+	if len(birthList.Activities) != 3 {
+		t.Fatalf("the birth plan holds %d activities, want the 3 design activities", len(birthList.Activities))
+	}
+	if len(fullList.Activities) < 4 {
+		t.Fatalf("the full derivation holds %d activities; this comparison would be vacuous", len(fullList.Activities))
+	}
+	if !reflect.DeepEqual(birthList.Activities, fullList.Activities[:3]) {
+		t.Errorf("the birth prefix has DRIFTED from the derivation's prefix:\nbirth = %+v\nfull  = %+v",
+			birthList.Activities, fullList.Activities[:3])
+	}
+	// The prefix's edges too: both of them, verbatim out of the full derivation.
+	wantEdges := []projectstate.NetworkDependency{}
+	for _, d := range fullDeps {
+		if d.Activity == "architecture" || d.Activity == "projectDesign" {
+			wantEdges = append(wantEdges, d)
+		}
+	}
+	if !reflect.DeepEqual(birthNet.Dependencies, wantEdges) {
+		t.Errorf("the birth chain has DRIFTED from the derivation's chain:\nbirth = %+v\nfull  = %+v",
+			birthNet.Dependencies, wantEdges)
+	}
+}
+
+// birthReplacementComponents is a System the STORE will accept (kind and layer must
+// agree — the F81 decode guard rejects a mismatch) and that derives real construction
+// work, so the replacement and drift tests are not vacuous.
+var birthReplacementComponents = []projectstate.Component{
+	compE("todo-owner-client", "TodoOwnerClient", projectstate.CompClient, projectstate.LayerClient, "the owner's UI"),
+	compE("todo-list-manager", "TodoListManager", projectstate.CompManager, projectstate.LayerManager, "the todo use cases"),
+	compE("todo-rank-engine", "TodoRankEngine", projectstate.CompEngine, projectstate.LayerEngine, "ranking policy"),
+	compE("todo-store-access", "TodoStoreAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "the todo store atom"),
 }

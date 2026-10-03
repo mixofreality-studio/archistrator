@@ -79,6 +79,10 @@ func newIRADeltaHarness(t *testing.T) *iraDeltaHarness {
 		t.Fatalf("NewGitStore(project): %v", err)
 	}
 	stateAdapter := ps.NewGitLocalProjectStateAccess(projRepo.URL)
+	// designSessionAccess over the SAME on-disk state repo: project birth now commits the
+	// design-prefix plan into slots 9/10 through it (seedDesignPrefixPlan), so a harness
+	// that drives CreateProject needs it wired even though it drives no design session.
+	designAdapter := ps.NewGitLocalDesignSessionAccess(projRepo.URL)
 
 	// --- REAL Manager over both real RAs. nil estimator: this harness exercises
 	// project birth (CreateProject), not the GetProject compute-at-read path. nil
@@ -88,7 +92,7 @@ func newIRADeltaHarness(t *testing.T) *iraDeltaHarness {
 	// missed until Task 8's `go vet ./...` pass surfaced it as a build break).
 	// activityExecutionAccess (stage 3 task 6) is nil for the same reason: this
 	// harness drives no co-author workflow, so nothing reaches the round ledger. ---
-	mgr := delivery.NewDeliveryManager(nil, stateAdapter, nil, nil, nil, nil, nil, nil, nil, scAccess, nil, nil, nil, nil, nil, nil, 0, "", nil, "")
+	mgr := delivery.NewDeliveryManager(nil, stateAdapter, nil, nil, nil, nil, nil, nil, nil, scAccess, nil, nil, designAdapter, nil, nil, nil, 0, "", nil, "")
 
 	return &iraDeltaHarness{mgr: mgr, fakeGH: fake, gitRepo: rawRepo, ctx: context.Background()}
 }
@@ -207,9 +211,14 @@ func TestIRADelta_FreshCreate_EmptyRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queryProjectView(summary): %v", err)
 	}
-	if st.ProjectID != id || st.Version != 1 || st.Phase != delivery.PhaseSystemDesign {
-		t.Fatalf("fresh project = id=%s v=%d phase=%v, want fresh-svc/1/SystemDesign", st.ProjectID, st.Version, st.Phase)
+	if st.ProjectID != id || st.Version != 1+birthPlanSeedWrites || st.Phase != delivery.PhaseSystemDesign {
+		t.Fatalf("fresh project = id=%s v=%d phase=%v, want fresh-svc/%d/SystemDesign",
+			st.ProjectID, st.Version, st.Phase, 1+birthPlanSeedWrites)
 	}
+	// Birth now also COMMITS the design-prefix plan (slots 9/10), which is what makes the
+	// first activity dispatchable at all — before it, the pump answered
+	// {"dispatched":false} on every tick of every fresh project.
+	assertBirthDesignPrefix(t, st)
 	assertProjectStateCommitted(t, h, "fresh-svc", "fresh-svc")
 }
 
@@ -268,10 +277,15 @@ func TestIRADelta_ResumeFromExistingAiarchState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queryProjectView(summary, resumed): %v", err)
 	}
-	if st.Version != 4 || st.Phase != delivery.PhaseProjectDesign || st.Name != "Resumed Service" {
-		t.Fatalf("resume clobbered/reset state: got v%d/%v/%q, want v4/ProjectDesign/Resumed Service",
-			st.Version, st.Phase, st.Name)
+	// The version MOVED FORWARD by exactly the plan seed's writes and nothing else: the
+	// prior run left slots 9/10 empty (it predates the birth seed), so the resume BACKFILLS
+	// the design-prefix plan rather than leaving the project wedged. Nothing is clobbered —
+	// phase, name and every committed slot survive, which is what this test guards.
+	if st.Version != 4+birthPlanSeedWrites || st.Phase != delivery.PhaseProjectDesign || st.Name != "Resumed Service" {
+		t.Fatalf("resume clobbered/reset state: got v%d/%v/%q, want v%d/ProjectDesign/Resumed Service",
+			st.Version, st.Phase, st.Name, 4+birthPlanSeedWrites)
 	}
+	assertBirthDesignPrefix(t, st)
 	// The committed Mission slot from the prior run survives the resume.
 	var missionStage delivery.ArtifactStage = -1
 	for _, slot := range st.Slots {
@@ -382,4 +396,31 @@ func iraGetProject(h *iraDeltaHarness, id delivery.ProjectID) (delivery.ProjectS
 		return delivery.ProjectState{}, err
 	}
 	return *view.Summary, nil
+}
+
+// birthPlanSeedWrites is how many head-state versions project birth's design-prefix seed
+// adds on top of the create itself: one stage + one commit for slot 9, the same for slot
+// 10 (delivery.seedDesignPrefixPlan). Named rather than inlined so the two version
+// assertions above say WHY the number moved.
+const birthPlanSeedWrites = 4
+
+// assertBirthDesignPrefix is the read-side proof that project birth left a COMMITTED plan
+// behind: without it the pump has nothing to select and every activity-scoped read 404s.
+func assertBirthDesignPrefix(t *testing.T, st delivery.ProjectState) {
+	t.Helper()
+	for _, kind := range []ps.ArtifactKind{ps.KindActivityList, ps.KindNetwork} {
+		found := false
+		for _, slot := range st.Slots {
+			if slot.Kind != kind.WireName() {
+				continue
+			}
+			found = true
+			if slot.Stage != delivery.ArtifactStageCommitted {
+				t.Errorf("slot %s is stage %v after birth, want StageCommitted", kind.WireName(), slot.Stage)
+			}
+		}
+		if !found {
+			t.Errorf("the project view carries no %s slot after birth", kind.WireName())
+		}
+	}
 }

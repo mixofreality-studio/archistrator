@@ -44,21 +44,21 @@ The activity-diagram language (UML activity diagram + our sauce: `roleName`/`lin
 | Addition | Shape | Why |
 |---|---|---|
 | `sendSignal` node kind | like `action`; `linkedActorId` names the receiving actor | The paper's output event. Today only `acceptEvent` exists; outputs are inferred from dynamic views. |
-| `object` node kind | `label` = object name, new field `state` (e.g. `Invoice` / `[paid]`) | The paper's object-state nodes. We keep them (the paper discards them) and turn them into **expected observable state** on the scenario. |
+| `objectNode` node kind | UML 2.5 §15.4 ObjectNode: `label` = object name, new field `inState` (e.g. `Invoice` / `[paid]`) | The paper's object-flow-state nodes (UML 1.x name for the same thing). We keep them (the paper discards them) and turn them into **expected observable state** on the scenario. |
 | `note.anchor` | optional node id on `note` nodes | Notes anchored to a path node ride along as `hints` on the scenario, visible to the test engineer while binding and rendered in the plan. |
 
 Classification per node, in priority order:
 
 1. `acceptEvent`, `timeEvent`, and any node whose `linkedActorId` names an actor → **input** stimulus. An `action` in an actor's lane is the paper's accept event. A `decision`/`switch` whose `decidedBy` is an actor contributes its chosen guard as an input.
 2. `sendSignal` → **output**. An `action` with no actor whose `CallStep` carries a `TraceCall` to an actor or an external resource → output (inference fallback, kept so existing diagrams work unchanged).
-3. `object` → **expected state** at that point on the path.
+3. `objectNode` → **expected state** at that point on the path.
 4. `note` → `hint` if anchored to a node on the path, otherwise carried on the use case only.
 5. `swimLane` nodes themselves are not path nodes; lane membership is already on each node (`roleName`/`linkedActorId`) and is what rule 1 reads. A **component** lane (lane role resolves to a component) is the projection fallback (§2.4) when a dynamic view has no call for that node.
 6. Every other `action` is internal: kept on the path (it is still shown in the rendered scenario) but contributes no stimulus. A `decision` whose `decidedBy` is a component (or unset) is internal: both branches are still enumerated, and the binding must arrange state that makes the component take that branch — the usual reason a step is marked `Hook` (§3).
 7. `goto` resolves to its target edge; `interruptEdge` is an out-edge with an implied guard `[interrupt]`; `loop` is unrolled once (elementary path: no repeated node).
 8. Fork/join: by the single-stimulus principle, output interleavings are ignored and inputs are serialised in diagram order. One path per join, not `n!`.
 
-Schema changes land in `projectStateAccess["$defs"].ActivityNodeKind` (+2 values), `ActivityNode` (+`state`, +`anchor`), and the CC-*/UC-* methodcheck rules learn the new kinds (`object` and `note` may not carry control-flow out-edges other than to the next node; `sendSignal` must name an actor).
+Schema changes land in `projectStateAccess["$defs"].ActivityNodeKind` (+2 values), `ActivityNode` (+`inState`, +`anchor`), and the CC-*/UC-* methodcheck rules learn the new kinds (`objectNode` and `note` may not carry control-flow out-edges other than to the next node; `sendSignal` must name an actor).
 
 ### 2.3 Paths
 
@@ -74,7 +74,7 @@ Depth-first from `start` to each `end`; a path may not revisit a node. Each path
   "stimuli": [
     {"seq":1,"node":"n1","input":{"from":"actor:customer","to":"orderManager","op":"PlaceOrder","call":"UC3/step-1/call-0"},
      "expectedOutputs":[{"node":"n5","kind":"sendSignal","to":"actor:customer","label":"Send Invoice"}],
-     "expectedStates":[{"node":"n6","object":"Invoice","state":"[requested]"}],
+     "expectedStates":[{"node":"n6","object":"Invoice","inState":"[requested]"}],
      "hints":["Amounts are in minor units; see glossary 'Order total'"]}
   ]
 }
@@ -186,7 +186,7 @@ This runs in `TestFileLayout`-style gate tests in archistrator (`server/internal
 | TP-EXPECT | `Expect` matches the op's result schema or declares an error the contract allows. |
 | TP-PROBE | Probes name real read-only ops. |
 | TP-STATE | Every `expectedState` on a projected stimulus has a probe with `For` = its node; every `expectedOutput` has a probe or is listed in `Unobservable`. |
-| UC-IO-KINDS | `sendSignal` names an actor; `object` carries `state`; a `note.anchor` names a node in the same diagram. |
+| UC-IO-KINDS | `sendSignal` names an actor; `objectNode` carries `inState`; a `note.anchor` names a node in the same diagram. |
 | TP-OP-REACHED | Every operation of every contract is the input of ≥1 scenario. Failure text: "dead operation or missing use case". |
 | TP-SKIP | A skip names an activity that is genuinely not yet integrated. |
 
