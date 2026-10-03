@@ -10488,6 +10488,11 @@ type csFakeProjectState struct {
 	project  projectstate.Project
 	notFound bool
 
+	// branchSlots is the per-session-branch draft overlay: branch -> kind -> staged model.
+	// nil until something stages on a branch, so a case that never does behaves exactly as
+	// the single-document double always did. See stageSlotOn.
+	branchSlots map[string]map[projectstate.ArtifactKind]projectstate.ArtifactModel
+
 	// conflictFirst, when >0, returns fwra.Conflict on the first N transition
 	// calls (across all transition verbs) before succeeding — drives the §6.5
 	// re-read→re-apply loop.
@@ -11334,6 +11339,16 @@ func (f csFakeActivityExecution) StageTaskOutput(_ fwra.Context, _ projectstate.
 	}
 	f.stagedSlots = append(f.stagedSlots, decoded.Kind())
 	f.stagedModels = append(f.stagedModels, decoded)
+	// AND IT LANDS THE MODEL IN THE SLOT, which the store does and this double only
+	// RECORDED until the M0 approve-merge started reading what the compute staged
+	// (completeProjectDesign). A double that records a stage but leaves the aggregate empty
+	// made "the plan M0 commits is the plan the compute derived" unfalsifiable — and would
+	// have reported the seal's own no-computed-<kind> refusal as a production defect.
+	// ON THE BRANCH IT WAS GIVEN. A stage on a session branch must leave MAIN alone, which
+	// is the whole of wedge 3: slots 9/10 are committed on main and a main-staging compute
+	// un-commits them for the review window. The double models that as an OVERLAY (see
+	// stageSlotOn), not as a second whole document.
+	f.stageSlotOn(branch, decoded)
 	return projectstate.StagedRef{ActivityID: activityID, TaskID: taskID, Branch: branch, Version: f.bump()}, nil
 }
 
@@ -11508,19 +11523,117 @@ type fakeFullProjectState struct {
 	*csFakeProjectState
 }
 
-func (f fakeFullProjectState) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, _ string) (projectstate.Project, error) {
-	return f.ReadProject(rc, projectID)
+// ReadProjectOnBranch serves main PLUS whatever was staged on `branch` (stageSlotOn). A
+// branch nothing staged on reads exactly as main, which is what every case written before
+// the double learned branches relies on.
+func (f fakeFullProjectState) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+	proj, err := f.ReadProject(rc, projectID)
+	if err != nil || branch == "" {
+		return proj, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.projectOnBranch(branch), nil
 }
 
 // StageArtifactForReviewOnBranch RECORDS, because the deterministic Project-Design compute
 // stages eight slots through it and the whole acceptance is WHAT it staged. It also writes
 // the model onto the project, so a re-read inside the same walk sees what the walk staged.
-func (f fakeFullProjectState) StageArtifactForReviewOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, model projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f fakeFullProjectState) StageArtifactForReviewOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, branch string, model projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.stagedSlots = append(f.stagedSlots, model.Kind())
 	f.stagedModels = append(f.stagedModels, model)
+	// The slot write, for the reason csFakeActivityExecution.StageTaskOutput gives: M0's
+	// approve-merge stages each computed model on MAIN through this verb and then commits
+	// it, so a double that recorded without landing would commit slots holding nothing.
+	f.stageSlotOn(branch, model)
 	return f.bump(), nil
+}
+
+// stageSlotOn stages a model where the BRANCH says, modelling a session branch as main plus
+// the drafts staged on it. branch=="" is main itself.
+//
+// AN OVERLAY, NOT A SECOND DOCUMENT, deliberately: a forked copy would be cut at the first
+// stage and would then go stale against every later main write (and against the design job
+// double, which commits its drafts to main), so a branch read would serve an older project
+// the longer the walk ran. The overlay keeps the branch exactly "main, except the slots this
+// branch is drafting", which is what ReconcileBranchFromMain makes true in the store.
+func (f *csFakeProjectState) stageSlotOn(branch string, model projectstate.ArtifactModel) {
+	if branch == "" {
+		f.stageSlot(model)
+		return
+	}
+	if f.branchSlots == nil {
+		f.branchSlots = map[string]map[projectstate.ArtifactKind]projectstate.ArtifactModel{}
+	}
+	if f.branchSlots[branch] == nil {
+		f.branchSlots[branch] = map[projectstate.ArtifactKind]projectstate.ArtifactModel{}
+	}
+	f.branchSlots[branch][model.Kind()] = model
+}
+
+// projectOnBranch is main with this branch's staged drafts overlaid. The caller holds f.mu.
+func (f *csFakeProjectState) projectOnBranch(branch string) projectstate.Project {
+	p := f.project
+	for kind, model := range f.branchSlots[branch] {
+		if slot := slotPtrOf(&p, kind); slot != nil {
+			slot.Status = projectstate.ReviewAwaitingReview
+			slot.Model = model
+		}
+	}
+	return p
+}
+
+// stageSlot is the pure slot half of the store's stageArtifactForReviewOnBranch —
+// AwaitingReview plus the model, keeping everything else the slot carries (Revisions,
+// Provenance, the review thread) exactly as the store keeps it. The caller holds f.mu.
+//
+// It restates the store's own slot table rather than calling it, because slotPtr is
+// unexported in projectstate; a kind this switch forgets is a FAILED stage rather than a
+// silent one, so the omission cannot hide.
+func (f *csFakeProjectState) stageSlot(model projectstate.ArtifactModel) {
+	slot := slotPtrOf(&f.project, model.Kind())
+	if slot == nil {
+		panic("csFakeProjectState.stageSlot: no slot for kind " + model.Kind().WireName())
+	}
+	slot.Status = projectstate.ReviewAwaitingReview
+	slot.Model = model
+}
+
+func slotPtrOf(p *projectstate.Project, kind projectstate.ArtifactKind) *projectstate.ArtifactSlot {
+	for _, e := range testSlotTable {
+		if e.kind == kind {
+			return e.ptr(p)
+		}
+	}
+	return nil
+}
+
+// testSlotTable mirrors the store's own slotTable (projectstateaccess.go), which is
+// unexported. It is a TABLE rather than a switch so the shape is the store's and a reader
+// can diff the two lists; a kind missing from it makes stageSlot panic by name.
+var testSlotTable = []struct {
+	kind projectstate.ArtifactKind
+	ptr  func(*projectstate.Project) *projectstate.ArtifactSlot
+}{
+	{projectstate.KindMission, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.Mission }},
+	{projectstate.KindGlossary, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.Glossary }},
+	{projectstate.KindScrubbedRequirements, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.ScrubbedRequirements }},
+	{projectstate.KindVolatilities, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.Volatilities }},
+	{projectstate.KindCoreUseCases, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.CoreUseCases }},
+	{projectstate.KindSystem, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.SystemDesign }},
+	{projectstate.KindOperationalConcepts, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.OperationalConcepts }},
+	{projectstate.KindStandardCheck, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.StandardCheck }},
+	{projectstate.KindPlanningAssumptions, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.PlanningAssumptions }},
+	{projectstate.KindActivityList, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.ActivityList }},
+	{projectstate.KindNetwork, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.Network }},
+	{projectstate.KindNormalSolution, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.NormalSolution }},
+	{projectstate.KindSubcriticalSolution, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.SubcriticalSolution }},
+	{projectstate.KindCompressedSolution, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.CompressedSolution }},
+	{projectstate.KindDecompressedSolution, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.DecompressedSolution }},
+	{projectstate.KindRiskModel, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.RiskModel }},
+	{projectstate.KindSdpReview, func(p *projectstate.Project) *projectstate.ArtifactSlot { return &p.SdpReview }},
 }
 
 func (fakeFullProjectState) RejectArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -18287,6 +18400,17 @@ func newShapeRig(t *testing.T, typeKey string) *shapeRig {
 		deps := gateDeps(ps)
 		deps.Review = review.NewReviewEngine()
 		deps.SDPEngines = shapeSDPEngines()
+		// THE VENUE RESOLVES, as it does on every production boot (both profiles' composition
+		// roots wire a Repo resolver; the local one answers the deterministic GitLocal ref for
+		// every project). It is wired HERE and not in gateDeps because designVenue is read by
+		// the DESIGN arm too, and handing the `requirements` rig a venue would re-point its job
+		// dispatch at a repo its double does not model. What it buys this arm is the session
+		// branch the compute stages on — without it the compute stages on MAIN and un-commits
+		// slots 9/10 for the review window, which is wedge 3 and is what the façade's own M0
+		// case now refuses to pass with.
+		deps.Repo = func(pid ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(pid)), true
+		}
 		wf := csNewWorkflows(deps)
 		wf.Deliveries = rig.rec
 		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
@@ -19524,9 +19648,15 @@ func registerDeliveryActivityWithBus(
 	registerGenConstructionTransition(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, ps)
-	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}, MessageBus: bus}
+	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}, MessageBus: bus, Rail: &stubRail{}}
 	env.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus,
 		activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
+	// The RAIL's openBranch, which the deterministic Project-Design compute asks for before it
+	// stages: the session branch it stages on has to exist, and on a rail-dormant venue nothing
+	// else cuts it (openComputeBranch). Registered for EVERY delivery-child case for the reason
+	// the slot writes are — the production worker registers one set per queue.
+	env.RegisterActivityWithOptions(acts.RailOpenBranch,
+		activity.RegisterOptions{Name: "sourceControlAccess.openBranch"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordOperatorNote,
 		activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
 	// The delivery child asks the pump for the main-write lease through
@@ -30523,6 +30653,443 @@ func TestProjectDesign_ComputesTheWholePlanOverABirthSeededProjectWithNoHandDeco
 	for _, m := range net.Milestones {
 		if strings.TrimSpace(m.Name) == "" {
 			t.Errorf("derived milestone %q came out anonymous — materializeNetwork refuses that, so Project Design cannot complete", m.ID)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WEDGE 3 — THE M0 REVIEW WINDOW MUST NOT UN-COMMIT THE PLAN THE PUMP READS.
+//
+// `computeProjectPlanSlots` stages EIGHT slots, and two of them (9 activityList, 10
+// network) are the ones project BIRTH commits. Staged on MAIN, the stage flips slot 9 from
+// ReviewCommitted to AwaitingReview for the whole review window — and from that moment
+// every activity-scoped read 404s, because SubmitReviewDecision → activityLifecycle →
+// committedActivityItem → committedPlanInputs requires slot 9 COMMITTED. M0 always holds
+// for a human (reviewengine's non-overridable spend floor, under EVERY preset), so the
+// gate always needs a decision and the decision can never be delivered: the project sits
+// at OpenReviewRound forever.
+//
+// stageComputedSlot's own doc already claimed "the write lands on the session branch while
+// the row and its counter live on main". These cases make that true.
+// ---------------------------------------------------------------------------
+
+// birthProjectOverGitRepo is birthProjectOverGit plus the repo URL, which a case that
+// drives the WORKFLOW (rather than a pure function) needs in order to wire the generated
+// Activities to the SAME on-disk git state repo the Manager just gave birth in.
+func birthProjectOverGitRepo(t *testing.T) (projectstate.Project, projectstate.ProjectStateAccess,
+	projectstate.DesignSessionAccess, projectstate.ProjectID, string,
+) {
+	t.Helper()
+	repo := gh.StartLocalGitRepo(t, "main")
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+	ds := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+	m := newDesignFacade(nil, ps, nil, nil, nil, nil, ds, nil, nil, "")
+	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "fresh-system")
+	if err != nil {
+		t.Fatalf("CreateProject over a fresh state repo: %v", err)
+	}
+	proj, err := ps.ReadProject(fwra.Context{Context: context.Background()}, projectstate.ProjectID(id))
+	if err != nil {
+		t.Fatalf("ReadProject straight after birth: %v", err)
+	}
+	return proj, ps, ds, projectstate.ProjectID(id), repo.URL
+}
+
+// m0GitRig is the generic child wired to a REAL on-disk git state repo: every projectstate
+// Activity it reaches is the GitLocal variant over one repo, and sourceControlAccess is the
+// GitLocal rail over the same one — so a branch write really is a write to another ref and
+// "main survived the review window" is a fact about git rather than about a double.
+//
+// WHY NOT THE SHAPE RIG. shapeRig runs on csFakeProjectState, which holds ONE project value
+// and no branches at all: a stage on `activity/projectDesign` and a stage on main land in
+// the same struct there, so the claim under test is unrepresentable in it. That is why this
+// case brings its own rig instead of becoming a row in the shape table.
+type m0GitRig struct {
+	env     *testsuite.TestWorkflowEnvironment
+	wf      *csWorkflows
+	ps      projectstate.ProjectStateAccess
+	id      projectstate.ProjectID
+	repoURL string
+}
+
+func newM0GitRig(t *testing.T) *m0GitRig { return newM0GitRigOver(t, systemForTraversal(t, false)) }
+
+// systemForTraversal is the committed architecture a traversal runs over. The small one is
+// the four-component fixture every other case uses; the BIG one is THIS REPOSITORY'S OWN
+// committed System (slot 5), which derives the real ~40-activity plan and is therefore the
+// only fixture that reaches every activity TYPE the derivation can emit — deployment,
+// documentation, the four testing variants and a frontend, none of which four components
+// produce.
+func systemForTraversal(t *testing.T, big bool) projectstate.System {
+	t.Helper()
+	if !big {
+		return projectstate.System{Components: birthReplacementComponents}
+	}
+	sys, _, _, _ := loadProjectDesignFixtures(t)
+	return sys
+}
+
+func newM0GitRigOver(t *testing.T, sys projectstate.System) *m0GitRig {
+	t.Helper()
+	proj, ps, ds, id, repoURL := birthProjectOverGitRepo(t)
+
+	// The `architecture` activity's output, and nothing else — the state a real project is
+	// in when the pump selects `projectDesign`.
+	v := commitSlotForTest(t, ds, id, projectstate.Version(proj.Version), projectstate.KindSystem,
+		&sys, "sys")
+
+	// AND THE PHASE-1 SEAL, hand-made. A project is born PhaseSystemDesign, and M0's own
+	// seal (advanceToConstruction) is ONE AdvancePhase — p.Phase++ — so it only reaches
+	// PhaseConstruction from PhaseProjectDesign. What puts it there on a real run is
+	// sealSystemDesign, at the end of the `architecture` activity's own walk. This case does
+	// not drive that activity (it would need an agent episode), so the seal is applied here;
+	// skipping it makes M0 land one phase short, which is a different defect than the one
+	// under test and would mask it.
+	if _, err := ps.AdvancePhase(fwra.Context{Context: context.Background(), IdempotencyKey: "seal:phase1"}, id, v); err != nil {
+		t.Fatalf("seal Phase 1 (what the architecture activity's sealSystemDesign does): %v", err)
+	}
+
+	deps := wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		// The REAL review engine: whether M0 holds for a human IS the behaviour this case
+		// depends on, and a scripted gate would let the wedge hide.
+		Review:     review.NewReviewEngine(),
+		GitStatus:  projectstate.NewGitLocalGitActivityStatusAccess(repoURL),
+		SDPEngines: shapeSDPEngines(),
+		// The per-project venue resolves, exactly as the LOCAL composition root resolves it,
+		// so designVenue answers a real branch rather than the dormant ("", "").
+		Repo: func(pid ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(pid)), true
+		},
+		// RailEnabled is left unwired = railDormant, which is what railLifecycleEnabled
+		// answers for a GitLocal venue: no PR rail, so nothing else opens the branch.
+	}
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	// Real git clones per mutation; the default 3s budget is wall-clock and this walk writes
+	// a few dozen times.
+	env.SetTestTimeout(10 * time.Minute)
+	rig := &m0GitRig{env: env, wf: csNewWorkflows(deps), ps: ps, id: id, repoURL: repoURL}
+	registerDeliveryActivityOverGit(env, rig.wf, repoURL)
+	return rig
+}
+
+// read reads MAIN's committed head-state, which is what every activity-scoped read sees.
+func (r *m0GitRig) read(t *testing.T) projectstate.Project {
+	t.Helper()
+	proj, err := r.ps.ReadProject(fwra.Context{Context: context.Background()}, r.id)
+	if err != nil {
+		t.Fatalf("ReadProject off main: %v", err)
+	}
+	return proj
+}
+
+// registerDeliveryActivityOverGit registers the generic child and the Activities a
+// `projectDesign` walk reaches, every projectstate one backed by the GitLocal variant over
+// repoURL. An Activity this set forgets surfaces as a loud ActivityNotRegistered rather
+// than as a silent skip — which is the reason the set is explicit rather than inferred.
+func registerDeliveryActivityOverGit(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, repoURL string) {
+	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow,
+		workflow.RegisterOptions{Name: executionKindDeliveryActivity})
+	acts := &genActivities{
+		ProjectState:           projectstate.NewGitLocalProjectStateAccess(repoURL),
+		ConstructionTransition: projectstate.NewGitLocalConstructionTransitionAccess(repoURL),
+		GitStatus:              projectstate.NewGitLocalGitActivityStatusAccess(repoURL),
+		DesignSession:          projectstate.NewGitLocalDesignSessionAccess(repoURL),
+		ActivityExecution:      projectstate.NewGitLocalActivityExecutionAccess(repoURL),
+		Rail:                   sourcecontrol.NewGitLocalSourceControlAccess(repoURL),
+		Pipeline:               &csFakePipeline{phase: PipelineSucceeded},
+		Episodes:               &fakeEpisodes{},
+		MessageBus:             &recordingSignalBus{},
+	}
+	for name, fn := range map[string]any{
+		"projectStateAccess.readProjectVersion":              acts.ProjectStateReadProjectVersion,
+		"projectStateAccess.advancePhase":                    acts.ProjectStateAdvancePhase,
+		"designSessionAccess.readProjectOnBranch":            acts.DesignSessionReadProjectOnBranch,
+		"designSessionAccess.stageArtifactForReviewOnBranch": acts.DesignSessionStageArtifactForReviewOnBranch,
+		"designSessionAccess.commitArtifactWithProvenance":   acts.DesignSessionCommitArtifactWithProvenance,
+		"designSessionAccess.reconcileBranchFromMain":        acts.DesignSessionReconcileBranchFromMain,
+		"activityExecutionAccess.readActivityExecution":      acts.ActivityExecutionReadActivityExecution,
+		"activityExecutionAccess.openActivity":               acts.ActivityExecutionOpenActivity,
+		"activityExecutionAccess.stageTaskOutput":            acts.ActivityExecutionStageTaskOutput,
+		"activityExecutionAccess.recordAttemptOutcome":       acts.ActivityExecutionRecordAttemptOutcome,
+		"activityExecutionAccess.openReviewRound":            acts.ActivityExecutionOpenReviewRound,
+		"activityExecutionAccess.appendReviewVerdict":        acts.ActivityExecutionAppendReviewVerdict,
+		"activityExecutionAccess.decideReviewRound":          acts.ActivityExecutionDecideReviewRound,
+		"activityExecutionAccess.setReviewCommentStatus":     acts.ActivityExecutionSetReviewCommentStatus,
+		"activityExecutionAccess.recordOperatorNote":         acts.ActivityExecutionRecordOperatorNote,
+		"activityExecutionAccess.recordActivityOutcome":      acts.ActivityExecutionRecordActivityOutcome,
+		"constructionTransitionAccess.recordPhaseStarted":    acts.ConstructionTransitionRecordPhaseStarted,
+		"constructionTransitionAccess.recordPhaseCompleted":  acts.ConstructionTransitionRecordPhaseCompleted,
+		"constructionTransitionAccess.recordChangeReviewed":  acts.ConstructionTransitionRecordChangeReviewed,
+		"constructionTransitionAccess.recordActivityExited":  acts.ConstructionTransitionRecordActivityExited,
+		"constructionTransitionAccess.recordActivityFailed":  acts.ConstructionTransitionRecordActivityFailed,
+		"gitActivityStatusAccess.recordActivityStarted":      acts.GitStatusRecordActivityStarted,
+		"gitActivityStatusAccess.recordActivityCompleted":    acts.GitStatusRecordActivityCompleted,
+		"gitActivityStatusAccess.recordActivityBranchOpened": acts.GitStatusRecordActivityBranchOpened,
+		"gitActivityStatusAccess.recordActivityCIObserved":   acts.GitStatusRecordActivityCIObserved,
+		"gitActivityStatusAccess.recordActivityMerged":       acts.GitStatusRecordActivityMerged,
+		"sourceControlAccess.openBranch":                     acts.RailOpenBranch,
+		"sourceControlAccess.getInstallationToken":           acts.RailGetInstallationToken,
+		"agenticJobAccess.submitAgenticJob":                  acts.PipelineSubmitAgenticJob,
+		"agenticJobAccess.observeAgenticJob":                 acts.PipelineObserveAgenticJob,
+		"agenticJobAccess.cancelAgenticJob":                  acts.PipelineCancelAgenticJob,
+		"episodeAccess.appendEpisode":                        acts.EpisodesAppendEpisode,
+		"messageBus.deliverSignal":                           acts.MessageBusDeliverSignal,
+	} {
+		env.RegisterActivityWithOptions(fn, activity.RegisterOptions{Name: name})
+	}
+}
+
+// projectDesignRow is the activity row the pump hands the child for `projectDesign` — the
+// id the BIRTH PLAN names, so committedActivityItem resolves it. Phases is left nil: the
+// generic child walks the lifecycle DAG, not the flat profile.
+func projectDesignRow() constructionActivity {
+	return constructionActivity{
+		ActivityID: "projectDesign",
+		Kind:       activityKindConstruction,
+		Type:       projectstate.ActivityTypeProjectDesign,
+	}
+}
+
+// TestM0_TheComputeDoesNotUncommitTheBirthPlanOnMain is the wedge, measured over real git.
+//
+// It drives the REAL generic child on the REAL projectDesign lifecycle and looks at MAIN
+// in the middle of the review window — the exact moment an operator's
+// POST submit-review-decision/<pid>/projectDesign arrives. Both halves of the 404 leg are
+// asserted, because the status alone would not say why the route failed:
+// committedActivityItem is what SubmitReviewDecision resolves through.
+func TestM0_TheComputeDoesNotUncommitTheBirthPlanOnMain(t *testing.T) {
+	rig := newM0GitRig(t)
+
+	var mid projectstate.Project
+	var resolved bool
+	rig.env.RegisterDelayedCallback(func() {
+		mid = rig.read(t)
+		_, resolved = committedActivityItem(mid, "projectDesign")
+	}, 30*time.Second)
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, sdpReviewTaskID), 90*time.Second)
+
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: ProjectID(rig.id), ActivityID: "projectDesign", Activity: projectDesignRow(),
+	})
+	if !rig.env.IsWorkflowCompleted() {
+		t.Fatalf("the projectDesign walk did not complete")
+	}
+	if err := rig.env.GetWorkflowError(); err != nil {
+		t.Fatalf("the projectDesign walk failed: %v", err)
+	}
+
+	// THE WEDGE. Mid-review, main's slot 9 must still be the committed plan.
+	if mid.ActivityList.Status != projectstate.ReviewCommitted {
+		t.Errorf("mid-review main's slot 9 (activityList) is %v, want ReviewCommitted — "+
+			"while it is not, every activity-scoped read 404s and M0's own decision can never be delivered",
+			mid.ActivityList.Status)
+	}
+	if mid.Network.Status != projectstate.ReviewCommitted {
+		t.Errorf("mid-review main's slot 10 (network) is %v, want ReviewCommitted", mid.Network.Status)
+	}
+	if !resolved {
+		t.Errorf("mid-review, activity projectDesign does not resolve against the committed plan — " +
+			"this IS the 404 on submit-review-decision/<pid>/projectDesign")
+	}
+
+	// AND THE APPROVE STILL LANDS THE WHOLE PLAN ON MAIN. A staged artifact nobody can
+	// merge would be a different wedge, not a fix.
+	final := rig.read(t)
+	for _, kind := range projectDesignComputedKinds() {
+		if got := slotForKind(final, kind).Status; got != projectstate.ReviewCommitted {
+			t.Errorf("after M0's approve slot %s is %v on main, want ReviewCommitted", kind.WireName(), got)
+		}
+	}
+	if final.Phase != projectstate.PhaseConstruction {
+		t.Errorf("after M0's approve the root phase is %v, want PhaseConstruction — the pump stays quiescent below it", final.Phase)
+	}
+	assertPlanReplaced(t, final, projectstate.System{Components: birthReplacementComponents})
+}
+
+// ---------------------------------------------------------------------------
+// THE WHOLE REMAINING PATH, AT ZERO COST (wedge enumeration, 2026-10-02).
+//
+// It drives a project from BIRTH to "no construction activity left" over a real on-disk
+// git state repo, through the real pump selection and the real generic child, with the
+// agentic venue a double that fake-succeeds — the in-process equivalent of
+// ARCHISTRATOR_CONSTRUCTION_DRYRUN. No agent episode is ever dispatched, so the walk costs
+// nothing, and every wall it hits is a wall of the PLATFORM rather than of a model.
+//
+// WHAT IT CANNOT SEE, stated because the gap is the point of the next paid run: the venue
+// double reports SUCCEEDED without committing anything, so every failure whose shape is
+// "the agent produced bad or no content" is invisible here. Concretely: the design arm's
+// read-back (readBackDesignModelOn's ReadBackEmpty), every artifact-validation refusal, and
+// every review a critic would have rejected. What it DOES prove is the platform's own
+// sequence — selection, dispatch, gate, ledger, slot writes, phase advance, terminal.
+// ---------------------------------------------------------------------------
+
+func TestDryRun_WalksTheWholeDerivedPlanFromBirthToTheLastActivity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("the full-plan traversal drives ~30 child workflows over real git")
+	}
+	sys := systemForTraversal(t, os.Getenv("ARCHISTRATOR_FULL_PLAN_WALK") == "1")
+	rig := newM0GitRigOver(t, sys)
+	// VIBES, committed, which is what a local boot runs: every non-floor gate auto-approves,
+	// so the traversal needs no human for anything but M0 (whose spend floor is not
+	// overridable by any preset).
+	ct := projectstate.NewGitLocalConstructionTransitionAccess(rig.repoURL)
+	if _, err := ct.RecordReviewPolicy(fwra.Context{Context: context.Background(), IdempotencyKey: "policy:vibes"},
+		rig.id, projectstate.Version(rig.read(t).Version),
+		projectstate.ReviewPolicy{Preset: ptrTo(projectstate.ReviewPresetVibes)}, projectstate.RepoCredential{},
+		"policy:vibes"); err != nil {
+		t.Fatalf("commit the vibes review policy: %v", err)
+	}
+
+	// THE UPSTREAM DESIGN ACTIVITIES, HAND-FINISHED. They are the two agent episodes a paid
+	// run pays for, and the venue double commits nothing, so running them here fails at the
+	// design read-back (ReadBackEmpty) — the first of the invisible-under-DRYRUN class. Their
+	// rows are stamped Completed instead, which is what the pump reads, and the System their
+	// second one produces is already committed by the rig.
+	markActivityDone(t, rig.repoURL, rig.id, "requirements", projectstate.ActivityTypeRequirements)
+	markActivityDone(t, rig.repoURL, rig.id, "architecture", projectstate.ActivityTypeArchitecture)
+
+	// 1. M0, through the real child, approved by the operator.
+	//
+	// EVERY TICK GETS ITS OWN WORKFLOW ID, and it is load-bearing rather than cosmetic: the
+	// generated idempotency key is workflowID:runID:activityID, the test environment's
+	// defaults are CONSTANT, and the store's dedup ledger is keyed on that alone. Two ticks
+	// on the default id therefore collide — the second child's openActivity dedups onto the
+	// first's record, writes NO row, and every row verb after it reads "no activity row",
+	// which the gate reads as "the thread could not be read" and holds for a human forever.
+	// Production ids are per (project, activity), which is what this reproduces.
+	rig.env.SetStartWorkflowOptions(client.StartWorkflowOptions{
+		ID: deliveryActivityWorkflowID(ProjectID(rig.id), "projectDesign")})
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, sdpReviewTaskID), 60*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: ProjectID(rig.id), ActivityID: "projectDesign", Activity: projectDesignRow(),
+	})
+	if err := rig.env.GetWorkflowError(); err != nil {
+		t.Fatalf("M0: %v", err)
+	}
+	proj := rig.read(t)
+	if proj.Phase != projectstate.PhaseConstruction {
+		t.Fatalf("after M0 the phase is %v, want PhaseConstruction", proj.Phase)
+	}
+
+	// 2. THE PUMP'S OWN LOOP, tick by tick, each tick's activity run by its own child on its
+	//    own environment — which is exactly the pump's shape (one child per activity) minus
+	//    the pump workflow itself.
+	walked := walkPumpToQuiescence(t, rig)
+	t.Logf("walked %d activities over a %d-component architecture", walked, len(sys.Components))
+	assertEveryPlannedActivityExited(t, rig)
+}
+
+// markActivityDone opens an activity row and records a Completed binary exit on it, through
+// the REAL execution-ledger verbs — the state the pump reads as "this activity is done".
+// It is how a traversal skips an activity whose work is an agent episode without pretending
+// the episode ran.
+func markActivityDone(t *testing.T, repoURL string, id projectstate.ProjectID,
+	activityID string, typ projectstate.ActivityType,
+) {
+	t.Helper()
+	ae := projectstate.NewGitLocalActivityExecutionAccess(repoURL)
+	ps := projectstate.NewGitLocalProjectStateAccess(repoURL)
+	rcx := func(k string) fwra.Context {
+		return fwra.Context{Context: context.Background(), IdempotencyKey: fwra.IdempotencyKey(k)}
+	}
+	v, err := ps.ReadProjectVersion(rcx("read:"+activityID), id)
+	if err != nil {
+		t.Fatalf("ReadProjectVersion: %v", err)
+	}
+	v, err = ae.OpenActivity(rcx("open:"+activityID), id, v, projectstate.NoActivityVersionExpectation,
+		activityID, typ, projectstate.TestVariantPlan,
+		projectstate.LifecyclePin{TypeKey: projectstate.LifecycleKeyFor(typ, projectstate.TestVariantPlan),
+			AssetsVersion: methodassets.Version()},
+		projectstate.RepoCredential{}, fwra.IdempotencyKey("open:"+activityID))
+	if err != nil {
+		t.Fatalf("OpenActivity %s: %v", activityID, err)
+	}
+	if _, err := ae.RecordActivityOutcome(rcx("done:"+activityID), id, v,
+		projectstate.NoActivityVersionExpectation, activityID, projectstate.ActivityOutcomeCompleted,
+		projectstate.FailureReasonUnknown, "", projectstate.RepoCredential{},
+		fwra.IdempotencyKey("done:"+activityID)); err != nil {
+		t.Fatalf("RecordActivityOutcome %s: %v", activityID, err)
+	}
+}
+
+// walkPumpToQuiescence runs the pump's selection→child loop until the pump goes quiet,
+// failing on the first activity that does not reach a binary exit. It returns how many ran.
+//
+// A BLOCKED verdict is a FATAL, not a break: verdictBlocked is the pump naming a plan
+// defect it cannot dispatch past, and treating it as "done" is how a traversal reports a
+// clear path over a plan nothing can build.
+func walkPumpToQuiescence(t *testing.T, rig *m0GitRig) int {
+	t.Helper()
+	const maxTicks = 120
+	ran := 0
+	for tick := range maxTicks {
+		sel := nextEligibleActivity(rig.read(t), pumpEligibilityRule())
+		switch sel.Verdict {
+		case verdictQuiescent:
+			t.Logf("tick %d: QUIESCENT after %d activities", tick, ran)
+			return ran
+		case verdictBlocked:
+			t.Fatalf("tick %d: pump BLOCKED on %s: %s (%v)", tick,
+				sel.BlockedActivityID, sel.BlockedReason, sel.BlockedFailureReason)
+		}
+		runOneActivityChild(t, rig, sel, tick)
+		ran++
+	}
+	t.Fatalf("the pump never went quiescent within %d ticks", maxTicks)
+	return ran
+}
+
+// runOneActivityChild runs ONE delivery child for the selected activity, on its own test
+// environment and its own workflow id, and fails if it did not record a binary exit.
+func runOneActivityChild(t *testing.T, rig *m0GitRig, sel pumpSelection, tick int) {
+	t.Helper()
+	id := sel.Activity.ActivityID
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	env.SetTestTimeout(10 * time.Minute)
+	env.SetStartWorkflowOptions(client.StartWorkflowOptions{
+		ID: deliveryActivityWorkflowID(ProjectID(rig.id), ActivityID(id))})
+	registerDeliveryActivityOverGit(env, rig.wf, rig.repoURL)
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: ProjectID(rig.id), ActivityID: ActivityID(id), Activity: sel.Activity,
+	})
+	row := rig.read(t).ActivityExecution[id]
+	t.Logf("tick %d: %s -> completed=%v failureReason=%v detail=%q",
+		tick, id, row.CompletedAt != nil, row.FailureReason, row.FailureDetail)
+	if !env.IsWorkflowCompleted() {
+		t.Fatalf("activity %s did not complete", id)
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("activity %s failed: %v", id, err)
+	}
+	if row.CompletedAt == nil {
+		t.Fatalf("activity %s recorded NO binary exit; the pump will re-select it forever", id)
+	}
+}
+
+// assertEveryPlannedActivityExited is the anti-vacuity half: "the pump went quiescent" has
+// to mean the plan is FINISHED, not that the pump stopped selecting. The three design
+// activities are excluded because this traversal hand-finishes them.
+func assertEveryPlannedActivityExited(t *testing.T, rig *m0GitRig) {
+	t.Helper()
+	final := rig.read(t)
+	list, ok := final.ActivityList.Model.(*projectstate.ActivityList)
+	if !ok || list == nil {
+		t.Fatal("slot 9 holds no activity list after M0")
+	}
+	if len(list.Activities) <= 3 {
+		t.Fatalf("the committed plan holds %d activities — the traversal would be vacuous", len(list.Activities))
+	}
+	for _, a := range list.Activities {
+		switch a.Name {
+		case "requirements", "architecture", "projectDesign":
+			continue
+		}
+		if final.ActivityExecution[a.Name].CompletedAt == nil {
+			t.Errorf("activity %s never reached a binary exit, yet the pump went quiescent — "+
+				"the remaining path is NOT clear", a.Name)
 		}
 	}
 }

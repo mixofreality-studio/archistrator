@@ -8885,8 +8885,8 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		// so for a name only the design hooks answered, the DESIGN answer was the merged answer.
 		// These are the two such names the surviving child still reaches — the Phase-1 seal's
 		// advance and the design slot commit — measured by grepping the generated invoker call
-		// sites after the deletion. The design hooks' other seven keys
-		// (stageArtifactForReviewOnBranch, rejectArtifactOnBranchWithComments,
+		// sites after the deletion. The design hooks' other keys
+		// (rejectArtifactOnBranchWithComments,
 		// withdrawArtifactOnBranch, setReviewCommentStatusOnBranch, seedReviewCommentsOnBranch,
 		// activityExecutionAccess.setReviewCommentStatus) had their ONLY workflow-side callers in
 		// the retired co-author files, so an entry for them here would be a preset for a call
@@ -8899,8 +8899,15 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		// deliberately NOT, because applyRecoveringOnBranch's re-read→re-apply loop is what
 		// resolves a stale branch version — a Temporal retry would re-issue the same stale
 		// expectedVersion forever.
+		//
+		// stageArtifactForReviewOnBranch LEFT IT TOO, in the wedge-3 fix: M0's approve became an
+		// APPROVE-MERGE (landComputedSlotOnMain), which stages each computed model on MAIN
+		// through this verb and then commits it. That is its first workflow-side caller since
+		// the co-author files went. It is a slot MUTATION and takes the mutate preset for the
+		// same reason its commit twin does.
 		"projectStateAccess.advancePhase":                    mutateActivityOptions(),
 		"designSessionAccess.commitArtifactWithProvenance":   mutateActivityOptions(),
+		"designSessionAccess.stageArtifactForReviewOnBranch": mutateActivityOptions(),
 		"designSessionAccess.reconcileBranchFromMain":        mutateActivityOptions(),
 		"gitActivityStatusAccess.recordActivityBranchOpened": recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityCIObserved":   recordActivityOptions(),

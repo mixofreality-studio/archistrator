@@ -569,14 +569,31 @@ func (wf *csWorkflows) readBackCritique(
 // configured repo and the read-back/stage ride main, which is byte-for-byte the retired
 // rail's dormant behaviour.
 func (wf *csWorkflows) designVenue(projectID ProjectID, activityID ActivityID) (repo string, branch string) {
-	if wf.Repo == nil {
-		return "", ""
-	}
-	ref, ok := wf.Repo(projectID)
+	ref, branch, ok := wf.designVenueRef(projectID, activityID)
 	if !ok {
 		return "", ""
 	}
-	return sourcecontrol.RepoRefString(ref), activityBranchName(activityID)
+	return sourcecontrol.RepoRefString(ref), branch
+}
+
+// designVenueRef is designVenue BEFORE the ref is flattened to its string, and it is the
+// child's one wf.Repo read (designVenue now delegates, so there is still exactly one).
+//
+// The typed ref is what the RAIL verbs take, and openComputeBranch needs one: the string
+// form exists because a dispatch target and a human-facing label want it, not because the
+// resolver's answer is a string. ok=false is the dormant venue — no repo resolver, or a
+// project the resolver does not know — and its callers then ride main.
+func (wf *csWorkflows) designVenueRef(
+	projectID ProjectID, activityID ActivityID,
+) (sourcecontrol.RepoRef, string, bool) {
+	if wf.Repo == nil {
+		return sourcecontrol.RepoRef(""), "", false
+	}
+	ref, ok := wf.Repo(projectID)
+	if !ok {
+		return sourcecontrol.RepoRef(""), "", false
+	}
+	return ref, activityBranchName(activityID), true
 }
 
 // designJobMode is the job_mode discriminator, read off the TASK KIND: a dispatch task drafts,
@@ -1523,6 +1540,18 @@ func (s sdpComputeStrategy) Produce(ctx workflow.Context, tc taskContext) (produ
 // The subject the round cites is the SDP REVIEW's staged ref, the last of the eight: that
 // is the artifact M0 judges, and it advances with every recompute, which is what lets the
 // ledger say which revision of the plan a round looked at.
+//
+// AND IT STAGES ON THE SESSION BRANCH, which is what stageComputedSlot's own doc has
+// claimed since stage 4b1 and what the caller did not do (the branch argument was ""). Two
+// of the eight slots — 9 activityList and 10 network — are the ones project BIRTH commits
+// on main, and StageArtifactForReview flips a slot to AwaitingReview: staged on main, the
+// compute UN-COMMITTED the plan for the whole review window. From that moment every
+// activity-scoped read 404s (committedActivityItem → committedPlanInputs requires slot 9
+// committed) and M0's own decision could never be delivered, while the review engine's
+// non-overridable spend floor holds M0 for a human under every preset. The project sat at
+// OpenReviewRound forever. Staging on activity/<id> is also the design rail's ratified
+// convention — draft and review on the session branch, main untouched until approve-merge
+// — and completeProjectDesign is that approve-merge.
 func (wf *csWorkflows) computeProjectPlan(
 	ctx workflow.Context, tc taskContext, eng sdpEngines,
 ) (string, []string, error) {
@@ -1539,47 +1568,101 @@ func (wf *csWorkflows) computeProjectPlan(
 	if err != nil {
 		return "", nil, err
 	}
+	branch := ""
+	if onApproveMerge(ctx) {
+		if branch, err = wf.openComputeBranch(ctx, tc); err != nil {
+			return "", nil, err
+		}
+	}
+	// The BRANCH's own version token, seeded from main because a freshly opened session
+	// branch IS main's tip — and carried across the eight writes, which all land on it.
+	// state.walk.headVersion is main's belief and must not move for them: feeding a branch
+	// version into the next main-scoped CAS is the mistake applyRecoveringOnBranch warns of.
+	branchVersion := tc.State.walk.headVersion
 	ref := ""
 	for _, slot := range slots {
-		staged, sErr := wf.stageComputedSlot(ctx, in, tc.Task.ID, slot, tc.State)
+		staged, sErr := wf.stageComputedSlot(ctx, in, tc.Task.ID, slot, tc.State, branch, &branchVersion)
 		if sErr != nil {
 			return "", nil, sErr
 		}
 		ref = staged
 	}
 	workflow.GetLogger(ctx).Info("delivery.projectDesign.computed",
-		"activityId", in.ActivityID, "slots", len(slots), "defaulted", len(defaulted))
+		"activityId", in.ActivityID, "slots", len(slots), "defaulted", len(defaulted),
+		"branch", designBranchLabel(branch))
 	return ref, defaulted, nil
 }
 
-// stageComputedSlot stages ONE computed slot and returns the ref a round can cite.
+// openComputeBranch makes sure the session branch the compute stages on EXISTS, and returns
+// it ("" for a dormant venue, which stages on main exactly as before).
+//
+// IT HAS TO BE OPENED HERE and nowhere else. The branch is designVenue's — activity/<id>,
+// the one name both rails already use, not a second scheme — and on the PR-rail profile
+// openActivityRow has already cut it. On a rail-dormant (GitLocal) profile nothing has:
+// the design arm's branch is cut by the agentic job itself, and `projectDesign` dispatches
+// no job at all. A branch write to a ref that does not exist reads an EMPTY subtree, so the
+// store would either refuse ("no aggregate … but expectedVersion N != 0") or — worse, if it
+// did not — commit a project.json holding these eight slots and nothing else.
+// sourceControlAccess.openBranch creates it off main and is an idempotent no-op on both
+// profiles when it is already there, which is why it can be asked unconditionally.
+//
+// A DORMANT VENUE STILL STAGES ON MAIN, and so still has wedge 3 — there is no second ref
+// to stage on, so the only alternatives would be a different design. It is not a production
+// state: both composition roots wire a Repo resolver (the local one answers the
+// deterministic GitLocal ref for every project), so a dormant venue is a boot with no repo
+// at all, which is a unit-test posture and not one a project runs in.
+func (wf *csWorkflows) openComputeBranch(ctx workflow.Context, tc taskContext) (string, error) {
+	repoRef, branch, ok := wf.designVenueRef(tc.In.ProjectID, tc.In.ActivityID)
+	if !ok {
+		return "", nil
+	}
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		_, e := wf.Acts.RailOpenBranch(ctx, repoRef, sourcecontrol.BranchName(branch),
+			tc.State.walk.cred.toRail())
+		return e
+	}); err != nil {
+		return "", err
+	}
+	return branch, nil
+}
+
+// stageComputedSlot stages ONE computed slot on `branch` and returns the ref a round can cite.
 //
 // state.rowAdvanced() is deliberately NOT called: StageTaskOutput is the one verb on the
 // facet that asserts no per-activity version, because the write lands on the session
 // branch while the row and its counter live on main. Bumping the run's row expectation
 // after a write that never touched the row would make the NEXT row write fail its CAS.
+//
+// NEITHER IS state.walk.headVersion ADVANCED unless the venue is dormant — the same rule,
+// and for the same reason, as stageDesignOutput: headVersion is the run's belief about
+// MAIN, and a branch write returns the BRANCH's next number. branchVersion carries that
+// one forward instead, so the eight writes chain read-your-writes on the branch.
 func (wf *csWorkflows) stageComputedSlot(
 	ctx workflow.Context, in deliveryActivityInput, taskID string,
-	slot computedSlot, state *constructState,
+	slot computedSlot, state *constructState, branch string, branchVersion *projectstate.Version,
 ) (string, error) {
 	env, encErr := encodeModel(slot.Model)
 	if encErr != nil {
 		return "", fwmanager.MapError(encErr)
 	}
 	var staged projectstate.StagedRef
-	v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		sr, sErr := wf.Acts.ActivityExecutionStageTaskOutput(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			state.activityVersion, string(in.ActivityID), taskID, "", env, state.walk.cred.toProjectState())
-		if sErr != nil {
-			return 0, sErr
-		}
-		staged = sr
-		return sr.Version, nil
-	})
+	v, err := wf.applyRecoveringOnBranch(ctx, in.ProjectID, branch, *branchVersion,
+		func(expected projectstate.Version) (projectstate.Version, error) {
+			sr, sErr := wf.Acts.ActivityExecutionStageTaskOutput(ctx, projectstate.ProjectID(in.ProjectID), expected,
+				state.activityVersion, string(in.ActivityID), taskID, branch, env, state.walk.cred.toProjectState())
+			if sErr != nil {
+				return 0, sErr
+			}
+			staged = sr
+			return sr.Version, nil
+		})
 	if err != nil {
 		return "", err
 	}
-	state.walk.headVersion = v
+	*branchVersion = v
+	if branch == "" {
+		state.walk.headVersion = v
+	}
 	return stagedRefString(staged, slot.Kind), nil
 }
 
@@ -2679,8 +2762,25 @@ func isM0Gate(lc methodassets.Lifecycle, t methodassets.LifecycleTask) bool {
 		len(lc.Tasks) == 1
 }
 
-// completeProjectDesign is M0's approve: the eight computed slots are COMMITTED and the
+// completeProjectDesign is M0's approve: the eight computed slots LAND ON MAIN and the
 // root phase advances.
+//
+// IT IS THE APPROVE-MERGE, and that is what changed when the compute moved to the session
+// branch. CommitArtifactWithProvenance commits ON MAIN and takes no branch, so the model
+// has to BE on main first — the design arm gets that from its branch MERGE, which runs
+// inside finalizeWalk, i.e. AFTER this gate. `projectDesign` cannot wait for it: the
+// commit is what makes the plan readable and the phase advance is what starts the pump, and
+// both are this gate's job. So the landing is done at SLOT granularity through the SAME
+// TWO VERBS project birth uses — stage on main, then commit with provenance — reading each
+// model off the branch the compute staged it on. seedDesignPrefixPlan's doc already
+// described M0 that way; now it is true.
+//
+// STAGE AND COMMIT ARE PAIRED PER KIND, not batched. A stage-on-main flips the slot to
+// AwaitingReview, so the eight-stages-then-eight-commits shape would leave slots 9/10
+// un-committed across seven intervening writes — the very window this change exists to
+// close, re-opened at the approve. Paired, each slot is un-committed only between two
+// adjacent writes, and the pump cannot act in that window anyway: it stays quiescent until
+// the phase advances, which is the last thing this function does.
 //
 // The commit comes first and the advance second, deliberately: a phase advanced over
 // slots still sitting in AwaitingReview would put the pump into construction against a
@@ -2690,9 +2790,50 @@ func isM0Gate(lc methodassets.Lifecycle, t methodassets.LifecycleTask) bool {
 //
 // It is IDEMPOTENT by the phase's own ordering: the advance is skipped unless the re-read
 // phase is still BELOW construction, so a replay or a re-decided round cannot push the
-// project past it. The slot commits are idempotent in the store (committing a committed
-// slot is a no-op success).
+// project past it. The slot writes are idempotent too: re-staging the same model and
+// re-committing it lands the same document (Revisions is the one field that moves, and
+// that is what an amendment index is for).
 func (wf *csWorkflows) completeProjectDesign(ctx workflow.Context, in deliveryActivityInput, state *constructState) error {
+	if !onApproveMerge(ctx) {
+		return wf.completeProjectDesignOnMainStaging(ctx, in, state)
+	}
+	src, err := wf.readComputedPlanSource(ctx, in)
+	if err != nil {
+		return err
+	}
+	for _, kind := range projectDesignComputedKinds() {
+		if err := wf.landComputedSlotOnMain(ctx, in, state, kind, slotForKind(src, kind).Model); err != nil {
+			return err
+		}
+	}
+	return wf.advanceToConstruction(ctx, in, state)
+}
+
+// changeProjectDesignApproveMerge is the ONE version marker gating wedge 3's fix, read at
+// both of its points — the compute's branch and M0's landing — because an execution is
+// either on it or off it. Two markers would admit a run that staged on the session branch
+// and then committed slots that were never on main.
+const changeProjectDesignApproveMerge = "project-design-approve-merge"
+
+// onApproveMerge reports whether THIS execution stages the computed plan on the session
+// branch and lands it at the approve. An execution whose history holds no marker answers
+// false and keeps the pre-fix sequence exactly, which is what lets a captured history
+// replay (Test_Replay_DeliveryHistories) rather than diverge on a command it never issued.
+func onApproveMerge(ctx workflow.Context) bool {
+	return workflow.GetVersion(ctx, changeProjectDesignApproveMerge, workflow.DefaultVersion, 1) >= 1
+}
+
+// completeProjectDesignOnMainStaging is M0's approve BEFORE the approve-merge: the compute
+// had already staged all eight on main, so the seal is eight commits and the advance.
+//
+// IT IS KEPT FOR REPLAY, not for use. Its path is the wedge — the compute un-committed
+// slots 9/10 on main, every activity-scoped read 404'd and the human gate M0 always needs
+// could never be answered — so no new execution takes it. What it serves is an execution
+// already in flight behind the marker, whose history holds this command sequence and would
+// otherwise fail replay on a command it never issued. It goes when those histories do.
+func (wf *csWorkflows) completeProjectDesignOnMainStaging(
+	ctx workflow.Context, in deliveryActivityInput, state *constructState,
+) error {
 	for _, kind := range projectDesignComputedKinds() {
 		v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 			return wf.Acts.DesignSessionCommitArtifactWithProvenance(ctx, projectstate.ProjectID(in.ProjectID), expected,
@@ -2704,6 +2845,74 @@ func (wf *csWorkflows) completeProjectDesign(ctx workflow.Context, in deliveryAc
 		state.walk.headVersion = v
 	}
 	return wf.advanceToConstruction(ctx, in, state)
+}
+
+// readComputedPlanSource reads the aggregate the eight computed models are read OUT of:
+// the session branch the compute staged them on.
+//
+// IT FALLS BACK TO MAIN, and the fallback is reachable rather than defensive. The branch
+// read answers NotFound when the venue resolves no repo (the dormant profile, where the
+// compute staged on main in the first place) and when the branch is gone — which the PR
+// rail's own F80c reconcile does, adopting main wholesale, because `projectDesign` drafts
+// no design slot and so preserves none. A continue-as-new between the compute and this
+// gate reaches the same place from the other side: workflow.GetVersion markers do not
+// cross a run, so a walk whose compute ran on the old main-staging path can decide its
+// gate on this one.
+func (wf *csWorkflows) readComputedPlanSource(
+	ctx workflow.Context, in deliveryActivityInput,
+) (projectstate.Project, error) {
+	_, branch := wf.designVenue(in.ProjectID, in.ActivityID)
+	src, err := wf.readProjectOnBranch(ctx, in.ProjectID, branch)
+	if err == nil {
+		return src, nil
+	}
+	if !isReadNotFound(err) {
+		return projectstate.Project{}, err
+	}
+	workflow.GetLogger(ctx).Info("delivery.projectDesign.landFromMain",
+		"activityId", in.ActivityID, "branch", designBranchLabel(branch),
+		"reason", "the session branch holds no project state; the computed models are read off main")
+	return wf.readProject(ctx, in.ProjectID)
+}
+
+// landComputedSlotOnMain stages one computed model on MAIN and commits it with provenance.
+//
+// A NIL model is the one shape it refuses, by name. It means the branch this gate read
+// holds no draft for a slot the compute is required to have staged, and the honest answer
+// is to fail the seal rather than to commit seven slots and leave the eighth as whatever
+// main had — a half-landed plan is the state committedPlanInputs cannot tell from a whole
+// one, and it would reach the pump.
+func (wf *csWorkflows) landComputedSlotOnMain(
+	ctx workflow.Context, in deliveryActivityInput, state *constructState,
+	kind projectstate.ArtifactKind, model projectstate.ArtifactModel,
+) error {
+	if model == nil {
+		return newError(fwmanager.FailedPrecondition,
+			"cannot seal Project Design: no computed "+kind.WireName()+" to land on main for activity "+
+				string(in.ActivityID)+" — the compute stages all "+
+				strconv.Itoa(len(projectDesignComputedKinds()))+" slots, so this one is missing")
+	}
+	env, encErr := encodeModel(model)
+	if encErr != nil {
+		return fwmanager.MapError(encErr)
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.DesignSessionStageArtifactForReviewOnBranch(ctx, projectstate.ProjectID(in.ProjectID),
+			expected, "", env)
+	})
+	if err != nil {
+		return err
+	}
+	state.walk.headVersion = v
+	v, err = wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.DesignSessionCommitArtifactWithProvenance(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			kind, gateActorOperator, projectDesignDraftedBy)
+	})
+	if err != nil {
+		return err
+	}
+	state.walk.headVersion = v
+	return nil
 }
 
 // projectDesignDraftedBy is the draftedBy provenance on every slot M0 commits. It says
