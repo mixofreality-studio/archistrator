@@ -109,13 +109,23 @@ const claudePathPrefix = ".claude/"
 //
 // .golangci.yml is the shared lint baseline the seated go-checks workflow runs
 // against (method-assets scaffold, 2026-07-19); it seats at birth and is server-owned
-// policy, so it also rides the sync (see managedSyncFiles).
+// policy, so it also rides the sync (see managedSyncFiles). Makefile.scenarios.mk
+// is the same case (method-assets v0.10.0, deterministic component testing): the
+// gen-tests / gen-tests-check / test-scenarios targets the construction commands
+// and the local venue call, server-owned with no app-local edits, so it seats at
+// birth AND rides the sync.
 var scaffoldRootPaths = map[string]bool{
 	"go.mod":                true,
 	"aiarch_method_test.go": true,
 	"internal/.gitkeep":     true,
 	".golangci.yml":         true,
+	scenarioMakefilePath:    true,
 }
+
+// scenarioMakefilePath is the scaffold's scenario-test make include, rendered
+// module-root-relative by method-assets (the seated app module lives at the repo
+// root, beside go.mod).
+const scenarioMakefilePath = "Makefile.scenarios.mk"
 
 // isManagedFilePath reports whether p is on the managed-file allowlist: under
 // .github/workflows/, a clean path under .claude/ (the methodassets prompt surface),
@@ -1349,7 +1359,8 @@ func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 }
 
 // managedSyncFiles returns the SYNC-SCOPED subset of the managed scaffold — the
-// seated workflows plus the .golangci.yml lint baseline. go.mod /
+// seated workflows plus the server-owned policy roots (.golangci.yml lint
+// baseline, Makefile.scenarios.mk scenario-test targets). go.mod /
 // aiarch_method_test.go / internal/.gitkeep are BIRTH-ONLY: go.mod is
 // user-evolved after birth (their requires) and re-seating it would destroy
 // user content, so the sync never touches those roots. .golangci.yml is the
@@ -1366,7 +1377,7 @@ func managedSyncFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 	}
 	out := make([]ManagedFile, 0, len(all))
 	for _, f := range all {
-		if strings.HasPrefix(f.Path, workflowPathPrefix) || f.Path == ".golangci.yml" {
+		if strings.HasPrefix(f.Path, workflowPathPrefix) || f.Path == ".golangci.yml" || f.Path == scenarioMakefilePath {
 			out = append(out, f)
 		}
 	}

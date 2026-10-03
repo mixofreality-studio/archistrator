@@ -416,6 +416,17 @@ func appArchSpec() arch.Spec {
 		"github.com/modelcontextprotocol/go-sdk", // sanctioned MCP substrate for the generated mcpClient tool surface (internal/client/mcp/*, framework-go-mcp-generator output)
 		"github.com/google/jsonschema-go",        // the MCP SDK's own JSON Schema type; the generated mcpClient tools carry explicit InputSchema (enum values/meanings + REST-matching optionality) built from it (internal/client/mcp/*, cmd/clientgen mcpemit output)
 	}
+
+	// Hooks-file import allowlist — what a component's ONE hand-written test
+	// file (<stereotype>_hooks_test.go) may import beyond the built-in set
+	// (its own package, stdlib, platform testinfra doubles, scenariohost).
+	// Deterministic component tests are black-box: a hooks file arranges the
+	// subject against generated fakes of the resources it fronts, never
+	// against another component's internals. modulePrefix already ends in
+	// "internal/", so the entries are relative to it.
+	spec.HooksImportAllowlist = []string{
+		modulePrefix + "resourceaccess/projectstate/fake",
+	}
 	return spec
 }
 

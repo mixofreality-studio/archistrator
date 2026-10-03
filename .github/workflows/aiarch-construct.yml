@@ -284,3 +284,62 @@ jobs:
           # which the first step validated. The operator note never rides here.
           prompt: |
             /${{ inputs.command }} ${{ inputs.component_id }} ${{ inputs.activity_id }}
+
+      # -----------------------------------------------------------------------
+      # DETERMINISTIC COMPONENT TESTING — the venue half (spec §6.2). On the
+      # integration phase the runner, not the agent, proves the construction
+      # revision: the testgen drift check (the generated scenario tests match the
+      # committed test plan), then every TestScenario_* of the module's internal/
+      # packages as a `go test -json` stream, then the client's generated Playwright
+      # specs when the component has any. The step is continue-on-error so the
+      # results are ALWAYS uploaded and the run is ALWAYS recorded; the record step
+      # re-asserts the outcome, so a red scenario still fails the job.
+      # Paths are module-root-relative: the seated app module lives at the repo
+      # root (go.mod), so there is no server/ prefix.
+      # -----------------------------------------------------------------------
+      - name: Run scenario tests
+        if: ${{ inputs.phase == 'integration' }}
+        id: scenarios
+        continue-on-error: true
+        env:
+          GOWORK: off
+          AIARCH_COMPONENT_ID: ${{ inputs.component_id }}
+        run: |
+          set -o pipefail
+          mkdir -p test-results
+          go run github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen@v0.11.0 -project .aiarch/state/project.json -root . -check
+          go test ./internal/... -run 'TestScenario_' -json 2>&1 | tee test-results/go-test.jsonl
+          if [ -d "uitests/generated/${AIARCH_COMPONENT_ID}" ]; then
+            (cd uitests && npx playwright install --with-deps chromium && npx playwright test -c "generated/${AIARCH_COMPONENT_ID}/playwright.config.gen.ts")
+          fi
+
+      # results.json + the go test -json stream + Playwright videos/traces, named
+      # test-results-<activityId>-<runId> so the run record (below) and the
+      # delivery rail's artifact fetch agree on one name.
+      - name: Upload test results
+        if: ${{ inputs.phase == 'integration' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.activity_id }}-${{ github.run_id }}
+          path: test-results/**
+          retention-days: 90
+          if-no-files-found: error
+
+      # `record-test-run` is the aiarch-state MCP binary's subcommand that writes
+      # the TestRun onto .testingState.testRuns[] (spec §6.1). It runs whether the
+      # scenarios passed or not — the record is the evidence either way — and the
+      # final test re-asserts the scenario step's outcome so a failure fails the job.
+      - name: Record test run
+        if: ${{ inputs.phase == 'integration' }}
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+          AIARCH_ACTIVITY_ID: ${{ inputs.activity_id }}
+          AIARCH_COMPONENT_ID: ${{ inputs.component_id }}
+          AIARCH_RUN_ID: ${{ github.run_id }}
+          SCENARIOS_OUTCOME: ${{ steps.scenarios.outcome }}
+        run: |
+          "${MCP_BIN}" record-test-run \
+            --activity "${AIARCH_ACTIVITY_ID}" --component "${AIARCH_COMPONENT_ID}" \
+            --run-id "${AIARCH_RUN_ID}" --artifact "test-results-${AIARCH_ACTIVITY_ID}-${AIARCH_RUN_ID}" \
+            --results test-results
+          test "${SCENARIOS_OUTCOME}" = "success"

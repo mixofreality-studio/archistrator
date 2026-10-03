@@ -1961,6 +1961,33 @@ func TestInternalGitkeepAcceptedByAllowlist(t *testing.T) {
 	}
 }
 
+// TestScenarioMakefileIsServerOwnedScaffold proves the scenario-test make include
+// (method-assets v0.10.0 scaffold: gen-tests / gen-tests-check / test-scenarios,
+// which the construction commands and the local venue call) is treated exactly
+// like .golangci.yml — server-owned policy with no legitimate app-local edits: on
+// the managed-file allowlist so birth can seat it, AND in the sync scope so an
+// older repo converges onto the current targets before a construction dispatch.
+// An arbitrary sibling Makefile stays off the allowlist: only the literal
+// scaffold root is managed.
+func TestScenarioMakefileIsServerOwnedScaffold(t *testing.T) {
+	if !isManagedFilePath(scenarioMakefilePath) {
+		t.Errorf("%q must be on the managed-file allowlist", scenarioMakefilePath)
+	}
+	if isManagedFilePath("Makefile") {
+		t.Error("the app's own Makefile must NOT be on the allowlist — only the literal scaffold include is")
+	}
+	files, err := managedSyncFiles(makeRepoRef("acme", "acme/widgets"), testAppSlug)
+	if err != nil {
+		t.Fatalf("managedSyncFiles: %v", err)
+	}
+	for _, f := range files {
+		if f.Path == scenarioMakefilePath {
+			return
+		}
+	}
+	t.Errorf("%q must ride the managed-scaffold sync (server-owned policy, like .golangci.yml)", scenarioMakefilePath)
+}
+
 // TestClaudeTreeAllowlist proves the .claude/ prefix allowance (B4): clean paths under
 // the methodassets prompt surface are managed files, while path traversal, absolute
 // paths, and non-clean forms can never ride the prefix onto the allowlist.
