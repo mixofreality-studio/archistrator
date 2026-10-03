@@ -48,3 +48,6 @@ server/cmd/server/webappdist/
 # Subagent-driven-development workspaces (ledgers, task briefs, review
 # packages). Working notes for an in-flight plan, not committed artifacts.
 .superpowers/sdd/
+
+# `make test-scenarios` output (server/); the venue uploads it, nothing commits it.
+/server/test-results/

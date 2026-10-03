@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-config gen-config-check gen-lifecycles gen-lifecycles-check claude-assets derived-plan-check derived-plan-write construction-state-reset
+.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-config gen-config-check gen-lifecycles gen-lifecycles-check gen-tests gen-tests-check test-scenarios claude-assets derived-plan-check derived-plan-write construction-state-reset
 
 # claude-assets — materialize the .claude method prompt surface (agents/commands/
 # skills) into the repo root from the method-assets lib pinned in go.mod. The
@@ -23,6 +23,7 @@ claude-assets:
 #                 (<goPackage>/fake/fake.gen.go). Alias of gen-models — same
 #                 cmd/modelgen run emits both outputs.
 #   gen         — steady-state regen (idempotent); gen-models + gen-fakes + …
+#                 + gen-tests (the scenario tests; Makefile.scenarios.mk)
 gen-models:
 	GOWORK=off go run ./cmd/modelgen
 
@@ -78,7 +79,7 @@ gen-internal-tools:
 gen-internal-tools-check: gen-internal-tools
 	git diff --exit-code -- internal/resourceaccess/projectstate/toolcatalog.gen.go
 
-gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-config gen-lifecycles
+gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-config gen-lifecycles gen-tests
 
 # gen-temporal — ONE appgen run (cmd/appgen, driving framework-go-app-generator's
 # temporalgen + configgen + composegen) that emits, from a single project.json
@@ -262,3 +263,8 @@ derived-plan-write:
 # activities it no longer holds.
 construction-state-reset:
 	CONSTRUCTION_STATE_RESET=1 GOWORK=off go test $(DERIVED_PLAN_PKG) -run '^TestResetConstructionState$$' -count=1 -v
+
+# gen-tests / gen-tests-check / test-scenarios: the generated per-component
+# scenario tests (deterministic component testing, spec 2026-10-02 §4.3, §5.3).
+# Included LAST so none of its targets becomes the default goal.
+include Makefile.scenarios.mk
