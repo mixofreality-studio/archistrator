@@ -7870,9 +7870,11 @@ func TestEveryProfilePhaseHasCommandFile(t *testing.T) {
 			}
 		}
 	}
-	// Sanity: the matrix is exactly 30 distinct commands.
-	if len(seen) != 30 {
-		t.Errorf("expected 30 distinct commands, got %d", len(seen))
+	// Sanity: the matrix is exactly 24 distinct commands — 30 before deterministic
+	// component testing (spec §7) retired the testing:plan and testing:systemTest
+	// profiles, each three phases (testing-plan-* and testing-systemtest-*).
+	if len(seen) != 24 {
+		t.Errorf("expected 24 distinct commands, got %d", len(seen))
 	}
 }
 
