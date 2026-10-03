@@ -12551,6 +12551,46 @@ func TestActivityNodeKindCodecKnowsIOKinds(t *testing.T) {
 	}
 }
 
+// TestRequireModelFields_ObjectNodeNeedsInState_NoteAnchorOptional pins the WRITE-PATH
+// shape rule for the two I/O fields (requireIOKindShape, spec §2.2), which the codec test
+// above does not reach: an objectNode is an expected observable state, so a write that
+// omits (or blanks) its inState is refused naming the field; a note's anchor is optional
+// and a string anchor is accepted.
+func TestRequireModelFields_ObjectNodeNeedsInState_NoteAnchorOptional(t *testing.T) {
+	useCase := func(nodes string) []byte {
+		return []byte(`{
+      "decisions": [
+        {"useCase":{"id":"uc1","name":"Place order","actors":[],"trigger":"clientAction","classification":"core",
+          "activity":{"nodes":[{"id":"s","kind":"start","label":""},{"id":"a","kind":"action","label":"do"},` + nodes + `],
+                      "edges":[{"from":"s","to":"a","kind":"controlFlow","guard":""}]}},
+         "rejectionReason":""}
+      ]
+    }`)
+	}
+	for name, nodes := range map[string]string{
+		"objectNode without inState":    `{"id":"o","kind":"objectNode","label":"Invoice"}`,
+		"objectNode with blank inState": `{"id":"o","kind":"objectNode","label":"Invoice","inState":""}`,
+	} {
+		err := RequireModelFields(KindCoreUseCases, useCase(nodes))
+		if err == nil || !strings.Contains(err.Error(), "inState") {
+			t.Fatalf("%s must be refused naming inState, got: %v", name, err)
+		}
+	}
+	for name, nodes := range map[string]string{
+		"objectNode with inState":     `{"id":"o","kind":"objectNode","label":"Invoice","inState":"[paid]"}`,
+		"note with anchor":            `{"id":"n","kind":"note","label":"total is rounded","anchor":"a"}`,
+		"note without anchor":         `{"id":"n","kind":"note","label":"total is rounded"}`,
+		"sendSignal carries no state": `{"id":"g","kind":"sendSignal","label":"InvoicePaid"}`,
+	} {
+		if err := RequireModelFields(KindCoreUseCases, useCase(nodes)); err != nil {
+			t.Fatalf("%s must be accepted, got: %v", name, err)
+		}
+	}
+	if err := RequireModelFields(KindCoreUseCases, useCase(`{"id":"n","kind":"note","label":"x","anchor":42}`)); err == nil || !strings.Contains(err.Error(), "anchor") {
+		t.Fatalf("a non-string anchor must be refused naming anchor, got: %v", err)
+	}
+}
+
 // TestDeriveVariantNoLongerKnowsPlanOrSystemTest pins the retirement of TestingVariant
 // ordinals 0 (plan) and 3 (systemTest): N-STP and N-IT no longer classify as testing
 // activities at all (spec §7).
