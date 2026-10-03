@@ -4,11 +4,11 @@
  * `useProject` decodes it — so these are assertions about real data, not about
  * a hand-written shape that agrees with the code by construction.
  *
- * The fixture pre-dates deterministic component testing (spec §7): it still
- * carries N-STP and N-IT, whose variants (plan, systemTest) no longer exist. They
- * decode as testing rows WITHOUT a variant now, which is exactly the "no band"
- * case — so the fixture's two retired activities are what these tests use to pin
- * that an unplaceable activity is listed last and named, never dropped.
+ * The fixture's committed list pre-dates deterministic component testing (spec §7):
+ * it still names N-STP and N-IT. Neither classifies any more, so the server serves
+ * both rows UNCLASSIFIED, which is exactly the "no band" case — so the fixture's two
+ * retired activities are what these tests use to pin that an unplaceable activity is
+ * listed last and named, never dropped.
  */
 /// <reference types="node" />
 import { test } from 'node:test';
@@ -28,10 +28,7 @@ import type { LifecycleNode, LifecycleNodeState } from './lifecycleGraphTypes.ts
 // The fixture is the wire payload; decode it exactly as useProject does, so the
 // test exercises the same ConstructionRow the screen gets.
 function live(): ReturnType<typeof planActivitiesFrom> {
-  const url = new URL(
-    '../../../../uitests/preview-fixtures/web-client/plan/list.json',
-    import.meta.url
-  );
+  const url = new URL('../../../preview/fixtures/web-client/plan/list.json', import.meta.url);
   // The head-state read is one kind of the merged project view (stage 4a), so the
   // fixture keys it by that kind and the body is the view's `summary` member —
   // exactly what useProject unwraps.

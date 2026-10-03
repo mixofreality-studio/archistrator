@@ -70,7 +70,7 @@ export type FixtureOps = Readonly<{
   [K in OpId]?: K extends typeof VIEW_OP ? FixtureViewOps : FixtureOp;
 }>;
 
-/** One screen state's fixture file (uitests/preview-fixtures/<surface>/<screen>/<state>.json). */
+/** One screen state's fixture file (webApp/preview/fixtures/<surface>/<screen>/<state>.json). */
 export interface FixtureFile {
   /** The concrete route the state opens at, e.g. "/project/archistrator/construction". */
   readonly route: string;
