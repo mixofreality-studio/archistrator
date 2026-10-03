@@ -451,6 +451,16 @@ func (st *pumpState) markFinished(id ActivityID) {
 	st.releaseLease(id)
 }
 
+// disownFuture drops the FUTURE of an activity WITHOUT declaring the activity over, and the
+// distinction from markFinished is the whole of its reason to exist: the activity is still
+// in flight — somebody else's execution is working it — so the pump keeps waiting on it and
+// keeps asking its ROW, exactly as it does for a child that predates a ContinueAsNew. Only
+// pumpStartWasRefusedToARunningExecution calls it, because a future is the pump's own line
+// to a child and nothing else may throw one away.
+func (st *pumpState) disownFuture(id ActivityID) {
+	delete(st.futures, id)
+}
+
 // markVanished is what BOTH NotFound arms of the lease do, and it is deliberately not
 // markFinished — which is what they were, and which left G-P12 with two back doors that
 // fix round 1 did not close (fix round 2, C1).
@@ -759,9 +769,10 @@ func pumpDispatchedResult(frontier []ActivityID) PumpResult {
 // it started plus whether the run must go quiet here.
 //
 // nextEligibleActivity is PURE over the project and returns the FIRST eligible activity in
-// declaration order, so one pass is a loop. Starts are idempotent on the child id —
-// pumpsweep.go has relied on exactly that since stage 4a — so a redundant tick collapses
-// onto the running child instead of forking a second walk.
+// declaration order, so one pass is a loop. A start this pass makes against an id another
+// tick source already holds is REFUSED rather than collapsed onto (see startActivityChild,
+// where the opposite claim stood for two stages); the refusal reaches the cascade boundary
+// and is adopted there, so no pass forks a second walk over one activity.
 //
 // THE LOOP CARRIES ITS OWN STARTED SET, and this is measured rather than defensive. The
 // exclusion the selection rule offers is isActivityDispatchable's PumpWroteRow arm, which
@@ -1023,6 +1034,14 @@ func (wf *csWorkflows) pumpCheckLease(ctx workflow.Context, in pumpInput, st *pu
 // child of THIS run has a future, a holder is probed by the lease's own deadline, and a child
 // that wrote a terminal row is judged by pumpReconcile off that row.
 //
+// THERE IS NOW A SECOND WAY TO BE FUTURELESS AND IN FLIGHT, and this probe is what makes it
+// safe: an ADOPTED activity, one whose execution another tick source had already started so
+// this pump's own start was refused (pumpStartWasRefusedToARunningExecution). Its shape is
+// identical — in flight, no future, judged off its row — so it gets the same liveness
+// backstop for free, and an adopted execution that dies without recording anything is
+// marked vanished here and stops the cascade on the next reconcile rather than parking the
+// pump forever.
+//
 // WHY IT SENDS A GRANT AT pumpLivenessProbeEpoch AND NOT THE HOLDER'S OWN GRANT. Re-delivering
 // a real grant to a child that did not ask for one is not a probe, it is a HAZARD: the message
 // buffers on activityLeaseGranted, and when that child later reaches requestMainWriteLease it
@@ -1127,6 +1146,14 @@ func (wf *csWorkflows) pumpSignalChild(ctx workflow.Context, projectID ProjectID
 // written — a child killed before it could record anything is invisible to this rule, and
 // the sweep's restart is its only backstop.
 //
+// AND G-P12 DOES NOT FIRE ON A START THAT WAS REFUSED, which is a different fact wearing
+// the same error. "The id was already running" is not a verdict on the activity at all —
+// it is the race two tick sources on one project produce — so it is adopted rather than
+// raised, and the activity stays in flight to be reconciled off its ROW like any other
+// child this run holds no future for. The discrimination is in
+// pumpStartWasRefusedToARunningExecution and it is structural: the START and the RUN answer
+// on two different futures. A child that ran and failed still stops the cascade.
+//
 // WHY A TERMINAL FAILURE ROW ALONE IS NOT ENOUGH, and this is the distinction the rule
 // turns on: an activity that GIVES UP cleanly (constructionGaveUp / constructionExited)
 // also records a failure row, and stage 4b1 decided deliberately that such a child returns
@@ -1141,6 +1168,19 @@ func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pum
 				continue
 			}
 			if err := f.Get(ctx, nil); err != nil {
+				if pumpStartWasRefusedToARunningExecution(ctx, f) {
+					// NOT THE CHILD'S VERDICT — THE START's. Some other tick source already holds
+					// this activity's execution, so there is nothing to walk past: the activity IS
+					// being worked, this pump simply does not own the execution doing it. It stays
+					// IN FLIGHT with its future dropped, which puts it on exactly the footing of a
+					// child that predates a ContinueAsNew — reconciled off its ROW and its finish
+					// signal by the arms below — so a terminal FAILURE row still stops the cascade.
+					logger.Info("pump: this activity is ALREADY BEING WORKED by an execution this pump did not start — "+
+						"adopting it and reconciling off its row rather than stopping the cascade",
+						"projectId", string(in.ProjectID), "activityId", string(id))
+					st.disownFuture(id)
+					continue
+				}
 				logger.Error("pump: the activity child FAILED — stopping the cascade rather than walking past it",
 					"projectId", string(in.ProjectID), "activityId", string(id), "err", err.Error())
 				return err
@@ -1204,6 +1244,53 @@ func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pum
 		}
 	}
 	return nil
+}
+
+// pumpStartWasRefusedToARunningExecution tells "THIS ACTIVITY IS ALREADY BEING WORKED"
+// apart from "THIS ACTIVITY RAN AND FAILED", and conflating those two is the one way this
+// change could do harm: it would make a genuinely failing activity read as progress.
+//
+// THE DISCRIMINATION IS STRUCTURAL, NOT TEXTUAL, AND IT DOES NOT LOOK AT THE RUN'S ERROR AT
+// ALL. A child workflow has TWO futures carrying two different facts:
+// GetChildWorkflowExecution() answers the START, the future itself answers the RUN. Only a
+// REFUSED START can put an error on the start future (the SDK's
+// scheduledChildWorkflow.handleFailedToStart is its one producer, and it resolves BOTH
+// futures with it); a child that started and then failed has a start future holding its
+// execution and a NIL error. So the start future alone is the whole question, and reading
+// the result error here would be reading one channel for two unrelated facts.
+//
+// MEASURED RATHER THAN ASSUMED, because it is the arm that could do harm: with this
+// function stubbed to `return true`,
+// Test_Pump_AChildThatRanAndFailedStopsTheCascadeEvenWhenItsErrorReadsAlreadyStarted goes
+// RED — the adopted child is left in flight with nothing that will ever finish it and the
+// pump parks to its deadline. (That case also records a second fact worth having: a child's
+// own error crosses failure conversion, so a RUN failure cannot even carry the
+// already-started TYPE. The guard does not lean on that.)
+//
+// THE READ EMITS NOTHING. IsReady and a Get on an already-resolved future produce no
+// workflow command and cannot block, which is why this fix does not move the pump's
+// recorded command sequence and the pump replay fixtures stay green with no version marker.
+//
+// WHY THE RACE IS NORMAL RATHER THAN EXOTIC: `{projectId}:activity:{id}` HAS TWO STARTERS.
+// startSystemDesign (StartProject/Begin) starts the reserved `requirements` activity as a
+// ROOT execution through the client with USE_EXISTING, and the pump starts the SAME id as a
+// CHILD a moment later — before the child's own first durable write (RecordActivityStarted)
+// has landed, so isActivityDispatchable's PumpWroteRow arm has nothing to exclude it by. A
+// chain the sweep restarts with an empty Started set is the same race one door along. The
+// paid todomvc run died on it one second after launch, having dispatched one of 27.
+//
+// AND A CHILD START CANNOT JOIN, which is why this is handled rather than prevented at the
+// start: workflow.ChildWorkflowOptions (SDK v1.44) has no WorkflowIDConflictPolicy at all —
+// WorkflowIDReusePolicy governs only CLOSED executions — so a start against a RUNNING id is
+// always refused. Only a CLIENT start (StartWorkflowOptions) can say USE_EXISTING, which is
+// what pumpWorkflowID's own start-or-join uses and what the activity child cannot.
+func pumpStartWasRefusedToARunningExecution(ctx workflow.Context, f workflow.ChildWorkflowFuture) bool {
+	started := f.GetChildWorkflowExecution()
+	if !started.IsReady() {
+		return false
+	}
+	startErr := started.Get(ctx, nil)
+	return startErr != nil && temporal.IsWorkflowExecutionAlreadyStartedError(startErr)
 }
 
 // ---------------------------------------------------------------------------
@@ -1482,9 +1569,19 @@ func pumpEligibilityRule() eligibilityRule {
 
 // startActivityChild starts the child that runs ONE activity and returns its future.
 //
-// ONE CHILD, ONE ID — idempotent on deliveryActivityWorkflowID, so a redundant tick
-// collapses onto the running child instead of starting a second one, and the façade signals
-// the same id the pump started.
+// ONE CHILD, ONE ID — deliveryActivityWorkflowID, so at most one execution ever works an
+// activity and the façade signals the same id the pump started.
+//
+// IT IS NOT "IDEMPOTENT", AND THIS COMMENT SAID IT WAS FOR TWO STAGES. The claim was that a
+// redundant tick "collapses onto the running child instead of starting a second one", citing
+// pumpsweep.go. pumpsweep.go does not rely on any such thing: it HANDLES
+// IsWorkflowExecutionAlreadyStartedError explicitly. And no child start can collapse onto a
+// running execution — workflow.ChildWorkflowOptions (SDK v1.44) has no
+// WorkflowIDConflictPolicy, and WorkflowIDReusePolicy governs only CLOSED executions — so a
+// start against a RUNNING id is always REFUSED. The paid todomvc run (2026-10-02) died on
+// exactly that, one second in, because the bootstrap's own root start of
+// `…:activity:requirements` had won the id. The refusal is recognised and the activity is
+// adopted at pumpStartWasRefusedToARunningExecution; what cannot happen here is a join.
 //
 // PARENT_CLOSE_POLICY_ABANDON: the activity is its own durable execution, independent of
 // this pump's continue-as-new chain. Drop it and the pump's own close — every

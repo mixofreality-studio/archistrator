@@ -28126,8 +28126,11 @@ func pumpGuardCensusPump() []pumpGuard {
 		{"G-P15", "pumpnextactivity.go:164-166", "the failure record's OWN error arm — a record that cannot land fails the run",
 			"G-P5's loudness becomes best-effort and a blocked frontier goes silent again",
 			"Test_Pump_BlockedActivity_AFailedFailureRecordFailsTheRun"},
-		{"G-P16", "pumpnextactivity.go:386", "the child is addressed by deliveryActivityWorkflowID — idempotent on its id, so a redundant tick collapses",
-			"two executions for one activity, both writing the same row; and the facade signals an id the pump never started",
+		// "IDEMPOTENT ON ITS ID, SO A REDUNDANT TICK COLLAPSES" is what this row USED to say, and it
+		// was false: a child start cannot collapse onto a RUNNING id (no WorkflowIDConflictPolicy on
+		// ChildWorkflowOptions), it is REFUSED — which the paid todomvc run met one second in.
+		{"G-P16", "pumpnextactivity.go:386", "the child is addressed by deliveryActivityWorkflowID — ONE execution per activity, and a start refused because another tick source holds that id is ADOPTED, not raised",
+			"two executions for one activity, both writing the same row; or, with the refusal unhandled, the refusal reaches G-P12 as a child failure and stops the cascade on activity 1",
 			"Test_Pump_StartsOneChildAndNamesNoActivityType"},
 		{"G-P17", "pumpnextactivity.go:387", "PARENT_CLOSE_POLICY_ABANDON on the child start",
 			"the pump's own close — every ContinueAsNew, every failure — terminates every in-flight activity",
@@ -28939,6 +28942,242 @@ func Test_Pump_AFailedChildFailsTheRunAndStopsTheCascade(t *testing.T) {
 	}
 	if starts != 1 {
 		t.Fatalf("want the one child, got %d", starts)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WEDGE 5: TWO TICK SOURCES, ONE ACTIVITY (the paid todomvc run, 2026-10-02 19:57:12)
+//
+// ONE SECOND AFTER LAUNCH the pump died on its FIRST activity:
+//
+//	pump: the activity child FAILED — stopping the cascade rather than walking past it
+//	err = child workflow execution error (type: deliveryActivity,
+//	      workflowID: todomvc-...:activity:requirements, runID: , initiatedEventID: 11,
+//	      startedEventID: 0): child workflow execution already started
+//
+// `startedEventID: 0` and the EMPTY runID say the child never began: the START was
+// rejected because an execution already held that id. The pump then stopped its cascade,
+// and activity 2 of 27 was never dispatched — the run logged `construction pump:
+// start-or-join` every five seconds for the next half hour, doing nothing.
+//
+// THE RACE IS REAL AND IT IS NOT EXOTIC: `{projectId}:activity:{id}` HAS TWO STARTERS.
+// startSystemDesign (StartProject/Begin) starts `…:activity:requirements` as a ROOT
+// execution through the client with USE_EXISTING, and the pump starts the SAME id as a
+// CHILD a few hundred milliseconds later — before the child's own first durable write
+// (RecordActivityStarted) has landed, so isActivityDispatchable's PumpWroteRow arm has
+// nothing to exclude it by. A sweep-restarted chain with an empty Started set is the same
+// race one door along.
+//
+// AND THE CHILD START CANNOT JOIN. startActivityChild's comment claimed it was "idempotent
+// on deliveryActivityWorkflowID, so a redundant tick collapses onto the running child" and
+// cited pumpsweep.go — but pumpsweep.go does not RELY on idempotency, it HANDLES
+// IsWorkflowExecutionAlreadyStartedError explicitly, and workflow.ChildWorkflowOptions
+// (SDK v1.44) has no WorkflowIDConflictPolicy at all: WorkflowIDReusePolicy governs only
+// CLOSED executions, so a start against a RUNNING id is always rejected. The claim was
+// inherited without the mechanism that makes it true.
+//
+// THE TEST DRIVES THE REAL PUMP WITH BOTH TICK SOURCES LIVE, and it asserts the two things
+// a one-pump test cannot: the cascade SURVIVES the rejection, and it goes on to dispatch
+// the NEXT activity.
+// ---------------------------------------------------------------------------
+
+// pumpRacerWorkflow is the two-tick-source rig, and it is a rig rather than a double: the
+// workflow under test is the REAL PumpNextActivityWorkflow and the real
+// DeliveryActivityWorkflow registration, started under their real production ids.
+//
+// WHY THE FIRST STARTER IS A CHILD HERE. In production it is a ROOT execution
+// (startSystemDesign → client.ExecuteWorkflow); a test environment has exactly one root,
+// and the only fact the race turns on is that an execution already HOLDS
+// deliveryActivityWorkflowID when the pump starts its own — which a sibling child
+// reproduces exactly (the SDK's test environment answers the duplicate id with the same
+// already-started rejection the server does, internal_workflow_testsuite.go's
+// newTestWorkflowEnvironmentForChild).
+func pumpRacerWorkflow(ctx workflow.Context, in pumpInput) error {
+	// TICK SOURCE 1 — the bootstrap's own start of the activity execution.
+	//
+	// NOTHING IS AWAITED ON IT, and the reason is the test environment rather than the shape:
+	// a MOCKED child's started handler fires only after its mock returns
+	// (internal_workflow_testsuite.go's workflowExecutorWrapper.Execute), so awaiting the
+	// start ack here would advance the mock clock past the whole race. The id is registered
+	// SYNCHRONOUSLY inside ExecuteChildWorkflow, which is the only ordering the race needs.
+	_ = workflow.ExecuteChildWorkflow(
+		workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+			WorkflowID:        deliveryActivityWorkflowID(in.ProjectID, pumpRacerFirstActivity),
+			ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
+		}),
+		executionKindDeliveryActivity,
+		deliveryActivityInput{
+			ProjectID:  in.ProjectID,
+			ActivityID: pumpRacerFirstActivity,
+			Activity:   pumpRacerActivity(string(pumpRacerFirstActivity)),
+		})
+	// TICK SOURCE 2 — Begin's pump (ExecuteNextActivity's start-or-join), same project.
+	pump := workflow.ExecuteChildWorkflow(
+		workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+			WorkflowID:        pumpWorkflowID(in.ProjectID),
+			ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
+		}),
+		executionKindPump, in)
+	return pump.Get(ctx, nil)
+}
+
+const (
+	// The reserved design id the bootstrap names and the pump also selects — the exact pair
+	// the paid run collided on.
+	pumpRacerFirstActivity = ActivityID("requirements")
+	// The NEXT activity, eligible only once the first has EXITED. Dispatching it is the
+	// assertion a one-pump test cannot make.
+	pumpRacerNextActivity  = ActivityID("C-NEXT")
+	executionKindPumpRacer = "testPumpTwoTickSources"
+)
+
+func pumpRacerActivity(id string) constructionActivity {
+	act := sampleActivity()
+	act.ActivityID = id
+	return act
+}
+
+// pumpRacerFrontier is the selection rule for the race: the first activity until it has
+// STARTED, then nothing until it has EXITED, then the next one. It reads the ROW rather
+// than carrying a counter, so it answers the pump's re-reads the way the real rule does.
+func pumpRacerFrontier(proj projectstate.Project, _ eligibilityRule) pumpSelection {
+	first := proj.ActivityExecution[string(pumpRacerFirstActivity)]
+	switch {
+	case first.StartedAt == nil:
+		return pumpSelection{Verdict: verdictDispatch, Activity: pumpRacerActivity(string(pumpRacerFirstActivity))}
+	case first.CompletedAt == nil:
+		return pumpSelection{Verdict: verdictQuiescent}
+	}
+	if proj.ActivityExecution[string(pumpRacerNextActivity)].StartedAt == nil {
+		return pumpSelection{Verdict: verdictDispatch, Activity: pumpRacerActivity(string(pumpRacerNextActivity))}
+	}
+	return pumpSelection{Verdict: verdictQuiescent}
+}
+
+func Test_Pump_AnActivityAnotherTickSourceAlreadyStartedDoesNotStopTheCascade(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	env.SetTestTimeout(60 * time.Second)
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID: projectstate.ProjectID(pid), Version: 1, Phase: 2,
+		ActivityExecution: map[string]projectstate.ActivityExecution{},
+	}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention:         &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:               &fakeReview{},
+		NextEligibleActivity: pumpRacerFrontier,
+	})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+	env.RegisterWorkflowWithOptions(pumpRacerWorkflow, workflow.RegisterOptions{Name: executionKindPumpRacer})
+
+	// STARTS ARE COUNTED AT THE EXECUTION, not at the mock: the listener fires as the child
+	// begins (workflowExecutorWrapper.Execute), whereas a mock's Run hook fires only after
+	// its After() wait has elapsed — and "how many executions ran this activity" is exactly
+	// the question a rejected start is about.
+	var mu sync.Mutex
+	starts := map[string]int{}
+	env.SetOnChildWorkflowStartedListener(func(info *workflow.Info, _ workflow.Context, _ converter.EncodedValues) {
+		mu.Lock()
+		defer mu.Unlock()
+		starts[info.WorkflowExecution.ID]++
+	})
+	// The bootstrap's child is STILL RUNNING when the pump starts its own — which is the
+	// whole race — so it outlives the pump's own frontier pass.
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything,
+		mock.MatchedBy(func(in deliveryActivityInput) bool { return in.ActivityID == pumpRacerFirstActivity })).
+		After(10 * time.Minute).Return(nil)
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		After(time.Second).Return(nil)
+
+	// THE FIRST ACTIVITY'S BINARY EXIT, written by the execution the pump does NOT own. It
+	// is the only evidence an adopted activity ever gives the pump, which is exactly why the
+	// next activity's dispatch is the assertion: it can only happen off this row.
+	env.RegisterDelayedCallback(func() {
+		exited := time.Now()
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		ps.project.ActivityExecution[string(pumpRacerFirstActivity)] = projectstate.ActivityExecution{
+			ActivityID: string(pumpRacerFirstActivity), StartedAt: &exited, CompletedAt: &exited,
+		}
+	}, 2*time.Minute)
+
+	env.ExecuteWorkflow(executionKindPumpRacer, pumpInput{ProjectID: pid})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("the race did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("THE WEDGE: a second tick source holding the activity's execution is a BENIGN race — "+
+			"'this activity is already being worked' — and it stopped the cascade instead: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got := starts[deliveryActivityWorkflowID(pid, pumpRacerFirstActivity)]; got != 1 {
+		t.Errorf("the activity must run ONCE, under the execution that won the start: got %d", got)
+	}
+	if got := starts[deliveryActivityWorkflowID(pid, pumpRacerNextActivity)]; got != 1 {
+		t.Errorf("THE WEDGE'S CONSEQUENCE: activity 2 of the plan was never dispatched (%d start(s)) — "+
+			"a pump that survives the rejection but never walks again is the same dead run", got)
+	}
+}
+
+// pumpRanAndFailedDetail is the sentence the failing child's own error carries, so the case
+// below can tell the pump's verdict apart from the environment's deadline.
+const pumpRanAndFailedDetail = "the child's own run failed with the error shape a refused start wears"
+
+// THE OTHER HALF, AND IT IS THE ONE THAT COULD DO HARM. "This activity is already being
+// worked" is benign; "this activity RAN AND FAILED" must still stop the cascade (G-P12), and
+// a fix that read the result error alone would conflate them — making a genuinely failing
+// activity look like progress and freeing the cascade to build on a broken dependency.
+//
+// SO THIS CASE HANDS THE PUMP THE WORST-SHAPED FAILURE AVAILABLE: a child whose START
+// SUCCEEDED and whose RUN then failed with an already-started error of its very own. Only
+// the structural reading — the START and the RUN answer on two different futures — tells
+// that apart from a refused start, and this is where that is measured rather than argued.
+func Test_Pump_AChildThatRanAndFailedStopsTheCascadeEvenWhenItsErrorReadsAlreadyStarted(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	// A RUN TIMEOUT SO THE DEFECT ENDS IN A VERDICT RATHER THAN A HANG. A pump that wrongly
+	// adopts this child parks on it forever, and a park always has a timer to fire, so the
+	// environment's idle timeout can never trip — the mutation would hang the suite instead
+	// of failing it. One hour of MOCKED time is instant and turns the hang into an error this
+	// case can read.
+	env.SetWorkflowRunTimeout(time.Hour)
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
+		},
+	})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		Return(serviceerror.NewWorkflowExecutionAlreadyStarted(pumpRanAndFailedDetail, "", ""))
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump did not complete")
+	}
+	err := env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("G-P12: a child that STARTED and then failed must fail the pump run — adopting it on the " +
+			"strength of its error text alone is how a broken activity becomes silent progress")
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("G-P12: the cascade must STOP, not continue: %v", err)
+	}
+	// AND IT MUST STOP ON THE CHILD'S OWN ERROR. A one-sided read of the result error adopts
+	// this child, leaves it in flight with nothing that will ever finish it, and the pump
+	// PARKS FOREVER — which also ends in a non-nil error (the environment's deadline), so
+	// "err != nil" alone would pass on the defect. Measured: with the start-future arm of
+	// pumpStartWasRefusedToARunningExecution stubbed to `return true`, this is the assertion
+	// that fails.
+	if !strings.Contains(err.Error(), pumpRanAndFailedDetail) {
+		t.Fatalf("the run must fail carrying the CHILD's error, not hang until the deadline: %v", err)
 	}
 }
 
