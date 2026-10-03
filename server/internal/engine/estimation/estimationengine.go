@@ -1507,8 +1507,8 @@ const (
 // designPrefixActivities emits the three design activities, in Table 11-1 order. They
 // are componentless (no architecture produces them — they produce the architecture),
 // noncoding, and owned by the system architect, who drives Phases 1 and 2 end to end.
-// Unlike alwaysEmitNoncoding they are emitted for EVERY system including the empty one:
-// a project with no committed architecture still owes the work that produces it.
+// They are emitted for EVERY system including the empty one: a project with no
+// committed architecture still owes the work that produces it.
 func designPrefixActivities() []DerivedActivity {
 	prefix := []struct {
 		Name   string
