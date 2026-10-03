@@ -4861,22 +4861,25 @@ func materializePhase2Draft(
 		return nil, fwmanager.Wrap(fwmanager.FailedPrecondition, err,
 			"cannot materialize the Phase-2 plan from the committed systemDesign")
 	}
-	// LOUD, never a silent empty list: a System with no components derives no activities
-	// from the architecture at all. Staging that would reproduce exactly the zero-activity
+	// LOUD, never a silent empty plan: a System that derives no construction work stages a
+	// plan with nothing to build. Staging that would reproduce exactly the zero-activity
 	// failure this seam exists to prevent, one phase later and with no trace of where it
 	// came from.
 	//
-	// The condition is the COMPONENT count, not len(list.Activities): the derivation emits
-	// the design prefix (requirements/architecture/projectDesign) for every system
-	// including the empty one — a project before its architecture is committed still owes
-	// the work that produces it — so the activity list is never empty and the old form of
-	// this guard would now be dead code. It is the same reachable rule stated where it is
-	// still true: the empty System was always the only input that produced an empty list
-	// (a fully suppressed architecture still derives the design prefix; it no longer
-	// derives N-STP/N-IT either — deterministic component testing, spec §7).
-	if len(sys.Components) == 0 {
+	// The condition is the count of CONSTRUCTION activities, not len(list.Activities) and
+	// not the component count. Not the list length: the derivation emits the design prefix
+	// (requirements/architecture/projectDesign) for every system including the empty one,
+	// so the list is never empty. Not the component count either: that was sufficient only
+	// while N-STP/N-IT were emitted for every non-empty System. Since deterministic
+	// component testing (spec 2026-10-02 §7) retired them, a System WITH components derives
+	// nothing past the prefix when every component is suppressed (buildStatus
+	// planned/external, constructionProfile generated/provided) — and that plan must be
+	// refused just as loudly. With no deltas applied here, construction work is exactly
+	// the component-bound derived activities (C-*, R-*, U-SPA-*); the prefix carries no
+	// componentId.
+	if countConstructionActivities(list) == 0 {
 		return nil, fwmanager.New(fwmanager.FailedPrecondition,
-			"the committed systemDesign holds ZERO components, so it derives ZERO construction activities — fix slot 5 before staging a plan")
+			fmt.Sprintf("the committed systemDesign (%d components) derives ZERO construction activities — every component is absent or suppressed (planned/external, generated/provided); fix slot 5 before staging a plan", len(sys.Components)))
 	}
 	if kind == projectstate.KindActivityList {
 		return &list, nil
@@ -4895,6 +4898,19 @@ func materializePhase2Draft(
 		return nil, err
 	}
 	return &net, nil
+}
+
+// countConstructionActivities counts a derived list's component-bound activities — the
+// construction work (C-*, R-*, U-SPA-*). The design prefix is componentless, so it never
+// counts.
+func countConstructionActivities(list projectstate.ActivityList) int {
+	n := 0
+	for _, a := range list.Activities {
+		if a.ComponentID != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // materializeNetwork builds slot 10 from a derived plan. Dependencies and the milestone

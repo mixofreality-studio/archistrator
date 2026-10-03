@@ -1624,9 +1624,9 @@ func TestAdditiveMilestoneIsAppended(t *testing.T) {
 			Name: "N-DEP", Title: "Production deployment", EffortDays: 10, RiskBucket: 3,
 			WorkerClass: "senior-developer", Justification: "deployment is componentless project work",
 		}},
-		// The terminal release milestone fans in the deployment additive and the
-		// derived terminals (spec 2026-10-02 §7: with no derived N-IT, a project-end
-		// marker over the terminal activities is exactly what an additive milestone is for).
+		// The release milestone fans in the deployment additive and the derived
+		// terminals. It is a project's own event, distinct from the DERIVED project-end
+		// milestone (spec 2026-10-02 §7), which is the network's sink regardless.
 		AdditiveMilestones: []AdditiveMilestone{{
 			Id: "M5", DependsOn: []string{"N-DEP", "R-stripe", "U-SPA-web-client"},
 			Justification: "v1 production live gates on deployment plus every terminal activity",
@@ -2020,6 +2020,113 @@ func TestNetworkWithMultipleSinksComputesFloat(t *testing.T) {
 	}
 	if !approx(stripe.LatestFinish, net.Summary.TotalDurationDays) {
 		t.Errorf("a terminal activity's latest finish is the project end: LF %v, duration %v", stripe.LatestFinish, net.Summary.TotalDurationDays)
+	}
+	// The project-end milestone is the network's one sink: it falls at the project
+	// duration and sits on the critical path, because its determining predecessor is the
+	// critical terminal. Being zero-duration it moves no terminal's float (asserted above).
+	var end NetworkMilestoneSolution
+	for _, m := range net.Milestones {
+		if m.ID == "MEND" {
+			end = m
+		}
+	}
+	if end.ID != "MEND" || !end.OnCriticalPath || !approx(end.EventTime, net.Summary.TotalDurationDays) {
+		t.Errorf("the project-end milestone must close the critical path at the project duration %v: %+v",
+			net.Summary.TotalDurationDays, end)
+	}
+}
+
+// milestoneNamed returns the plan's milestone with the given id.
+func milestoneNamed(t *testing.T, plan DerivedPlan, id string) NetworkMilestone {
+	t.Helper()
+	for _, m := range plan.Milestones {
+		if m.Id == id {
+			return m
+		}
+	}
+	t.Fatalf("plan has no milestone %q; milestones %+v", id, plan.Milestones)
+	return NetworkMilestone{}
+}
+
+// Spec 2026-10-02 §7: with the sink rule gone, "the network's sink becomes the
+// project-end milestone with every terminal activity feeding it directly". It is DERIVED
+// (a Method-fixed event, so it carries the derivation's own name), and its fan-in is the
+// terminal set exactly — the client app at the end of the longest chain and the vendor
+// resource nothing fronts; headless, the manager replaces the client.
+func TestDerivedNetworkEndsAtTheProjectEndMilestone(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		headless bool
+		want     []string
+	}{
+		{"with a UI client", false, []string{"R-stripe", "U-SPA-web-client"}},
+		{"headless", true, []string{"C-order-manager", "R-stripe"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sys := edgeSystem()
+			if tc.headless {
+				for i := range sys.Components {
+					sys.Components[i].UiSurface = false
+				}
+			}
+			plan, err := NewEstimationEngine().DerivePlan(fweng.Context{}, sys, ActivityListDeltas{})
+			if err != nil {
+				t.Fatalf("DerivePlan: %v", err)
+			}
+			end := milestoneNamed(t, plan, "MEND")
+			if !reflect.DeepEqual(end.DependsOn, tc.want) {
+				t.Errorf("project-end milestone dependsOn = %v, want every terminal activity %v", end.DependsOn, tc.want)
+			}
+			if end.Name == nil || *end.Name != "Project End" {
+				t.Errorf("the project-end milestone is Method-fixed and must carry the derivation's name, got %v", end.Name)
+			}
+		})
+	}
+}
+
+// The terminal set is the WHOLE plan's, additives included: an additive that follows a
+// derived terminal takes its place in the fan-in, so the milestone never closes before
+// work that is still scheduled after it.
+func TestProjectEndMilestoneCountsAdditiveTerminals(t *testing.T) {
+	plan := planFor(t, ActivityListDeltas{
+		Additive: []AdditiveActivity{{
+			Name: "N-DEP", Title: "Production deployment", EffortDays: 10, RiskBucket: 3,
+			WorkerClass: "senior-developer", DependsOn: []string{"U-SPA-web-client"},
+			Justification: "deployment is componentless project work",
+		}},
+	})
+	if got, want := milestoneNamed(t, plan, "MEND").DependsOn, []string{"N-DEP", "R-stripe"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("project-end milestone dependsOn = %v, want %v (N-DEP now ends the client chain)", got, want)
+	}
+}
+
+// The project-end milestone is derived, so an additive may not shadow it — exactly as for
+// M0-M3.
+func TestAdditiveMilestoneShadowingTheProjectEndIsRejected(t *testing.T) {
+	_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, edgeSystem(), ActivityListDeltas{
+		AdditiveMilestones: []AdditiveMilestone{{Id: "MEND", Justification: "j"}},
+	})
+	var fe *fweng.Error
+	if !errors.As(err, &fe) || fe.Kind != fweng.ContractMisuse {
+		t.Fatalf("want ContractMisuse for an additive milestone shadowing the project end, got %v", err)
+	}
+}
+
+// A System whose every component is suppressed (planned) derives no construction work,
+// so the only terminal is the design prefix's last activity: the project ends with
+// projectDesign, and the milestone still has a real predecessor rather than an empty
+// fan-in.
+func TestProjectEndMilestoneOverAFullySuppressedSystem(t *testing.T) {
+	sys := edgeSystem()
+	for i := range sys.Components {
+		sys.Components[i].BuildStatus = "planned"
+	}
+	plan, err := NewEstimationEngine().DerivePlan(fweng.Context{}, sys, ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("DerivePlan: %v", err)
+	}
+	if got := milestoneNamed(t, plan, "MEND").DependsOn; !reflect.DeepEqual(got, []string{"projectDesign"}) {
+		t.Errorf("project-end milestone dependsOn = %v, want [projectDesign]", got)
 	}
 }
 

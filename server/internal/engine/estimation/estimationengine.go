@@ -1426,10 +1426,18 @@ const (
 	managersMilestone       = "M3"
 )
 
+// projectEndMilestone is the network's one sink (spec 2026-10-02 §7): every terminal
+// activity of the plan feeds it directly (see projectEndMilestoneFor). Its id is not the
+// next number in the M-sequence on purpose — M4 is retired and M5 is the conventional id of
+// the additive "v1 Production Live" — and it sorts after every numbered milestone, so the
+// sink also reads last in the milestone list.
+const projectEndMilestone = "MEND"
+
 // milestoneNames is the DERIVATION'S OWN name for every milestone it emits (2026-10-02).
 //
-// WHY THE DERIVATION AND NOT THE DRAFT. M0-M3 are Method-FIXED events — the SDP review,
-// then provisioning, engines and managers complete — not per-project choices, so there was
+// WHY THE DERIVATION AND NOT THE DRAFT. M0-M3 and the project end are Method-FIXED events —
+// the SDP review, then provisioning, engines and managers complete, then the end of the
+// network — not per-project choices, so there was
 // never anything for a project to author. Treating the name as an authored decoration was
 // the wrong contract, and it WEDGED the platform: the Manager's materializeNetwork
 // hard-refuses a milestone with no name, it reads its decorations from the COMMITTED slot
@@ -1438,9 +1446,9 @@ const (
 // started. The one project that worked (this repo's own) worked because its slot 10 had
 // been hand-backfilled, which is also why every gate stayed green over it.
 //
-// These four strings are therefore the SAME strings that repo's slot 10 already holds; the
-// derived-plan drift gate (TestDerivedPlanMatchesCommittedState) compares the two and is
-// what keeps them from parting.
+// These strings are therefore the SAME strings that repo's slot 10 holds; the derived-plan
+// drift gate (TestDerivedPlanMatchesCommittedState) compares the two and is what keeps them
+// from parting.
 //
 // An id with no entry here yields a NAMELESS milestone (Name nil, not ""), which is a
 // distinct, meaningful state — see nameOf — and is refused LOUDLY by the Manager if nothing
@@ -1451,6 +1459,7 @@ var milestoneNames = map[string]string{
 	infrastructureMilestone: "Infrastructure Provisioned",
 	enginesMilestone:        "Engines Complete",
 	managersMilestone:       "Managers Complete",
+	projectEndMilestone:     "Project End",
 }
 
 // nameOf returns the derivation's name for a milestone id, or nil when it has none.
@@ -1507,8 +1516,8 @@ const (
 // designPrefixActivities emits the three design activities, in Table 11-1 order. They
 // are componentless (no architecture produces them — they produce the architecture),
 // noncoding, and owned by the system architect, who drives Phases 1 and 2 end to end.
-// Unlike alwaysEmitNoncoding they are emitted for EVERY system including the empty one:
-// a project with no committed architecture still owes the work that produces it.
+// They are emitted for EVERY system including the empty one: a project with no
+// committed architecture still owes the work that produces it.
 func designPrefixActivities() []DerivedActivity {
 	prefix := []struct {
 		Name   string
@@ -1879,16 +1888,65 @@ func architectureEdges(system SystemView, byComponent map[string]string) map[str
 	return raw
 }
 
-// There is no SINK rule. Until deterministic component testing (spec 2026-10-02 §7)
-// system testing (N-IT) depended on every activity nothing else depended on — Table
-// 11-1 #21 → 5, 19, 20 stated generally — so every plan ended in one fan-in. N-IT is no
-// longer derived, so the network simply ends at every terminal activity: the end of
-// each chain through the architecture, plus any activity no relationship reaches (a
-// vendor resource no component fronts). ComputeNetwork needs no single sink — its
-// forward pass takes the project duration as the maximum finish over ALL nodes and its
-// backward pass gives every successor-less node that duration as its late finish — so a
-// shorter terminal simply carries float. A terminal release milestone over them, if a
-// project wants one, arrives as an additive milestone (see deriveMilestones on M5).
+// THE SINK IS THE PROJECT-END MILESTONE (spec 2026-10-02 §7). Until deterministic
+// component testing, system testing (N-IT) depended on every activity nothing else
+// depended on — Table 11-1 #21 → 5, 19, 20 stated generally — so every plan ended in one
+// ACTIVITY fan-in. N-IT is no longer derived, so that fan-in moves onto a zero-duration
+// milestone instead: every terminal activity — the end of each chain through the
+// architecture, plus any activity no relationship reaches (a vendor resource no component
+// fronts) — feeds projectEndMilestone directly. No activity depends on it, so it adds no
+// dependency edge, and being zero-duration it changes no activity's float: ComputeNetwork
+// already takes the project duration as the maximum finish over all nodes, so the
+// milestone simply lands at that duration, on the critical path through whichever
+// terminal is critical.
+//
+// It is computed in applyDeltas, AFTER the additives, because the terminal set is the
+// whole plan's: an additive that follows a derived terminal replaces it in the fan-in.
+
+// projectEndMilestoneFor builds the project-end milestone over the plan's terminal
+// activities (networkTerminals).
+func projectEndMilestoneFor(acts []DerivedActivity, deps []NetworkDependency, ms []NetworkMilestone) NetworkMilestone {
+	return namedMilestone(projectEndMilestone, networkTerminals(acts, deps, ms))
+}
+
+// networkTerminals returns, sorted, the activities nothing in the network comes after: no
+// activity depends on them, directly or through a milestone some activity depends on. The
+// milestone pass-through is what keeps projectDesign out of the set on a plan with
+// construction work (its only successor is M0, which every root construction activity
+// depends on) and puts it IN the set when the architecture derives no construction work at
+// all — then the design prefix genuinely is where the project ends. A milestone no activity
+// depends on (M1-M3, an additive release marker) passes nothing through, so a vendor
+// resource that only feeds M1 is still terminal.
+func networkTerminals(acts []DerivedActivity, deps []NetworkDependency, ms []NetworkMilestone) []string {
+	milestonePreds := make(map[string][]string, len(ms))
+	for _, m := range ms {
+		milestonePreds[m.Id] = m.DependsOn
+	}
+	followed := map[string]bool{}
+	var follow func(id string)
+	follow = func(id string) {
+		if followed[id] {
+			return
+		}
+		followed[id] = true
+		for _, p := range milestonePreds[id] {
+			follow(p)
+		}
+	}
+	for _, d := range deps {
+		for _, p := range d.DependsOn {
+			follow(p)
+		}
+	}
+	var out []string
+	for _, a := range acts {
+		if !followed[a.Name] {
+			out = append(out, a.Name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 
 // addSourceEdges is the SOURCE rule: every activity with no other predecessor depends on
 // M0, the SDP review. It is Table 11-1 #4, #9, #10 → 3 stated generally, and it puts
@@ -1912,8 +1970,9 @@ func addSourceEdges(reduced map[string][]string, acts []DerivedActivity) {
 
 // deriveDependencies builds the network edges: the transitively reduced architecture
 // edges, then the one general rule no relationship expresses — the source rule (every
-// activity with no other predecessor after M0). There is no sink rule any more (see the
-// note above addSourceEdges): the network ends at every terminal activity.
+// activity with no other predecessor after M0). There is no sink EDGE any more: the
+// network's sink is the project-end milestone, which every terminal activity feeds (see
+// the note above projectEndMilestoneFor), so it adds no activity dependency.
 //
 // The design prefix's own chain is appended AFTER the source rule, which is exempt from
 // it (see addSourceEdges): the prefix runs upstream of M0, where the rule does not apply.
@@ -1947,6 +2006,10 @@ func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDepe
 //
 // M5 (v1 Production Live) is deliberately NOT derived: it depends entirely on additive
 // noncoding activities, so it arrives as an additive delta.
+//
+// The project-end milestone IS derived but not here: its fan-in is the whole plan's
+// terminal set, additives included, so applyDeltas builds it once they are in
+// (projectEndMilestoneFor).
 func deriveMilestones(system SystemView, acts []DerivedActivity) []NetworkMilestone {
 	kindByComponent := map[string]string{}
 	for _, c := range system.Components {
@@ -2129,10 +2192,13 @@ func validateAdditiveEdges(extraDeps []NetworkDependency, index map[string]int) 
 func applyAdditiveMilestones(ms []NetworkMilestone, index map[string]int, additive []AdditiveMilestone) ([]NetworkMilestone, error) {
 	milestones := make([]NetworkMilestone, len(ms))
 	copy(milestones, ms)
-	derivedMilestone := make(map[string]bool, len(ms))
+	derivedMilestone := make(map[string]bool, len(ms)+1)
 	for _, m := range ms {
 		derivedMilestone[m.Id] = true
 	}
+	// The project end is derived too, though applyDeltas appends it only after this runs
+	// (its fan-in needs the post-additive plan), so it is reserved here explicitly.
+	derivedMilestone[projectEndMilestone] = true
 	for _, am := range additive {
 		if derivedMilestone[am.Id] {
 			return nil, fweng.New(fweng.ContractMisuse,
@@ -2192,6 +2258,11 @@ func applyDeltas(base []DerivedActivity, deps []NetworkDependency, ms []NetworkM
 	allDeps = append(allDeps, extraDeps...)
 	sort.Slice(allDeps, func(i, j int) bool { return allDeps[i].Activity < allDeps[j].Activity })
 	sort.Slice(acts, func(i, j int) bool { return planOrderLess(acts[i].Name, acts[j].Name) })
+
+	// The sink last: its fan-in is the terminal set of the whole plan, additive activities
+	// and edges included (spec 2026-10-02 §7).
+	milestones = append(milestones, projectEndMilestoneFor(acts, allDeps, milestones))
+	sort.Slice(milestones, func(i, j int) bool { return milestones[i].Id < milestones[j].Id })
 
 	return DerivedPlan{Activities: acts, Dependencies: allDeps, Milestones: milestones}, nil
 }

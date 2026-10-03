@@ -536,6 +536,14 @@
               "C-delivery-manager",
               "C-operations-manager"
             ]
+          },
+          {
+            "id": "MEND",
+            "name": "Project End",
+            "public": false,
+            "dependsOn": [
+              "U-SPA-web-client"
+            ]
           }
         ]
       },
