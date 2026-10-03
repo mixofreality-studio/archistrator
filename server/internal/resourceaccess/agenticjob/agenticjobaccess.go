@@ -3758,6 +3758,15 @@ func claudeSubprocessEnv(rig map[string]string) []string {
 // the SAME "main" convention constructactivity.go's mainBranch constant fixes.
 const localMainBranch = "main"
 
+// localStateDocPath is the repo-relative path of the project-state document the
+// projectstate GitStore owns (its statePathPrefix + projectFile). It is spelled out
+// HERE rather than imported because an RA may not reach sideways to another RA
+// (NoSideways) — the same reason runGit is duplicated from gitlocal's gitLocalRun.
+// It is needed because this path is the ONE file in the repo both refs of an
+// activity necessarily rewrite, and its envelope is not mergeable text
+// (resolveStateDocEnvelopeConflict below says why).
+const localStateDocPath = ".aiarch/state/project.json"
+
 // addWorktree adds a git worktree for `branch` at workDir, operating directly on the
 // shared repo at repoPath. If the branch already EXISTS (a prior construct phase's
 // activity branch, or a mid-session design branch a prior draft/critique/answer job
@@ -3932,14 +3941,25 @@ func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string,
 		"-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
 		"merge", "--no-ff", "-m", "aiarch: merge "+branch, remoteBranch)
 	if err != nil {
-		// Abort cleanly (best-effort — a conflict leaves MERGE_HEAD in the clone;
-		// the clone is throwaway either way) and surface the conflict through the
-		// failure diagnostic. NOTHING was pushed: the shared repo is untouched.
-		_, _ = runGit(cloneDir, "merge", "--abort")
+		// A CONFLICT may be nothing but the state document's own BOOKKEEPING
+		// (resolveStateDocEnvelopeConflict says why that is not content); anything
+		// else — including a genuine content conflict inside project.json — stays
+		// the honest failure it has always been.
+		envDiag, resolved := "", false
 		if strings.Contains(mergeOut, "CONFLICT") {
-			return "local merge: merge conflict merging " + branch + " into " + localMainBranch + ": " + outputTail(mergeOut, 500), false
+			envDiag, resolved = resolveStateDocEnvelopeConflict(cloneDir)
 		}
-		return "local merge: merge of " + branch + " failed: " + outputTail(mergeOut, 500), false
+		if !resolved {
+			// Abort cleanly (best-effort — a conflict leaves MERGE_HEAD in the clone;
+			// the clone is throwaway either way) and surface the conflict through the
+			// failure diagnostic. NOTHING was pushed: the shared repo is untouched.
+			_, _ = runGit(cloneDir, "merge", "--abort")
+			if strings.Contains(mergeOut, "CONFLICT") {
+				return "local merge: merge conflict merging " + branch + " into " + localMainBranch + ": " +
+					outputTail(mergeOut, 500) + envDiag, false
+			}
+			return "local merge: merge of " + branch + " failed: " + outputTail(mergeOut, 500), false
+		}
 	}
 	if out, err := runGit(cloneDir, "push", "origin", localMainBranch); err != nil {
 		return "local merge: push of merged " + localMainBranch + " failed: " + outputTail(out, 500), false
@@ -3950,6 +3970,251 @@ func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string,
 		return "local merge: merged but branch " + branch + " could not be deleted: " + outputTail(out, 500), false
 	}
 	return "", true
+}
+
+// ---------------------------------------------------------------------------
+// THE STATE DOCUMENT'S ENVELOPE IS NOT MERGEABLE TEXT (wedge #4).
+//
+// `.aiarch/state/project.json` carries the projectstate store's OWN bookkeeping
+// inline in the document git merges: `version` (the optimistic-concurrency token
+// every main-scoped CAS compares against) and `updatedAt` (the write timestamp).
+// Within ONE activity the delivery rail writes its row/review ledger to main while
+// the agent stages artifacts on activity/<id>, so BOTH refs advance those two lines
+// away from the merge base — and a 3-way TEXT merge has nothing to pick. The result
+// is `CONFLICT (content): .aiarch/state/project.json` every single time, for every
+// activity whose walk dispatches work. The first paid todomvc run died exactly
+// there: four artifacts drafted, reviewed and staged, then ten merge attempts burned
+// in 1.4 seconds (123 ms apart — far too fast to be contention) and
+// VarianceExhausted.
+//
+// This is NOT a contention problem and NOT a retry-bound shortfall: the two writers
+// are on DIFFERENT refs, so there is no race to serialise and no number of attempts
+// that helps. The fix is to stop submitting bookkeeping to a text merge.
+//
+// WHAT IT DOES NOT DO. It resolves ONLY those two members, ONLY when they are the
+// sole remaining conflict, and ONLY when both sides spell them the way the store's
+// own encoder does. A genuine content conflict inside project.json, a conflict in
+// any other file, or an envelope it does not recognise all keep failing exactly as
+// before — nothing is pushed and the branch survives. "Take main" would have been a
+// one-line fix and would have silently discarded the agent's work.
+// ---------------------------------------------------------------------------
+
+// stateDocEnvelopeKeys are the top-level project.json members that are store
+// bookkeeping rather than content. Spelled as the encoder writes them: a two-space
+// indent at the document's top level (json.MarshalIndent(doc, "", "  ")).
+var stateDocEnvelopeKeys = []string{"version", "updatedAt"}
+
+// stateDocNeutralValues are the placeholder values each envelope member is rewritten
+// to before the 3-way merge, so all three stages agree on those lines and git has
+// nothing to conflict over. Index-aligned with stateDocEnvelopeKeys.
+var stateDocNeutralValues = []string{"0", `""`}
+
+// resolveStateDocEnvelopeConflict tries to finish a conflicted merge whose ONLY
+// unresolved difference is the state document's envelope. It returns resolved=true
+// having COMMITTED the merge in the clone (the caller then pushes), or
+// resolved=false with a diagnostic SUFFIX explaining why it declined — the caller
+// aborts and fails. Nothing is pushed from here.
+func resolveStateDocEnvelopeConflict(cloneDir string) (diagnosticSuffix string, resolved bool) {
+	if diag, only := stateDocIsTheOnlyConflict(cloneDir); !only {
+		return diag, false
+	}
+	merged, diag, ok := mergeStateDocWithMainsEnvelope(cloneDir)
+	if !ok {
+		return diag, false
+	}
+	return commitResolvedStateDoc(cloneDir, merged)
+}
+
+// stateDocIsTheOnlyConflict reports whether the state document is the sole unmerged
+// path. Anything else in conflict is not this resolver's business.
+func stateDocIsTheOnlyConflict(cloneDir string) (diagnosticSuffix string, only bool) {
+	unmerged, err := runGit(cloneDir, "diff", "--name-only", "--diff-filter=U")
+	if err != nil {
+		return " (could not list the unmerged paths)", false
+	}
+	paths := nonEmptyLines(unmerged)
+	if len(paths) != 1 || paths[0] != localStateDocPath {
+		return " (the conflict is not confined to " + localStateDocPath + ")", false
+	}
+	return "", true
+}
+
+// mergeStateDocWithMainsEnvelope re-runs the 3-way merge of the state document with
+// its envelope neutralised on all three stages, then restores MAIN's envelope into
+// the result. It returns the resolved document, or ok=false when the conflict is in
+// the document's CONTENT (git merge-file still reports one) or when any stage is not
+// in the form the store's encoder writes.
+func mergeStateDocWithMainsEnvelope(cloneDir string) (merged, diagnosticSuffix string, ok bool) {
+	// The three merge stages: 1=base, 2=ours (main), 3=theirs (the activity branch).
+	base, bok := stateDocStage(cloneDir, 1)
+	ours, ook := stateDocStage(cloneDir, 2)
+	theirs, tok := stateDocStage(cloneDir, 3)
+	if !bok || !ook || !tok {
+		return "", " (" + localStateDocPath + " has no common base — it was added on both sides)", false
+	}
+	neutralBase, _, bRec := neutraliseStateDocEnvelope(base)
+	neutralOurs, oursEnv, oRec := neutraliseStateDocEnvelope(ours)
+	neutralTheirs, _, tRec := neutraliseStateDocEnvelope(theirs)
+	if !bRec || !oRec || !tRec {
+		// Hand-edited, reformatted, or written by something other than the store's
+		// encoder. Splicing bytes into a document whose shape is unknown is exactly
+		// the kind of guess that loses state, so decline.
+		return "", " (" + localStateDocPath + "'s envelope is not in the form the state store writes)", false
+	}
+
+	// git merge-file writes the result into its FIRST argument and exits non-zero when
+	// anything is still in conflict — which is precisely the "real content conflict"
+	// signal this resolver must honour.
+	work, err := os.MkdirTemp("", "aiarch-statedoc-*")
+	if err != nil {
+		return "", " (could not stage the envelope-neutral 3-way merge)", false
+	}
+	defer func() { _ = os.RemoveAll(work) }()
+	oursFile, baseFile, theirsFile := filepath.Join(work, "ours"), filepath.Join(work, "base"), filepath.Join(work, "theirs")
+	for f, content := range map[string]string{oursFile: neutralOurs, baseFile: neutralBase, theirsFile: neutralTheirs} {
+		if werr := os.WriteFile(f, []byte(content), 0o600); werr != nil {
+			return "", " (could not stage the envelope-neutral 3-way merge)", false
+		}
+	}
+	if _, merr := runGit(cloneDir, "merge-file", "--quiet", oursFile, baseFile, theirsFile); merr != nil {
+		return "", " (the conflict is in " + localStateDocPath + "'s CONTENT, not its envelope)", false
+	}
+	mergedNeutral, rerr := os.ReadFile(oursFile) //nolint:gosec // oursFile is this function's own MkdirTemp path with a literal basename
+	if rerr != nil {
+		return "", " (could not read the envelope-neutral merge result)", false
+	}
+
+	// Restore MAIN's envelope. version: main's token is the one every later
+	// main-scoped CAS compares against, and the branch's counter belongs to a
+	// different write sequence — adopting it would refuse every subsequent write.
+	// updatedAt: main's stamp for the same reason, and because the branch's is
+	// routinely the zero time (the agent-side rig re-encodes without one).
+	resolved, rok := restoreStateDocEnvelope(string(mergedNeutral), oursEnv)
+	if !rok {
+		return "", " (the envelope-neutral merge result no longer carries the envelope)", false
+	}
+	if !json.Valid([]byte(resolved)) {
+		return "", " (the resolved " + localStateDocPath + " is not valid JSON)", false
+	}
+	return resolved, "", true
+}
+
+// commitResolvedStateDoc lands the resolved document as the merge commit. The write
+// goes through git's own plumbing — hash-object stages a blob, update-index
+// --cacheinfo collapses the path's three conflict stages to a single resolved
+// stage-0 entry — so the commit is built from the index git itself maintains rather
+// than from a file this process edits inside the clone's working tree.
+func commitResolvedStateDoc(cloneDir, merged string) (diagnosticSuffix string, resolved bool) {
+	work, err := os.MkdirTemp("", "aiarch-statedoc-out-*")
+	if err != nil {
+		return " (could not stage the resolved " + localStateDocPath + ")", false
+	}
+	defer func() { _ = os.RemoveAll(work) }()
+	blobFile := filepath.Join(work, "resolved")
+	if werr := os.WriteFile(blobFile, []byte(merged), 0o600); werr != nil {
+		return " (could not stage the resolved " + localStateDocPath + ")", false
+	}
+	sha, herr := runGit(cloneDir, "hash-object", "-w", "--", blobFile)
+	if herr != nil {
+		return " (could not hash the resolved " + localStateDocPath + ": " + outputTail(sha, 200) + ")", false
+	}
+	sha = strings.TrimSpace(sha)
+	if out, uerr := runGit(cloneDir, "update-index", "--cacheinfo", "100644,"+sha+","+localStateDocPath); uerr != nil {
+		return " (could not resolve " + localStateDocPath + " in the index: " + outputTail(out, 200) + ")", false
+	}
+	// --no-edit reuses the MERGE_MSG the conflicted `merge -m` already wrote, so the
+	// landed commit is the same two-parent "aiarch: merge <branch>" the clean path
+	// produces.
+	if out, cerr := runGit(cloneDir,
+		"-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"commit", "--no-edit"); cerr != nil {
+		return " (could not commit the resolved merge: " + outputTail(out, 200) + ")", false
+	}
+	return "", true
+}
+
+// stateDocStage reads one merge stage of the state document out of the index.
+func stateDocStage(cloneDir string, stage int) (string, bool) {
+	out, err := runGit(cloneDir, "show", ":"+strconv.Itoa(stage)+":"+localStateDocPath)
+	if err != nil {
+		return "", false
+	}
+	return out, true
+}
+
+// neutraliseStateDocEnvelope rewrites each envelope member's VALUE to a fixed
+// placeholder, leaving every other byte of the line (and of the document) alone, so
+// the three merge stages become byte-identical on exactly those lines. It reports
+// recognised=false unless EVERY envelope member appears exactly once in the form the
+// store's encoder writes — a missing, duplicated or reshaped member is a document
+// this resolver must not touch. It also returns the ORIGINAL values, for restore.
+func neutraliseStateDocEnvelope(doc string) (neutral string, original map[string]string, recognised bool) {
+	lines := strings.Split(doc, "\n")
+	original = make(map[string]string, len(stateDocEnvelopeKeys))
+	for i, key := range stateDocEnvelopeKeys {
+		prefix := `  "` + key + `": `
+		at, found := soleLineWithPrefix(lines, prefix)
+		if !found {
+			return "", nil, false
+		}
+		rest := lines[at][len(prefix):]
+		comma := ""
+		if strings.HasSuffix(rest, ",") {
+			comma = ","
+		}
+		original[key] = rest
+		lines[at] = prefix + stateDocNeutralValues[i] + comma
+	}
+	return strings.Join(lines, "\n"), original, true
+}
+
+// restoreStateDocEnvelope puts the recorded envelope values back, undoing
+// neutraliseStateDocEnvelope on the merged document. A member that changed trailing
+// -comma shape between the stage it came from and the merged document has moved
+// position; rebuilding it would be a guess, so that is a refusal.
+func restoreStateDocEnvelope(doc string, original map[string]string) (string, bool) {
+	lines := strings.Split(doc, "\n")
+	for _, key := range stateDocEnvelopeKeys {
+		prefix := `  "` + key + `": `
+		at, found := soleLineWithPrefix(lines, prefix)
+		if !found {
+			return "", false
+		}
+		want := original[key]
+		if strings.HasSuffix(want, ",") != strings.HasSuffix(lines[at], ",") {
+			return "", false
+		}
+		lines[at] = prefix + want
+	}
+	return strings.Join(lines, "\n"), true
+}
+
+// soleLineWithPrefix finds the ONE line carrying prefix. Zero matches and more than
+// one are both found=false: an absent member and an ambiguous one are equally
+// unsafe to rewrite.
+func soleLineWithPrefix(lines []string, prefix string) (at int, found bool) {
+	at = -1
+	for n, line := range lines {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		if at >= 0 {
+			return -1, false
+		}
+		at = n
+	}
+	return at, at >= 0
+}
+
+// nonEmptyLines splits git's line-oriented output, dropping blanks.
+func nonEmptyLines(out string) []string {
+	var got []string
+	for _, l := range strings.Split(out, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			got = append(got, l)
+		}
+	}
+	return got
 }
 
 // runGit runs `git <args...>` with the given working directory (ignored when

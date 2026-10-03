@@ -1,0 +1,1395 @@
+{
+  "id": "todomvc-run-20261003T025700Z-4fa797ea",
+  "version": 12,
+  "phase": 0,
+  "owner": "dev-architect",
+  "name": "todomvc-run-20261003T025700Z-4fa797ea",
+  "research": {
+    "sources": [
+      {
+        "title": "Founder brief: a todo app",
+        "path": ".aiarch/state/research/00-founder-brief-a-todo-app.txt",
+        "contentBytes": 2009
+      },
+      {
+        "title": "TodoMVC behavior reference: precise functional contract",
+        "path": ".aiarch/state/research/01-todomvc-behavior-reference-precise-functional-contract.txt",
+        "contentBytes": 4020
+      }
+    ]
+  },
+  "operatingModel": "selfOperated",
+  "slots": {
+    "0": {
+      "status": 1,
+      "kind": 0,
+      "model": {
+        "vision": "A simple shared todo list the team can rely on to track what is left to do.",
+        "objectives": [
+          {
+            "number": 0,
+            "statement": ""
+          },
+          {
+            "number": 0,
+            "statement": ""
+          },
+          {
+            "number": 0,
+            "statement": ""
+          },
+          {
+            "number": 0,
+            "statement": ""
+          },
+          {
+            "number": 0,
+            "statement": ""
+          }
+        ],
+        "mission": "Deliver one small, complete task-tracking experience that behaves identically for every user and every way of reaching it, and keep each person's list safely stored beyond any single session. Keep the scope to the essentials of adding, editing, completing, filtering, and clearing tasks, so a small team can start using it immediately."
+      },
+      "critiqueVerdict": "revise",
+      "critiqueNotes": "Single blocking defect: all five objectives in the draft are empty. Each has number 0 and statement \"\". The commit message for the draft mentions 5 business objectives, so they were either lost or never written into the model. Objectives are the WHY, and the mission can't be judged against them while they're blank.\n\nRequired change: write five objectives with numbers 1-5 and non-empty statements. Each should say why the business wants the vision, in business or user language, for example what the team gains from trusting the list, what the business avoids, and what it gets from keeping the scope small. They must not restate the vision or the mission. Don't use component, module, service, subsystem, layer or any other decomposition terms, and don't imply a breakdown into parts.\n\nChecked and fine, so don't change them:\n- The vision is one terse sentence (about 15 words) with no technology named and no benefit-tail.\n- The mission states an operating approach: one small, complete experience that behaves the same everywhere, with each person's list kept beyond a session, and a scope limited to the essentials. It is in business language and doesn't restate the vision.\n- Neither the vision nor the mission uses architecture vocabulary.\n\nTaste-level only, not a reason to revise: \"every way of reaching it\" is slightly abstract. Keep it unless the objectives make a clearer phrasing natural.",
+      "revisions": 1
+    },
+    "1": {
+      "status": 1,
+      "kind": 1,
+      "model": {
+        "items": [
+          {
+            "term": "Team Member",
+            "definition": "A person on the team who keeps a personal list of todos and works through it.",
+            "category": "Who"
+          },
+          {
+            "term": "Agent Tool",
+            "definition": "Another automated agent or tool that drives the todo list on a person's behalf rather than through the screen.",
+            "category": "Who"
+          },
+          {
+            "term": "Embedding Host",
+            "definition": "A surrounding application in which the todo screens are shown as an embedded part of that application.",
+            "category": "Who"
+          },
+          {
+            "term": "Todo",
+            "definition": "One task on a list, made of its wording and whether it is done.",
+            "category": "What"
+          },
+          {
+            "term": "Todo List",
+            "definition": "The ordered collection of todos a person has, kept for them between visits.",
+            "category": "What"
+          },
+          {
+            "term": "Wording",
+            "definition": "The free text of a todo, as the person wrote it.",
+            "category": "What"
+          },
+          {
+            "term": "Done State",
+            "definition": "Whether a todo is done or not done.",
+            "category": "What"
+          },
+          {
+            "term": "Active",
+            "definition": "A todo that is not done yet.",
+            "category": "What"
+          },
+          {
+            "term": "Completed",
+            "definition": "A todo that is done.",
+            "category": "What"
+          },
+          {
+            "term": "View",
+            "definition": "One of three ways of looking at the list: All, Active (only todos not done), or Completed (only todos done).",
+            "category": "What"
+          },
+          {
+            "term": "Add Todo",
+            "definition": "Put a new, not-yet-done todo at the end of the list from the wording a person enters.",
+            "category": "What"
+          },
+          {
+            "term": "Reword Todo",
+            "definition": "Change the wording of an existing todo without removing and re-adding it; a reword that leaves blank wording removes the todo, and a cancelled reword leaves it as it was.",
+            "category": "What"
+          },
+          {
+            "term": "Remove Todo",
+            "definition": "Take a single todo off the list, whether or not it is done.",
+            "category": "What"
+          },
+          {
+            "term": "Complete Todo",
+            "definition": "Mark a single todo as done.",
+            "category": "What"
+          },
+          {
+            "term": "Reopen Todo",
+            "definition": "Mark a done todo as not done again.",
+            "category": "What"
+          },
+          {
+            "term": "Complete All",
+            "definition": "Mark every todo done at once, or, when every todo is already done, mark every todo not done.",
+            "category": "What"
+          },
+          {
+            "term": "Clear Completed",
+            "definition": "Remove every done todo from the list at once, leaving the rest untouched.",
+            "category": "What"
+          },
+          {
+            "term": "Choose View",
+            "definition": "Pick which todos to look at without changing any todo, with the chosen view visibly indicated.",
+            "category": "What"
+          },
+          {
+            "term": "Remaining Count",
+            "definition": "The number of todos not yet done, shown at all times regardless of the chosen view.",
+            "category": "What"
+          },
+          {
+            "term": "Keep Todos",
+            "definition": "Make a person's list still present, with the same wording and done states, the next time they return.",
+            "category": "What"
+          },
+          {
+            "term": "Wording Check",
+            "definition": "Deciding whether entered wording is blank (empty or only whitespace) and so cannot stand as a todo.",
+            "category": "How"
+          },
+          {
+            "term": "Remaining Counting",
+            "definition": "Working out how many todos in the whole list are not done.",
+            "category": "How"
+          },
+          {
+            "term": "View Selection",
+            "definition": "Working out which todos belong in a chosen view.",
+            "category": "How"
+          },
+          {
+            "term": "Aggregate Done Decision",
+            "definition": "Deciding, from the current mix of done states, whether Complete All should mark everything done or everything not done.",
+            "category": "How"
+          },
+          {
+            "term": "Store Todo",
+            "definition": "Atomic verb: record a new todo with its wording and done state in the saved list.",
+            "category": "How"
+          },
+          {
+            "term": "Revise Todo Wording",
+            "definition": "Atomic verb: replace the saved wording of one todo.",
+            "category": "How"
+          },
+          {
+            "term": "Set Done State",
+            "definition": "Atomic verb: record that one todo, or every todo, is done or not done.",
+            "category": "How"
+          },
+          {
+            "term": "Discard Todo",
+            "definition": "Atomic verb: remove one todo, or all done todos, from the saved list.",
+            "category": "How"
+          },
+          {
+            "term": "Fetch Todos",
+            "definition": "Atomic verb: read the saved list in order.",
+            "category": "How"
+          },
+          {
+            "term": "Saved List",
+            "definition": "The durable record of a person's todos that outlives closing the app or restarting a device or the service.",
+            "category": "Where"
+          }
+        ]
+      },
+      "critiqueVerdict": "approve",
+      "revisions": 1
+    },
+    "10": {
+      "status": 2,
+      "kind": 10,
+      "model": {
+        "dependencies": [
+          {
+            "activity": "architecture",
+            "dependsOn": [
+              "requirements"
+            ]
+          },
+          {
+            "activity": "projectDesign",
+            "dependsOn": [
+              "architecture"
+            ]
+          }
+        ],
+        "criticalPath": [
+          "architecture",
+          "projectDesign",
+          "requirements"
+        ],
+        "milestones": [
+          {
+            "id": "M0",
+            "name": "SDP Review Approved",
+            "public": true,
+            "dependsOn": [
+              "projectDesign"
+            ]
+          }
+        ]
+      },
+      "revisions": 1,
+      "provenance": {
+        "committedAt": "2026-10-03T02:57:10Z",
+        "approvedBy": "platform:project-birth",
+        "draftedBy": "platform:design-prefix-derivation"
+      }
+    },
+    "3": {
+      "status": 1,
+      "kind": 3,
+      "model": {
+        "items": [
+          {
+            "name": "Client-surface volatility",
+            "rationale": "WHAT: the kind of party driving the list and how it reaches it. Today three kinds coexist: people in an ordinary web app, people in a host application that embeds the screens (MCP Apps), and automated agent tooling driving the same operations over MCP and a web API. WHY volatile: the founder brief names all of these at once and says the team builds everything this way, so consumers differ at one time in interaction style (screen events vs. tool calls) and in what surrounds the experience (standalone page vs. embedded host). LIKELIHOOD: high; a new host or agent consumer is the normal way this kind of service grows, and each arrives within months. EFFECT: if unencapsulated, each new consumer kind would reach into add/reword/remove/complete/filter/count logic and fork it, breaking the mission promise that the list behaves identically for every way of reaching it.",
+            "axis": "allCustomersAtOneTime",
+            "traces": [
+              "B-01",
+              "B-02",
+              "B-03",
+              "B-04",
+              "B-05",
+              "B-06",
+              "B-07",
+              "B-08",
+              "B-09"
+            ]
+          },
+          {
+            "name": "Access-protocol revision volatility",
+            "rationale": "WHAT: the wire-level contracts through which the service is exposed (web API shape, MCP tool surface, MCP Apps embedding contract). WHY volatile: MCP and MCP Apps are young, actively revised specifications, and the brief explicitly leaves the API shape to us, so it will be revised for the same customer over the system's life. LIKELIHOOD: high; revisions of such specifications arrive several times a year, which falls well inside the horizon. EFFECT: if the todo behaviors were expressed directly in protocol terms, every specification revision would require re-touching behavior code and re-verifying every behavior. This is distinct from client-surface volatility: that is who and what kinds of consumers exist at one time; this is how the same consumer's contract changes over time.",
+            "axis": "sameCustomerOverTime",
+            "traces": [
+              "B-01",
+              "B-02",
+              "B-03",
+              "B-04",
+              "B-05",
+              "B-06",
+              "B-07",
+              "B-08",
+              "B-09"
+            ]
+          },
+          {
+            "name": "Storage-technology volatility",
+            "rationale": "WHAT: the durable medium that keeps each person's list across sessions, restarts of the device and restarts of the service. WHY volatile: the team is trying the app out ('for our team to try out') and the founder wants something a small team can start using tomorrow, so the first store is chosen for speed of start and is likely to be replaced as use grows or hosting changes; the brief and reference allow only that it be real service-backed storage, not browser-local or in-memory. LIKELIHOOD: moderate to high; a replacement or migration from a trial store is expected within the first year if adoption succeeds. EFFECT: if unencapsulated, store specifics would leak into every operation that reads or writes todos (add, reword, remove, complete, complete-all, clear-completed, fetch), so a store swap would ripple through all behaviors. Deployment and hosting environment changes are folded into this entry.",
+            "axis": "sameCustomerOverTime",
+            "traces": [
+              "B-09"
+            ]
+          }
+        ],
+        "rejected": [
+          {
+            "name": "Todo-attributes volatility (due dates, priorities, tags)",
+            "reason": "The reference contract states these are out of scope and must not be assumed required; no stated requirement evidences them, so encapsulating them designs for a hypothetical product.",
+            "class": "speculative"
+          },
+          {
+            "name": "Multi-user sharing and list-ownership volatility",
+            "reason": "Reference marks multi-user sharing out of scope and describes a single user/session list; no behavior depends on it and identity design would be for a business we are not in.",
+            "class": "speculative"
+          },
+          {
+            "name": "Reorder, undo/redo and offline-sync volatility",
+            "reason": "Each is listed as out of scope in the reference; they would be features added later, not changes this requirement set evidences.",
+            "class": "speculative"
+          },
+          {
+            "name": "Filter-set volatility (All/Active/Completed)",
+            "reason": "Choosing which todos belong in a view is a conditional on done state over a fixed three-way set; adding a view would be a local code change, not an architecture-rippling one.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Wording-validation volatility (blank check)",
+            "reason": "Whether wording is empty or whitespace-only is a single conditional rule applied at add and reword; it does not need its own boundary.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Remaining-count calculation volatility",
+            "reason": "Counting todos not done is a simple derivation over the list; there is no open-ended alternative to encapsulate.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Complete-all toggle semantics volatility",
+            "reason": "The aggregate toggle rule (all done flips to none done, mixed goes to all done) is the identical TodoMVC convention every comparable todo app follows; changing it would change the nature of the product.",
+            "class": "natureOfTheBusiness"
+          },
+          {
+            "name": "Todo lifecycle (add/complete/reopen/remove) volatility",
+            "reason": "The basic lifecycle is what every todo app does identically; it is the stable core and any attempt to abstract it would be poor.",
+            "class": "natureOfTheBusiness"
+          },
+          {
+            "name": "Reporting / activity-history volatility",
+            "reason": "A siren-song reporting block with no requirement behind it; the brief asks only for a live remaining count, not analytics.",
+            "class": "speculative"
+          },
+          {
+            "name": "Logging and audit volatility",
+            "reason": "By-reflex block; no behavior or business objective requires audit trails.",
+            "class": "speculative"
+          },
+          {
+            "name": "Deployment-environment / hosting volatility",
+            "reason": "Where the service runs and its restart behavior is the same underlying change as storage-technology volatility from the point of view of the persistence requirement; folded into it.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Agent-tool invocation style volatility",
+            "reason": "Same underlying change as client-surface volatility (a different kind of consumer driving the same operations); folded into it.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Embedding-host presentation volatility",
+            "reason": "Different embedding hosts are another instance of consumer-kind variance already captured by client-surface volatility; folded into it.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Live-count refresh mechanism volatility",
+            "reason": "How the count is refreshed after each change is a presentation update on the client, handled in code, not an open-ended area of change.",
+            "class": "variableNotVolatile"
+          }
+        ]
+      },
+      "revisions": 1
+    },
+    "4": {
+      "status": 1,
+      "kind": 4,
+      "model": {
+        "decisions": [
+          {
+            "useCase": {
+              "id": "revise-the-commitments",
+              "name": "Revise the commitments",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                },
+                {
+                  "id": "agent-tool",
+                  "role": "Agent Tool"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "core",
+              "variationOf": null,
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "State a change to the list",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "decision",
+                    "label": "Is it a blank add?",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "note",
+                    "label": "Nothing is created; the list is unchanged",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n5",
+                    "kind": "action",
+                    "label": "Record the change in the saved list",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n6",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n7",
+                    "kind": "action",
+                    "label": "Return the refreshed list with the remaining count",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n8",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "guardedFlow",
+                    "guard": "[blank add]"
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n5",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "n4",
+                    "to": "n6",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n5",
+                    "to": "n6",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n6",
+                    "to": "n7",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n7",
+                    "to": "n8",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "",
+            "essenceRationale": "Every team, in every host and through every surface, buys one thing: a trustworthy statement of what they have committed to and what is finished. Adding, rewording, removing, completing, reopening, completing all and clearing are all permutations of one abstraction, changing the set of commitments, and it is unchanged by new consumer kinds, protocol revisions or a store swap. Competing todo apps differ in chrome, never in this; remove it and there is no product. Exercises client-surface (Team Member and Agent Tool reach it the same way), access-protocol revision (the change is stated in business terms, not wire terms) and storage-technology (the change lands in the Saved List)."
+          },
+          {
+            "useCase": {
+              "id": "review-what-is-left",
+              "name": "Review what is left",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                },
+                {
+                  "id": "agent-tool",
+                  "role": "Agent Tool"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "core",
+              "variationOf": null,
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "Open the list or choose a view",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "action",
+                    "label": "Read the saved todos for the chosen view and count those not done",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "",
+            "essenceRationale": "The second pillar is trust in the list: whatever a person returns to, they see an accurate picture of what is left, in the view they want, and it is still there after they close the tab or restart the service. It is shared by every customer, outlives every requirements change, and is what separates a real service from a toy held in browser memory. It abstracts choosing a view, the remaining count and keeping todos between visits into one act, reviewing what is left. Exercises client-surface (screens, embedded host and agent reads all ask the same question), access-protocol revision, and storage-technology (the answer comes from the Saved List, not from the client)."
+          },
+          {
+            "useCase": {
+              "id": "add-a-todo",
+              "name": "Add a todo",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "revise-the-commitments",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "Submit the new todo's wording",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "decision",
+                    "label": "Is the wording blank?",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "note",
+                    "label": "Nothing is created",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n5",
+                    "kind": "action",
+                    "label": "Append the not-done todo to the saved list",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n6",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n7",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "guardedFlow",
+                    "guard": "[blank]"
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n5",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "n4",
+                    "to": "n6",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n5",
+                    "to": "n6",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n6",
+                    "to": "n7",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Add is the creation permutation of changing the commitments; it adds the wording check but no new essence."
+          },
+          {
+            "useCase": {
+              "id": "reword-a-todo",
+              "name": "Reword a todo",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "revise-the-commitments",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "Commit new wording for a todo",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "decision",
+                    "label": "Is the new wording blank?",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "action",
+                    "label": "Remove the todo from the saved list",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n5",
+                    "kind": "action",
+                    "label": "Replace the todo's saved wording",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n6",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n7",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "guardedFlow",
+                    "guard": "[blank]"
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n5",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "n4",
+                    "to": "n6",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n5",
+                    "to": "n6",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n6",
+                    "to": "n7",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Reword is the amendment permutation of changing the commitments; blank-wording removal reuses the remove permutation."
+          },
+          {
+            "useCase": {
+              "id": "remove-a-todo",
+              "name": "Remove a todo",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "revise-the-commitments",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "Remove one todo",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "action",
+                    "label": "Discard the todo from the saved list",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Remove is the retraction permutation of changing the commitments, identical in every todo app."
+          },
+          {
+            "useCase": {
+              "id": "complete-or-reopen-a-todo",
+              "name": "Complete or reopen a todo",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "revise-the-commitments",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "Mark one todo done or not done",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "action",
+                    "label": "Record the todo's done state in the saved list",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Completing and reopening a single todo is the done-state permutation of changing the commitments."
+          },
+          {
+            "useCase": {
+              "id": "complete-or-reopen-all-todos",
+              "name": "Complete or reopen all todos",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "revise-the-commitments",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "Activate complete all",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "decision",
+                    "label": "Is every todo already done?",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "action",
+                    "label": "Mark every todo not done in the saved list",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n5",
+                    "kind": "action",
+                    "label": "Mark every todo done in the saved list",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n6",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n7",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "guardedFlow",
+                    "guard": "[all done]"
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n5",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "n4",
+                    "to": "n6",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n5",
+                    "to": "n6",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n6",
+                    "to": "n7",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Complete all is the bulk done-state permutation of changing the commitments; its toggle rule is the identical convention every todo app follows."
+          },
+          {
+            "useCase": {
+              "id": "clear-completed-todos",
+              "name": "Clear completed todos",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "revise-the-commitments",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "Activate clear completed",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "action",
+                    "label": "Discard every done todo from the saved list",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Clear completed is the bulk retraction permutation of changing the commitments."
+          },
+          {
+            "useCase": {
+              "id": "choose-a-view",
+              "name": "Choose a view",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-what-is-left",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "Pick All, Active or Completed",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "action",
+                    "label": "Read the saved todos belonging to the chosen view",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Choosing a view is the filtered permutation of reviewing what is left; the fixed three-way set is a conditional, not an architectural seam."
+          },
+          {
+            "useCase": {
+              "id": "see-the-remaining-count",
+              "name": "See the remaining count",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-what-is-left",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "Look at how many todos are left",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "action",
+                    "label": "Count the saved todos not done",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "The remaining count is the summary permutation of reviewing what is left; counting is a simple derivation with no open-ended alternative."
+          },
+          {
+            "useCase": {
+              "id": "return-to-the-list-later",
+              "name": "Return to the list later",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-what-is-left",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "n1",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n2",
+                    "kind": "action",
+                    "label": "Come back to the list",
+                    "roleName": "Team Member",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n3",
+                    "kind": "action",
+                    "label": "Read the saved todos in order",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "n4",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "Todo List",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "n1",
+                    "to": "n2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n2",
+                    "to": "n3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "n3",
+                    "to": "n4",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Returning to the list later is the return-visit permutation of reviewing what is left; durability is a property of the Saved List that Review what is left exercises, not a separate flow."
+          }
+        ]
+      },
+      "critiqueVerdict": "revise",
+      "critiqueNotes": "One defect to fix: lanes do not resolve against declared actors.\n\nDEFECT (Actors and lanes). Every activity diagram, core and nonCore, puts most of its nodes in a swim lane with roleName \"Todo List\". No use case declares an actor with that role. The declared actors are only \"Team Member\" and \"Agent Tool\". Either:\n(a) declare the system lane as an actor on each use case, with a role that matches the lane name exactly, or\n(b) rename the lanes so each roleName matches a declared actor, and keep system behavior in a lane that is declared.\nPick one convention and apply it to all 11 use cases.\n\nRelated, same fix pass: \"Agent Tool\" is declared as an actor on both core use cases but never appears in any lane or node. Either give it a lane, for example where an agent states a change or reads the list, or drop it from the actors. The essence rationales lean on the agent-tool surface to show the client-surface volatility is exercised, so I'd keep it and show it in the flows.\n\nEverything else passes:\n- Count: 2 cores, within range.\n- Rejection trail: all 9 nonCore use cases have reasons, and each variationOf resolves to a core id.\n- Essence: both rationales argue the use case is shared, durable and differentiating.\n- No channel-shaped use cases.\n- Volatility exercise: the rationales name client surface, access-protocol revision and storage technology. The .volatilities slot is not committed, so I checked this against the three names in the rationales and the earlier volatilities commit, not against the committed slot.\n- Abstraction: nine raw use cases collapse under two named abstractions.\n\nReservations on the approve path, taste-level only, not grounds for revise:\n- \"Revise the commitments\" comes close to a CRUD umbrella (add, edit, remove, toggle). I accept it because the rationale frames it as one business act, changing the set of commitments. Keep the wording business-shaped in later artifacts.\n- The nonCore flows list only Team Member. That is fine as variations, but it would be more consistent if Agent Tool were acknowledged.",
+      "revisions": 1
+    },
+    "9": {
+      "status": 2,
+      "kind": 9,
+      "model": {
+        "activities": [
+          {
+            "name": "requirements",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Requirements"
+          },
+          {
+            "name": "architecture",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Architecture \u0026 Call Chains"
+          },
+          {
+            "name": "projectDesign",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Project Design (SDP Review · M0)"
+          }
+        ]
+      },
+      "revisions": 1,
+      "provenance": {
+        "committedAt": "2026-10-03T02:57:10Z",
+        "approvedBy": "platform:project-birth",
+        "draftedBy": "platform:design-prefix-derivation"
+      }
+    }
+  },
+  "activityExecution": {
+    "requirements": {
+      "activityID": "requirements",
+      "type": "requirements",
+      "lifecyclePin": {
+        "typeKey": "requirements",
+        "assetsVersion": "(devel)"
+      },
+      "startedAt": "2026-10-03T02:57:10.985689Z",
+      "version": 1
+    }
+  },
+  "reviewPolicy": {
+    "preset": "vibes"
+  },
+  "updatedAt": "0001-01-01T00:00:00Z"
+}

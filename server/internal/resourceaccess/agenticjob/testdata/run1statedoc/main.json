@@ -1,0 +1,417 @@
+{
+  "id": "todomvc-run-20261003T025700Z-4fa797ea",
+  "version": 32,
+  "phase": 0,
+  "owner": "dev-architect",
+  "name": "todomvc-run-20261003T025700Z-4fa797ea",
+  "research": {
+    "sources": [
+      {
+        "title": "Founder brief: a todo app",
+        "path": ".aiarch/state/research/00-founder-brief-a-todo-app.txt",
+        "contentBytes": 2009
+      },
+      {
+        "title": "TodoMVC behavior reference: precise functional contract",
+        "path": ".aiarch/state/research/01-todomvc-behavior-reference-precise-functional-contract.txt",
+        "contentBytes": 4020
+      }
+    ]
+  },
+  "operatingModel": "selfOperated",
+  "slots": {
+    "10": {
+      "status": 2,
+      "kind": 10,
+      "model": {
+        "dependencies": [
+          {
+            "activity": "architecture",
+            "dependsOn": [
+              "requirements"
+            ]
+          },
+          {
+            "activity": "projectDesign",
+            "dependsOn": [
+              "architecture"
+            ]
+          }
+        ],
+        "criticalPath": [
+          "architecture",
+          "projectDesign",
+          "requirements"
+        ],
+        "milestones": [
+          {
+            "id": "M0",
+            "name": "SDP Review Approved",
+            "public": true,
+            "dependsOn": [
+              "projectDesign"
+            ]
+          }
+        ]
+      },
+      "revisions": 1,
+      "provenance": {
+        "committedAt": "2026-10-03T02:57:10Z",
+        "approvedBy": "platform:project-birth",
+        "draftedBy": "platform:design-prefix-derivation"
+      }
+    },
+    "9": {
+      "status": 2,
+      "kind": 9,
+      "model": {
+        "activities": [
+          {
+            "name": "requirements",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Requirements"
+          },
+          {
+            "name": "architecture",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Architecture \u0026 Call Chains"
+          },
+          {
+            "name": "projectDesign",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Project Design (SDP Review · M0)"
+          }
+        ]
+      },
+      "revisions": 1,
+      "provenance": {
+        "committedAt": "2026-10-03T02:57:10Z",
+        "approvedBy": "platform:project-birth",
+        "draftedBy": "platform:design-prefix-derivation"
+      }
+    }
+  },
+  "activityExecution": {
+    "requirements": {
+      "activityID": "requirements",
+      "type": "requirements",
+      "lifecyclePin": {
+        "typeKey": "requirements",
+        "assetsVersion": "(devel)"
+      },
+      "startedAt": "2026-10-03T02:57:10.985689Z",
+      "completedAt": "2026-10-03T03:09:12.983314Z",
+      "failureReason": 4,
+      "failureDetail": "the local merge exceeded max attempts",
+      "attempts": [
+        {
+          "attemptId": "requirements:missionDraft:1",
+          "task": "missionDraft",
+          "phase": "mission",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-10-03T02:57:43.100535Z",
+          "endedAt": "2026-10-03T02:57:43.100535Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:missionDraft:Mission@v9"
+          },
+          "detail": "drafted mission on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T02:57:43.100535Z"
+          }
+        },
+        {
+          "attemptId": "requirements:missionReview:1",
+          "task": "missionReview",
+          "phase": "mission",
+          "attempt": 1,
+          "actor": "human",
+          "startedAt": "2026-10-03T02:59:18.957917Z",
+          "endedAt": "2026-10-03T02:59:18.957917Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:missionDraft:Mission@v9"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T02:59:18.957917Z"
+          }
+        },
+        {
+          "attemptId": "requirements:glossaryDraft:1",
+          "task": "glossaryDraft",
+          "phase": "glossary",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-10-03T03:00:04.326471Z",
+          "endedAt": "2026-10-03T03:00:04.326471Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:glossaryDraft:Glossary@v10"
+          },
+          "detail": "drafted glossary on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T03:00:04.326471Z"
+          }
+        },
+        {
+          "attemptId": "requirements:glossaryReview:1",
+          "task": "glossaryReview",
+          "phase": "glossary",
+          "attempt": 1,
+          "actor": "system",
+          "startedAt": "2026-10-03T03:00:34.947586Z",
+          "endedAt": "2026-10-03T03:00:34.947586Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:glossaryDraft:Glossary@v10"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T03:00:34.947586Z"
+          }
+        },
+        {
+          "attemptId": "requirements:volatilitiesDraft:1",
+          "task": "volatilitiesDraft",
+          "phase": "volatilities",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-10-03T03:02:35.397305Z",
+          "endedAt": "2026-10-03T03:02:35.397305Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:volatilitiesDraft:Volatilities@v11"
+          },
+          "detail": "drafted volatilities on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T03:02:35.397305Z"
+          }
+        },
+        {
+          "attemptId": "requirements:volatilitiesReview:1",
+          "task": "volatilitiesReview",
+          "phase": "volatilities",
+          "attempt": 1,
+          "actor": "system",
+          "startedAt": "2026-10-03T03:02:35.740138Z",
+          "endedAt": "2026-10-03T03:02:35.740138Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:volatilitiesDraft:Volatilities@v11"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T03:02:35.740138Z"
+          }
+        },
+        {
+          "attemptId": "requirements:coreUseCasesDraft:1",
+          "task": "coreUseCasesDraft",
+          "phase": "coreUseCases",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-10-03T03:07:36.235788Z",
+          "endedAt": "2026-10-03T03:07:36.235788Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:coreUseCasesDraft:CoreUseCases@v12"
+          },
+          "detail": "drafted coreUseCases on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T03:07:36.235788Z"
+          }
+        },
+        {
+          "attemptId": "requirements:coreUseCasesReview:1",
+          "task": "coreUseCasesReview",
+          "phase": "coreUseCases",
+          "attempt": 1,
+          "actor": "human",
+          "startedAt": "2026-10-03T03:09:11.600272Z",
+          "endedAt": "2026-10-03T03:09:11.600272Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:coreUseCasesDraft:CoreUseCases@v12"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T03:09:11.600272Z"
+          }
+        }
+      ],
+      "reviews": [
+        {
+          "roundId": "requirements:missionReview:1",
+          "taskId": "missionReview",
+          "reviews": "missionDraft",
+          "artifactKind": "mission",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:missionDraft:Mission@v9"
+          },
+          "reviewers": [
+            {
+              "role": "productManager",
+              "actor": "productManager",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "product-manager",
+              "actor": "product-manager",
+              "verdict": "sendBack",
+              "summary": "Single blocking defect: all five objectives in the draft are empty. Each has number 0 and statement \"\". The commit message for the draft mentions 5 business objectives, so they were either lost or never written into the model. Objectives are the WHY, and the mission can't be judged against them while they're blank.\n\nRequired change: write five objectives with numbers 1-5 and non-empty statements. Each should say why the business wants the vision, in business or user language, for example what the team gains from trusting the list, what the business avoids, and what it gets from keeping the scope small. They must not restate the vision or the mission. Don't use component, module, service, subsystem, layer or any other decomposition terms, and don't imply a breakdown into parts.\n\nChecked and fine, so don't change them:\n- The vision is one terse sentence (about 15 words) with no technology named and no benefit-tail.\n- The mission states an operating approach: one small, complete experience that behaves the same everywhere, with each person's list kept beyond a session, and a scope limited to the essentials. It is in business language and doesn't restate the vision.\n- Neither the vision nor the mission uses architecture vocabulary.\n\nTaste-level only, not a reason to revise: \"every way of reaching it\" is slightly abstract. Keep it unless the objectives make a clearer phrasing natural.",
+              "attemptId": "requirements:missionDraft:1",
+              "at": "2026-10-03T02:58:13Z"
+            },
+            {
+              "reviewerRole": "human",
+              "actor": "operator",
+              "verdict": "approve",
+              "summary": "",
+              "attemptId": "requirements:missionDraft:1",
+              "at": "2026-10-03T02:59:18Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "operator",
+          "openedAt": "2026-10-03T02:57:43Z",
+          "decidedAt": "2026-10-03T02:59:18Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T02:57:43.200555Z"
+          }
+        },
+        {
+          "roundId": "requirements:glossaryReview:1",
+          "taskId": "glossaryReview",
+          "reviews": "glossaryDraft",
+          "artifactKind": "glossary",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:glossaryDraft:Glossary@v10"
+          },
+          "reviewers": [
+            {
+              "role": "productManager",
+              "actor": "productManager",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "product-manager",
+              "actor": "product-manager",
+              "verdict": "approve",
+              "summary": "",
+              "attemptId": "requirements:glossaryDraft:1",
+              "at": "2026-10-03T03:00:34Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-10-03T03:00:04Z",
+          "decidedAt": "2026-10-03T03:00:34Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T03:00:04.429876Z"
+          }
+        },
+        {
+          "roundId": "requirements:volatilitiesReview:1",
+          "taskId": "volatilitiesReview",
+          "reviews": "volatilitiesDraft",
+          "artifactKind": "volatilities",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:volatilitiesDraft:Volatilities@v11"
+          },
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-10-03T03:02:35Z",
+          "decidedAt": "2026-10-03T03:02:35Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T03:02:35.503634Z"
+          }
+        },
+        {
+          "roundId": "requirements:coreUseCasesReview:1",
+          "taskId": "coreUseCasesReview",
+          "reviews": "coreUseCasesDraft",
+          "artifactKind": "coreUseCases",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:coreUseCasesDraft:CoreUseCases@v12"
+          },
+          "reviewers": [
+            {
+              "role": "productManager",
+              "actor": "productManager",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "product-manager",
+              "actor": "product-manager",
+              "verdict": "sendBack",
+              "summary": "One defect to fix: lanes do not resolve against declared actors.\n\nDEFECT (Actors and lanes). Every activity diagram, core and nonCore, puts most of its nodes in a swim lane with roleName \"Todo List\". No use case declares an actor with that role. The declared actors are only \"Team Member\" and \"Agent Tool\". Either:\n(a) declare the system lane as an actor on each use case, with a role that matches the lane name exactly, or\n(b) rename the lanes so each roleName matches a declared actor, and keep system behavior in a lane that is declared.\nPick one convention and apply it to all 11 use cases.\n\nRelated, same fix pass: \"Agent Tool\" is declared as an actor on both core use cases but never appears in any lane or node. Either give it a lane, for example where an agent states a change or reads the list, or drop it from the actors. The essence rationales lean on the agent-tool surface to show the client-surface volatility is exercised, so I'd keep it and show it in the flows.\n\nEverything else passes:\n- Count: 2 cores, within range.\n- Rejection trail: all 9 nonCore use cases have reasons, and each variationOf resolves to a core id.\n- Essence: both rationales argue the use case is shared, durable and differentiating.\n- No channel-shaped use cases.\n- Volatility exercise: the rationales name client surface, access-protocol revision and storage technology. The .volatilities slot is not committed, so I checked this against the three names in the rationales and the earlier volatilities commit, not against the committed slot.\n- Abstraction: nine raw use cases collapse under two named abstractions.\n\nReservations on the approve path, taste-level only, not grounds for revise:\n- \"Revise the commitments\" comes close to a CRUD umbrella (add, edit, remove, toggle). I accept it because the rationale frames it as one business act, changing the set of commitments. Keep the wording business-shaped in later artifacts.\n- The nonCore flows list only Team Member. That is fine as variations, but it would be more consistent if Agent Tool were acknowledged.",
+              "attemptId": "requirements:coreUseCasesDraft:1",
+              "at": "2026-10-03T03:08:06Z"
+            },
+            {
+              "reviewerRole": "human",
+              "actor": "operator",
+              "verdict": "approve",
+              "summary": "",
+              "attemptId": "requirements:coreUseCasesDraft:1",
+              "at": "2026-10-03T03:09:11Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "operator",
+          "openedAt": "2026-10-03T03:07:36Z",
+          "decidedAt": "2026-10-03T03:09:11Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-10-03T03:07:36.352196Z"
+          }
+        }
+      ],
+      "version": 25
+    }
+  },
+  "reviewPolicy": {
+    "preset": "vibes"
+  },
+  "updatedAt": "2026-10-03T03:09:13.00072Z"
+}

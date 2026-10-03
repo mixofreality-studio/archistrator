@@ -2124,6 +2124,18 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 		return gitLocalHeadSHA(cloneDir)
 	}
 
+	// EARMARK (wedge #4, docs/bugs/2026-10-02-wedge4-state-doc-envelope.md): this
+	// merge carries the SAME defect agenticjob's mergeActivityBranch was fixed for —
+	// `.aiarch/state/project.json` stores the projectstate store's own `version` and
+	// `updatedAt` bookkeeping inline, so two refs that both wrote the document always
+	// conflict on those two lines and no --no-ff text merge can ever land. It is NOT
+	// fixed here because this realisation is off the paid path (the local profile
+	// finishes an activity through agenticjob's merge job, not through a local "PR"),
+	// and the resolver cannot be shared: an RA may not import another RA (NoSideways),
+	// and promoting it to a utility is a Method architecture change. trialMerge's
+	// Mergeable verdict has the same blind spot. Fix both together with the shared
+	// home, not by copying 200 lines.
+	//
 	// Real --no-ff merge with a pinned author identity (independent of host git config).
 	mergeOut, mErr := gitLocalRun(cloneDir, "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
 		"merge", "--no-ff", "-m", "aiarch: merge "+head, remoteHead)

@@ -1244,9 +1244,15 @@ func (wf *csWorkflows) runTaskVariance(
 	tc.State.variance = &FlaggedVariance{
 		ProjectID: tc.In.ProjectID, ActivityID: tc.In.ActivityID, Summary: detail,
 	}
+	// `detail` carries the job's OWN diagnostic, and the log line must too. Wedge #4
+	// cost a day of forensics because this line published only the ordinal
+	// failureReason: ten identical "failureReason=1" lines said nothing, while the
+	// observation sitting right here read "CONFLICT (content): Merge conflict in
+	// .aiarch/state/project.json" — the whole answer, computed and then dropped.
 	workflow.GetLogger(ctx).Error("delivery.construction.jobFailed",
 		"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "attempt", attempt+1,
-		"failureReason", int(deriveFailureReason(obs.Phase, obs.Diagnostic)))
+		"failureReason", int(deriveFailureReason(obs.Phase, obs.Diagnostic)),
+		"detail", detail)
 
 	directive, derr := wf.Intervention.DecideOnVariance(fweng.Context{Context: context.Background()},
 		intervention.ConstructionVariance{

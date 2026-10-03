@@ -2357,6 +2357,9 @@ func seedActivityBranch(t *testing.T, sharedDir, activityID, path, content strin
 	testGit(t, work, "config", "user.email", "seed@aiarch.local")
 	testGit(t, work, "config", "user.name", "seed")
 	testGit(t, work, "checkout", "-b", "activity/"+activityID, "main")
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(work, path)), 0o755); err != nil {
+		t.Fatalf("mkdir for %s: %v", path, err)
+	}
 	if err := os.WriteFile(filepath.Join(work, path), []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
@@ -2373,6 +2376,9 @@ func commitFileOnMain(t *testing.T, sharedDir, path, content string) {
 	testGit(t, "", "clone", "--branch", "main", sharedDir, work)
 	testGit(t, work, "config", "user.email", "seed@aiarch.local")
 	testGit(t, work, "config", "user.name", "seed")
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(work, path)), 0o755); err != nil {
+		t.Fatalf("mkdir for %s: %v", path, err)
+	}
 	if err := os.WriteFile(filepath.Join(work, path), []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
@@ -2522,6 +2528,275 @@ func TestLocalExecMergeJob_IdempotencyConvergence(t *testing.T) {
 	// Exactly one merge commit: seed + branch commit + one merge = 3 on main.
 	if n := remoteCommitCount(t, sharedDir, "main"); n != 3 {
 		t.Fatalf("main has %d commits, want 3 (seed + branch work + ONE merge)", n)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LM6-LM8 — THE STATE-DOCUMENT ENVELOPE (wedge #4, found by the first paid
+// todomvc benchmark run: `requirements` drafted, reviewed and staged all four
+// artifacts, then burned every merge attempt in 1.4s on
+// `CONFLICT (content): .aiarch/state/project.json`).
+//
+// WHY IT ALWAYS CONFLICTED. project.json carries the store's own bookkeeping
+// INLINE in the document git merges: `version` (the optimistic-concurrency
+// token) and `updatedAt` (the write timestamp). During one activity the
+// delivery rail writes its row/review ledger to MAIN while the agent stages
+// artifacts on activity/<id>, so BOTH refs advance those two lines away from
+// the merge base and a 3-way text merge has nothing to pick. That is not
+// contention and not a retry-bound shortfall — it is deterministic, and it fires
+// for every activity whose walk dispatches work.
+//
+// These three tests pin the whole shape: the envelope resolves, a REAL content
+// conflict still fails cleanly (LM7 — the fix must not become "take main"), and
+// a malformed envelope is refused rather than guessed at (LM8).
+// ---------------------------------------------------------------------------
+
+// stateDoc renders a project.json the way the store's own encoder does —
+// json.MarshalIndent 2-space, `version` second and `updatedAt` last — so the
+// three merge stages line up exactly as git saw them in the paid run. extra is
+// spliced in as additional top-level members.
+func stateDoc(version int, updatedAt string, extra string) string {
+	body := ""
+	if extra != "" {
+		body = extra + "\n"
+	}
+	return "{\n" +
+		"  \"id\": \"todomvc\",\n" +
+		"  \"version\": " + strconv.Itoa(version) + ",\n" +
+		"  \"phase\": 0,\n" +
+		"  \"owner\": \"dev-architect\",\n" +
+		"  \"name\": \"todomvc\",\n" +
+		body +
+		"  \"reviewPolicy\": {\n" +
+		"    \"preset\": \"vibes\"\n" +
+		"  },\n" +
+		"  \"updatedAt\": \"" + updatedAt + "\"\n" +
+		"}"
+}
+
+// seedStateRepo makes a shared repo whose main's FIRST commit already carries
+// project.json — the merge base, mirroring the real scratch state repo. It builds
+// the repo itself rather than layering commitFileOnMain over newSharedRepo
+// because a push into a detached-HEAD non-bare repo drops origin/HEAD, and a
+// later clone then lands detached with no local `main` for seedActivityBranch to
+// fork from.
+func seedStateRepo(t *testing.T, base string) (repoDir, url string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping local-executor proof")
+	}
+	shared := filepath.Join(t.TempDir(), "shared")
+	testGit(t, "", "init", "--initial-branch=main", shared)
+	testGit(t, shared, "config", "user.email", "seed@aiarch.local")
+	testGit(t, shared, "config", "user.name", "seed")
+	docPath := filepath.Join(shared, localStateDocPath)
+	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
+	}
+	if err := os.WriteFile(docPath, []byte(base), 0o644); err != nil {
+		t.Fatalf("write %s: %v", localStateDocPath, err)
+	}
+	testGit(t, shared, "add", localStateDocPath)
+	testGit(t, shared, "commit", "-m", "seed state document")
+	testGit(t, shared, "checkout", "--detach")
+	return shared, "file://" + shared
+}
+
+// readMergedStateDoc returns main's project.json as raw bytes, failing the test
+// when it is not valid JSON (conflict markers, a truncated splice).
+func readMergedStateDoc(t *testing.T, sharedDir string) map[string]any {
+	t.Helper()
+	raw := testGitOut(t, sharedDir, "cat-file", "-p", "main:"+localStateDocPath)
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		t.Fatalf("merged project.json is not valid JSON (%v):\n%s", err, raw)
+	}
+	return doc
+}
+
+// LM6 — THE REGRESSION. Both refs advanced `version` and `updatedAt`, and their
+// substantive edits are disjoint. The merge must LAND: a real --no-ff merge
+// commit, both sides' content present, main's version token preserved, branch
+// deleted. Before the fix this failed with Phase=PhaseFailed and
+// "CONFLICT (content)".
+func TestLocalExecMergeJob_StateDocEnvelopeDivergence_Merges(t *testing.T) {
+	base := stateDoc(5, "2026-10-03T02:57:00Z", "  \"slots\": {\n    \"9\": \"seedPlan\"\n  },")
+	sharedDir, url := seedStateRepo(t, base)
+
+	// The agent's branch: four artifacts staged, version 12, updatedAt zeroed by
+	// the rig's decode/re-encode (exactly what the paid run's branch carried).
+	branchDoc := stateDoc(12, "0001-01-01T00:00:00Z",
+		"  \"slots\": {\n    \"0\": \"mission\",\n    \"1\": \"glossary\",\n    \"9\": \"seedPlan\"\n  },")
+	seedActivityBranch(t, sharedDir, "requirements", localStateDocPath, branchDoc)
+
+	// Main's ledger: 20 further row writes, version 32, a real timestamp.
+	mainDoc := stateDoc(32, "2026-10-03T03:09:13.00072Z",
+		"  \"slots\": {\n    \"9\": \"seedPlan\"\n  },\n"+
+			"  \"activityExecution\": {\n    \"requirements\": \"Running\"\n  },")
+	commitFileOnMain(t, sharedDir, localStateDocPath, mainDoc)
+
+	a := newLocalExecForTest(t, url, 0)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-env-1"), mergeJobSpec("requirements"))
+	if err != nil {
+		t.Fatalf("Submit(merge): %v", err)
+	}
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded — the envelope is bookkeeping, not content (diagnostic: %q)",
+			obs.Phase, obs.Diagnostic)
+	}
+	if parents := strings.Fields(strings.TrimSpace(testGitOut(t, sharedDir, "log", "-1", "--format=%P", "main"))); len(parents) != 2 {
+		t.Fatalf("main tip has %d parents, want 2 (a real --no-ff merge commit)", len(parents))
+	}
+	doc := readMergedStateDoc(t, sharedDir)
+	// MAIN's version token wins: it is the token every later main-scoped CAS
+	// compares against, and the branch's 12 belongs to a different write sequence.
+	if got, want := doc["version"], float64(32); got != want {
+		t.Fatalf("merged version = %v, want %v (main's head token)", got, want)
+	}
+	if got, want := doc["updatedAt"], "2026-10-03T03:09:13.00072Z"; got != want {
+		t.Fatalf("merged updatedAt = %v, want %v (main's stamp, not the branch's zero time)", got, want)
+	}
+	// Both sides' SUBSTANCE landed — the merge is a real merge, not a take-ours.
+	slots, _ := doc["slots"].(map[string]any)
+	for _, k := range []string{"0", "1", "9"} {
+		if _, ok := slots[k]; !ok {
+			t.Fatalf("merged slots = %v, want the branch's staged artifacts to have landed (missing %q)", slots, k)
+		}
+	}
+	if _, ok := doc["activityExecution"]; !ok {
+		t.Fatalf("merged doc dropped main's own ledger section: %v", doc)
+	}
+	if remoteBranchExists(t, sharedDir, "activity/requirements") {
+		t.Fatal("activity branch must be deleted after the merge")
+	}
+}
+
+// LM9 — THE PAID RUN ITSELF. The three merge stages are the VERBATIM
+// project.json documents from the first paid todomvc benchmark run
+// (testdata/run1statedoc/, lifted out of that run's preserved scratch state
+// repo at the merge base, main's tip and activity/requirements' tip). Replaying
+// them through the real local merge is the only evidence that settles this: the
+// run died on exactly these bytes, and before the fix this test reproduced
+// `CONFLICT (content): Merge conflict in .aiarch/state/project.json` character
+// for character.
+func TestLocalExecMergeJob_PaidRunStateDocs_Merge(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join("testdata", "run1statedoc", name))
+		if err != nil {
+			t.Fatalf("read fixture %s: %v", name, err)
+		}
+		return string(b)
+	}
+	sharedDir, url := seedStateRepo(t, read("base.json"))
+	seedActivityBranch(t, sharedDir, "requirements", localStateDocPath, read("branch.json"))
+	commitFileOnMain(t, sharedDir, localStateDocPath, read("main.json"))
+
+	a := newLocalExecForTest(t, url, 0)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-run1"), mergeJobSpec("requirements"))
+	if err != nil {
+		t.Fatalf("Submit(merge): %v", err)
+	}
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if obs.Phase != PhaseSucceeded {
+		t.Fatalf("Phase = %v, want PhaseSucceeded — this is the paid run's own state (diagnostic: %q)",
+			obs.Phase, obs.Diagnostic)
+	}
+	doc := readMergedStateDoc(t, sharedDir)
+	// Main's head token (32 at death) survives; the branch's 12 does not.
+	if got, want := doc["version"], float64(32); got != want {
+		t.Fatalf("merged version = %v, want %v (main's head token at death)", got, want)
+	}
+	// The four artifacts the run paid $1.63 to draft are on main: the branch had
+	// slots 0/1/3/4 staged and main had only the birth-seed 9/10.
+	slots, _ := doc["slots"].(map[string]any)
+	for _, k := range []string{"0", "1", "3", "4", "9", "10"} {
+		if _, ok := slots[k]; !ok {
+			t.Fatalf("merged slots are missing %q — the paid design work did not land: %v", k, mapKeys(slots))
+		}
+	}
+	// Main's own ledger section is intact.
+	if _, ok := doc["activityExecution"]; !ok {
+		t.Fatal("merged doc dropped main's activityExecution ledger")
+	}
+	if remoteBranchExists(t, sharedDir, "activity/requirements") {
+		t.Fatal("activity branch must be deleted after the merge")
+	}
+}
+
+// mapKeys renders a decoded JSON object's keys for a failure message.
+func mapKeys(m map[string]any) []string {
+	return slices.Sorted(maps.Keys(m))
+}
+
+// LM7 — THE GUARD. A REAL content conflict inside project.json (both refs
+// rewrote the SAME slot) must still fail cleanly: the envelope resolution must
+// never degrade into "main wins", which would silently discard the agent's work.
+func TestLocalExecMergeJob_StateDocContentConflict_StillFails(t *testing.T) {
+	base := stateDoc(5, "2026-10-03T02:57:00Z", "  \"slots\": {\n    \"0\": \"base\"\n  },")
+	sharedDir, url := seedStateRepo(t, base)
+	seedActivityBranch(t, sharedDir, "requirements", localStateDocPath,
+		stateDoc(12, "0001-01-01T00:00:00Z", "  \"slots\": {\n    \"0\": \"the agent's mission\"\n  },"))
+	commitFileOnMain(t, sharedDir, localStateDocPath,
+		stateDoc(32, "2026-10-03T03:09:13.00072Z", "  \"slots\": {\n    \"0\": \"main rewrote the same slot\"\n  },"))
+	mainBefore := strings.TrimSpace(testGitOut(t, sharedDir, "rev-parse", "main"))
+
+	a := newLocalExecForTest(t, url, 0)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-env-2"), mergeJobSpec("requirements"))
+	if err != nil {
+		t.Fatalf("Submit(merge): %v", err)
+	}
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed — a genuine content conflict must not be resolved away", obs.Phase)
+	}
+	if !containsFold(obs.Diagnostic, "conflict") {
+		t.Fatalf("diagnostic %q must name the conflict", obs.Diagnostic)
+	}
+	if got := strings.TrimSpace(testGitOut(t, sharedDir, "rev-parse", "main")); got != mainBefore {
+		t.Fatalf("main moved on a real content conflict: %s -> %s", mainBefore, got)
+	}
+	if !remoteBranchExists(t, sharedDir, "activity/requirements") {
+		t.Fatal("activity branch must survive a real content conflict")
+	}
+}
+
+// LM8 — THE REFUSAL. A project.json whose envelope the store's encoder did not
+// write (hand-edited, reformatted, a different indent) is NOT guessed at: the
+// resolver refuses and the merge fails honestly rather than splicing bytes into
+// a document it does not recognise.
+func TestLocalExecMergeJob_StateDocUnrecognisedEnvelope_Fails(t *testing.T) {
+	sharedDir, url := seedStateRepo(t, "{\"version\":5,\"updatedAt\":\"a\",\"slots\":{}}\n")
+	seedActivityBranch(t, sharedDir, "requirements", localStateDocPath,
+		"{\"version\":12,\"updatedAt\":\"b\",\"slots\":{\"0\":\"mission\"}}\n")
+	commitFileOnMain(t, sharedDir, localStateDocPath,
+		"{\"version\":32,\"updatedAt\":\"c\",\"slots\":{}}\n")
+	mainBefore := strings.TrimSpace(testGitOut(t, sharedDir, "rev-parse", "main"))
+
+	a := newLocalExecForTest(t, url, 0)
+	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "merge-env-3"), mergeJobSpec("requirements"))
+	if err != nil {
+		t.Fatalf("Submit(merge): %v", err)
+	}
+	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if obs.Phase != PhaseFailed {
+		t.Fatalf("Phase = %v, want PhaseFailed — an unrecognised envelope must not be spliced", obs.Phase)
+	}
+	if got := strings.TrimSpace(testGitOut(t, sharedDir, "rev-parse", "main")); got != mainBefore {
+		t.Fatalf("main moved on a refused resolution: %s -> %s", mainBefore, got)
 	}
 }
 
