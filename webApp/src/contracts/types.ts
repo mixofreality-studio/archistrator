@@ -619,7 +619,14 @@ export interface ProducedArtifactRow {
   note: string;
 }
 
-export type TestingVariantName = 'plan' | 'harness' | 'perf' | 'systemTest' | 'qaProcess';
+/**
+ * The three testing (N-*) variants that still exist. `plan` (N-STP) and
+ * `systemTest` (N-IT) were retired on 2026-10-02 (deterministic component
+ * testing, spec §7): every component's own testing task carries its scenario
+ * plan and run now, so a testing row that arrives without a variant has no
+ * lifecycle rather than a plan one.
+ */
+export type TestingVariantName = 'harness' | 'perf' | 'qaProcess';
 
 /**
  * The per-activity build-status row state (ProjectActivityBuildStatus, kebab-cased
@@ -1014,11 +1021,181 @@ export interface ReviewPolicyView {
   preset?: string;
 }
 
-export interface TestRunView {
+// ---------------------------------------------------------------------------
+// Deterministic component testing (spec §3, §6): the per-component scenario
+// plan and the testing task's run. Field names match the generated
+// `Delivery*View` schemas; the mappers in wire.ts only normalize the wire's
+// `null` arrays to empty ones.
+// ---------------------------------------------------------------------------
+
+/** One concrete input argument to a step's operation call. */
+export interface TestArgView {
+  name: string;
+  /** concrete value as JSON/text (so a harness can emit runnable code). */
+  value: string;
+  /** contract param type name ($def); empty when unstated. */
+  schemaRef: string;
+}
+
+/** The expected outcome of a step: a result value, or an expected error. */
+export interface TestExpectView {
+  /** expected result value/shape (empty when an error is expected). */
+  result: string;
+  errorExpected: boolean;
+  /** expected error code / type. */
+  errorCode: string;
+}
+
+/** A call that proves one expected state / output node of a stimulus (§3). */
+export interface ProbeView {
+  /** The expectedState / expectedOutput node id this probe proves. */
+  for: string;
+  component: string;
+  operation: string;
+  inputs: TestArgView[];
+  expect: TestExpectView;
+}
+
+/** One projected stimulus, bound: concrete inputs, the expectation, its probes. */
+export interface StepBindingView {
+  seq: number;
+  operation: string;
+  inputs: TestArgView[];
+  expect: TestExpectView;
+  probes: ProbeView[];
+  /** expectedOutput node ids the binding declares unobservable, with no probe. */
+  unobservable: string[];
+  /** true ⇒ the generated step delegates arrange/assert to the hooks file. */
+  hook: boolean;
+}
+
+/** Why a scenario is bound as a skip (§3.1): only an un-integrated upstream. */
+export interface SkipReasonView {
+  reason: string;
+  until: string;
+}
+
+/** The committed binding of one projected scenario (§3). */
+export interface ScenarioBindingView {
+  scenario: string;
+  steps: StepBindingView[];
+  skip?: SkipReasonView;
+}
+
+/** A guard on the scenario's path through the activity diagram. */
+export interface ScenarioGuardView {
+  at: string;
+  guard: string;
+}
+
+/** The input into the component at one stimulus: who calls which op, and how. */
+export interface ScenarioInputView {
+  kind: string;
+  from: string;
+  to: string;
+  op: string;
+  call: string;
+  guard: string;
+}
+
+export interface ScenarioOutputView {
+  node: string;
+  kind: string;
+  to: string;
+  label: string;
+}
+
+export interface ScenarioStateView {
+  node: string;
+  object: string;
+  inState: string;
+}
+
+/** What is observed after a stimulus (or holds before the first). */
+export interface ScenarioOutcomeView {
+  expectedOutputs: ScenarioOutputView[];
+  expectedStates: ScenarioStateView[];
+  hints: string[];
+}
+
+export interface ScenarioStimulusView {
+  seq: number;
+  node: string;
+  input: ScenarioInputView;
+  outcome: ScenarioOutcomeView;
+}
+
+/**
+ * One deterministic scenario projected onto a component
+ * (framework-go/scenario.ForComponent): the stimuli into it, what is observed
+ * after each, and the committed binding for it when the test plan has one.
+ */
+export interface ScenarioView {
   id: string;
-  passed: number;
-  failed: number;
-  note: string;
+  useCase: string;
+  title: string;
+  path: string[];
+  guards: ScenarioGuardView[];
+  preconditions: ScenarioOutcomeView;
+  stimuli: ScenarioStimulusView[];
+  binding?: ScenarioBindingView;
+}
+
+/** One scenario's verdict in a run, from the venue's results.json (§6.1). */
+export interface ScenarioResultView {
+  scenario: string;
+  /** 'pass' | 'fail' | 'skip' — a skip is not a pass (§3.1). */
+  status: string;
+  durationMs: number;
+  /** Artifact paths; empty for a server component. */
+  videoRef: string;
+  traceRef: string;
+}
+
+/** The venue's run record for one testing task (§6.1). */
+export interface TestRunView {
+  /** venue run id (GH run id / local uuid). */
+  id: string;
+  activity: string;
+  component: string;
+  /** the construction revision tested. */
+  revision: string;
+  /** GH artifact name or local path. */
+  artifact: string;
+  startedAt?: string;
+  endedAt?: string;
+  scenarios: ScenarioResultView[];
+}
+
+/** One projected scenario joined with its result in a run (§6.4). */
+export interface TestRunScenarioView {
+  id: string;
+  title: string;
+  guards: ScenarioGuardView[];
+  status: string;
+  durationMs: number;
+  videoRef: string;
+  traceRef: string;
+  /** Artifact path of the `go test -json` stream the output is filtered from. */
+  outputRef: string;
+}
+
+/**
+ * The testing task's run as the results panel renders it: the recorded run,
+ * every projected scenario joined with its result, the projected ids with no
+ * result (missing), the results with no projected scenario (unknown), whether
+ * the venue artifact has expired, and how to address one of its files.
+ */
+export interface TestRunPanelView {
+  run: TestRunView;
+  scenarios: TestRunScenarioView[];
+  missing: string[];
+  unknown: string[];
+  expired: boolean;
+  /** The artifact the run's files live in (GH artifact name or local path). */
+  artifact: string;
+  /** The streaming file endpoint's URL for one artifact path (video, trace, output). */
+  fileUrl: (path: string) => string;
 }
 
 export interface DefectView {
@@ -1028,69 +1205,10 @@ export interface DefectView {
   note: string;
 }
 
-/** One concrete input argument to a step's operation call. */
-export interface TestArgView {
-  name: string;
-  /** concrete value as JSON/text (so a harness can emit runnable code). */
-  value: string;
-  /** contract param type name ($def), optional. */
-  schemaRef?: string;
-}
-
-/** The expected outcome of a step: a result value, or an expected error. */
-export interface TestExpectView {
-  /** expected result value/shape (empty when an error is expected). */
-  result?: string;
-  errorExpected: boolean;
-  /** expected error code / type. */
-  errorCode?: string;
-}
-
-/** One black-box step: a transport-agnostic manager-operation call with concrete I/O. */
-export interface TestStepView {
-  seq: number;
-  component: string;
-  operation: string;
-  /** last-run result: '' (unrun) | 'red' (failing) | 'green' (passing). */
-  status?: string;
-  inputs: TestArgView[] | null;
-  expect: TestExpectView;
-  assertion?: string;
-}
-
-/** One falsification attempt within a scenario: happy / negative / boundary. */
-export interface TestCaseView {
-  id: string;
-  /** 'happy' | 'negative' | 'boundary'. */
-  kind: string;
-  title: string;
-  /** what this case proves — the failure mode it exposes. */
-  proves?: string;
-  /** overall success, or the specific expected failure. */
-  expectedOutcome?: string;
-  steps: TestStepView[] | null;
-}
-
-/** One black-box system-test scenario: a core use case and its test cases. */
-export interface TestScenarioView {
-  id: string;
-  useCase: string;
-  title: string;
-  /** what this scenario proves and why it matters (the failure mode it exposes). */
-  description?: string;
-  cases: TestCaseView[] | null;
-}
-
-/** The system test plan — the renderable black-box operation-sequence scenarios. */
-export interface SystemTestPlanView {
-  scenarios: TestScenarioView[] | null;
-}
-
-/** Project-level testing artifacts produced by N-* activities. */
+/** Project-level testing artifacts: every recorded run, and the defect log. */
 export interface TestingStateView {
   testRuns: TestRunView[] | null;
   defects: DefectView[] | null;
-  systemTestPlan?: SystemTestPlanView;
 }
 
 /**

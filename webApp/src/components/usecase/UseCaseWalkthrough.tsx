@@ -56,6 +56,8 @@ const KIND_HEADER: Record<string, string> = {
   switch: 'Decision',
   timeEvent: 'Time event',
   acceptEvent: 'Event received',
+  sendSignal: 'Signal sent',
+  objectNode: 'Object state',
 };
 
 /** ~2 wrapped rows of the breadcrumb's 11px chips (fix 8, founder QA round 5):

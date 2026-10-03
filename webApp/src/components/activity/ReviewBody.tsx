@@ -56,7 +56,7 @@ import type { TaskFacts } from './activityViewToGraph.ts';
 import type { LifecycleRevision } from './lifecycleGraphTypes.ts';
 import { ARCHITECTURE_ACTIVITY_ID, type TaskArtifact } from './taskArtifactFor.ts';
 import { SubmitBar } from '../design/SubmitBar';
-import type { ArtifactActivityVM } from '../construction/artifactRenderers';
+import type { ArtifactActivityVM, TestingArtifactData } from '../construction/artifactRenderers';
 import type { ContractJoin } from '../../contracts/serviceContracts';
 import { ACTIVITY_PATH } from '../../contracts/routePaths.ts';
 import type { components } from '../../contracts/schema.ts';
@@ -84,6 +84,7 @@ export function ReviewBody({
   project,
   systemEnvelope,
   contractJoin,
+  testing,
   sdp,
   historyCaption,
   note,
@@ -120,6 +121,8 @@ export function ReviewBody({
   project: ProjectStateWithGit | undefined;
   systemEnvelope: ArtifactModelEnvelope | undefined;
   contractJoin: ContractJoin | undefined;
+  /** The scenario plan / test run reads a component's testing phases render. */
+  testing?: TestingArtifactData | undefined;
   /**
    * Project Design M0 only: how the chosen option reaches the bar. OMITTED on a
    * read-only history, where the option radiogroup goes inert with it.
@@ -280,6 +283,7 @@ export function ReviewBody({
         sdp={sdp}
         slots={slots}
         systemEnvelope={systemEnvelope}
+        testing={testing}
         vm={vm}
       />
 

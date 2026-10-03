@@ -139,8 +139,9 @@ void test('projectDesign’s sdpReview carries its own kind and judges no dispat
 });
 
 void test('a testing activity keys on its variant; everything else keys on its type', () => {
-  assert.equal(lifecycleKeyFor('testing', 'systemTest'), 'testing:systemTest');
-  assert.equal(lifecycleKeyFor('testing', undefined), 'testing:plan');
+  assert.equal(lifecycleKeyFor('testing', 'harness'), 'testing:harness');
+  // No variant, no lifecycle: `testing:none` is a key nothing in lifecycles.gen.ts answers.
+  assert.equal(lifecycleKeyFor('testing', undefined), 'testing:none');
   assert.equal(lifecycleKeyFor('architecture', undefined), 'architecture');
 });
 

@@ -90,7 +90,7 @@ void test('in-review is the awaiting-a-human state; failed is failed; both leave
 });
 
 void test('a testing row takes its VARIANT lifecycle, not the bare type', () => {
-  assert.equal(miniLifecycleFromRow(row({ kind: 'testing', variant: 'plan' })).length, 6);
+  assert.equal(miniLifecycleFromRow(row({ kind: 'testing', variant: 'harness' })).length, 6);
   assert.equal(miniLifecycleFromRow(row({ kind: 'testing', variant: 'qaProcess' })).length, 4);
 });
 

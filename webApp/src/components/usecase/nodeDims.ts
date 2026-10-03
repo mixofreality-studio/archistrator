@@ -21,4 +21,9 @@ export const NODE_DIMS: Record<ActivityNodeKind, { w: number; h: number }> = {
   swimLane: { w: 200, h: 60 },
   timeEvent: { w: 56, h: 64 },
   acceptEvent: { w: 200, h: 60 },
+  // The two IOAD kinds (deterministic component testing, spec §2.2): a signal
+  // sent out is the accept-event flag mirrored; an object node is a card with
+  // its `[state]` beneath the label.
+  sendSignal: { w: 200, h: 60 },
+  objectNode: { w: 200, h: 60 },
 };

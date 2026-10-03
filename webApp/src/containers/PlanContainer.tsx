@@ -518,11 +518,10 @@ export function PlanContainer({
   const shapeOf = (item: RankedOwed): string => {
     const join = contractJoinFor(contractJoinInput, item.activityId);
     const contract = join.kind === 'contract' ? join.contract : undefined;
-    const scenarios = project?.testingState?.systemTestPlan?.scenarios?.length;
-    const isPlan = rows?.[item.activityId]?.variant === 'plan';
+    // The system test plan (N-STP) is retired (spec §7): a component's scenario
+    // plan is projected per component, not counted project-wide here.
     return shapeFor(item.kind, {
       ...(contract?.ops !== undefined ? { contractOps: contract.ops.length } : {}),
-      ...(isPlan && scenarios !== undefined ? { scenarios } : {}),
     });
   };
 

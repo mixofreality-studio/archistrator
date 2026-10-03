@@ -22,6 +22,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ApiError } from '../contracts/errors.ts';
 import { OP_BINDINGS, restOpsClient, mcpOpsClient, type OpsClient } from './ops.gen.ts';
+import { testRunFilePath } from './testRunFilePath.ts';
 
 // -- OP_BINDINGS: the mechanically-derived REST-path <-> tool-name table -----
 
@@ -484,4 +485,35 @@ void test('mcp: a delivery write calls its server tool, with path and body flatt
       arguments: { projectID: 'p1', activityID: 'a1', taskID: 'missionDraft' },
     },
   ]);
+});
+
+// -- The ONE read that is not an op: a test run's files (testRunFilePath.ts) ----
+//
+// Pinned against the server handler's contract (server/cmd/server/hooks.go
+// handleTestRunFile): `GET /api/v1/delivery/test-run/{runID}/file?projectId=&path=`.
+// The handler answers 400 "missing projectId" without the project — it is what the
+// PDP question (query-project-view on {project, projectId}) is asked about — so
+// every `<video src>`, every trace-viewer `?trace=` and every Output-tab fetch must
+// carry it. These cases are the SPA side of that cross-task contract.
+
+void test('test-run file path names the run, the project AND the artifact path', () => {
+  const p = testRunFilePath('proj-1', 'run-42', 'ui/UC3-P2.webm');
+  const url = new URL(p, 'http://origin.invalid');
+  assert.equal(url.pathname, '/api/v1/delivery/test-run/run-42/file');
+  assert.equal(url.searchParams.get('projectId'), 'proj-1');
+  assert.equal(url.searchParams.get('path'), 'ui/UC3-P2.webm');
+});
+
+void test('test-run file path encodes every segment, so a slash or an ampersand cannot escape its slot', () => {
+  const p = testRunFilePath('a&b', 'r/1', 'dir/go test.jsonl?x=1');
+  const url = new URL(p, 'http://origin.invalid');
+  // The run id is a PATH segment: an encoded slash must not add one.
+  assert.equal(url.pathname, '/api/v1/delivery/test-run/r%2F1/file');
+  assert.equal(url.searchParams.get('projectId'), 'a&b');
+  assert.equal(url.searchParams.get('path'), 'dir/go test.jsonl?x=1');
+  assert.equal([...url.searchParams.keys()].sort().join(','), 'path,projectId');
+});
+
+void test('test-run file path refuses an empty project rather than sending a 400', () => {
+  assert.throws(() => testRunFilePath('', 'run-42', 'ui/UC3-P2.webm'), /projectId/);
 });

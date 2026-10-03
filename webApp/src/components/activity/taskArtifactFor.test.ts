@@ -36,6 +36,7 @@ void test('a frontend code review is the built surface', () => {
   assert.deepEqual(taskArtifactFor({ type: 'frontend', taskId: 'codeReview' }), {
     kind: 'classified',
     classification: 'frontend',
+    phase: 'construction',
   });
 });
 
@@ -43,21 +44,52 @@ void test('a uiDesign concept review is the design concept', () => {
   assert.deepEqual(taskArtifactFor({ type: 'uiDesign', taskId: 'designReview' }), {
     kind: 'classified',
     classification: 'uiDesign',
+    phase: 'detailed_design',
   });
 });
 
-void test('a test-plan scenario review is the system test plan', () => {
-  assert.deepEqual(taskArtifactFor({ type: 'testing', variant: 'plan', taskId: 'codeReview' }), {
+// Deterministic component testing (spec §6.4): a component's own lifecycle
+// carries its scenario plan (`stp` / `stpReview`) and its run (`testing`).
+void test('a service test-plan review is the scenario plan, on the test_plan phase', () => {
+  for (const taskId of ['stp', 'stpReview']) {
+    assert.deepEqual(
+      taskArtifactFor({ type: 'service', taskId, componentId: 'billing-state-access' }),
+      { kind: 'classified', classification: 'service', phase: 'test_plan' },
+      taskId
+    );
+  }
+});
+
+void test('a service testing review is the test run, on the integration phase', () => {
+  assert.deepEqual(
+    taskArtifactFor({ type: 'service', taskId: 'testing', componentId: 'billing-state-access' }),
+    { kind: 'classified', classification: 'service', phase: 'integration' }
+  );
+  // The integration DISPATCH task sits on the same phase and shows the same run.
+  assert.deepEqual(taskArtifactFor({ type: 'service', taskId: 'integration', componentId: 'x' }), {
     kind: 'classified',
-    classification: 'testing:plan',
+    classification: 'service',
+    phase: 'integration',
   });
 });
 
-void test('a system-test results review is the run', () => {
-  assert.deepEqual(taskArtifactFor({ type: 'testing', variant: 'systemTest', taskId: 'testing' }), {
+void test('a frontend test-plan and testing review take the same two renderers', () => {
+  assert.deepEqual(taskArtifactFor({ type: 'frontend', taskId: 'stpReview' }), {
     kind: 'classified',
-    classification: 'testing:systemTest',
+    classification: 'frontend',
+    phase: 'test_plan',
   });
+  assert.deepEqual(taskArtifactFor({ type: 'frontend', taskId: 'testing' }), {
+    kind: 'classified',
+    classification: 'frontend',
+    phase: 'integration',
+  });
+});
+
+void test('a service code review has no artifact view: the code is on the PR, not here', () => {
+  const a = taskArtifactFor({ type: 'service', taskId: 'codeReview', componentId: 'x' });
+  assert.equal(a.kind, 'unavailable');
+  assert.match((a as { reason: string }).reason, /another phase/);
 });
 
 void test('a requirements review names its committed slot, through the RESOLVED kind', () => {
@@ -116,6 +148,11 @@ void test('the three testing variants with no authored view have none', () => {
     assert.equal(a.kind, 'unavailable', variant);
     assert.match((a as { reason: string }).reason, new RegExp(`testing:${variant}`), variant);
   }
+});
+
+void test('a testing row without a variant has no lifecycle, so nothing to draw', () => {
+  const a = taskArtifactFor({ type: 'testing', taskId: 'codeReview' });
+  assert.equal(a.kind, 'unavailable');
 });
 
 void test('an activity type this build does not know is refused, never guessed', () => {

@@ -115,6 +115,7 @@ function build(
         label: n.label,
         lane: n.lane,
         kind: n.kind,
+        ...(n.inState !== undefined ? { inState: n.inState } : {}),
         color: colors[n.lane] ?? t.muted,
         source: `${uc.name} · activity diagram`,
         jsonPath: activityNodeAnchor(useCaseIndex, n.id),

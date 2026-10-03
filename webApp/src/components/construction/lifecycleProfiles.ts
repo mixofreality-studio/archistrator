@@ -127,12 +127,15 @@ const PHASE_TASK_ORDER: Partial<Record<string, readonly string[]>> = {
   construction: ['construction', 'testClient', 'codeReview'],
 };
 
-const KIND_LIFECYCLE: Readonly<Record<ActivityKind, LifecycleTypeKey>> = {
+/**
+ * The lifecycle each kind runs. `testing` is ABSENT: a testing activity keys on
+ * its variant (VARIANT_LIFECYCLE), and a testing row without one has no
+ * lifecycle at all — the zero TestingVariant is None since the plan (N-STP)
+ * and systemTest (N-IT) variants were retired (spec §7), not a plan fallback.
+ */
+const KIND_LIFECYCLE: Readonly<Record<Exclude<ActivityKind, 'testing'>, LifecycleTypeKey>> = {
   service: 'service',
   frontend: 'frontend',
-  // A testing row that arrived without a variant reads as the plan variant — the same
-  // fallback the server's zero TestingVariant makes.
-  testing: 'testing:plan',
   deployment: 'deployment',
   documentation: 'documentation',
   uiDesign: 'uiDesign',
@@ -143,10 +146,8 @@ const KIND_LIFECYCLE: Readonly<Record<ActivityKind, LifecycleTypeKey>> = {
 };
 
 const VARIANT_LIFECYCLE: Readonly<Record<TestingVariantName, LifecycleTypeKey>> = {
-  plan: 'testing:plan',
   harness: 'testing:harness',
   perf: 'testing:perf',
-  systemTest: 'testing:systemTest',
   qaProcess: 'testing:qaProcess',
 };
 
@@ -187,17 +188,19 @@ function profileOf(key: LifecycleTypeKey): readonly GeneratedPhase[] {
 
 /**
  * The activity's Figure A-1 profile, or `undefined` when the server did not classify
- * it. A testing activity uses its VARIANT profile (the five variants have genuinely
- * different phase sets); a testing row that arrived without a variant falls back to the
- * plan profile. ONE copy of this rule — it used to be pasted into detailPaneState,
- * taskBriefing and activityTree.
+ * it. A testing activity uses its VARIANT profile (the three variants have genuinely
+ * different phase sets); a testing row that arrived without a variant has no profile
+ * — there is no plan variant to fall back to any more. ONE copy of this rule — it
+ * used to be pasted into detailPaneState, taskBriefing and activityTree.
  */
 export function profileFor(
   kind: ActivityKind | undefined,
   variant: TestingVariantName | undefined
 ): readonly GeneratedPhase[] | undefined {
   if (kind === undefined) return undefined;
-  if (kind === 'testing' && variant !== undefined) return profileOf(VARIANT_LIFECYCLE[variant]);
+  if (kind === 'testing') {
+    return variant === undefined ? undefined : profileOf(VARIANT_LIFECYCLE[variant]);
+  }
   return profileOf(KIND_LIFECYCLE[kind]);
 }
 

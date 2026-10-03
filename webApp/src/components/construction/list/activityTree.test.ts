@@ -166,9 +166,9 @@ void test('selects the latest attempt by number, not by array position', () => {
 void test('uses the variant profile for a testing activity', () => {
   const node = onlyNode([
     row({
-      activityId: 'N-IT',
+      activityId: 'N-HARNESS',
       kind: 'testing',
-      variant: 'systemTest',
+      variant: 'harness',
       phases: [],
       attempts: [],
     }),
@@ -176,7 +176,7 @@ void test('uses the variant profile for a testing activity', () => {
 
   assert.deepEqual(
     node.phases.map((p) => p.name),
-    ['Smoke Pass', 'Use-Case Execution', 'Regression & Sign-off']
+    ['Harness Design', 'Harness Construction', 'Harness Review']
   );
 });
 
@@ -415,13 +415,14 @@ void test('makes no claim at all about an unclassified row', () => {
   assert.equal(node.offProfilePhaseCount, 0);
 });
 
-void test('falls back to the generic testing profile when the variant is missing', () => {
+void test('a testing row without a variant has no profile — there is no plan one to fall back to', () => {
   // No `variant` key at all — `exactOptionalPropertyTypes` makes that the only
-  // way to express "the server reported none", which is the real wire case.
-  const node = onlyNode([row({ activityId: 'N-STP', kind: 'testing' })]);
+  // way to express "the server reported none", which is the real wire case: the
+  // zero TestingVariant is None since N-STP (plan) was retired (spec §7).
+  const node = onlyNode([row({ activityId: 'N-X', kind: 'testing' })]);
   assert.deepEqual(
     node.phases.map((p) => p.phase),
-    ['requirements', 'construction', 'integration']
+    []
   );
 });
 
@@ -429,8 +430,8 @@ void test('falls back to the generic testing profile when the variant is missing
 // Per-profile vocabulary (fix round B, designer P1-7)
 // ---------------------------------------------------------------------------
 
-void test('a profile names its own tasks and exits: N-STP is not closed by a Code Review', () => {
-  const stp = onlyNode([row({ activityId: 'N-STP', kind: 'testing', variant: 'plan' })]);
+void test('a profile names its own tasks and exits: N-QA is not closed by a Code Review', () => {
+  const stp = onlyNode([row({ activityId: 'N-QA', kind: 'testing', variant: 'qaProcess' })]);
   const svc = onlyNode([row({ activityId: 'C-x', kind: 'service' })]);
   const stpBuild = stp.phases.find((p) => p.phase === 'construction');
   const svcBuild = svc.phases.find((p) => p.phase === 'construction');

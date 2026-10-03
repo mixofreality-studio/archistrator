@@ -437,12 +437,13 @@ void test('needsInlineProvenanceMark: a matched but UNKNOWN row needs no mark �
 });
 
 void test('search matches the book name of a task the profile renamed', () => {
-  const stp = nodeFor(row({ activityId: 'N-STP', kind: 'testing', variant: 'plan' }));
-  // N-STP's construction gate is labelled for the profile, not "Code Review" …
-  const ids = matchingTaskIds(stp, 'code review');
+  const qa = nodeFor(row({ activityId: 'N-QA', kind: 'testing', variant: 'qaProcess' }));
+  // N-QA's construction gate is labelled for the profile ("Audit Review"), not
+  // "Code Review" …
+  const ids = matchingTaskIds(qa, 'code review');
   // … yet the operator who knows the book's word still finds it.
-  assert.deepEqual(ids, ['N-STP::construction::codeReview']);
-  assert.equal(activityPassesSearch(stp, 'code review'), true);
+  assert.deepEqual(ids, ['N-QA::construction::codeReview']);
+  assert.equal(activityPassesSearch(qa, 'code review'), true);
 });
 
 void test('"Expand to current phase" is disabled, and says why, when nothing is in flight', () => {

@@ -12,9 +12,13 @@
  *                    `sdpReview`, the Project Design M0 body below.
  *   serviceContract  ServiceContractView over the contract JOIN, which is what
  *                    keeps ContractCodeFlow and ContractSignatureList reachable.
- *   classified       artifactRenderers[classification] — TestPlanView →
- *                    ScenarioBrowser, SystemTestRunView, FrontendArtifactView —
- *                    called with EXACTLY `ArtifactRendererProps`.
+ *   classified       artifactRenderers[classification] — the phase-aware
+ *                    service/frontend renderer (ScenarioPlanView →
+ *                    ScenarioBrowser on `test_plan`, TestRunPanel on
+ *                    `integration`, FrontendArtifactView on `construction`),
+ *                    uiDesign's FrontendArtifactView — called with EXACTLY
+ *                    `ArtifactRendererProps`, the phase and the testing data
+ *                    the container fetched included.
  *   unavailable      an honest panel carrying the dispatcher's reason verbatim.
  *
  * ── A renderer with no row draws a LIE ──────────────────────────────────────
@@ -49,7 +53,11 @@ import {
 } from './activityCopy.ts';
 import type { TaskArtifact } from './taskArtifactFor.ts';
 import { ArtifactRenderer } from '../ArtifactRenderer';
-import { artifactRenderers, type ArtifactActivityVM } from '../construction/artifactRenderers';
+import {
+  artifactRenderers,
+  type ArtifactActivityVM,
+  type TestingArtifactData,
+} from '../construction/artifactRenderers';
 import { ServiceContractView } from '../construction/ServiceContractView';
 import { ActivityListView } from '../project/ActivityListView';
 import { NetworkView } from '../project/NetworkView';
@@ -162,6 +170,7 @@ export function ArtifactPanel({
   project,
   systemEnvelope,
   contractJoin,
+  testing,
   sdp,
   readOnly = false,
 }: {
@@ -174,6 +183,8 @@ export function ArtifactPanel({
   systemEnvelope: ArtifactModelEnvelope | undefined;
   /** For the `serviceContract` branch: the join the container already computes. */
   contractJoin: ContractJoin | undefined;
+  /** For the `classified` branch on a testing phase: the scenario plan / test run reads. */
+  testing?: TestingArtifactData | undefined;
   /** Project Design M0 only: how the option the bar will approve is reported up. */
   sdp?: { onChoose: (optionId: string) => void } | undefined;
   /**
@@ -217,7 +228,16 @@ export function ArtifactPanel({
         if (vm === undefined) return <UnavailablePanel reason={NO_CONSTRUCTION_RECORD} />;
         const Renderer = artifactRenderers[artifact.classification];
         if (Renderer === undefined) return <UnavailablePanel reason={NO_CONSTRUCTION_RECORD} />;
-        return <Renderer project={project} systemEnvelope={systemEnvelope} t={t} vm={vm} />;
+        return (
+          <Renderer
+            phase={artifact.phase}
+            project={project}
+            systemEnvelope={systemEnvelope}
+            t={t}
+            testing={testing}
+            vm={vm}
+          />
+        );
       }
 
       case 'unavailable':

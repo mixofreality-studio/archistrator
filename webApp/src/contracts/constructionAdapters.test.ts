@@ -124,7 +124,6 @@ function wireRow(over: Partial<WireConstructionStatus>): WireConstructionStatus 
     Phases: null,
     Produced: null,
     Type: 0,
-    Variant: 0,
     classified: true,
     // The default fixture is a classified row the server DID resolve completions for;
     // the no-evidence case is opted into per-test by overriding this to false.

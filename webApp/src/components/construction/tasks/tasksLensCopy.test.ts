@@ -392,7 +392,6 @@ void test('round and CI never guess', () => {
 void test('the shape of what you are about to read, or nothing', () => {
   assert.equal(shapeFor('service', { contractOps: 12 }), 'Contract · 12 ops');
   assert.equal(shapeFor('service', { contractOps: 1 }), 'Contract · 1 op');
-  assert.equal(shapeFor('testing', { scenarios: 5 }), 'Test plan · 5 scenarios');
   assert.equal(shapeFor('service', {}), '—');
   assert.equal(shapeFor(undefined, { contractOps: 3 }), '—');
 });

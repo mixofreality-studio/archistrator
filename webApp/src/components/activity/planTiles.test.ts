@@ -3,6 +3,12 @@
  * captured plan fixture — the repo's own 32-activity plan, decoded exactly as
  * `useProject` decodes it — so these are assertions about real data, not about
  * a hand-written shape that agrees with the code by construction.
+ *
+ * The fixture pre-dates deterministic component testing (spec §7): it still
+ * carries N-STP and N-IT, whose variants (plan, systemTest) no longer exist. They
+ * decode as testing rows WITHOUT a variant now, which is exactly the "no band"
+ * case — so the fixture's two retired activities are what these tests use to pin
+ * that an unplaceable activity is listed last and named, never dropped.
  */
 /// <reference types="node" />
 import { test } from 'node:test';
@@ -57,7 +63,9 @@ void test('the list opens with the three design activities in Table 11-1 order, 
     ids.indexOf('R-github') > ids.indexOf('projectDesign'),
     'the build stack follows the front end'
   );
-  assert.equal(ids.at(-1), 'N-IT', 'system testing closes the list');
+  // The two retired activities have no band, so they are listed LAST (planTiles
+  // lists what it cannot place after every row), in the committed list's order.
+  assert.deepEqual(ids.slice(-2), ['N-IT', 'N-STP'], 'unplaceable activities close the list');
 });
 
 void test('every activity of the committed list appears, placed or not', () => {
@@ -95,7 +103,8 @@ void test('an activity with no build-order row is reported as unplaced, not drop
   ];
   const { tiles, unplaced } = planTilesFrom(activities);
   assert.ok(!tiles.some((t) => t.id === 'X-orphan'));
-  assert.deepEqual(unplaced, ['X-orphan']);
+  // The fixture's retired N-STP / N-IT are unplaced the same way (see the header).
+  assert.deepEqual(unplaced, ['N-IT', 'N-STP', 'X-orphan']);
 });
 
 void test('every row carries a mini lifecycle, and none of them claims a revision', () => {
@@ -104,11 +113,12 @@ void test('every row carries a mini lifecycle, and none of them claims a revisio
   }
 });
 
-void test('the build stack runs in BUILD order, with the side lane before system testing', () => {
+void test('the build stack runs in BUILD order, resources first and clients last', () => {
   const activities = live();
   const rowAt = (id: string): number =>
     LIST_ROWS.indexOf(activities.find((a) => a.id === id)?.row ?? 'frontEnd');
-  // Resources are built first, clients last, N-STP beside them, N-IT terminal.
+  // Resources are built first, clients last. (N-STP's side lane and N-IT's
+  // system-testing row are retired with those activities, spec §7.)
   assert.ok(
     rowAt('R-github') < rowAt('C-project-state-access'),
     'resources precede resource access'
@@ -119,8 +129,8 @@ void test('the build stack runs in BUILD order, with the side lane before system
   );
   assert.ok(rowAt('C-review-engine') < rowAt('C-operations-manager'), 'engines precede managers');
   assert.ok(rowAt('C-operations-manager') < rowAt('U-SPA-web-client'), 'managers precede clients');
-  assert.ok(rowAt('U-SPA-web-client') < rowAt('N-STP'), 'the side lane follows the stack');
-  assert.ok(rowAt('N-STP') < rowAt('N-IT'), 'system testing closes it');
+  assert.equal(activities.find((a) => a.id === 'N-STP')?.row, undefined, 'N-STP has no band');
+  assert.equal(activities.find((a) => a.id === 'N-IT')?.row, undefined, 'N-IT has no band');
 });
 
 void test('the critical path comes from the committed network, not from a guess', () => {

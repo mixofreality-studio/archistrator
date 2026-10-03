@@ -1,12 +1,11 @@
 /**
- * WHICH system test plan scenario the browser shows — pure, tested without a
- * renderer.
+ * WHICH scenario the browser shows — pure, tested without a renderer.
  *
  * The deep link (`sc`, useLensSelection) is the scenario browser's STORE: a
- * component's "reached through" coverage row opens N-STP at `sc=STP-UC3`, and
+ * component's "reached through" coverage row opens the plan at `sc=UC3-P2`, and
  * the browser reads it rather than opening on its first scenario — which is how
- * every row used to land on STP-UC1 whatever it named (designer check on
- * renderers S1, B2). A local pick comes next; the first scenario last. A
+ * every row used to land on the first scenario whatever it named (designer check
+ * on renderers S1, B2). A local pick comes next; the first scenario last. A
  * requested id the plan does not hold is ignored rather than rendering nothing.
  */
 export function activeScenarioId(
@@ -19,15 +18,26 @@ export function activeScenarioId(
   return scenarios[0]?.id ?? '';
 }
 
+/** A query's state as the plan view takes it (artifactRenderers AsyncArtifactData). */
+export interface ScenarioPlanRead {
+  data: readonly unknown[] | undefined;
+  error: Error | null;
+  isLoading: boolean;
+}
+
+export type ScenarioPlanState = 'loading' | 'error' | 'unread' | 'empty' | 'ready';
+
 /**
- * More than this many cases go into a dropdown in a narrow browser (the 480–520px
- * pane): as chips they wrapped to four lines (designer check, polish 5).
+ * WHAT the plan view may say about the scenarios read. The one distinction that
+ * is easy to lose: a DISABLED read (the activity names no component, so the
+ * container never fired it) has react-query's `{isLoading:false, data:undefined}`
+ * shape, which is NOT an empty projection. "No use-case path reaches this
+ * component" is the server's answer — `data: []` — and only that; a read that
+ * never ran is `unread`, and the view says so instead of inventing a finding.
  */
-export const CASE_CHIP_LIMIT = 3;
-
-/** Below this width the browser is in the pane, not a full page. */
-export const NARROW_BROWSER_WIDTH = 640;
-
-export function casesAsDropdown(caseCount: number, width: number): boolean {
-  return caseCount > CASE_CHIP_LIMIT && width < NARROW_BROWSER_WIDTH;
+export function scenarioPlanState(q: ScenarioPlanRead): ScenarioPlanState {
+  if (q.isLoading) return 'loading';
+  if (q.error !== null) return 'error';
+  if (q.data === undefined) return 'unread';
+  return q.data.length === 0 ? 'empty' : 'ready';
 }

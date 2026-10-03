@@ -34,10 +34,8 @@ void test('the type keys are the closed, ordered set the platform ships', () => 
       'projectDesign',
       'service',
       'frontend',
-      'testing:plan',
       'testing:harness',
       'testing:perf',
-      'testing:systemTest',
       'testing:qaProcess',
       'deployment',
       'documentation',
@@ -72,7 +70,10 @@ void test('service and frontend fork after the first gate and rejoin at testing 
   for (const key of ['service', 'frontend']) {
     const l = mustLifecycle(key);
     assert.deepEqual(dependsOnOf(l, 'detailedDesign'), ['srsReview'], key);
-    assert.deepEqual(dependsOnOf(l, 'stp'), ['srsReview'], key);
+    // Bindings need contract types (deterministic component testing, spec §8): the
+    // test plan follows the design review, not the SRS review, and the fork is
+    // after Detailed Design's gate rather than Requirements'.
+    assert.deepEqual(dependsOnOf(l, 'stp'), ['designReview'], key);
     assert.deepEqual(dependsOnOf(l, 'testing'), ['integration', 'stpReview'], key);
     // Authored order decides the trunk: the design→construction chain stays on lane 0.
     const ids = l.tasks.map((t) => t.id);
