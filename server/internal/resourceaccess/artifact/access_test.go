@@ -30,8 +30,17 @@ package artifact
 //     surfaces its error before any git IO completes).
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -337,4 +346,212 @@ func TestAuthResolverError(t *testing.T) {
 		t.Fatalf("StoreConstructionOutput: expected the auth resolver error, got %v", err)
 	}
 	assertKind(t, err, fwra.Auth)
+}
+
+// --- test-run index / file ops (deterministic component testing, spec §6.3) ---
+//
+// The venue's test-results artifact is a GitHub Actions artifact zip in the cloud
+// profile and a directory under .aiarch/test-results in the local one. The cloud
+// tests drive the satellite's FakeActions boundary (ListArtifacts + the 302-to-blob
+// zip route); the "download once" assertion filters fa.Requests() rather than
+// patching the platform fake (the pinned infrastructure-github v0.2.0 has no
+// DownloadCount), and the "listing says expired" case runs a tiny in-test listing
+// host because FakeActions always lists expired:false.
+
+// writeResultsDir lays out a local test-results directory the way the venue does:
+// <dir>/<component>/results.json plus a sibling file.
+func writeResultsDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "billingManager"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "billingManager", "results.json"), []byte(`[{"scenario":"bill-the-user-for-usage-P1","status":"pass","durationMs":5}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "billingManager", "go-test.jsonl"), []byte(`{"Action":"pass"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// zipOf builds an in-memory zip whose entries are the map's paths and bytes.
+func zipOf(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write(files[name]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// newCloudForTest builds the CLOUD-profile artifactAccess over a satellite
+// AppClient pointed at baseURL, with a static installation token (FakeActions does
+// not serve the token-mint route) and a throwaway zip cache directory.
+func newCloudForTest(t *testing.T, baseURL string) ArtifactAccess {
+	t.Helper()
+	keyPEM, err := gh.GenerateAppKeyPEM()
+	if err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	app, err := fwgithub.NewAppClient("42", keyPEM, baseURL)
+	if err != nil {
+		t.Fatalf("NewAppClient: %v", err)
+	}
+	blob, err := fwgithub.NewGitBlobStore("file:///nonexistent/repo.git")
+	if err != nil {
+		t.Fatalf("NewGitBlobStore: %v", err)
+	}
+	token := func(context.Context) (string, error) { return "ghs_tok", nil }
+	return newCloudArtifactAccess(blob, localTestAuth, newCloudTestRunStore(app, "o", "r", token, t.TempDir()))
+}
+
+// zipDownloads counts the artifact-zip GETs the fake API host received for one
+// artifact id — the "cached per run" assertion surface.
+func zipDownloads(fa *gh.FakeActions, artifactID int64) int {
+	n := 0
+	for _, r := range fa.Requests() {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.Path, fmt.Sprintf("/actions/artifacts/%d/zip", artifactID)) {
+			n++
+		}
+	}
+	return n
+}
+
+// TestGetTestRunIndex_Local — the local variant indexes the results directory:
+// Files lists every file (slash-separated, relative), Results carries the
+// component's results.json, and ReadTestRunFile returns one file with an advisory
+// MIME by extension; a traversal path is ContractMisuse and a missing file NotFound.
+func TestGetTestRunIndex_Local(t *testing.T) {
+	dir := writeResultsDir(t)
+	a := NewGitLocalArtifactAccess("file://x")
+	ctx := rcWith(context.Background(), "")
+	ref := TestRunRef{Artifact: dir}
+
+	idx, err := a.GetTestRunIndex(ctx, ref)
+	if err != nil {
+		t.Fatalf("GetTestRunIndex: %v", err)
+	}
+	if idx.Expired {
+		t.Fatal("a present directory is not expired")
+	}
+	if len(idx.Results) == 0 || !strings.Contains(string(idx.Results), "bill-the-user-for-usage-P1") {
+		t.Fatalf("Results = %q, want the component's results.json", idx.Results)
+	}
+	if want := []string{"billingManager/go-test.jsonl", "billingManager/results.json"}; !reflect.DeepEqual(idx.Files, want) {
+		t.Fatalf("Files = %v, want %v", idx.Files, want)
+	}
+
+	out, err := a.ReadTestRunFile(ctx, ref, "billingManager/results.json")
+	if err != nil {
+		t.Fatalf("ReadTestRunFile: %v", err)
+	}
+	if !bytes.Equal(out.Bytes, idx.Results) || out.MIMEType != "application/json" {
+		t.Fatalf("ReadTestRunFile = %q %q", out.Bytes, out.MIMEType)
+	}
+
+	_, err = a.ReadTestRunFile(ctx, ref, "../etc/passwd")
+	assertKind(t, err, fwra.ContractMisuse)
+	_, err = a.ReadTestRunFile(ctx, ref, "billingManager/missing.webm")
+	assertKind(t, err, fwra.NotFound)
+	_, err = a.GetTestRunIndex(ctx, TestRunRef{Artifact: filepath.Join(dir, "nope")})
+	assertKind(t, err, fwra.NotFound)
+	_, err = a.GetTestRunIndex(ctx, TestRunRef{})
+	assertKind(t, err, fwra.ContractMisuse)
+}
+
+// TestGetTestRunIndex_Cloud_FetchesZipOnce — the cloud variant lists the run's
+// artifacts, finds the named one, downloads its zip ONCE into the per-run cache,
+// and serves both the index and every file read from that cached zip.
+func TestGetTestRunIndex_Cloud_FetchesZipOnce(t *testing.T) {
+	fa := gh.StartActions()
+	defer fa.Close()
+	results := []byte(`[{"scenario":"bill-the-user-for-usage-P1","status":"pass","durationMs":5}]`)
+	fa.AddArtifact(42, "test-results-C-BG-9", zipOf(t, map[string][]byte{
+		"billingManager/results.json": results,
+		"billingManager/video.webm":   []byte("webm"),
+	}))
+	a := newCloudForTest(t, fa.BaseURL())
+	ctx := rcWith(context.Background(), "")
+	ref := TestRunRef{RunID: "9", Artifact: "test-results-C-BG-9"}
+
+	idx, err := a.GetTestRunIndex(ctx, ref)
+	if err != nil {
+		t.Fatalf("GetTestRunIndex: %v", err)
+	}
+	if idx.Expired || !bytes.Equal(idx.Results, results) {
+		t.Fatalf("index = %+v", idx)
+	}
+	if want := []string{"billingManager/results.json", "billingManager/video.webm"}; !reflect.DeepEqual(idx.Files, want) {
+		t.Fatalf("Files = %v, want %v", idx.Files, want)
+	}
+	out, err := a.ReadTestRunFile(ctx, ref, "billingManager/video.webm")
+	if err != nil {
+		t.Fatalf("ReadTestRunFile: %v", err)
+	}
+	if string(out.Bytes) != "webm" || out.MIMEType != "video/webm" {
+		t.Fatalf("ReadTestRunFile = %q %q", out.Bytes, out.MIMEType)
+	}
+	if _, err := a.GetTestRunIndex(ctx, ref); err != nil {
+		t.Fatalf("second GetTestRunIndex: %v", err)
+	}
+	if n := zipDownloads(fa, 42); n != 1 {
+		t.Fatalf("zip downloaded %d times, want 1 (cached per run)", n)
+	}
+	_, err = a.ReadTestRunFile(ctx, ref, "billingManager/nope.webm")
+	assertKind(t, err, fwra.NotFound)
+	_, err = a.GetTestRunIndex(ctx, TestRunRef{RunID: "9", Artifact: "test-results-C-XX-1"})
+	assertKind(t, err, fwra.NotFound)
+	_, err = a.GetTestRunIndex(ctx, TestRunRef{RunID: "nine", Artifact: "x"})
+	assertKind(t, err, fwra.ContractMisuse)
+}
+
+// TestGetTestRunIndex_Expired — Review Focus 3: a retention-expired artifact is a
+// RENDERED state, not an error. Both GitHub shapes map to Expired=true: the listing
+// says expired:true, or the listing still names it but the zip route answers 410.
+func TestGetTestRunIndex_Expired(t *testing.T) {
+	t.Run("listing says expired", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/actions/runs/43/artifacts") {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"total_count":1,"artifacts":[{"id":43,"name":"x","size_in_bytes":0,"expired":true,"created_at":"2026-07-01T00:00:00Z"}]}`))
+				return
+			}
+			http.Error(w, `{"message":"no route"}`, http.StatusNotFound)
+		}))
+		defer srv.Close()
+		a := newCloudForTest(t, srv.URL)
+		idx, err := a.GetTestRunIndex(rcWith(context.Background(), ""), TestRunRef{RunID: "43", Artifact: "x"})
+		if err != nil || !idx.Expired {
+			t.Fatalf("index = %+v err = %v, want Expired", idx, err)
+		}
+		_, err = a.ReadTestRunFile(rcWith(context.Background(), ""), TestRunRef{RunID: "43", Artifact: "x"}, "results.json")
+		assertKind(t, err, fwra.NotFound)
+	})
+	t.Run("zip route answers 410", func(t *testing.T) {
+		fa := gh.StartActions()
+		defer fa.Close()
+		fa.AddArtifact(43, "x", zipOf(t, map[string][]byte{"results.json": []byte("[]")}))
+		fa.ForceNext("downloadArtifact", http.StatusGone)
+		a := newCloudForTest(t, fa.BaseURL())
+		idx, err := a.GetTestRunIndex(rcWith(context.Background(), ""), TestRunRef{RunID: "43", Artifact: "x"})
+		if err != nil || !idx.Expired {
+			t.Fatalf("index = %+v err = %v, want Expired", idx, err)
+		}
+	})
 }

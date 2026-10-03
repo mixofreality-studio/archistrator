@@ -119,7 +119,7 @@ type Hooks interface {
 	// arguments the deployment model cannot express (composition-root ports /
 	// typed values). Read from cfg; the returned tuple is spread into the
 	// generated variant constructor call.
-	ArtifactAccessGitHubCloudArgs(cfg *Config) (string, string, string, string, string, int64)
+	ArtifactAccessGitHubCloudArgs(cfg *Config) (*github.AppClient, string, string, int64)
 
 	// ConstructionTransitionAccessGitHubArgs supplies the constructionTransitionAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /

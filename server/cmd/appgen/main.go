@@ -225,12 +225,15 @@ func generateMain(m *projectmodel.Model) {
 				{GoType: "projectstate.ProjectCatalog", GoImport: projectstatePkg},
 				{GoType: "projectstate.CredentialMinter", GoImport: projectstatePkg},
 			},
+			// artifactAccess GitHubCloud threads the SAME shared *github.AppClient
+			// as sourceControlAccess/agenticJobAccess below (the test-run store
+			// lists/downloads Actions run artifacts through it, and the git auth
+			// resolver mints its installation token from it) instead of re-deriving
+			// a private client from the raw github-app cfg strings.
 			"artifactAccess/GitHubCloud": {
+				{GoType: "*github.AppClient", GoImport: githubInfraPkg},
 				{GoType: "string"}, // repoURL
 				{GoType: "string"}, // owner
-				{GoType: "string"}, // appID
-				{GoType: "string"}, // privateKeyPEM
-				{GoType: "string"}, // apiBaseURL
 				{GoType: "int64"},  // installationID
 			},
 			// sourceControlAccess GitHub + agenticJobAccess GitHubActions
