@@ -37,13 +37,28 @@ Lives in **framework-go** as package `scenario` (`framework-go/scenario`), share
 - `.systemDesign` dynamic views — `DynamicView{UseCaseID, Steps []CallStep}`, `CallStep{ActivityNodeID, Calls []TraceCall{From,To,Mode,Label,Alt}}`.
 - `.serviceContracts[component].interface` — operations with param/result JSON Schema.
 
-### 2.2 IOAD reduction
+### 2.2 The IOAD is a read over our diagram, and the language grows for it
 
-1. Drop `note` and `swimLane` nodes (and `goto` after resolving it to its target edge).
-2. An action node is **external** when some `CallStep` for that node has a `TraceCall` whose `From` is an actor (`LinkedActorID` set, or `From` not a component) → an **accept event** (input), or whose `To` is an actor / external resource → a **send signal** (output). All other action nodes are internal and collapse into the adjacent edge.
-3. `acceptEvent` and `timeEvent` nodes are inputs by definition.
-4. Decision/switch out-edges keep their `Guard`; loop nodes are unrolled **once** (elementary path: no repeated node).
-5. Fork/join: by the single-stimulus principle, interleavings of outputs are ignored and inputs are serialised in diagram order. One path per join, not `n!`.
+The activity-diagram language (UML activity diagram + our sauce: `roleName`/`linkedActorId` on every node, `decidedBy` on decisions, `guardedFlow`, `loop`/`switch`/`goto`/`interruptEdge`/`timeEvent`/`acceptEvent`) is **not reduced**. The paper's IOAD is computed as a view over the committed diagram; nothing is deleted from the model, and every existing node kind contributes. Three node kinds are **added** so authors can state I/O intent directly instead of leaving it to inference:
+
+| Addition | Shape | Why |
+|---|---|---|
+| `sendSignal` node kind | like `action`; `linkedActorId` names the receiving actor | The paper's output event. Today only `acceptEvent` exists; outputs are inferred from dynamic views. |
+| `object` node kind | `label` = object name, new field `state` (e.g. `Invoice` / `[paid]`) | The paper's object-state nodes. We keep them (the paper discards them) and turn them into **expected observable state** on the scenario. |
+| `note.anchor` | optional node id on `note` nodes | Notes anchored to a path node ride along as `hints` on the scenario, visible to the test engineer while binding and rendered in the plan. |
+
+Classification per node, in priority order:
+
+1. `acceptEvent`, `timeEvent`, and any node whose `linkedActorId` names an actor → **input** stimulus. An `action` in an actor's lane is the paper's accept event. A `decision`/`switch` whose `decidedBy` is an actor contributes its chosen guard as an input.
+2. `sendSignal` → **output**. An `action` with no actor whose `CallStep` carries a `TraceCall` to an actor or an external resource → output (inference fallback, kept so existing diagrams work unchanged).
+3. `object` → **expected state** at that point on the path.
+4. `note` → `hint` if anchored to a node on the path, otherwise carried on the use case only.
+5. `swimLane` nodes themselves are not path nodes; lane membership is already on each node (`roleName`/`linkedActorId`) and is what rule 1 reads. A **component** lane (lane role resolves to a component) is the projection fallback (§2.4) when a dynamic view has no call for that node.
+6. Every other `action` is internal: kept on the path (it is still shown in the rendered scenario) but contributes no stimulus. A `decision` whose `decidedBy` is a component (or unset) is internal: both branches are still enumerated, and the binding must arrange state that makes the component take that branch — the usual reason a step is marked `Hook` (§3).
+7. `goto` resolves to its target edge; `interruptEdge` is an out-edge with an implied guard `[interrupt]`; `loop` is unrolled once (elementary path: no repeated node).
+8. Fork/join: by the single-stimulus principle, output interleavings are ignored and inputs are serialised in diagram order. One path per join, not `n!`.
+
+Schema changes land in `projectStateAccess["$defs"].ActivityNodeKind` (+2 values), `ActivityNode` (+`state`, +`anchor`), and the CC-*/UC-* methodcheck rules learn the new kinds (`object` and `note` may not carry control-flow out-edges other than to the next node; `sendSignal` must name an actor).
 
 ### 2.3 Paths
 
@@ -58,10 +73,14 @@ Depth-first from `start` to each `end`; a path may not revisit a node. Each path
   "guards": [{"at":"n2","guard":"[Order Accepted]"}],
   "stimuli": [
     {"seq":1,"node":"n1","input":{"from":"actor:customer","to":"orderManager","op":"PlaceOrder","call":"UC3/step-1/call-0"},
-     "expectedOutputs":[{"to":"actor:customer","op":"","kind":"signal","label":"Send Invoice"}]}
+     "expectedOutputs":[{"node":"n5","kind":"sendSignal","to":"actor:customer","label":"Send Invoice"}],
+     "expectedStates":[{"node":"n6","object":"Invoice","state":"[requested]"}],
+     "hints":["Amounts are in minor units; see glossary 'Order total'"]}
   ]
 }
 ```
+
+Outputs, states and hints attach to the **preceding input stimulus** (the single-stimulus principle: everything observed between two inputs is the outcome of the first).
 
 `id` = `<useCaseId>-P<n>` where `n` is the index of the path under a canonical ordering (edges sorted by `to` node id, then guard). Renaming a node or edge therefore changes ids; adding a branch at the end does not shift earlier ones more than the ordering implies. Ids are shown to users and are the binding key.
 
@@ -69,7 +88,7 @@ Depth-first from `start` to each `end`; a path may not revisit a node. Each path
 
 `scenario.ForComponent(project, componentId)` returns every scenario with ≥1 stimulus whose `input.to == componentId`, with `stimuli` filtered to those. The projected stimulus carries the contract op and its param/result schemas, so a binding editor and an emitter need no further lookup.
 
-**Expected outputs are black-box observables only:** the op's result or error (`TestExpect`), plus optional **probes** — read-only contract ops of any component in the same repo invoked after the stimulus. Downstream calls are *not* asserted (the stack is real).
+**Expected outputs are black-box observables only:** the op's result or error (`TestExpect`), plus **probes** — read-only contract ops of any component in the same repo invoked after the stimulus. Every `expectedState` on a projected stimulus must be bound to a probe (TP-STATE, §5.2); `expectedOutputs` to actors are bound to a probe when observable (e.g. an outbox) and otherwise acknowledged `unobservable` in the binding. Downstream calls are *not* asserted (the stack is real).
 
 ### 2.5 Determinism guarantees
 
@@ -96,7 +115,9 @@ type StepBinding struct {
     Seq     int
     Inputs  []TestArg          // existing {Name,Value,SchemaRef}
     Expect  TestExpect         // existing {Result,ErrorExpected,ErrorCode}
-    Probes  []Probe            // {Component,Operation,Inputs,Expect}
+    Probes  []Probe            // {Component,Operation,Inputs,Expect, For *string}
+                               //   For: the expectedState/expectedOutput node id this probe proves
+    Unobservable []string      // expectedOutput node ids the binding declares unobservable, with no probe
     Hook    bool               // true ⇒ the generated step delegates arrange/assert to the hooks file
 }
 ```
@@ -164,6 +185,8 @@ This runs in `TestFileLayout`-style gate tests in archistrator (`server/internal
 | TP-ARG-NAME / TP-ARG-TYPE | Inputs name real params and validate against the param schema (carried over from STP-ARG-*). |
 | TP-EXPECT | `Expect` matches the op's result schema or declares an error the contract allows. |
 | TP-PROBE | Probes name real read-only ops. |
+| TP-STATE | Every `expectedState` on a projected stimulus has a probe with `For` = its node; every `expectedOutput` has a probe or is listed in `Unobservable`. |
+| UC-IO-KINDS | `sendSignal` names an actor; `object` carries `state`; a `note.anchor` names a node in the same diagram. |
 | TP-OP-REACHED | Every operation of every contract is the input of ≥1 scenario. Failure text: "dead operation or missing use case". |
 | TP-SKIP | A skip names an activity that is genuinely not yet integrated. |
 
@@ -252,7 +275,7 @@ Committed `.activityList` / `.network` / solution slots contain N-STP and N-IT t
 
 1. **Platform** (T7): framework-go `scenario` + `scenariohost` + arch rule + TP-* rules; app-generator `testgen`; infrastructure-github artifacts; method-assets lifecycles/commands/skills/templates/scaffold. Release + push each; bump pins in archistrator.
 2. **Archistrator mechanism** on branch `deterministic-component-testing`: schema (`$defs`) + modelgen regen; MCP verbs; estimation removals; artifactAccess ops; DeliveryManager query + endpoint; gate; webApp panel; CI workflows.
-3. **Migration workflow** (Claude Workflow tool; see the plan): re-derive project design → per component pipeline (bind → generate → fill hooks → purge non-generated tests → run green → review) → final gate sweep. Runs well above the 10-agent guideline, founder-approved.
+3. **Migration workflow** (Claude dynamic Workflow tool; see the plan): re-derive project design → per component pipeline (bind → generate → fill hooks → purge non-generated tests → run green → review) → final gate sweep. Runs well above the 10-agent guideline, founder-approved.
 4. Merge with `scenario-tests-only` at zero waivers; drain in-flight lifecycle workflows for removed activity types; deploy.
 
 ## 10. Open earmarks (not in this wave)
