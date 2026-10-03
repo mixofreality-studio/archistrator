@@ -8328,6 +8328,15 @@ type wfDeps struct {
 	// nil-panics inside a workflow task and retries forever.
 	SDPEngines sdpEngines
 
+	// Scenarios is the projection the TESTING GATE joins the venue's recorded run against
+	// (deliveryactivity.go, spec §6.5): projectstate.ComponentScenarios in production — the
+	// SAME canonical set the test plan binds, testgen emits against and the testRun view renders
+	// (constructionManager.scenarios) — threaded here for the reason the SDP engines are: a
+	// gate's projection is a dependency, and a rig substitutes a hand set at it. nil is
+	// defaulted to the production projector by csNewWorkflows, so an unwired composition
+	// joins against the real derivation rather than holding every testing gate on a nil.
+	Scenarios scenarioProjector
+
 	// EscalationWaitTimeout bounds how long an escalated/architectOnly activity waits
 	// for an operator override before it terminally FAILS the activity. 0 == wait-forever.
 	EscalationWaitTimeout time.Duration
@@ -8358,6 +8367,9 @@ type csWorkflows struct {
 	// productionStrategies(), so an unwired composition cannot read a nil map.
 	Strategies strategyRegistry
 
+	// Scenarios is the testing gate's projection (wfDeps.Scenarios); never nil.
+	Scenarios scenarioProjector
+
 	// Deliveries observes WHICH TASK each routed signal reached (walkState.deliver). Nil in
 	// production, and it is an observation seam rather than behaviour because the walk's
 	// TERMINAL cannot tell a delivered override from a lost one: a gate that never receives
@@ -8378,6 +8390,10 @@ func csNewWorkflows(d wfDeps) *csWorkflows {
 	if railEnabled == nil {
 		railEnabled = railDormant
 	}
+	scenarios := d.Scenarios
+	if scenarios == nil {
+		scenarios = projectstate.ComponentScenarios
+	}
 	return &csWorkflows{
 		Intervention:          d.Intervention,
 		Review:                d.Review,
@@ -8388,6 +8404,7 @@ func csNewWorkflows(d wfDeps) *csWorkflows {
 		NextEligibleActivity:  d.NextEligibleActivity,
 		InterventionPolicy:    d.InterventionPolicy,
 		EscalationWaitTimeout: d.EscalationWaitTimeout,
+		Scenarios:             scenarios,
 		// The generic child's strategy table is defaulted HERE, not read lazily, so an
 		// unwired composition cannot nil-map-read its way to a walk with no dispatch. The
 		// estimate Engines ride the registry constructor, which is what makes the
@@ -8410,6 +8427,18 @@ func csNewWorkflows(d wfDeps) *csWorkflows {
 func csReadProjectActivityOptions() workflow.ActivityOptions {
 	return fwmanager.ActivityPreset{
 		Timeout:    10 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
+	}.Options()
+}
+
+// testRunIndexActivityOptions is the testing gate's artifact-index preset: the cloud
+// variant's first index of a run downloads its results zip from GitHub (cached on disk
+// per run after that), so the budget is a transfer's, not a git read's. NotFound and
+// ContractMisuse are terminal — the gate holds on them as evidence (readTestingGateEvidence)
+// rather than retrying an artifact the venue never uploaded.
+func testRunIndexActivityOptions() workflow.ActivityOptions {
+	return fwmanager.ActivityPreset{
+		Timeout:    2 * time.Minute,
 		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
 	}.Options()
 }
@@ -8854,8 +8883,16 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		// their generated registered names, preserving the identical timeout/retry scope.
 		// designSessionAccess.readProjectOnBranch is the whole-aggregate read the pump
 		// runs (branch "" ⇒ main) — the former ReadProjectActivity preset.
-		"designSessionAccess.readProjectOnBranch":           csReadProjectActivityOptions(),
-		"projectStateAccess.readProjectVersion":             csReadProjectActivityOptions(),
+		"designSessionAccess.readProjectOnBranch": csReadProjectActivityOptions(),
+		"projectStateAccess.readProjectVersion":   csReadProjectActivityOptions(),
+		// THE TESTING GATE'S TWO READS (deterministic component testing, deliveryactivity.go).
+		// The head-state read is the same whole-aggregate read the pump makes and takes the
+		// same preset. The artifact index is a different envelope: the cloud variant lists a
+		// run's artifacts and downloads its zip ONCE per run, which is a GitHub round-trip
+		// plus a transfer, not a git read — so it gets the download's own budget. NotFound
+		// (the venue never uploaded it) is terminal: the gate reads it as evidence and holds.
+		"projectStateAccess.readProject":                    csReadProjectActivityOptions(),
+		"artifactAccess.getTestRunIndex":                    testRunIndexActivityOptions(),
 		"constructionTransitionAccess.recordChangeReviewed": recordActivityOptions(),
 		"constructionTransitionAccess.recordActivityExited": recordActivityOptions(),
 		"constructionTransitionAccess.recordActivityFailed": recordActivityOptions(),
@@ -9024,6 +9061,9 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		InterventionPolicy:    constructionInterventionPolicy(m.interventionMode),
 		EscalationWaitTimeout: m.escalationWaitTimeout,
 		SDPEngines:            m.sdpEngines,
+		// The testing gate joins the venue's run against the SAME projection the testRun
+		// view renders — one projector per Manager, threaded to both halves.
+		Scenarios: m.scenarios,
 	})
 
 	return genWorkerManifest{

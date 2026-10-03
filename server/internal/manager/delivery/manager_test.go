@@ -10594,6 +10594,32 @@ type csFakeProjectState struct {
 	// gate — which is precisely the window gate 2 covers. Widening readProject instead
 	// would also delay every other reader of this double, including the child's.
 	failDelay time.Duration
+
+	// THE VENUE'S RECORD STEP (deterministic component testing, Plan 2 Task 7). venue, when
+	// set, shapes the run the integration job records (venueDouble / recordVenueRun) before
+	// it lands — a stale revision, a dropped result, a skip — and returns false to record
+	// nothing at all. expiredArtifacts names the run artifacts GitHub has already retired
+	// (venueArtifact answers Expired), lostFiles the video/trace refs the artifact no longer
+	// holds. nil for every case that is not about the testing gate: the default is a full
+	// green run at the walk's own revision.
+	venue            func(run *projectstate.TestRun) bool
+	expiredArtifacts map[string]bool
+	lostFiles        map[string]bool
+	// scenarios is the projection the venue records a result for — the SAME one the walk
+	// joins against (wfDeps.Scenarios), or the two halves disagree and every gate holds on
+	// results nobody projected. gateDeps sets both to shapeScenarioProjector; a rig that
+	// builds its receiver by hand leaves both at the production default
+	// (projectstate.ComponentScenarios), which projects NOTHING onto a project that
+	// commits no use cases — an honestly empty set on both sides.
+	scenarios scenarioProjector
+}
+
+// projector is the venue's projection: scenarios, or the production default.
+func (f *csFakeProjectState) projector() scenarioProjector {
+	if f.scenarios != nil {
+		return f.scenarios
+	}
+	return projectstate.ComponentScenarios
 }
 
 // setOperatorPaused records the project's pause the way the real store's
@@ -12038,11 +12064,167 @@ var _ review.ReviewEngine = (*fakeReview)(nil)
 // pipeline fake) under their generated registered names — the names the generated invoker
 // surface (wf.Acts.Pipeline*) dispatches by. The workflow reaches the pipeline only through
 // those invokers now.
-func registerGenPipeline(env *testsuite.TestWorkflowEnvironment, pipe agenticjob.AgenticJobAccess) {
-	acts := &genActivities{Pipeline: pipe}
+//
+// The pipeline is registered THROUGH THE VENUE DOUBLE (venueOver), and the two reads the
+// testing gate makes ride with it (spec §6.5, Plan 2 Task 7): a job that succeeds the
+// integration phase records its scenario run on ps, and the gate reads that run back
+// through projectStateAccess.readProject and its artifact through
+// artifactAccess.getTestRunIndex. They are registered here, in the one helper every
+// construction rig calls, because a service or frontend walk cannot pass its last gate
+// without them — the production worker registers one set per queue, and a rig that
+// reached the gate with no venue behind it would hold for a run nobody could record.
+func registerGenPipeline(env *testsuite.TestWorkflowEnvironment, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess) {
+	acts := &genActivities{Pipeline: venueOver(ps, pipe), ProjectState: fakeFullProjectState{ps}, Artifact: venueArtifact(ps)}
 	env.RegisterActivityWithOptions(acts.PipelineSubmitAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.submitAgenticJob"})
 	env.RegisterActivityWithOptions(acts.PipelineObserveAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.observeAgenticJob"})
 	env.RegisterActivityWithOptions(acts.PipelineCancelAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.cancelAgenticJob"})
+	env.RegisterActivityWithOptions(acts.ProjectStateReadProject, activity.RegisterOptions{Name: "projectStateAccess.readProject"})
+	env.RegisterActivityWithOptions(acts.ArtifactGetTestRunIndex, activity.RegisterOptions{Name: "artifactAccess.getTestRunIndex"})
+}
+
+// ===========================================================================
+// THE VENUE DOUBLE (deterministic component testing, spec §6.2 / Plan 2 Task 7).
+//
+// Every pipeline double in this file models the JOB — submit, observe, a terminal — and
+// none modelled what the job WRITES. Since the testing gate the venue's integration job
+// has a write the walk depends on: aiarch-construct.yml runs the generated scenario tests
+// and `record-test-run` lands a TestRun on .testingState.testRuns, which is the one piece
+// of evidence the `testing` review can pass on. venueDouble is that write, over ANY inner
+// pipeline double: the handle of an integration-phase submit is remembered, and the
+// observe that reports it SUCCEEDED records the run on the store — a full green run by
+// default, or whatever csFakeProjectState.venue shapes it into (the gate's own cases).
+//
+// THE REVISION IT STAMPS is the walk's: the latest integration attempt on the activity's
+// row (openWorkAttempt records it PENDING before the submit, so the venue's checkout
+// already holds it — which is what the real record step must read; see the Task 7
+// earmark on AIARCH_REVISION). It is read off the ledger rather than counted here so a
+// walk that continued-as-new and a fresh double still agree on the number.
+// ===========================================================================
+type venueDouble struct {
+	inner agenticjob.AgenticJobAccess
+	ps    *csFakeProjectState
+
+	mu    sync.Mutex
+	specs map[agenticjob.PipelineHandle]agenticjob.PipelineSpec
+}
+
+// venueOver wraps inner in the venue double once; wrapping a wrapper would record every
+// run twice.
+func venueOver(ps *csFakeProjectState, inner agenticjob.AgenticJobAccess) agenticjob.AgenticJobAccess {
+	if _, already := inner.(*venueDouble); already {
+		return inner
+	}
+	return &venueDouble{inner: inner, ps: ps, specs: map[agenticjob.PipelineHandle]agenticjob.PipelineSpec{}}
+}
+
+func (v *venueDouble) SubmitAgenticJob(rc fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
+	handle, err := v.inner.SubmitAgenticJob(rc, spec)
+	if err != nil {
+		return handle, err
+	}
+	if spec.DispatchInputs["phase"] == projectstate.MethodPhaseIntegration.String() {
+		v.mu.Lock()
+		v.specs[handle] = spec
+		v.mu.Unlock()
+	}
+	return handle, nil
+}
+
+func (v *venueDouble) ObserveAgenticJob(rc fwra.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
+	obs, err := v.inner.ObserveAgenticJob(rc, handle)
+	if err != nil || obs.Phase != agenticjob.PhaseSucceeded {
+		return obs, err
+	}
+	v.mu.Lock()
+	spec, ok := v.specs[handle]
+	delete(v.specs, handle)
+	v.mu.Unlock()
+	if ok {
+		v.ps.recordVenueRun(string(spec.ActivityID), spec.DispatchInputs["component_id"], string(handle))
+	}
+	return obs, nil
+}
+
+func (v *venueDouble) CancelAgenticJob(rc fwra.Context, handle agenticjob.PipelineHandle) error {
+	return v.inner.CancelAgenticJob(rc, handle)
+}
+
+var _ agenticjob.AgenticJobAccess = (*venueDouble)(nil)
+
+// shapeScenarioProjector is the projection every construction rig joins a run against:
+// two scenarios per component, in canonical order, so a run can omit one (Missing),
+// skip one, or name one nobody projected (Unknown). A fixed hand set rather than
+// projectstate.ComponentScenarios because the rigs' projects commit no use cases, and an
+// EMPTY projection is the one shape the gate must never read as green.
+func shapeScenarioProjector(_ *projectstate.Project, component string) ([]scenario.Scenario, error) {
+	return []scenario.Scenario{
+		{ID: component + "-P1", UseCase: "uc", Title: "happy path"},
+		{ID: component + "-P2", UseCase: "uc", Title: "guarded path", Guards: []scenario.Guard{{At: "d1", Guard: "declined"}}},
+	}, nil
+}
+
+// recordVenueRun is the venue's record step over the double: a green run for every
+// projected scenario at the activity's latest integration attempt, shaped by f.venue when
+// a case set one (false drops the record — the job that died before its record step).
+// The store's version is NOT advanced: on the real venue the run lands on the activity
+// branch, never on main's version, and a bump here would hand every later main write a
+// Conflict the real walk never sees.
+func (f *csFakeProjectState) recordVenueRun(activityID, component, runID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	attempt := 0
+	for _, a := range f.project.ActivityExecution[activityID].Attempts {
+		if a.Task == projectstate.TaskIntegration && a.Attempt > attempt {
+			attempt = a.Attempt
+		}
+	}
+	projected, _ := f.projector()(&f.project, component)
+	run := projectstate.TestRun{
+		ID: runID, Activity: activityID, Component: component,
+		Revision: projectstate.AttemptID(activityID, projectstate.TaskIntegration, attempt),
+		Artifact: "test-results-" + activityID + "-" + runID,
+	}
+	for _, sc := range projected {
+		run.Scenarios = append(run.Scenarios, projectstate.ScenarioResult{Scenario: sc.ID, Status: "pass", DurationMs: 1})
+	}
+	if f.venue != nil && !f.venue(&run) {
+		return
+	}
+	if f.project.TestingState == nil {
+		f.project.TestingState = &projectstate.TestingState{}
+	}
+	f.project.TestingState.TestRuns = append(f.project.TestingState.TestRuns, run)
+}
+
+// venueArtifact is the artifact index the gate reads for a recorded run: the run's
+// results and go-test stream plus every video/trace the results name, or Expired when
+// the case retired the artifact (expiredArtifacts). A ref naming no recorded run is
+// NotFound, which is what the cloud variant answers for an artifact GitHub never held.
+func venueArtifact(ps *csFakeProjectState) artifact.ArtifactAccess {
+	return &artifactfake.FakeArtifactAccess{
+		GetTestRunIndexFn: func(_ fwra.Context, ref artifact.TestRunRef) (artifact.TestRunIndex, error) {
+			ps.mu.Lock()
+			defer ps.mu.Unlock()
+			if ps.expiredArtifacts[ref.Artifact] {
+				return artifact.TestRunIndex{Expired: true}, nil
+			}
+			run, ok := testRunByID(&ps.project, ref.RunID)
+			if !ok {
+				return artifact.TestRunIndex{}, fwra.New(fwra.NotFound, "venue: no artifact for run "+ref.RunID)
+			}
+			idx := artifact.TestRunIndex{Results: []byte("[]"), Files: []string{
+				run.Component + "/results.json", run.Component + "/go-test.jsonl",
+			}}
+			for _, r := range run.Scenarios {
+				for _, ref := range []string{r.VideoRef, r.TraceRef} {
+					if ref != "" && !ps.lostFiles[ref] {
+						idx.Files = append(idx.Files, ref)
+					}
+				}
+			}
+			return idx, nil
+		},
+	}
 }
 
 // registerGenProjectStateVersion registers the GENERATED ProjectStateReadProjectVersion
@@ -12174,7 +12356,7 @@ func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows
 // project's pump through it.
 func registerSupervisionWithBus(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess, bus messagebus.MessageBus, eps ...*fakeEpisodes) {
 	env.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: executionKindProjectSupervision})
-	registerGenPipeline(env, pipe)
+	registerGenPipeline(env, ps, pipe)
 	registerGenEpisodes(env, eps)
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
@@ -13538,10 +13720,16 @@ func newFakeProjectStateWithPolicy(policy projectstate.ReviewPolicy) *csFakeProj
 // branch/PR/merge are no-ops). The read/transition seams are registration-side only
 // now (registerConstruct backs the generated activities with the same ps).
 func gateDeps(ps *csFakeProjectState) wfDeps {
+	// The projection the testing gate joins the venue's run against is the SAME hand set the
+	// venue double records a result for (ps.scenarios / recordVenueRun), so a rig's service
+	// walk passes its last gate on a run that covers every projected scenario — and the
+	// gate's own cases have two scenarios to drop, skip or mis-stamp.
+	ps.scenarios = shapeScenarioProjector
 	return wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
 		GitStatus:    ps,
+		Scenarios:    shapeScenarioProjector,
 	}
 }
 
@@ -14214,8 +14402,12 @@ func (r replayRig) activities() genActivities {
 		bus = &recordingSignalBus{}
 	}
 	return genActivities{
-		ProjectState:           full,
-		Pipeline:               r.pipe,
+		ProjectState: full,
+		// The venue double records the integration job's scenario run and the gate reads its
+		// artifact back, exactly as registerGenPipeline wires the in-process rigs — a capture
+		// that reached the testing gate with no venue behind it would record a park.
+		Pipeline:               venueOver(r.ps, r.pipe),
+		Artifact:               venueArtifact(r.ps),
 		ConstructionTransition: fakeConstructionTransition{r.ps},
 		ActivityExecution:      csFakeActivityExecution{r.ps},
 		GitStatus:              r.ps,
@@ -19717,7 +19909,7 @@ func registerDeliveryActivityWithBus(
 	pipe agenticjob.AgenticJobAccess, bus messagebus.MessageBus,
 ) {
 	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
-	registerGenPipeline(env, pipe)
+	registerGenPipeline(env, ps, pipe)
 	registerGenEpisodes(env, nil)
 	registerGenDesignSessionRead(env, ps)
 	// The projectDesign lifecycle's compute stages eight slots and its M0 approve commits
@@ -21314,7 +21506,7 @@ func Test_ConstructionWalk_LocalMergeRunsOnTheLocalProfileOnly(t *testing.T) {
 	wf.Review = review.NewReviewEngine()
 	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
 	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
-	registerGenPipeline(env, pipe)
+	registerGenPipeline(env, ps, pipe)
 	registerGenEpisodes(env, nil)
 	registerGenDesignSessionRead(env, ps)
 	registerGenDesignSessionSlotWrites(env, ps)
@@ -24673,7 +24865,7 @@ func TestDispatchAnswerJob_RepoUnresolvedErrors(t *testing.T) {
 // with ps).
 func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, git *stubGitStatus, rail sourcecontrol.SourceControlAccess) {
 	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
-	registerGenPipeline(env, &csFakePipeline{phase: PipelineSucceeded})
+	registerGenPipeline(env, ps, &csFakePipeline{phase: PipelineSucceeded})
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
@@ -25140,7 +25332,7 @@ func Test_GitForward_RecordsConvergeMonotonically(t *testing.T) {
 // constructionTransition/gitStatus surfaces, each backed by the fakes.
 func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
 	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
-	registerGenPipeline(env, pipe)
+	registerGenPipeline(env, ps, pipe)
 	registerGenEpisodes(env, eps)
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
@@ -25175,7 +25367,7 @@ func registerPumpWithBus(
 	registerGenEpisodes(env, eps)
 	// The pump now waits for child COMPLETION (self-cascade), so the per-activity
 	// child runs end-to-end and ALL its activities must be registered.
-	registerGenPipeline(env, pipe)
+	registerGenPipeline(env, ps, pipe)
 	registerGenDesignSessionRead(env, ps)
 	registerGenDesignSessionSlotWrites(env, ps)
 	registerGenProjectStateVersion(env, ps)
@@ -27050,7 +27242,7 @@ func noteChildRun(t *testing.T, rail *stubRail) (*testsuite.TestWorkflowEnvironm
 	wf := gitWiredWorkflows(ps, rail, git, true)
 	pipe := orderedPipeline{csFakePipeline: csNewFakePipeline(), order: rail.order}
 	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
-	registerGenPipeline(env, pipe)
+	registerGenPipeline(env, ps, pipe)
 	registerGenEpisodes(env, nil)
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
@@ -31965,5 +32157,207 @@ func TestQueryTestRunView_ProductionWiringJoinsTheDerivedProjection(t *testing.T
 	}
 	if !slices.Equal(v.Missing, want) {
 		t.Fatalf("Missing must be the derived projection in canonical order:\n got %v\nwant %v", v.Missing, want)
+	}
+}
+
+// ===========================================================================
+// DETERMINISTIC COMPONENT TESTING — the testing gate (Plan 2 Task 7, spec §6.5).
+//
+// The `testing` review of a lifecycle that binds a test plan passes ONLY on the venue's
+// own evidence: a run recorded for the activity at the integration attempt this round
+// judges, covering exactly the projected scenario set, every status `pass`, its artifact
+// still readable. Anything else HOLDS the gate for a human with a system comment naming
+// what is wrong — reviewers never see a task that cannot render (spec §6.5), and a policy
+// that asks for no human cannot pass a run nobody recorded.
+//
+// Every case is one vibes service walk (openCommentRig: the engine asks for NO human, so a
+// held gate is the gate's own doing) whose venue double records a differently-shaped run.
+// The green case is the control: the same walk, the same policy, and the round passes as
+// the SYSTEM — which is what makes the four holds falsifiable rather than "it waited".
+// ===========================================================================
+
+// testingRound is the latest `testing` round on the activity's row.
+func testingRound(ps *csFakeProjectState, activityID string) (projectstate.ReviewRound, bool) {
+	var best projectstate.ReviewRound
+	found := false
+	for _, r := range ps.execution(activityID).Reviews {
+		if r.TaskID == projectstate.TaskTesting && (!found || r.Round > best.Round) {
+			best, found = r, true
+		}
+	}
+	return best, found
+}
+
+// systemHoldComment is the ONE system comment the gate filed on the round: the reason it
+// held, anchored at the run it judged. Fails the case when there is none or more than one.
+func systemHoldComment(t *testing.T, round projectstate.ReviewRound) projectstate.ReviewComment {
+	t.Helper()
+	var system []projectstate.ReviewComment
+	for _, c := range round.Thread {
+		if c.AuthorRole == gateActorSystem {
+			system = append(system, c)
+		}
+	}
+	if len(system) != 1 {
+		t.Fatalf("the held gate must file exactly ONE system comment, got %d: %+v", len(system), round.Thread)
+	}
+	return system[0]
+}
+
+// latestVenueRun is the run the venue recorded last for the activity.
+func latestVenueRun(ps *csFakeProjectState, activityID string) (projectstate.TestRun, bool) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	return selectTestRun(&ps.project, activityID, "")
+}
+
+// driveTestingGateHold runs the walk, asserts at the gate that it is HELD with a system
+// comment whose text names `wantInReason`, then releases it the only way a human can
+// release a held testing gate — resolve the system's change request and approve — and
+// reports the released round.
+func driveTestingGateHold(t *testing.T, rig *shapeRig, m *deliveryManager, wantInReason ...string) projectstate.ReviewRound {
+	t.Helper()
+	rig.env.RegisterDelayedCallback(func() {
+		round, ok := testingRound(rig.cs, shapeServiceID)
+		if !ok || round.Outcome != projectstate.RoundPending {
+			t.Errorf("the testing gate must be HELD at t+30s, got round %+v (found %v)", round, ok)
+			return
+		}
+		c := systemHoldComment(t, round)
+		for _, want := range wantInReason {
+			if !strings.Contains(c.Text, want) {
+				t.Errorf("the system comment must name %q; got %q", want, c.Text)
+			}
+		}
+		if !projectstate.ReviewCommentBlocksApprove(c) {
+			t.Errorf("the system's hold must be a BLOCKING change request, not a question: %+v", c)
+		}
+		if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), string(projectstate.TaskTesting),
+			ReviewDecisionInput{Decision: ReviewSetCommentStatus, CommentID: ptrTo(c.ID),
+				CommentStatus: ptrTo(projectstate.ReviewCommentResolved)}, nil); err != nil {
+			t.Errorf("the resolve must land: %v", err)
+		}
+		if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), string(projectstate.TaskTesting),
+			ReviewDecisionInput{Decision: ReviewApprove}, nil); err != nil {
+			t.Errorf("the operator's approve over the resolved hold must be accepted: %v", err)
+		}
+	}, 30*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	round, ok := testingRound(rig.cs, shapeServiceID)
+	if !ok || round.Outcome != projectstate.RoundPassed || round.DecidedBy != gateActorOperator {
+		t.Fatalf("a held testing gate is released by the OPERATOR, got %+v", round)
+	}
+	return round
+}
+
+func TestTestingGate_PassesWhenAllGreen(t *testing.T) {
+	rig, _ := openCommentRig(t)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	round, ok := testingRound(rig.cs, shapeServiceID)
+	if !ok || round.Outcome != projectstate.RoundPassed || round.DecidedBy != gateActorSystem {
+		t.Fatalf("a full green run at the judged attempt passes the testing gate as the SYSTEM (the policy asked for no human), got %+v", round)
+	}
+	for _, c := range round.Thread {
+		if c.AuthorRole == gateActorSystem {
+			t.Fatalf("a passing gate files no system comment, got %+v", c)
+		}
+	}
+	// THE EVIDENCE IS AT THE WALK'S REVISION: the venue stamped the run with the integration
+	// attempt the round judges, which is the one fact a stale run cannot forge.
+	run, ok := latestVenueRun(rig.cs, shapeServiceID)
+	if !ok || run.Revision != projectstate.AttemptID(shapeServiceID, projectstate.TaskIntegration, 1) {
+		t.Fatalf("the venue records the run at the judged integration attempt, got %+v (found %v)", run, ok)
+	}
+}
+
+// REVIEW FOCUS 1: a run recorded for an OLDER revision than the one this round judges must
+// not pass, however green it is. The venue here stamps the attempt BEFORE the judged one.
+func TestTestingGate_StaleRevisionHolds(t *testing.T) {
+	rig, m := openCommentRig(t)
+	stale := projectstate.AttemptID(shapeServiceID, projectstate.TaskIntegration, 0)
+	rig.cs.venue = func(run *projectstate.TestRun) bool { run.Revision = stale; return true }
+	driveTestingGateHold(t, rig, m, stale, projectstate.AttemptID(shapeServiceID, projectstate.TaskIntegration, 1))
+}
+
+// REVIEW FOCUS 2: a results set that is a STRICT SUBSET of the projection — a scenario
+// silently not run — holds the gate NAMING the missing id.
+func TestTestingGate_MissingScenarioHolds(t *testing.T) {
+	rig, m := openCommentRig(t)
+	missing := sampleActivity().ComponentID + "-P2"
+	rig.cs.venue = func(run *projectstate.TestRun) bool {
+		run.Scenarios = slices.DeleteFunc(run.Scenarios, func(r projectstate.ScenarioResult) bool { return r.Scenario == missing })
+		return true
+	}
+	round := driveTestingGateHold(t, rig, m, missing)
+	if c := systemHoldComment(t, round); strings.Contains(c.Text, sampleActivity().ComponentID+"-P1") {
+		t.Fatalf("the hold names the MISSING scenario only, not the ones that ran: %q", c.Text)
+	}
+}
+
+// A SKIP IS NOT A PASS (spec §3.1): a skipped scenario holds the gate as "skipped: <ids>".
+func TestTestingGate_SkipHolds(t *testing.T) {
+	rig, m := openCommentRig(t)
+	skipped := sampleActivity().ComponentID + "-P2"
+	rig.cs.venue = func(run *projectstate.TestRun) bool {
+		for i := range run.Scenarios {
+			if run.Scenarios[i].Scenario == skipped {
+				run.Scenarios[i].Status = "skip"
+			}
+		}
+		return true
+	}
+	driveTestingGateHold(t, rig, m, "skipped: "+skipped)
+}
+
+// A run whose artifact GitHub has retired cannot render (spec §10 retention), so it cannot
+// pass: the gate holds naming the artifact, and only a re-run can clear it.
+func TestTestingGate_ExpiredArtifactHolds(t *testing.T) {
+	rig, m := openCommentRig(t)
+	rig.cs.expiredArtifacts = map[string]bool{}
+	rig.cs.venue = func(run *projectstate.TestRun) bool { rig.cs.expiredArtifacts[run.Artifact] = true; return true }
+	driveTestingGateHold(t, rig, m, "expired")
+}
+
+// THE REMEDY IS A SEND-BACK, and it needs no human at the second round: rejecting the held
+// testing gate re-opens the judged pair, integration is dispatched again, the venue records a
+// run at THAT attempt, and the gate passes as the system. This is the path the hold's own
+// comment points at ("re-run the scenarios"), proved end to end so the hold is a gate and
+// not a dead end: a walk whose send-back re-ran everything, or nothing, would fail here.
+func TestTestingGate_SendBackReRunsIntegrationAndPasses(t *testing.T) {
+	rig, _ := openCommentRig(t)
+	stale := projectstate.AttemptID(shapeServiceID, projectstate.TaskIntegration, 0)
+	rig.cs.venue = func(run *projectstate.TestRun) bool { run.Revision = stale; return true }
+	rig.env.RegisterDelayedCallback(func() {
+		round, ok := testingRound(rig.cs, shapeServiceID)
+		if !ok || round.Outcome != projectstate.RoundPending {
+			t.Errorf("the testing gate must be HELD before the send-back, got %+v (found %v)", round, ok)
+			return
+		}
+		// The venue is fixed for the re-run: the next integration job records at its own attempt.
+		rig.cs.mu.Lock()
+		rig.cs.venue = nil
+		rig.cs.mu.Unlock()
+		shapeReject(rig.env, string(projectstate.TaskTesting), "re-run the scenarios")()
+	}, 30*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	round, ok := testingRound(rig.cs, shapeServiceID)
+	if !ok || round.Round != 2 || round.Outcome != projectstate.RoundPassed || round.DecidedBy != gateActorSystem {
+		t.Fatalf("the re-run's round (2) passes as the SYSTEM on the venue's fresh evidence, got %+v", round)
+	}
+	if reopened := shapeReopenedWorkTasks(rig.cs.execution(shapeServiceID)); !slices.Equal(reopened, []string{string(projectstate.TaskIntegration)}) {
+		t.Fatalf("the send-back re-opens the judged pair ONLY (integration), got %v", reopened)
+	}
+	run, ok := latestVenueRun(rig.cs, shapeServiceID)
+	if !ok || run.Revision != projectstate.AttemptID(shapeServiceID, projectstate.TaskIntegration, 2) {
+		t.Fatalf("the re-run is recorded at integration attempt 2, got %+v (found %v)", run, ok)
 	}
 }

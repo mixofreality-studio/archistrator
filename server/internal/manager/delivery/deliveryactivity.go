@@ -3,7 +3,9 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -2437,6 +2440,31 @@ func (wf *csWorkflows) runGate(
 		// asked for a revise filed no comment to resolve (runAgentReviewers appends its verdict
 		// with a nil comment list).
 		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, nil)
+	}
+	// THE TESTING GATE (deterministic component testing, spec §6.5; the section at the end
+	// of this file). The `testing` review of a lifecycle that binds a test plan judges the
+	// VENUE'S evidence —
+	// the scenario run its integration job recorded — and the round cannot pass, by autogate
+	// or by a human, unless that run is at the judged integration attempt, covers every
+	// projected scenario, is all green and still renders. It sits BEFORE the policy arms for
+	// the same reason the critic's floor does: a policy that asks for no human must not pass
+	// a run nobody recorded, and a human must not be handed a task that cannot render. The
+	// hold is a HUMAN gate (nil autogate reason): the remedy is a send-back, which re-runs
+	// integration and with it the venue's record step, or an approve over the resolved system
+	// comment, which is an override on the record.
+	if scenarioTestingGate(lc, t) {
+		ev, err := wf.readTestingGateEvidence(ctx, in)
+		if err != nil {
+			return walkTaskFailed, err
+		}
+		if reason := testingGateHold(ev, judgedSubject(ws, t).AttemptID); reason != "" {
+			if err := wf.holdTestingGate(ctx, in, t, state, &gate, ev, reason); err != nil {
+				return walkTaskFailed, err
+			}
+			state.surfaceReviewSet(t.ID, &set)
+			state.stage = StageAwaitingApproval
+			return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, nil)
+		}
 	}
 	if set.RequiresHuman == nil || !*set.RequiresHuman {
 		// AN OPEN COMMENT HOLDS THE AUTOGATE (stage 4b1 Task 12, fix round 2, review finding F1).
@@ -5901,4 +5929,238 @@ func (wf *csWorkflows) applyRecovering(
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "nextExpectedVersion", expected)
 	}
+}
+
+// ===========================================================================
+// THE TESTING GATE (deterministic component testing design, §6.5).
+//
+// The `testing` review of a lifecycle that binds a test plan judges the venue's own
+// evidence, not an agent's claim: the deterministic scenario run the integration job
+// recorded (spec §6.1/§6.2, `record-test-run`). Before runGate lets that round pass — by
+// a policy that asks for no human as much as by a human's approve — the run must be:
+//
+//  1. RECORDED for the activity at the integration attempt this round judges;
+//  2. COMPLETE — its scenario set equals ForComponent(c): nothing missing, nothing unknown;
+//  3. GREEN — every status `pass` (a skip is not a pass, §3.1);
+//  4. READABLE — its artifact indexes and has not expired, and every video/trace a result
+//     names is a file the artifact still holds.
+//
+// Anything else HOLDS the gate for a human with ONE system comment naming what is wrong,
+// anchored at the run it judged, so reviewers never see a task that cannot render. The
+// hold is a human gate like the agent critic's (criticHoldsTheGate): a resolve does not
+// release it, a send-back re-runs integration (and with it the venue's record step), and
+// an approve over the resolved comment is the operator's recorded override.
+//
+// THE REVISION A RUN IS "AT" IS THE WALK'S OWN: the integration ATTEMPT ID the round judges
+// (judgedSubject(ws, t).AttemptID, "<activity>:integration:<n>"). The walk holds no commit
+// SHA of the activity branch — no RA op returns one, and the construction arm stages no
+// ref — while it does hold the attempt it opened PENDING before the dispatch, which the
+// venue's checkout therefore already carries on the activity's row. A run stamped with an
+// EARLIER attempt is a run the judged dispatch did not produce, whatever its commit, which
+// is exactly the staleness Review Focus 1 names. EARMARK (venue side, method-assets +
+// record-test-run): the record step must stamp Revision with that attempt id — today
+// AIARCH_REVISION is unset by the construct template and record-test-run refuses to run
+// without one, so no cloud run is recorded at all and this gate holds every service and
+// frontend activity for a human until the template is aligned. Fail-closed, visibly.
+//
+// THE EVALUATION IS WORKFLOW-SIDE OVER THE GENERATED INVOKERS — two reads
+// (projectStateAccess.readProject, artifactAccess.getTestRunIndex) and a pure join — and
+// not a Manager activity, because this package registers no handwritten Temporal activity
+// (arch_activitynames_test.go: every activity is one generated RA op) and the join itself
+// (joinTestRun, the projection) is deterministic.
+//
+// IT LIVES IN THIS FILE, not in a testinggate.go of its own, because the file-layout gate
+// (framework-go/arch, TestFileLayout at zero waivers) admits exactly one handwritten file
+// per workflow entry func plus the impl file — a helpers-only file is `file-not-allowed`.
+// The gate is a step of DeliveryActivityWorkflow's walk, so it is this workflow's file.
+// ===========================================================================
+
+// artifactKindSTP is the lifecycle artifactKind of the bound test plan task (`stp`): the
+// row whose presence says this lifecycle's `testing` review judges a scenario run.
+const artifactKindSTP = "STP"
+
+// scenarioTestingGate reads the DATA and nothing else: the `testing` review of a lifecycle
+// that carries a test-plan task. Those are the service and frontend lifecycles — the ones
+// whose testing exit criterion is "a test run at the current revision covers every
+// scenario" — and not the harness, perf, deployment or documentation lifecycles, which
+// name a `testing` review too but bind no scenarios for a venue to run. Reading the
+// lifecycle keeps the walker ignorant of activity types, exactly as isM0Gate does.
+func scenarioTestingGate(lc methodassets.Lifecycle, t methodassets.LifecycleTask) bool {
+	if t.Kind != methodassets.LifecycleTaskReview || t.ID != string(projectstate.TaskTesting) {
+		return false
+	}
+	return slices.ContainsFunc(lc.Tasks, func(row methodassets.LifecycleTask) bool {
+		return row.ArtifactKind == artifactKindSTP
+	})
+}
+
+// testingGateEvidence is what the gate reads: the latest run joined with the projection
+// and its artifact index (Run), the files that artifact holds, and — when the index could
+// not be read at all — the read's own failure. Run is nil when no run is recorded.
+type testingGateEvidence struct {
+	Run      *DeliveryTestRunView
+	Files    []string
+	IndexErr error
+}
+
+// testingGateHold returns "" when the gate may pass, else the hold reason (the text of the
+// system ReviewComment the round carries). currentRevision is the integration attempt the
+// round judges; an empty one is itself a hold, because a run cannot be matched against a
+// revision the walk does not know.
+func testingGateHold(ev testingGateEvidence, currentRevision string) string {
+	if ev.Run == nil {
+		return "no test run is recorded for this activity; the venue's integration job records one with record-test-run"
+	}
+	run := ev.Run.Run
+	if currentRevision == "" {
+		return fmt.Sprintf("test run %s cannot be matched: the walk holds no integration attempt for this round to judge", run.Id)
+	}
+	if run.Revision != currentRevision {
+		return fmt.Sprintf("test run %s was recorded at revision %q, not at the integration attempt this round judges (%q); re-run the scenarios",
+			run.Id, run.Revision, currentRevision)
+	}
+	if ev.IndexErr != nil {
+		return fmt.Sprintf("the artifact %q of test run %s could not be indexed: %s", ev.Run.Artifact, run.Id, ev.IndexErr.Error())
+	}
+	if ev.Run.Expired {
+		return fmt.Sprintf("the artifact %q of test run %s has expired; re-run the scenarios", ev.Run.Artifact, run.Id)
+	}
+	if len(ev.Run.Missing) > 0 {
+		return fmt.Sprintf("test run %s never ran projected scenario(s): %s", run.Id, strings.Join(ev.Run.Missing, ", "))
+	}
+	if len(ev.Run.Unknown) > 0 {
+		return fmt.Sprintf("test run %s reports result(s) for no projected scenario: %s", run.Id, strings.Join(ev.Run.Unknown, ", "))
+	}
+	// A run with NO results over a component with NO projected scenarios is set-equal (rule
+	// 2) and vacuously green (rule 3): there is nothing to test. The run that is empty while
+	// scenarios ARE projected is caught above as Missing, and the venue never records an
+	// empty run at all (record-test-run refuses one — Review Focus 5 is pinned there).
+	if reason := testingGateStatuses(run.Id, ev.Run.Scenarios); reason != "" {
+		return reason
+	}
+	if lost := testingGateLostFiles(ev.Run.Scenarios, ev.Files); len(lost) > 0 {
+		return fmt.Sprintf("test run %s names video/trace file(s) its artifact does not hold: %s", run.Id, strings.Join(lost, ", "))
+	}
+	return ""
+}
+
+// testingGateStatuses is rule 3: every status `pass`. Failures and skips are named
+// separately — "skipped: <ids>" is the sentence spec §3.1 gives a skip — and anything
+// outside the three statuses record-test-run admits is reported as what it is.
+func testingGateStatuses(runID string, scenarios []TestRunScenarioView) string {
+	var failed, skipped, other []string
+	for _, sc := range scenarios {
+		switch sc.Status {
+		case scenarioStatusPass:
+		case scenarioStatusFail:
+			failed = append(failed, sc.Id)
+		case scenarioStatusSkip:
+			skipped = append(skipped, sc.Id)
+		default:
+			other = append(other, sc.Id+"="+sc.Status)
+		}
+	}
+	var parts []string
+	if len(failed) > 0 {
+		parts = append(parts, "failed: "+strings.Join(failed, ", "))
+	}
+	if len(skipped) > 0 {
+		parts = append(parts, "skipped: "+strings.Join(skipped, ", "))
+	}
+	if len(other) > 0 {
+		parts = append(parts, "unrecognised status: "+strings.Join(other, ", "))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("test run %s did not pass — %s", runID, strings.Join(parts, "; "))
+}
+
+// testingGateLostFiles is rule 4's second half: every video/trace a result names must be
+// a file the artifact holds. A server component names none, so the rule is vacuous there;
+// a client component's run that names a video the artifact lost cannot render.
+func testingGateLostFiles(scenarios []TestRunScenarioView, files []string) []string {
+	var lost []string
+	for _, sc := range scenarios {
+		for _, ref := range []string{sc.VideoRef, sc.TraceRef} {
+			if ref != "" && !slices.Contains(files, ref) {
+				lost = append(lost, ref)
+			}
+		}
+	}
+	return lost
+}
+
+const (
+	scenarioStatusPass = "pass"
+	scenarioStatusFail = "fail"
+	scenarioStatusSkip = "skip"
+)
+
+// readTestingGateEvidence reads the gate's evidence through the generated invokers: the
+// head state (the run the venue recorded, selected exactly as the testRun view selects it
+// — selectTestRun), the projection onto the activity's component, and the run's artifact
+// index. An index read that fails is EVIDENCE, not a walk failure: the gate holds naming
+// it, because a run whose artifact cannot be read cannot render either.
+func (wf *csWorkflows) readTestingGateEvidence(ctx workflow.Context, in deliveryActivityInput) (testingGateEvidence, error) {
+	proj, err := wf.Acts.ProjectStateReadProject(ctx, projectstate.ProjectID(in.ProjectID))
+	if err != nil {
+		// The head state itself unreadable IS a walk failure — a store fault, not a fact
+		// about the run — and so is a projection that refuses (below): both are defects in
+		// the composition, which a held gate would hide behind a comment nobody can act on.
+		return testingGateEvidence{}, fmt.Errorf("testing gate: reading head state: %w", err)
+	}
+	run, ok := selectTestRun(&proj, string(in.ActivityID), "")
+	if !ok {
+		return testingGateEvidence{}, nil
+	}
+	projected, err := wf.Scenarios(&proj, in.Activity.ComponentID)
+	if err != nil {
+		return testingGateEvidence{}, fmt.Errorf("testing gate: projecting scenarios onto %q: %w", in.Activity.ComponentID, err)
+	}
+	idx, ierr := wf.Acts.ArtifactGetTestRunIndex(ctx, testRunRef(run))
+	if ierr != nil {
+		// A terminal RA refusal (NotFound: the venue never uploaded it) and a retry budget
+		// spent on an infrastructure fault both land here, and both mean the same thing to
+		// the gate: the evidence cannot be read. Indexed as nothing, so the join still
+		// renders Missing/Unknown for the comment.
+		idx = artifact.TestRunIndex{}
+	}
+	view := joinTestRun(run, projected, idx)
+	return testingGateEvidence{Run: &view, Files: idx.Files, IndexErr: ierr}, nil
+}
+
+// holdTestingGate lands the hold on the round — ONE system verdict (send back: the gate
+// asks for a re-run) carrying ONE system comment anchored at the run — and parks the gate
+// for a human. The comment is a change request, so the autogate cannot pass over it and a
+// human approve must resolve it first (ReviewCommentBlocksApprove): the override is on
+// the record.
+func (wf *csWorkflows) holdTestingGate(
+	ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask,
+	state *constructState, gate *gateLedger, ev testingGateEvidence, reason string,
+) error {
+	anchor := "$.testRuns"
+	anchorText := "no run recorded"
+	if ev.Run != nil {
+		anchor = fmt.Sprintf("$.testRuns[id=%s]", ev.Run.Run.Id)
+		anchorText = "test run " + ev.Run.Run.Id
+	}
+	workflow.GetLogger(ctx).Warn("delivery.gate.testingHeld", "activityId", in.ActivityID, "taskId", t.ID,
+		"roundId", gate.roundID, "reason", reason)
+	return wf.appendVerdict(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
+		projectstate.ReviewVerdict{
+			ReviewerRole: gateActorSystem,
+			Actor:        gateActorSystem,
+			Verdict:      projectstate.VerdictSendBack,
+			Summary:      reason,
+			AttemptID:    gate.judgedAttemptID,
+		},
+		[]projectstate.ReviewComment{{
+			Anchor:     anchor,
+			AnchorText: anchorText,
+			Text:       reason,
+			AuthorRole: gateActorSystem,
+			Type:       projectstate.ReviewCommentTypeChangeRequest,
+			Addressee:  projectstate.ReviewAddresseeArchitect,
+		}})
 }
