@@ -67,6 +67,7 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -75,6 +76,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	artifactfake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -31675,4 +31677,292 @@ func projectAtCommit(t *testing.T, repoDir, sha string, id projectstate.ProjectI
 		t.Fatalf("decode the state document at %s: %v", sha[:8], derr)
 	}
 	return proj, found
+}
+
+// ===========================================================================
+// DETERMINISTIC COMPONENT TESTING — the `testRun` project view (Plan 2 Task 6).
+//
+// The view JOINS three things nobody else joins: the run the venue recorded (head
+// state), the scenario set projected onto the run's component (ComponentScenarios), and
+// the artifact index (expired?, which files exist). Missing/Unknown are the two halves
+// of the set difference the gate (Task 7) holds on, so they are pinned here first.
+// ===========================================================================
+
+// testRunFixtureProject is one construction-phase project holding ONE recorded run for
+// C-BG whose results cover only two of the three scenarios the projection answers.
+func testRunFixtureProject() projectstate.Project {
+	started := testLedgerClock
+	ended := started.Add(90 * time.Second)
+	return projectstate.Project{
+		ID: "p", Version: 7, Phase: projectstate.PhaseConstruction,
+		TestingState: &projectstate.TestingState{TestRuns: []projectstate.TestRun{{
+			ID: "9", Activity: "C-BG", Component: "billingManager", Revision: "rev-3",
+			Artifact: "test-results-C-BG-9", StartedAt: &started, EndedAt: &ended,
+			Scenarios: []projectstate.ScenarioResult{
+				{Scenario: "bill-the-user-for-usage-P1", Status: "pass", DurationMs: 5},
+				{Scenario: "bill-the-user-for-usage-P2", Status: "pass", DurationMs: 7, VideoRef: "billingManager/P2.webm"},
+			},
+		}}},
+	}
+}
+
+// testRunProjection is the hand projection the fixture joins against: three scenarios
+// for billingManager, in canonical order.
+func testRunProjection(_ *projectstate.Project, component string) ([]scenario.Scenario, error) {
+	if component != "billingManager" {
+		return nil, fmt.Errorf("unexpected component %q", component)
+	}
+	return []scenario.Scenario{
+		{ID: "bill-the-user-for-usage-P1", UseCase: "bill-the-user-for-usage", Title: "Bill the user for usage"},
+		{ID: "bill-the-user-for-usage-P2", UseCase: "bill-the-user-for-usage", Title: "Bill the user for usage [card declined]",
+			Guards: []scenario.Guard{{At: "d1", Guard: "card declined"}}},
+		{ID: "bill-the-user-for-usage-P3", UseCase: "bill-the-user-for-usage", Title: "Bill the user for usage [no usage]",
+			Guards: []scenario.Guard{{At: "d1", Guard: "no usage"}}},
+	}, nil
+}
+
+func testRunManager(proj projectstate.Project, art *artifactfake.FakeArtifactAccess) *deliveryManager {
+	ps := &projectstatefake.FakeProjectStateAccess{
+		ReadProjectFn: func(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) { return proj, nil },
+	}
+	return &deliveryManager{projectState: ps, cs: &constructionManager{artifact: art, scenarios: testRunProjection}}
+}
+
+// liveIndex is an artifact index that holds the run's results, the component's go test
+// stream and P2's video, recording the ref it was asked for.
+func liveIndex(indexed *artifact.TestRunRef) *artifactfake.FakeArtifactAccess {
+	return &artifactfake.FakeArtifactAccess{
+		GetTestRunIndexFn: func(_ fwra.Context, run artifact.TestRunRef) (artifact.TestRunIndex, error) {
+			*indexed = run
+			return artifact.TestRunIndex{Results: []byte("[]"), Files: []string{"billingManager/results.json", "billingManager/go-test.jsonl", "billingManager/P2.webm"}}, nil
+		},
+	}
+}
+
+func queryTestRun(t *testing.T, m *deliveryManager, activityID string) *DeliveryTestRunView {
+	t.Helper()
+	pid := "p"
+	out, err := m.QueryProjectView(bgRC(), ProjectViewQuery{Kind: ProjectViewTestRun, ProjectID: &pid, ActivityID: &activityID})
+	if err != nil {
+		t.Fatalf("testRun view: %v", err)
+	}
+	if out.TestRun == nil {
+		t.Fatal("the answer must land on `testRun`")
+	}
+	return out.TestRun
+}
+
+func TestQueryTestRunView_NamesTheScenarioTheRunOmitted(t *testing.T) {
+	var indexed artifact.TestRunRef
+	v := queryTestRun(t, testRunManager(testRunFixtureProject(), liveIndex(&indexed)), "C-BG")
+	if v.Run.Id != "9" || v.Run.Revision != "rev-3" || v.Artifact != "test-results-C-BG-9" {
+		t.Fatalf("run header: %+v artifact %q", v.Run, v.Artifact)
+	}
+	if indexed != (artifact.TestRunRef{RunID: "9", Artifact: "test-results-C-BG-9"}) {
+		t.Fatalf("the index must be read for the run's own ref, got %+v", indexed)
+	}
+	if !slices.Equal(v.Missing, []string{"bill-the-user-for-usage-P3"}) {
+		t.Fatalf("Missing must name the projected scenario the run never ran, got %v", v.Missing)
+	}
+	if len(v.Unknown) != 0 || v.Expired {
+		t.Fatalf("no stray result and a live artifact: unknown %v expired %v", v.Unknown, v.Expired)
+	}
+	if len(v.Scenarios) != 3 || v.Scenarios[2].Status != "missing" {
+		t.Fatalf("every projected scenario renders and the unrun one renders as missing, got %+v", v.Scenarios)
+	}
+}
+
+func TestQueryTestRunView_JoinsResultsWithTheProjection(t *testing.T) {
+	var indexed artifact.TestRunRef
+	v := queryTestRun(t, testRunManager(testRunFixtureProject(), liveIndex(&indexed)), "C-BG")
+	for _, sc := range v.Scenarios[:2] {
+		if sc.Status != "pass" {
+			t.Errorf("%s: status %q, want pass", sc.Id, sc.Status)
+		}
+		if sc.OutputRef != "billingManager/go-test.jsonl" {
+			t.Errorf("%s: outputRef %q, want the component's go test stream", sc.Id, sc.OutputRef)
+		}
+	}
+	p2 := v.Scenarios[1]
+	if p2.Title == "" || len(p2.Guards) != 1 || p2.VideoRef != "billingManager/P2.webm" || p2.DurationMs != 7 {
+		t.Errorf("the join must carry title/guards from the projection and refs/duration from the result: %+v", p2)
+	}
+}
+
+func TestQueryTestRunView_StrayResultIsUnknownAndExpiredArtifactRenders(t *testing.T) {
+	proj := testRunFixtureProject()
+	proj.TestingState.TestRuns[0].Scenarios = append(proj.TestingState.TestRuns[0].Scenarios,
+		projectstate.ScenarioResult{Scenario: "not-a-projected-scenario", Status: "pass"})
+	art := &artifactfake.FakeArtifactAccess{
+		GetTestRunIndexFn: func(_ fwra.Context, _ artifact.TestRunRef) (artifact.TestRunIndex, error) {
+			return artifact.TestRunIndex{Expired: true}, nil
+		},
+	}
+	m := testRunManager(proj, art)
+	pid, aid := "p", "C-BG"
+	out, err := m.QueryProjectView(bgRC(), ProjectViewQuery{Kind: ProjectViewTestRun, ProjectID: &pid, ActivityID: &aid})
+	if err != nil {
+		t.Fatalf("an expired artifact is a rendered state, not an error: %v", err)
+	}
+	if !out.TestRun.Expired {
+		t.Fatal("Expired must surface")
+	}
+	if !slices.Equal(out.TestRun.Unknown, []string{"not-a-projected-scenario"}) {
+		t.Fatalf("Unknown must name the stray result, got %v", out.TestRun.Unknown)
+	}
+	for _, sc := range out.TestRun.Scenarios {
+		if sc.OutputRef != "" {
+			t.Errorf("%s: an expired artifact has no readable files, got outputRef %q", sc.Id, sc.OutputRef)
+		}
+	}
+}
+
+func TestQueryTestRunView_SelectsTheLatestRunUnlessARunIdIsGiven(t *testing.T) {
+	proj := testRunFixtureProject()
+	later := testLedgerClock.Add(time.Hour)
+	older := proj.TestingState.TestRuns[0]
+	newer := older
+	newer.ID, newer.Revision, newer.Artifact, newer.EndedAt = "12", "rev-4", "test-results-C-BG-12", &later
+	// Recorded out of order on purpose: latest is by time, never by slice position.
+	proj.TestingState.TestRuns = []projectstate.TestRun{newer, older}
+	art := &artifactfake.FakeArtifactAccess{
+		GetTestRunIndexFn: func(_ fwra.Context, _ artifact.TestRunRef) (artifact.TestRunIndex, error) {
+			return artifact.TestRunIndex{}, nil
+		},
+	}
+	m := testRunManager(proj, art)
+	pid, aid := "p", "C-BG"
+	out, err := m.QueryProjectView(bgRC(), ProjectViewQuery{Kind: ProjectViewTestRun, ProjectID: &pid, ActivityID: &aid})
+	if err != nil || out.TestRun.Run.Id != "12" {
+		t.Fatalf("latest run by time: %v %+v", err, out.TestRun)
+	}
+	rid := "9"
+	out, err = m.QueryProjectView(bgRC(), ProjectViewQuery{Kind: ProjectViewTestRun, ProjectID: &pid, ActivityID: &aid, RunID: &rid})
+	if err != nil || out.TestRun.Run.Id != "9" {
+		t.Fatalf("runId pins the run: %v %+v", err, out.TestRun)
+	}
+	if _, err := m.QueryProjectView(bgRC(), ProjectViewQuery{Kind: ProjectViewTestRun, ProjectID: &pid}); err == nil {
+		t.Fatal("the testRun view needs an activityId")
+	}
+	other := "C-XX"
+	_, err = m.QueryProjectView(bgRC(), ProjectViewQuery{Kind: ProjectViewTestRun, ProjectID: &pid, ActivityID: &other})
+	if e := asProjectDesignError(t, err); e.Kind != fwmanager.NotFound {
+		t.Fatalf("an activity with no run is NotFound, got %v", err)
+	}
+}
+
+func TestQueryScenariosView_JoinsTheCommittedBindings(t *testing.T) {
+	proj := testRunFixtureProject()
+	proj.PhaseArtifacts = &projectstate.PhaseArtifacts{TestPlan: map[string]projectstate.TestPlanRecord{
+		"billingManager": {Component: "billingManager", Bindings: []projectstate.ScenarioBinding{
+			{Scenario: "bill-the-user-for-usage-P2", Skip: &projectstate.SkipReason{Reason: "gateway stub", Until: "C-PG"}},
+			{Scenario: "bill-the-user-for-usage-P1", Steps: []projectstate.StepBinding{{Seq: 1, Operation: "ChargeUsage",
+				Inputs: []projectstate.TestArg{{Name: "usage", Value: "12", SchemaRef: "#/$defs/Usage"}},
+				Expect: projectstate.TestExpect{Result: "invoice.open"}}}},
+		}},
+	}}
+	m := testRunManager(proj, &artifactfake.FakeArtifactAccess{})
+	pid, cid := "p", "billingManager"
+	out, err := m.QueryProjectView(bgRC(), ProjectViewQuery{Kind: ProjectViewScenarios, ProjectID: &pid, ComponentID: &cid})
+	if err != nil {
+		t.Fatalf("scenarios view: %v", err)
+	}
+	if len(out.Scenarios) != 3 {
+		t.Fatalf("the projection renders whole, got %d", len(out.Scenarios))
+	}
+	p1, p2, p3 := out.Scenarios[0], out.Scenarios[1], out.Scenarios[2]
+	if p1.Binding == nil || len(p1.Binding.Steps) != 1 || p1.Binding.Steps[0].Operation != "ChargeUsage" || p1.Binding.Steps[0].Inputs[0].SchemaRef != "#/$defs/Usage" {
+		t.Errorf("P1 binding: %+v", p1.Binding)
+	}
+	if p2.Binding == nil || p2.Binding.Skip == nil || p2.Binding.Skip.Until != "C-PG" {
+		t.Errorf("P2 skip binding: %+v", p2.Binding)
+	}
+	if p3.Binding != nil {
+		t.Errorf("P3 is unbound, got %+v", p3.Binding)
+	}
+	if _, err := m.QueryProjectView(bgRC(), ProjectViewQuery{Kind: ProjectViewScenarios, ProjectID: &pid}); err == nil {
+		t.Fatal("the scenarios view needs a componentId")
+	}
+}
+
+// The streaming file endpoint's manager half: the run is found by id across every
+// activity, the artifact ref is the run's own, the MIME type comes from the extension,
+// and a path that escapes the artifact is refused before any read.
+func TestReadTestRunFile_ResolvesTheRunAndTypesByExtension(t *testing.T) {
+	var got artifact.TestRunRef
+	var gotPath string
+	art := &artifactfake.FakeArtifactAccess{
+		ReadTestRunFileFn: func(_ fwra.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
+			got, gotPath = run, path
+			return artifact.ConstructionOutput{Bytes: []byte("webm-bytes")}, nil
+		},
+	}
+	m := testRunManager(testRunFixtureProject(), art)
+	f, err := m.ReadTestRunFile(bgRC(), "p", "9", "billingManager/P2.webm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != (artifact.TestRunRef{RunID: "9", Artifact: "test-results-C-BG-9"}) || gotPath != "billingManager/P2.webm" {
+		t.Fatalf("read %+v %q", got, gotPath)
+	}
+	if string(f.Bytes) != "webm-bytes" || f.MIMEType != "video/webm" {
+		t.Fatalf("file %q %q", f.Bytes, f.MIMEType)
+	}
+	for path, want := range map[string]string{
+		"billingManager/trace.zip": "application/zip", "billingManager/results.json": "application/json",
+		"billingManager/go-test.jsonl": "text/plain; charset=utf-8", "billingManager/out.log": "text/plain; charset=utf-8",
+	} {
+		f, err := m.ReadTestRunFile(bgRC(), "p", "9", path)
+		if err != nil || f.MIMEType != want {
+			t.Errorf("%s: %q %v, want %q", path, f.MIMEType, err, want)
+		}
+	}
+	if _, err := m.ReadTestRunFile(bgRC(), "p", "9", "../etc/passwd"); err == nil {
+		t.Fatal("a path that escapes the artifact must be refused")
+	}
+	if _, err := m.ReadTestRunFile(bgRC(), "p", "no-such-run", "x"); asProjectDesignError(t, err).Kind != fwmanager.NotFound {
+		t.Fatalf("unknown run: %v", err)
+	}
+}
+
+// The PRODUCTION wiring: a Manager built by newDeliveryManager joins a run against
+// projectstate.ComponentScenarios over the committed project.json, so a run for
+// deliveryManager that recorded nothing is missing exactly the projected set — the
+// same ids listComponentScenarios hands the test engineer and testgen emits against.
+func TestQueryTestRunView_ProductionWiringJoinsTheDerivedProjection(t *testing.T) {
+	raw, err := os.ReadFile(committedStatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj, err := decodeState(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj.TestingState = &projectstate.TestingState{TestRuns: []projectstate.TestRun{{
+		ID: "1", Activity: "C-DM", Component: "deliveryManager", Revision: "r", Artifact: "a",
+	}}}
+	projected, err := projectstate.ComponentScenarios(&proj, "deliveryManager")
+	if err != nil || len(projected) == 0 {
+		t.Fatalf("the committed state must project scenarios onto deliveryManager: %d %v", len(projected), err)
+	}
+	ps := &csFakeProjectState{project: proj}
+	full := fakeFullProjectState{ps}
+	art := &artifactfake.FakeArtifactAccess{
+		GetTestRunIndexFn: func(_ fwra.Context, _ artifact.TestRunRef) (artifact.TestRunIndex, error) {
+			return artifact.TestRunIndex{}, nil
+		},
+	}
+	m := newDeliveryManager(&fakeTemporalClient{}, full, art, &fakeIntervention{}, &fakeReview{},
+		estimation.NewEstimationEngine(), operationestimation.NewOperationEstimationEngine(),
+		billing.NewBillingEngine(), csNewFakePipeline(), &stubRail{}, fakeConstructionTransition{ps}, ps,
+		projectstate.NewDesignSessionAccess(full), csFakeActivityExecution{ps}, &recordingSignalBus{},
+		&fakeEpisodes{}, 0, "", func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef(""), false }, "")
+	v := queryTestRun(t, m, "C-DM")
+	want := make([]string, 0, len(projected))
+	for _, sc := range projected {
+		want = append(want, sc.ID)
+	}
+	if !slices.Equal(v.Missing, want) {
+		t.Fatalf("Missing must be the derived projection in canonical order:\n got %v\nwant %v", v.Missing, want)
+	}
 }

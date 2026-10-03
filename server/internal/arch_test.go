@@ -470,12 +470,21 @@ var encapsulationAllowlistData = map[string][]string{
 	// (projectstate.ProjectStateAccess) and because the drift gate (make
 	// derived-plan-check) reads it. It came across from internal/manager/projectdesign
 	// with the stage-4a collapse; nothing else about it changed.
+	// STREAMING TEST-RUN FILE READ (deterministic component testing, spec §6.3):
+	// TestRunFileReader + TestRunFile are the Manager's ONE read that is not a contract
+	// op — a video/trace/zip byte stream the generated JSON op surface cannot carry. The
+	// composition root (cmd/server/hooks.go handleTestRunFile) mounts
+	// GET /api/v1/delivery/test-run/{runID}/file over the interface behind the same auth
+	// boundary and the same PDP action as query-project-view; the Manager stays the only
+	// caller of artifactAccess, so the layering is unchanged.
 	"internal/manager/delivery": {
 		"MaterializeActivityPlan",
 		"RegisterManagerWorker",
 		"RegisterSchedules",
 		"RegisterWorker",
 		"TaskQueue",
+		"TestRunFile",
+		"TestRunFileReader",
 	},
 	// Temporal registration entrypoints (see delivery). RegisterSchedules registers the
 	// operatedStateReconcile Schedule at startup.
