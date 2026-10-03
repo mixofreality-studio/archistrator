@@ -295,7 +295,21 @@ jobs:
       # results are ALWAYS uploaded and the run is ALWAYS recorded; the record step
       # re-asserts the outcome, so a red scenario still fails the job.
       # Paths are module-root-relative: the seated app module lives at the repo
-      # root (go.mod), so there is no server/ prefix.
+      # root (go.mod), so there is no server/ prefix and -uitests is spelled
+      # (testgen's default ../uitests/generated assumes a server/ subdirectory).
+      #
+      # ONE results tree. The generated playwright.config.gen.ts writes to
+      # uitests/test-results/<component> (../../test-results/<c> relative to
+      # uitests/generated/<c>/), so after the Playwright run that directory is
+      # mirrored into test-results/<component>/: the run record below reads
+      # test-results/<c>/results.json, and the artifact keeps the layout every
+      # consumer was written against (see the upload step). videoRef/traceRef in
+      # results.json are relative to the component dir, so the copy keeps them.
+      # The runner's default shell is `bash -e`, so each red command's status is
+      # captured instead of aborting the script: a red Go scenario must not skip
+      # the Playwright run, and a red Playwright run must not skip the mirror —
+      # the record is the evidence either way. The step still exits non-zero
+      # when either run failed.
       # -----------------------------------------------------------------------
       - name: Run scenario tests
         if: ${{ inputs.phase == 'integration' }}
@@ -307,15 +321,31 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p test-results
-          go run github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen@v0.11.0 -project .aiarch/state/project.json -root . -check
-          go test ./internal/... -run 'TestScenario_' -json 2>&1 | tee test-results/go-test.jsonl
+          go run github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen@v0.11.0 -project .aiarch/state/project.json -root . -uitests uitests/generated -check
+          status=0
+          go test ./internal/... -run 'TestScenario_' -json 2>&1 | tee test-results/go-test.jsonl || status=$?
           if [ -d "uitests/generated/${AIARCH_COMPONENT_ID}" ]; then
-            (cd uitests && npx playwright install --with-deps chromium && npx playwright test -c "generated/${AIARCH_COMPONENT_ID}/playwright.config.gen.ts")
+            (cd uitests && npx playwright install --with-deps chromium && npx playwright test -c "generated/${AIARCH_COMPONENT_ID}/playwright.config.gen.ts") || status=$?
+            if [ -d "uitests/test-results/${AIARCH_COMPONENT_ID}" ]; then
+              cp -R "uitests/test-results/${AIARCH_COMPONENT_ID}" test-results/
+            fi
           fi
+          exit "${status}"
 
-      # results.json + the go test -json stream + Playwright videos/traces, named
+      # The go test -json stream plus, for a UI client, the mirrored
+      # test-results/<component>/ (results.json, videos, traces), named
       # test-results-<activityId>-<runId> so the run record (below) and the
       # delivery rail's artifact fetch agree on one name.
+      #
+      # ARCHIVE LAYOUT (pinned by TestConstructTemplateHasScenarioSteps):
+      # upload-artifact@v4 roots the zip at the least common ancestor of its
+      # SEARCH PATHS, so this single path yields entries `go-test.jsonl` and
+      # `<component>/results.json` — the same layout the local venue writes
+      # (spec §6.3: .aiarch/test-results/<run>/<component>/results.json) and the
+      # cloud TestRun reader opens (`<component>/results.json`, `go-test.jsonl`).
+      # Adding uitests/test-results/** as a second path would re-root the zip at
+      # the checkout (test-results/go-test.jsonl, uitests/test-results/<c>/...)
+      # for Go-only components too, and split the cloud and local layouts.
       - name: Upload test results
         if: ${{ inputs.phase == 'integration' }}
         uses: actions/upload-artifact@v4
