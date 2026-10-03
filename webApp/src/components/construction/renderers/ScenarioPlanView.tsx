@@ -4,6 +4,7 @@ import Typography from '@mui/material/Typography';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { ArtifactRendererProps } from '../artifactRenderers';
 import { ScenarioBrowser } from './ScenarioBrowser';
+import { scenarioPlanState } from './scenarioSelection.ts';
 
 /**
  * The component's scenario plan (spec §2.4, §3, §6.4 "plan lens") — the `stp`
@@ -18,7 +19,8 @@ import { ScenarioBrowser } from './ScenarioBrowser';
  */
 export function ScenarioPlanView({ t, testing }: ArtifactRendererProps): ReactNode {
   const q = testing?.scenarios;
-  if (q === undefined || q.isLoading) {
+  const state = q === undefined ? 'loading' : scenarioPlanState(q);
+  if (q === undefined || state === 'loading') {
     return (
       <Typography
         data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PLAN_VIEW}
@@ -28,18 +30,31 @@ export function ScenarioPlanView({ t, testing }: ArtifactRendererProps): ReactNo
       </Typography>
     );
   }
-  if (q.error !== null) {
+  if (state === 'error') {
     return (
       <Typography
         data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PLAN_VIEW}
         sx={{ color: t.dangerFg, fontSize: 12.5 }}
       >
-        {`Could not project this component's scenarios: ${q.error.message}`}
+        {`Could not project this component's scenarios: ${q.error?.message ?? ''}`}
+      </Typography>
+    );
+  }
+  if (state === 'unread') {
+    // The container never fired the read: the activity names no component, so
+    // there is nothing to project onto. Not the same as a projection of nothing.
+    return (
+      <Typography
+        data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PLAN_VIEW}
+        sx={{ color: t.muted, fontSize: 12.5 }}
+      >
+        This activity names no component, so no scenarios were projected. The scenario plan is a
+        component&apos;s: the activity&apos;s componentId must resolve before it can be read.
       </Typography>
     );
   }
   const scenarios = q.data ?? [];
-  if (scenarios.length === 0) {
+  if (state === 'empty') {
     return (
       <Typography
         data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PLAN_VIEW}

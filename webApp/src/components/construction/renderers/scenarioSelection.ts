@@ -17,3 +17,27 @@ export function activeScenarioId(
   }
   return scenarios[0]?.id ?? '';
 }
+
+/** A query's state as the plan view takes it (artifactRenderers AsyncArtifactData). */
+export interface ScenarioPlanRead {
+  data: readonly unknown[] | undefined;
+  error: Error | null;
+  isLoading: boolean;
+}
+
+export type ScenarioPlanState = 'loading' | 'error' | 'unread' | 'empty' | 'ready';
+
+/**
+ * WHAT the plan view may say about the scenarios read. The one distinction that
+ * is easy to lose: a DISABLED read (the activity names no component, so the
+ * container never fired it) has react-query's `{isLoading:false, data:undefined}`
+ * shape, which is NOT an empty projection. "No use-case path reaches this
+ * component" is the server's answer — `data: []` — and only that; a read that
+ * never ran is `unread`, and the view says so instead of inventing a finding.
+ */
+export function scenarioPlanState(q: ScenarioPlanRead): ScenarioPlanState {
+  if (q.isLoading) return 'loading';
+  if (q.error !== null) return 'error';
+  if (q.data === undefined) return 'unread';
+  return q.data.length === 0 ? 'empty' : 'ready';
+}
