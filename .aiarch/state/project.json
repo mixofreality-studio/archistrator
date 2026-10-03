@@ -1644,6 +1644,13 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "present-sdp-review",
+                    "kind": "sendSignal",
+                    "label": "Present the SDP review (project options + cost/risk curves) to the architect",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
                     "id": "review-options",
                     "kind": "action",
                     "label": "Architect reviews SDP options + curves; submits decision",
@@ -1657,6 +1664,14 @@
                     "roleName": "",
                     "linkedActorId": null,
                     "decidedBy": "architect-user"
+                  },
+                  {
+                    "id": "note-decision-payload",
+                    "kind": "note",
+                    "label": "Guard binding: [commit] = submitReviewDecision {decision: commit, optionId} where optionId must name one of the presented options; [reject-all + feedback] = {decision: rejectAll} with non-empty feedback. Same payload on web and MCP surfaces (R4).",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "decision"
                   },
                   {
                     "id": "bind-option",
@@ -1680,12 +1695,36 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "sdp-review-committed",
+                    "kind": "objectNode",
+                    "label": "SDP Review (chosen option + build-cost ceiling)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[committed]"
+                  },
+                  {
+                    "id": "construction-work-items-opened",
+                    "kind": "objectNode",
+                    "label": "Construction Work Items",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[opened]"
+                  },
+                  {
                     "id": "revoke-window",
                     "kind": "decision",
                     "label": "Revoke within grace window?",
                     "roleName": "",
                     "linkedActorId": null,
                     "decidedBy": "architect-user"
+                  },
+                  {
+                    "id": "note-grace-window",
+                    "kind": "note",
+                    "label": "Guard binding: [yes] = submitReviewDecision {decision: withdraw} sent while the commitment is still inside its grace window; the binding must arrange a commitment within the window (no wall-clock wait). [no] = no withdraw arrives; the state stays [committed].",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "revoke-window"
                   },
                   {
                     "id": "revoke",
@@ -1695,11 +1734,27 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "sdp-review-revoked",
+                    "kind": "objectNode",
+                    "label": "SDP Review",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[revoked]"
+                  },
+                  {
                     "id": "reject-all",
                     "kind": "action",
                     "label": "Reject all options with feedback; return to project design",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "sdp-review-rejected",
+                    "kind": "objectNode",
+                    "label": "SDP Review (feedback attached)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[rejectAll]"
                   },
                   {
                     "id": "merge",
@@ -1725,6 +1780,12 @@
                   },
                   {
                     "from": "await-decision",
+                    "to": "present-sdp-review",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "present-sdp-review",
                     "to": "review-options",
                     "kind": "controlFlow",
                     "guard": ""
@@ -1749,6 +1810,18 @@
                   },
                   {
                     "from": "commit-option",
+                    "to": "sdp-review-committed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "sdp-review-committed",
+                    "to": "construction-work-items-opened",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "construction-work-items-opened",
                     "to": "revoke-window",
                     "kind": "controlFlow",
                     "guard": ""
@@ -1767,6 +1840,12 @@
                   },
                   {
                     "from": "revoke",
+                    "to": "sdp-review-revoked",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "sdp-review-revoked",
                     "to": "merge",
                     "kind": "controlFlow",
                     "guard": ""
@@ -1779,6 +1858,12 @@
                   },
                   {
                     "from": "reject-all",
+                    "to": "sdp-review-rejected",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "sdp-review-rejected",
                     "to": "merge",
                     "kind": "controlFlow",
                     "guard": ""
@@ -1860,6 +1945,14 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "desired-state-published-a",
+                    "kind": "objectNode",
+                    "label": "Desired Runtime State",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[published]"
+                  },
+                  {
                     "id": "argo-reconcile",
                     "kind": "note",
                     "label": "Infrastructure converges to desired state",
@@ -1872,6 +1965,22 @@
                     "label": "Record the publication and its reason",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "operated-system-recorded-a",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[publication recorded]"
+                  },
+                  {
+                    "id": "publication-reason-note-a",
+                    "kind": "note",
+                    "label": "reason ∈ {operator, deployAfterConstruction, delinquency}; replays are deduplicated on version + applied mutation, so a re-run of the same trigger leaves one publication",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "record-published-a"
                   },
                   {
                     "id": "end-a",
@@ -1916,6 +2025,30 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "operated-system-status-changed",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[status changed]"
+                  },
+                  {
+                    "id": "compute-usage-recorded",
+                    "kind": "objectNode",
+                    "label": "Compute Usage",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[recorded]"
+                  },
+                  {
+                    "id": "intervention-outcome-note",
+                    "kind": "note",
+                    "label": "Intervention decision ∈ {Retry, Escalate}; status is written only on a transition. Escalate has no realized output to the Operator yet (see rationale)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "record-status"
+                  },
+                  {
                     "id": "merge-b",
                     "kind": "merge",
                     "label": "",
@@ -1952,11 +2085,35 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "desired-state-published-c",
+                    "kind": "objectNode",
+                    "label": "Desired Runtime State",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[revised and published]"
+                  },
+                  {
                     "id": "record-published-c",
                     "kind": "action",
                     "label": "Record the publication (automatic scaling)",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "operated-system-recorded-c",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[autoscale publication recorded]"
+                  },
+                  {
+                    "id": "autoscale-decision-note-c",
+                    "kind": "note",
+                    "label": "reason = autoscale; decision ∈ {ScaleUp, ScaleDown, Pause, Resume} (NoChange takes the [yes] branch and records nothing)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "record-published-c"
                   },
                   {
                     "id": "merge-c",
@@ -1988,6 +2145,18 @@
                   },
                   {
                     "from": "record-published-a",
+                    "to": "operated-system-recorded-a",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "operated-system-recorded-a",
+                    "to": "publication-reason-note-a",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "publication-reason-note-a",
                     "to": "end-a",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2024,6 +2193,24 @@
                   },
                   {
                     "from": "record-status",
+                    "to": "operated-system-status-changed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "operated-system-status-changed",
+                    "to": "compute-usage-recorded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "compute-usage-recorded",
+                    "to": "intervention-outcome-note",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "intervention-outcome-note",
                     "to": "merge-b",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2060,12 +2247,30 @@
                   },
                   {
                     "from": "publish-c",
+                    "to": "desired-state-published-c",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "desired-state-published-c",
                     "to": "record-published-c",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "record-published-c",
+                    "to": "operated-system-recorded-c",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "operated-system-recorded-c",
+                    "to": "autoscale-decision-note-c",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "autoscale-decision-note-c",
                     "to": "merge-c",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2084,6 +2289,12 @@
                   },
                   {
                     "from": "publish-a",
+                    "to": "desired-state-published-a",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "desired-state-published-a",
                     "to": "record-published-a",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2142,6 +2353,14 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "note-charge-idempotency",
+                    "kind": "note",
+                    "label": "Charge idempotency key is settle:{customerId}:{cycleId}; a retry through retries-left [yes] reuses the same key, so the binding must assert one settled charge per (customer, cycle), not one per attempt",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "charge-user"
+                  },
+                  {
                     "id": "customer-charged",
                     "kind": "note",
                     "label": "Customer charged for service usage",
@@ -2164,6 +2383,22 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "invoice-paid",
+                    "kind": "objectNode",
+                    "label": "Service invoice",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[paid]"
+                  },
+                  {
+                    "id": "period-closed-paid",
+                    "kind": "objectNode",
+                    "label": "Billing period",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[closed]"
+                  },
+                  {
                     "id": "retries-left",
                     "kind": "decision",
                     "label": "Retries left?",
@@ -2179,11 +2414,43 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "note-escalation-is-state",
+                    "kind": "note",
+                    "label": "Escalation is not a signal in this use case: it is the persistent-delinquency mark on billing state, which the shortfall sweep picks up later. Bind it by asserting the customer-delinquent state; expect no outbound message",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "persistent-decline"
+                  },
+                  {
+                    "id": "customer-delinquent",
+                    "kind": "objectNode",
+                    "label": "Customer billing standing",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[persistently delinquent]"
+                  },
+                  {
                     "id": "record-unpaid",
                     "kind": "action",
                     "label": "Record service invoice (unpaid); close period",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "invoice-unpaid",
+                    "kind": "objectNode",
+                    "label": "Service invoice",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[unpaid]"
+                  },
+                  {
+                    "id": "period-closed-unpaid",
+                    "kind": "objectNode",
+                    "label": "Billing period",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[closed]"
                   },
                   {
                     "id": "merge",
@@ -2227,6 +2494,18 @@
                   },
                   {
                     "from": "record-close",
+                    "to": "invoice-paid",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "invoice-paid",
+                    "to": "period-closed-paid",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "period-closed-paid",
                     "to": "merge",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2251,12 +2530,36 @@
                   },
                   {
                     "from": "persistent-decline",
+                    "to": "note-escalation-is-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-escalation-is-state",
+                    "to": "customer-delinquent",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "customer-delinquent",
                     "to": "record-unpaid",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "record-unpaid",
+                    "to": "invoice-unpaid",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "invoice-unpaid",
+                    "to": "period-closed-unpaid",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "period-closed-unpaid",
                     "to": "merge",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2269,6 +2572,12 @@
                   },
                   {
                     "from": "charge-user",
+                    "to": "note-charge-idempotency",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-charge-idempotency",
                     "to": "charge-succeeded",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2323,11 +2632,35 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "obj-project-repo-adopted",
+                    "kind": "objectNode",
+                    "label": "Project repo",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[adopted, managed design workflow seated]"
+                  },
+                  {
+                    "id": "note-name-as-identity",
+                    "kind": "note",
+                    "label": "Name-as-identity: projectId is the adopted repo's name (owner/name), so the binding derives the expected project id from the repo it prepared, not from a generated id.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "adopt-repo"
+                  },
+                  {
                     "id": "create-head-state",
                     "kind": "action",
                     "label": "Create the project head state",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "obj-project-head-state-created",
+                    "kind": "objectNode",
+                    "label": "Project head state",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[created]"
                   },
                   {
                     "id": "operating-model",
@@ -2343,6 +2676,22 @@
                     "label": "Record the archistrator-operated constraint (platform palette only)",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "obj-operating-model-operated",
+                    "kind": "objectNode",
+                    "label": "Operating model",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[archistratorOperated: platform palette only]"
+                  },
+                  {
+                    "id": "note-operating-model-values",
+                    "kind": "note",
+                    "label": "operatingModel is the enum archistratorOperated | selfOperated. Only the [yes] branch writes the constraint (setOperatingModel); on [no: self-operated] the expected state is that no platform-palette constraint is recorded.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "operating-model"
                   },
                   {
                     "id": "merge-model",
@@ -2364,6 +2713,14 @@
                     "label": "Capture the research input once system design begins",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "obj-research-input-captured",
+                    "kind": "objectNode",
+                    "label": "Research input",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[captured in project head state]"
                   },
                   {
                     "id": "end",
@@ -2394,12 +2751,30 @@
                   },
                   {
                     "from": "adopt-repo",
+                    "to": "obj-project-repo-adopted",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-project-repo-adopted",
+                    "to": "note-name-as-identity",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-name-as-identity",
                     "to": "create-head-state",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "create-head-state",
+                    "to": "obj-project-head-state-created",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-project-head-state-created",
                     "to": "operating-model",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2412,6 +2787,18 @@
                   },
                   {
                     "from": "record-operated",
+                    "to": "obj-operating-model-operated",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-operating-model-operated",
+                    "to": "note-operating-model-values",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-operating-model-values",
                     "to": "merge-model",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2436,6 +2823,12 @@
                   },
                   {
                     "from": "capture-research",
+                    "to": "obj-research-input-captured",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-research-input-captured",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2475,6 +2868,14 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "note-retry-history",
+                    "kind": "note",
+                    "label": "Retry budget and tolerance are read from the cycle's recorded retry history; arrange the history count (and shortfall age) in state to steer intervention-engine to each branch.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "consult-policy"
+                  },
+                  {
                     "id": "retry-budget",
                     "kind": "decision",
                     "label": "Retry budget left?",
@@ -2488,6 +2889,14 @@
                     "label": "Retry the charge under the same settlement idempotency key",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "note-idempotency-key",
+                    "kind": "note",
+                    "label": "The retry reuses the original settlement idempotency key settle:{customerId}:{cycleId}; bind the gateway stub to that exact key so a duplicate charge is detectable.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "recharge"
                   },
                   {
                     "id": "charge-ok",
@@ -2505,6 +2914,14 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "cycle-settled",
+                    "kind": "objectNode",
+                    "label": "SettlementCycle",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[settled]"
+                  },
+                  {
                     "id": "tolerance",
                     "kind": "decision",
                     "label": "Shortfall within tolerance sweeps?",
@@ -2520,11 +2937,34 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "cycle-awaiting-sweep",
+                    "kind": "objectNode",
+                    "label": "SettlementCycle",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[declined, shortfall awaiting next sweep]"
+                  },
+                  {
                     "id": "escalate-delinquent",
                     "kind": "action",
                     "label": "Flag the customer delinquent; escalate to a human; queue the delinquency pause to operations",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "customer-delinquent",
+                    "kind": "objectNode",
+                    "label": "Customer",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[delinquent]"
+                  },
+                  {
+                    "id": "signal-delinquency-escalation",
+                    "kind": "sendSignal",
+                    "label": "Escalate persistent delinquency to the Settlement Manager",
+                    "roleName": "",
+                    "linkedActorId": "settlement-manager"
                   },
                   {
                     "id": "merge-out",
@@ -2550,6 +2990,12 @@
                   },
                   {
                     "from": "consult-policy",
+                    "to": "note-retry-history",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-retry-history",
                     "to": "retry-budget",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2562,6 +3008,12 @@
                   },
                   {
                     "from": "recharge",
+                    "to": "note-idempotency-key",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-idempotency-key",
                     "to": "charge-ok",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2580,6 +3032,12 @@
                   },
                   {
                     "from": "record-settled",
+                    "to": "cycle-settled",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "cycle-settled",
                     "to": "merge-out",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2604,12 +3062,30 @@
                   },
                   {
                     "from": "delay-sweep",
+                    "to": "cycle-awaiting-sweep",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "cycle-awaiting-sweep",
                     "to": "merge-out",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "escalate-delinquent",
+                    "to": "customer-delinquent",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "customer-delinquent",
+                    "to": "signal-delinquency-escalation",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "signal-delinquency-escalation",
                     "to": "merge-out",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2669,11 +3145,35 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "obj-instrument-validated",
+                    "kind": "objectNode",
+                    "label": "Payment instrument",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[validated]"
+                  },
+                  {
+                    "id": "note-validate-idempotency",
+                    "kind": "note",
+                    "label": "Authorization amount is zero (minor units). Idempotency key is validate:{customerId}, so a replayed registration must not authorize twice.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "validate-instrument"
+                  },
+                  {
                     "id": "register-customer",
                     "kind": "action",
                     "label": "Open the customer billing record",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "obj-customer-registered",
+                    "kind": "objectNode",
+                    "label": "Customer billing record",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[registered]"
                   },
                   {
                     "id": "merge-reg",
@@ -2697,11 +3197,35 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "obj-gateway-bound",
+                    "kind": "objectNode",
+                    "label": "Customer billing record",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[gatewayBound]"
+                  },
+                  {
                     "id": "register-schedule",
                     "kind": "action",
                     "label": "Register the recurring settlement-cycle schedule",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "obj-schedule-registered",
+                    "kind": "objectNode",
+                    "label": "Settlement-cycle schedule",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[registered]"
+                  },
+                  {
+                    "id": "note-schedule-id",
+                    "kind": "note",
+                    "label": "Schedule id is closeBillingCycle:<customerId>. Registering again with the same id is a no-op, not a second schedule.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "register-schedule"
                   },
                   {
                     "id": "end",
@@ -2732,12 +3256,30 @@
                   },
                   {
                     "from": "validate-instrument",
+                    "to": "obj-instrument-validated",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-instrument-validated",
+                    "to": "note-validate-idempotency",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-validate-idempotency",
                     "to": "register-customer",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "register-customer",
+                    "to": "obj-customer-registered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-customer-registered",
                     "to": "merge-reg",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2762,12 +3304,30 @@
                   },
                   {
                     "from": "bind-gateway",
+                    "to": "obj-gateway-bound",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-gateway-bound",
                     "to": "register-schedule",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "register-schedule",
+                    "to": "obj-schedule-registered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-schedule-registered",
+                    "to": "note-schedule-id",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-schedule-id",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2822,6 +3382,13 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "design-health-findings-signal",
+                    "kind": "sendSignal",
+                    "label": "Report design-health findings to the architect",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
                     "id": "merge-amend",
                     "kind": "merge",
                     "label": "",
@@ -2836,11 +3403,27 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "use-case-model-amendment-open",
+                    "kind": "objectNode",
+                    "label": "Use-case model",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[amendment session open]"
+                  },
+                  {
                     "id": "redraft-review",
                     "kind": "action",
                     "label": "Redraft with the new use case; architect reviews and approves",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "amended-use-case-draft-approved",
+                    "kind": "objectNode",
+                    "label": "Amended use-case draft",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[staged and approved]"
                   },
                   {
                     "id": "commit-stale",
@@ -2850,11 +3433,43 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "use-case-model-recommitted",
+                    "kind": "objectNode",
+                    "label": "Use-case model",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[committed, revision bumped]"
+                  },
+                  {
+                    "id": "downstream-artifacts-stale",
+                    "kind": "objectNode",
+                    "label": "Downstream committed artifacts",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[stale]"
+                  },
+                  {
                     "id": "reconcile",
                     "kind": "action",
                     "label": "Reconcile each stale artifact: amend it, or acknowledge 'reviewed - unaffected'",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "stale-artifacts-reconciled",
+                    "kind": "objectNode",
+                    "label": "Stale downstream artifacts",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[amended or acknowledged unaffected]"
+                  },
+                  {
+                    "id": "reconcile-ack-note",
+                    "kind": "note",
+                    "label": "The acknowledgement is acknowledgeStaleBasis with the literal 'reviewed — unaffected' (em dash, as in the dynamic view). The diagram label uses a hyphen; bind to the em dash. The acknowledgement is audited, so it is observable state.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "reconcile"
                   },
                   {
                     "id": "replan-check",
@@ -2870,6 +3485,22 @@
                     "label": "Add activities to the plan; recompute floats; recommend a new SDP review",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "replan-trigger-recorded",
+                    "kind": "objectNode",
+                    "label": "Scope-change replan trigger",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[recorded]"
+                  },
+                  {
+                    "id": "replan-async-note",
+                    "kind": "note",
+                    "label": "Replan is asynchronous. This path only records the trigger. Rebuilding the options and recommending the SDP review happen later in the scheduled replan sweep (var-replan-scope-change), so do not expect rebuilt options or an SDP-review signal on this path.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "replan"
                   },
                   {
                     "id": "merge-out",
@@ -2907,6 +3538,12 @@
                   },
                   {
                     "from": "revalidate",
+                    "to": "design-health-findings-signal",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "design-health-findings-signal",
                     "to": "merge-amend",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2925,24 +3562,60 @@
                   },
                   {
                     "from": "reopen-slot",
+                    "to": "use-case-model-amendment-open",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "use-case-model-amendment-open",
                     "to": "redraft-review",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "redraft-review",
+                    "to": "amended-use-case-draft-approved",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "amended-use-case-draft-approved",
                     "to": "commit-stale",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "commit-stale",
+                    "to": "use-case-model-recommitted",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "use-case-model-recommitted",
+                    "to": "downstream-artifacts-stale",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "downstream-artifacts-stale",
                     "to": "reconcile",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "reconcile",
+                    "to": "stale-artifacts-reconciled",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "stale-artifacts-reconciled",
+                    "to": "reconcile-ack-note",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "reconcile-ack-note",
                     "to": "replan-check",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2955,6 +3628,18 @@
                   },
                   {
                     "from": "replan",
+                    "to": "replan-trigger-recorded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "replan-trigger-recorded",
+                    "to": "replan-async-note",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "replan-async-note",
                     "to": "merge-out",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2999,6 +3684,14 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "scope-trigger-captured",
+                    "kind": "objectNode",
+                    "label": "Scope trigger",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[captured]"
+                  },
+                  {
                     "id": "snapshot",
                     "kind": "action",
                     "label": "Snapshot activity exits, float consumed, and the earned-value trend; construction continues against the current network",
@@ -3021,11 +3714,34 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "scope-trigger-routed-to-design",
+                    "kind": "objectNode",
+                    "label": "Scope trigger",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[routed to system design]"
+                  },
+                  {
+                    "id": "notify-returned-to-design",
+                    "kind": "sendSignal",
+                    "label": "Notify the architect: not a scope change, returned to system design",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
                     "id": "reenter",
                     "kind": "action",
                     "label": "Re-enter project design at the affected step (assumptions, activities, or network)",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "amendment-session-open",
+                    "kind": "objectNode",
+                    "label": "Phase-2 amendment session",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[open at affected step]"
                   },
                   {
                     "id": "rebuild-options",
@@ -3042,12 +3758,35 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "sdp-revision-staged",
+                    "kind": "objectNode",
+                    "label": "SDP review revision",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[staged for decision]"
+                  },
+                  {
+                    "id": "signal-sdp-revision-ready",
+                    "kind": "sendSignal",
+                    "label": "Deliver the SDP revision with deltas for the management decision",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
                     "id": "mgmt",
                     "kind": "decision",
                     "label": "Management decision?",
                     "roleName": "",
                     "linkedActorId": null,
                     "decidedBy": "architect-user"
+                  },
+                  {
+                    "id": "mgmt-decision-value-note",
+                    "kind": "note",
+                    "label": "Guard-to-wire mapping for binding: [accept] = submitReviewDecision{decision: approve}; [reject] = {decision: reject}; [defer] must also carry a decisionDate, which ends up in recordSdpReviewOutcome(deferred, decisionDate). The view's call label lists only approve | reject, so the defer value has to be set up explicitly.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "mgmt"
                   },
                   {
                     "id": "adopt",
@@ -3057,6 +3796,22 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "sdp-revision-adopted",
+                    "kind": "objectNode",
+                    "label": "SDP review revision",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[adopted]"
+                  },
+                  {
+                    "id": "committed-network-revised",
+                    "kind": "objectNode",
+                    "label": "Committed network",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[revised option committed; planned earned-value curve reset]"
+                  },
+                  {
                     "id": "record-reject",
                     "kind": "action",
                     "label": "Record the rejection; keep the current commitment",
@@ -3064,11 +3819,35 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "sdp-revision-rejected",
+                    "kind": "objectNode",
+                    "label": "SDP review revision",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[rejected; current commitment stands]"
+                  },
+                  {
                     "id": "flag-risk",
                     "kind": "action",
                     "label": "Document a decision date; flag the project at-risk while deferred",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "sdp-revision-deferred",
+                    "kind": "objectNode",
+                    "label": "SDP review revision",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[deferred until decision date]"
+                  },
+                  {
+                    "id": "project-at-risk",
+                    "kind": "objectNode",
+                    "label": "Project",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[at-risk]"
                   },
                   {
                     "id": "merge-end",
@@ -3095,6 +3874,12 @@
                 "edges": [
                   {
                     "from": "capture-trigger",
+                    "to": "scope-trigger-captured",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "scope-trigger-captured",
                     "to": "snapshot",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3113,6 +3898,18 @@
                   },
                   {
                     "from": "back-to-design",
+                    "to": "scope-trigger-routed-to-design",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "scope-trigger-routed-to-design",
+                    "to": "notify-returned-to-design",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "notify-returned-to-design",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3125,6 +3922,12 @@
                   },
                   {
                     "from": "reenter",
+                    "to": "amendment-session-open",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "amendment-session-open",
                     "to": "rebuild-options",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3137,6 +3940,18 @@
                   },
                   {
                     "from": "present",
+                    "to": "sdp-revision-staged",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "sdp-revision-staged",
+                    "to": "signal-sdp-revision-ready",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "signal-sdp-revision-ready",
                     "to": "mgmt",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3161,18 +3976,48 @@
                   },
                   {
                     "from": "adopt",
+                    "to": "sdp-revision-adopted",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "sdp-revision-adopted",
+                    "to": "committed-network-revised",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "committed-network-revised",
                     "to": "merge-end",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "record-reject",
+                    "to": "sdp-revision-rejected",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "sdp-revision-rejected",
                     "to": "merge-end",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "flag-risk",
+                    "to": "sdp-revision-deferred",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "sdp-revision-deferred",
+                    "to": "project-at-risk",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "project-at-risk",
                     "to": "merge-end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3238,12 +4083,28 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "note-binary-exits",
+                    "kind": "note",
+                    "label": "Earned value counts binary exits only: an activity earns its planned value when it completes, with no partial credit for in-progress work.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "compute-ev"
+                  },
+                  {
                     "id": "enough-points",
                     "kind": "decision",
                     "label": "At least four points recorded?",
                     "roleName": "",
                     "linkedActorId": null,
                     "decidedBy": "estimation-engine"
+                  },
+                  {
+                    "id": "note-four-points",
+                    "kind": "note",
+                    "label": "The trend threshold is a count of recorded points: 4 or more projects EAC and trend, 3 or fewer records the point without one.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "enough-points"
                   },
                   {
                     "id": "project-eac",
@@ -3260,6 +4121,14 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "tracking-point-no-trend",
+                    "kind": "objectNode",
+                    "label": "Tracking point",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[recorded without trend]"
+                  },
+                  {
                     "id": "merge-trend",
                     "kind": "merge",
                     "label": "",
@@ -3272,6 +4141,14 @@
                     "label": "Append the tracking point to the durable progress record",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "progress-record-appended",
+                    "kind": "objectNode",
+                    "label": "Progress record",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[point appended]"
                   },
                   {
                     "id": "off-track",
@@ -3289,11 +4166,26 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "replan-trigger-pending",
+                    "kind": "objectNode",
+                    "label": "Replan trigger",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[pending]"
+                  },
+                  {
                     "id": "merge-out",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "show-weekly-progress",
+                    "kind": "sendSignal",
+                    "label": "Show the week's progress (EV, EAC, trend) to the Architect User",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
                   },
                   {
                     "id": "end",
@@ -3324,6 +4216,12 @@
                   },
                   {
                     "from": "compute-ev",
+                    "to": "note-binary-exits",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-binary-exits",
                     "to": "enough-points",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3348,6 +4246,12 @@
                   },
                   {
                     "from": "no-trend",
+                    "to": "tracking-point-no-trend",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tracking-point-no-trend",
                     "to": "merge-trend",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3360,6 +4264,12 @@
                   },
                   {
                     "from": "record-point",
+                    "to": "progress-record-appended",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "progress-record-appended",
                     "to": "off-track",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3372,6 +4282,12 @@
                   },
                   {
                     "from": "corrective",
+                    "to": "replan-trigger-pending",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "replan-trigger-pending",
                     "to": "merge-out",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3384,6 +4300,12 @@
                   },
                   {
                     "from": "merge-out",
+                    "to": "show-weekly-progress",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "show-weekly-progress",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3430,11 +4352,26 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "note-commit-naming",
+                    "kind": "note",
+                    "label": "Value convention: one commit per mutation, and the commit message names its operation. The binding matches log entries to seeded mutations by operation name and commit order.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "read-commits"
+                  },
+                  {
                     "id": "read-ledger",
                     "kind": "action",
                     "label": "Cross-reference the applied-mutations ledger for idempotent applies",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "show-state-log",
+                    "kind": "sendSignal",
+                    "label": "Present the project state log (commits cross-referenced to applied mutations) to the owner",
+                    "roleName": "",
+                    "linkedActorId": "operator"
                   },
                   {
                     "id": "inspect",
@@ -3452,11 +4389,34 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "note-diff-basis",
+                    "kind": "note",
+                    "label": "Value convention: the diff is typed state at the chosen commit against its first parent, keyed by slot. A root commit diffs against empty state.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "diff-slot"
+                  },
+                  {
+                    "id": "show-slot-diff",
+                    "kind": "sendSignal",
+                    "label": "Present the typed-state diff for the chosen commit to the owner",
+                    "roleName": "",
+                    "linkedActorId": "operator"
+                  },
+                  {
                     "id": "merge-out",
                     "kind": "merge",
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "project-state-unchanged",
+                    "kind": "objectNode",
+                    "label": "Project state",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[unchanged: no new commit, ledger unchanged]"
                   },
                   {
                     "id": "end",
@@ -3481,12 +4441,24 @@
                   },
                   {
                     "from": "read-commits",
+                    "to": "note-commit-naming",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-commit-naming",
                     "to": "read-ledger",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "read-ledger",
+                    "to": "show-state-log",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "show-state-log",
                     "to": "inspect",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3499,6 +4471,18 @@
                   },
                   {
                     "from": "diff-slot",
+                    "to": "note-diff-basis",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-diff-basis",
+                    "to": "show-slot-diff",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "show-slot-diff",
                     "to": "merge-out",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3511,6 +4495,12 @@
                   },
                   {
                     "from": "merge-out",
+                    "to": "project-state-unchanged",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "project-state-unchanged",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3555,6 +4545,21 @@
                     "label": "Owner locates the delivered source from the construction view; the adopted repo already holds the generated source on main",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "show-repo-location",
+                    "kind": "sendSignal",
+                    "label": "Show the owner the adopted repo location and the merged-activity ledger",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
+                    "id": "repo-ref-convention",
+                    "kind": "note",
+                    "label": "Binding convention: the returned location is the adopted repo's provider ref (owner/name) on branch main; the ledger lists only activities whose pull requests are merged. Seed state with at least one merged activity so the output is non-empty",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "show-repo-location"
                   },
                   {
                     "id": "fetch-how",
@@ -3615,6 +4620,18 @@
                   },
                   {
                     "from": "open-repo",
+                    "to": "show-repo-location",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "show-repo-location",
+                    "to": "repo-ref-convention",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "repo-ref-convention",
                     "to": "fetch-how",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3711,6 +4728,13 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "send-app-not-operated",
+                    "kind": "sendSignal",
+                    "label": "Report to the Operator that the app is not operated (FailedPrecondition)",
+                    "roleName": "",
+                    "linkedActorId": "operator"
+                  },
+                  {
                     "id": "read-usage",
                     "kind": "action",
                     "label": "Read observed compute usage for the current cycle",
@@ -3730,6 +4754,13 @@
                     "label": "Render the projection beside current health and SLO status",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "send-cost-projection",
+                    "kind": "sendSignal",
+                    "label": "Return the cost projection (current run-rate, projected monthly cost, what-if scale curve) with health and SLO status to the Operator",
+                    "roleName": "",
+                    "linkedActorId": "operator"
                   },
                   {
                     "id": "end",
@@ -3766,6 +4797,12 @@
                   },
                   {
                     "from": "report-unknown",
+                    "to": "send-app-not-operated",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "send-app-not-operated",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3790,6 +4827,12 @@
                   },
                   {
                     "from": "render",
+                    "to": "send-cost-projection",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "send-cost-projection",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3836,6 +4879,14 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "note-live-review-convention",
+                    "kind": "note",
+                    "label": "'Live review' means the artifact is staged on an open session branch; a committed artifact (on main only) takes the [no: committed] branch",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "artifact-state"
+                  },
+                  {
                     "id": "append-session-branch",
                     "kind": "action",
                     "label": "Append question entries to the durable review thread on the session branch",
@@ -3843,11 +4894,27 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "thread-open-on-session-branch",
+                    "kind": "objectNode",
+                    "label": "ReviewThread",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[question entries open on session branch]"
+                  },
+                  {
                     "id": "seed-main-thread",
                     "kind": "action",
                     "label": "Seed a question-only thread on main; no amendment session opens",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "thread-seeded-on-main",
+                    "kind": "objectNode",
+                    "label": "ReviewThread",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[question-only thread on main; no amendment session]"
                   },
                   {
                     "id": "merge-recorded",
@@ -3878,11 +4945,27 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "question-answered",
+                    "kind": "objectNode",
+                    "label": "ReviewQuestion",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[answered]"
+                  },
+                  {
                     "id": "remain-open",
                     "kind": "action",
                     "label": "Questions stay recorded, unanswered; the addressee can be re-prompted",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "question-still-open",
+                    "kind": "objectNode",
+                    "label": "ReviewQuestion",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[open, re-promptable]"
                   },
                   {
                     "id": "merge-answered",
@@ -3897,6 +4980,21 @@
                     "label": "Open questions warn at the approve gate but never block it",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "note-open-tally-convention",
+                    "kind": "note",
+                    "label": "Open-question tally counts question entries whose status is not 'answered'; a non-zero tally warns but the approve gate stays enabled",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "approve-unblocked"
+                  },
+                  {
+                    "id": "warn-open-questions",
+                    "kind": "sendSignal",
+                    "label": "Warn the reviewer of open questions at the approve gate",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
                   },
                   {
                     "id": "end",
@@ -3933,12 +5031,24 @@
                   },
                   {
                     "from": "append-session-branch",
+                    "to": "thread-open-on-session-branch",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "thread-open-on-session-branch",
                     "to": "merge-recorded",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "seed-main-thread",
+                    "to": "thread-seeded-on-main",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "thread-seeded-on-main",
                     "to": "merge-recorded",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3969,12 +5079,24 @@
                   },
                   {
                     "from": "record-answers",
+                    "to": "question-answered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "question-answered",
                     "to": "merge-answered",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "remain-open",
+                    "to": "question-still-open",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "question-still-open",
                     "to": "merge-answered",
                     "kind": "controlFlow",
                     "guard": ""
@@ -3987,6 +5109,18 @@
                   },
                   {
                     "from": "approve-unblocked",
+                    "to": "note-open-tally-convention",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-open-tally-convention",
+                    "to": "warn-open-questions",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "warn-open-questions",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4026,6 +5160,14 @@
                     "linkedActorId": "architect-user"
                   },
                   {
+                    "id": "note-comment-anchor",
+                    "kind": "note",
+                    "label": "Each change request is anchored by a jsonPath into the staged artifact plus the quoted anchorText. A per-comment response binds to its request through replyTo = the request's commentId, not through position in the thread.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "anchor-comments"
+                  },
+                  {
                     "id": "send-back",
                     "kind": "action",
                     "label": "Send the draft back; open change requests now gate approve",
@@ -4033,11 +5175,27 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "obj-draft-sent-back",
+                    "kind": "objectNode",
+                    "label": "Staged draft",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[rejected: open change requests gate approve]"
+                  },
+                  {
                     "id": "retain-thread",
                     "kind": "action",
                     "label": "Comments persist in the durable review thread on the session branch",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "obj-thread-open",
+                    "kind": "objectNode",
+                    "label": "Review thread",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[change requests open, retained on session branch]"
                   },
                   {
                     "id": "redraft",
@@ -4054,11 +5212,34 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "obj-thread-answered",
+                    "kind": "objectNode",
+                    "label": "Review thread",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[every change request has a response]"
+                  },
+                  {
                     "id": "restage",
                     "kind": "action",
                     "label": "Amended draft re-staged for review",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "obj-draft-restaged",
+                    "kind": "objectNode",
+                    "label": "Amended draft",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[staged for review]"
+                  },
+                  {
+                    "id": "signal-present-amended-draft",
+                    "kind": "sendSignal",
+                    "label": "Present the amended draft and per-comment responses to the reviewer",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
                   },
                   {
                     "id": "re-review",
@@ -4083,6 +5264,14 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "obj-thread-resolved",
+                    "kind": "objectNode",
+                    "label": "Change requests",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[resolved: approve unblocked]"
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -4099,18 +5288,36 @@
                   },
                   {
                     "from": "anchor-comments",
+                    "to": "note-comment-anchor",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-comment-anchor",
                     "to": "send-back",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "send-back",
+                    "to": "obj-draft-sent-back",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-draft-sent-back",
                     "to": "retain-thread",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "retain-thread",
+                    "to": "obj-thread-open",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-thread-open",
                     "to": "redraft",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4123,12 +5330,30 @@
                   },
                   {
                     "from": "respond-per-comment",
+                    "to": "obj-thread-answered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-thread-answered",
                     "to": "restage",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "restage",
+                    "to": "obj-draft-restaged",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-draft-restaged",
+                    "to": "signal-present-amended-draft",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "signal-present-amended-draft",
                     "to": "re-review",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4153,6 +5378,12 @@
                   },
                   {
                     "from": "close-comments",
+                    "to": "obj-thread-resolved",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-thread-resolved",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4199,6 +5430,14 @@
                     "linkedActorId": "operator"
                   },
                   {
+                    "id": "note-resume-run-state",
+                    "kind": "note",
+                    "label": "Resume is setProjectRunState(projectId, running, reason): the run-state value is the literal 'running' and reason must be non-empty (Go-side non-emptiness guard); MCP and web surfaces bind to the same Manager entry.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "choose-resume"
+                  },
+                  {
                     "id": "pause-settled",
                     "kind": "decision",
                     "label": "Is the pause fully applied?",
@@ -4206,11 +5445,27 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "note-pause-settled",
+                    "kind": "note",
+                    "label": "'Fully applied' is read from readProject (phase + operatorPaused); the [no] branch needs the binding to arrange a pause still in flight, so this decision is internal and the step is a Hook candidate.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "pause-settled"
+                  },
+                  {
                     "id": "record-resume",
                     "kind": "action",
                     "label": "Record that construction is resumed; the pause is cleared",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "run-state-running",
+                    "kind": "objectNode",
+                    "label": "Project run state",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[running]"
                   },
                   {
                     "id": "pump-fires",
@@ -4227,11 +5482,27 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "activity-started",
+                    "kind": "objectNode",
+                    "label": "Project activity",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[started]"
+                  },
+                  {
                     "id": "retry-later",
                     "kind": "action",
                     "label": "Tell the operator the pause is still being applied; try again",
                     "roleName": "Operator",
                     "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "run-state-still-paused",
+                    "kind": "objectNode",
+                    "label": "Project run state",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[paused]"
                   },
                   {
                     "id": "end",
@@ -4256,6 +5527,12 @@
                   },
                   {
                     "from": "choose-resume",
+                    "to": "note-resume-run-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-resume-run-state",
                     "to": "pause-settled",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4274,6 +5551,12 @@
                   },
                   {
                     "from": "record-resume",
+                    "to": "run-state-running",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "run-state-running",
                     "to": "pump-fires",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4286,12 +5569,24 @@
                   },
                   {
                     "from": "continue",
+                    "to": "activity-started",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "activity-started",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
                     "from": "retry-later",
+                    "to": "run-state-still-paused",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "run-state-still-paused",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4345,6 +5640,38 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "activity-reopened-state",
+                    "kind": "objectNode",
+                    "label": "Construction Activity",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[reopened]"
+                  },
+                  {
+                    "id": "failed-attempt-kept-state",
+                    "kind": "objectNode",
+                    "label": "Failed Attempt",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[on record]"
+                  },
+                  {
+                    "id": "requeue-note-pending-state",
+                    "kind": "objectNode",
+                    "label": "Operator Note",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[pending delivery]"
+                  },
+                  {
+                    "id": "requeue-note-binding-hint",
+                    "kind": "note",
+                    "label": "The requeue note is recorded with kind=requeue (wire name \"requeue\", not \"retry\") under gate \"reopen\". Its noteId is keyed to the terminal exit stamp it re-opens, so re-submitting the same re-queue is idempotent. The precondition accepts terminal rows only (failed, done, completedNotLanded); a live row is refused with FailedPrecondition. The failed attempt's outcome is never rewritten: the attempts[] count and the last outcome stay unchanged after the re-queue.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "record-reopen"
+                  },
+                  {
                     "id": "pump-fires",
                     "kind": "timeEvent",
                     "label": "Construction pump comes due",
@@ -4357,6 +5684,30 @@
                     "label": "The activity resumes at its first incomplete phase; the note is delivered to its next attempt",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "activity-resumed-state",
+                    "kind": "objectNode",
+                    "label": "Construction Activity",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[in progress at first incomplete phase]"
+                  },
+                  {
+                    "id": "requeue-note-delivered-state",
+                    "kind": "objectNode",
+                    "label": "Operator Note",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[delivered]"
+                  },
+                  {
+                    "id": "resume-binding-hint",
+                    "kind": "note",
+                    "label": "Resume point = the first lifecycle phase without a passed attempt, not phase 0. Phases that already passed keep their attempts and are not re-dispatched. 'Delivered' means the note's deliveredToAttemptId equals the new attempt's attemptId.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "resume-activity"
                   },
                   {
                     "id": "end",
@@ -4387,6 +5738,30 @@
                   },
                   {
                     "from": "record-reopen",
+                    "to": "activity-reopened-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "activity-reopened-state",
+                    "to": "failed-attempt-kept-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "failed-attempt-kept-state",
+                    "to": "requeue-note-pending-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "requeue-note-pending-state",
+                    "to": "requeue-note-binding-hint",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "requeue-note-binding-hint",
                     "to": "pump-fires",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4399,6 +5774,24 @@
                   },
                   {
                     "from": "resume-activity",
+                    "to": "activity-resumed-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "activity-resumed-state",
+                    "to": "requeue-note-delivered-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "requeue-note-delivered-state",
+                    "to": "resume-binding-hint",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "resume-binding-hint",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4449,6 +5842,14 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "activity-lifecycle-open",
+                    "kind": "objectNode",
+                    "label": "ActivityExecution",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[lifecycle open, revision 1]"
+                  },
+                  {
                     "id": "next-task",
                     "kind": "action",
                     "label": "Take the next ready task of the activity's lifecycle DAG",
@@ -4477,6 +5878,22 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "staged-artifact",
+                    "kind": "objectNode",
+                    "label": "Task artifact",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[staged on activity branch]"
+                  },
+                  {
+                    "id": "attempt-episode",
+                    "kind": "objectNode",
+                    "label": "Agentic episode",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[appended to episode ledger]"
+                  },
+                  {
                     "id": "exit-met",
                     "kind": "decision",
                     "label": "Exit criterion met?",
@@ -4499,6 +5916,14 @@
                     "linkedActorId": "operator"
                   },
                   {
+                    "id": "operator-note-recorded",
+                    "kind": "objectNode",
+                    "label": "Operator note",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[recorded on activity]"
+                  },
+                  {
                     "id": "operator-intervened",
                     "kind": "decision",
                     "label": "Operator intervened?",
@@ -4512,6 +5937,14 @@
                     "label": "Determine the reviewer set and whether a human must decide",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "review-pr-open",
+                    "kind": "objectNode",
+                    "label": "Pull request",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[open: activity branch -> main]"
                   },
                   {
                     "id": "requires-human",
@@ -4543,11 +5976,35 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "note-sendback-revision",
+                    "kind": "note",
+                    "label": "sendBack reopens the judged task as revision n+1 on the same activity branch; the revision counter is the bound value, the prior staged artifact is not committed.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "verdict"
+                  },
+                  {
                     "id": "commit-artifact",
                     "kind": "action",
                     "label": "Commit the staged artifact; the gate passes; the LifecyclePhase is earned",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "artifact-committed",
+                    "kind": "objectNode",
+                    "label": "Task artifact",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[committed]"
+                  },
+                  {
+                    "id": "review-pr-merged",
+                    "kind": "objectNode",
+                    "label": "Pull request",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[approved, merged]"
                   },
                   {
                     "id": "merge-advance",
@@ -4562,6 +6019,30 @@
                     "label": "Record binary exit; recompute earned value and projection",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "activity-exit-recorded",
+                    "kind": "objectNode",
+                    "label": "Activity",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[exited: LifecyclePhase earned]"
+                  },
+                  {
+                    "id": "earned-value-recomputed",
+                    "kind": "objectNode",
+                    "label": "Earned-value projection",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[recomputed]"
+                  },
+                  {
+                    "id": "note-binary-exit",
+                    "kind": "note",
+                    "label": "Exit is binary (done / not done); no percent-complete value is ever recorded. Earned value counts only exited activities against the committed network.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "record-exit"
                   },
                   {
                     "id": "end",
@@ -4586,6 +6067,12 @@
                   },
                   {
                     "from": "activity-eligible",
+                    "to": "activity-lifecycle-open",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "activity-lifecycle-open",
                     "to": "next-task",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4616,6 +6103,18 @@
                   },
                   {
                     "from": "observe-validate",
+                    "to": "staged-artifact",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "staged-artifact",
+                    "to": "attempt-episode",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "attempt-episode",
                     "to": "exit-met",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4646,6 +6145,12 @@
                   },
                   {
                     "from": "escalate-operator",
+                    "to": "operator-note-recorded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "operator-note-recorded",
                     "to": "operator-intervened",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4664,6 +6169,12 @@
                   },
                   {
                     "from": "propose-reviews",
+                    "to": "review-pr-open",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "review-pr-open",
                     "to": "requires-human",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4706,6 +6217,18 @@
                   },
                   {
                     "from": "commit-artifact",
+                    "to": "artifact-committed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "artifact-committed",
+                    "to": "review-pr-merged",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "review-pr-merged",
                     "to": "merge-advance",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4718,6 +6241,24 @@
                   },
                   {
                     "from": "record-exit",
+                    "to": "activity-exit-recorded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "activity-exit-recorded",
+                    "to": "earned-value-recomputed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "earned-value-recomputed",
+                    "to": "note-binary-exit",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-binary-exit",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
