@@ -58,3 +58,12 @@ Same stages as Plan 3 §Task 2 with these changes: binding agents bind the **ful
 ### Task 7: report + merge checklist
 
 `docs/bugs/2026-10-03-dct-plan4-report.md`; the branch is merge-ready when Task 6's gates hold. Merge to main stays manual (coordinate with session 6b).
+
+### Task 8: Every API has a use case — permanent gate for every project (founder, 2026-10-04)
+
+Plan 1 made `TP-OP-REACHED` a Warning, so `methodcheck.Check` only logs it and no other project is ever blocked. Make the A5 ruling enforced everywhere:
+
+- **framework-go/methodcheck:** `TP-OP-REACHED` → `SeverityError`, with the message naming the contract, the op, and the fix ("add the op's call to a use case's dynamic view, or delete the op"). It runs in `ValidateProject`, so it is enforced (1) by `methodcheck.Check` in every app repo (scaffolded `aiarch_method_test.go` → `go-checks.yml` → `go test ./...`), (2) by the aiarch-state MCP write path, which validates with methodcheck: `recordServiceContract` / `putDraftModel` / `recordPhaseArtifact` reject a write that leaves an op unreached, and (3) by design health in the webApp. Tests: a fixture project with one unreached op → exactly one Error finding; with that op called from a dynamic view → none; `Check` fails the test on it.
+- **Ordering edge:** a project whose slot 4 / slot 5 is not yet committed has no scenarios at all; the rule must not fire until both are committed (otherwise every contract written before architecture would be rejected). Test that case.
+- **method-assets:** the `the-method-service-contract` skill and `service-detailed-design` command state the rule ("every operation you add must be called by a use case's dynamic view; add the call or don't add the op").
+- Release `framework-go/v0.15.0` and `method-assets/v0.10.2`; after the Plan 4 workflow's integrate stage, bump archistrator's pins and confirm `make method-check` stays green (the branch is at 0 unreached).
