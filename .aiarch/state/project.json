@@ -38533,7 +38533,400 @@
       },
       "artifactAccess": {
         "component": "artifactAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StoreConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "content",
+                    "value": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDEiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsibWFpbi5nbyJdfQ==\",\"MIMEType\":\"application/json\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "RetrieveConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "contentAddress",
+                    "value": "sha-from-store-step",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDEiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsibWFpbi5nbyJdfQ==\",\"MIMEType\":\"application/json\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StoreConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "content",
+                    "value": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDIiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsiaGFuZGxlci5nbyJdfQ==\",\"MIMEType\":\"application/json\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "RetrieveConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "contentAddress",
+                    "value": "sha-from-store-step",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDIiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsiaGFuZGxlci5nbyJdfQ==\",\"MIMEType\":\"application/json\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetTestRunIndex",
+                "inputs": [
+                  {
+                    "name": "run",
+                    "value": "{\"RunID\":\"stp-artifact-P3-run-0001\",\"Artifact\":\"scenario-results\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Expired\":false,\"Files\":[\"results.json\",\"scenarios/execute-a-project-activity-P3.log\"]}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetTestRunIndex",
+                "inputs": [
+                  {
+                    "name": "run",
+                    "value": "{\"RunID\":\"stp-artifact-P4-run-0001\",\"Artifact\":\"scenario-results\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Expired\":false,\"Files\":[\"results.json\",\"scenarios/execute-a-project-activity-P4.log\"]}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadTestRunFile",
+                "inputs": [
+                  {
+                    "name": "run",
+                    "value": "{\"RunID\":\"stp-artifact-P4-run-0001\",\"Artifact\":\"scenario-results\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "path",
+                    "value": "scenarios/execute-a-project-activity-P4.log",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"LS0tIFBBU1M6IGV4ZWN1dGUtYS1wcm9qZWN0LWFjdGl2aXR5LVA0Cg==\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StoreConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "content",
+                    "value": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDUiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsic3RvcmUuZ28iXX0=\",\"MIMEType\":\"application/json\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "RetrieveConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "contentAddress",
+                    "value": "sha-from-store-step",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDUiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsic3RvcmUuZ28iXX0=\",\"MIMEType\":\"application/json\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "StoreConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "content",
+                    "value": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDUiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MiwiZmlsZXMiOlsic3RvcmUuZ28iLCJzdG9yZV9maXguZ28iXX0=\",\"MIMEType\":\"application/json\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "RetrieveConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "contentAddress",
+                    "value": "sha-from-store-step-3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDUiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MiwiZmlsZXMiOlsic3RvcmUuZ28iLCJzdG9yZV9maXguZ28iXX0=\",\"MIMEType\":\"application/json\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StoreConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "content",
+                    "value": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDYiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsiZW5naW5lLmdvIl19\",\"MIMEType\":\"application/json\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "RetrieveConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "contentAddress",
+                    "value": "sha-from-store-step",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDYiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsiZW5naW5lLmdvIl19\",\"MIMEType\":\"application/json\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetTestRunIndex",
+                "inputs": [
+                  {
+                    "name": "run",
+                    "value": "{\"RunID\":\"stp-artifact-P7-run-0001\",\"Artifact\":\"scenario-results\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Expired\":false,\"Files\":[\"results.json\",\"scenarios/execute-a-project-activity-P7.log\"]}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "StoreConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "content",
+                    "value": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDciLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MiwiZmlsZXMiOlsiY2xpZW50LmdvIl19\",\"MIMEType\":\"application/json\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "RetrieveConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "contentAddress",
+                    "value": "sha-from-store-step-2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDciLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MiwiZmlsZXMiOlsiY2xpZW50LmdvIl19\",\"MIMEType\":\"application/json\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RetrieveConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "contentAddress",
+                    "value": "sha-of-hook-arranged-output",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHN0cC1vcGVyYXRlZC1hcHAK\",\"MIMEType\":\"application/yaml\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RetrieveConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "contentAddress",
+                    "value": "sha-of-hook-arranged-output",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"YXBpVmVyc2lvbjogdjEKa2luZDogU2VydmljZQptZXRhZGF0YToKICBuYW1lOiBzdHAtaGVhbHRoLWFwcAo=\",\"MIMEType\":\"application/yaml\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
       },
       "autoscalerEngine": {
         "component": "autoscalerEngine",
