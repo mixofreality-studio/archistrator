@@ -47196,7 +47196,1027 @@
       },
       "operatedSystemStateAccess": {
         "component": "operatedSystemStateAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadInFlightOperatedApps",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":1}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "read-customer-systems",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadInFlightOperatedApps",
+                    "inputs": [
+                      {
+                        "name": "scope",
+                        "value": "{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":1}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordDelinquencyAction",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-osa-delinq-1-2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-delinquency",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":2}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "system-delinquency-recorded",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":2}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadInFlightOperatedApps",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":1}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "read-customer-systems",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadInFlightOperatedApps",
+                    "inputs": [
+                      {
+                        "name": "scope",
+                        "value": "{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":1}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordDelinquencyAction",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-osa-delinq-2-2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-delinquency",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":2}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "system-delinquency-recorded",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":2}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":1,\"InFlight\":true,\"DeployableBundleRef\":\"bundle-osa-0003\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "PublishDesiredState",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "reason",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-osa-op-P1-2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-published-a",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000003",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "operated-system-recorded-a",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000003",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadInFlightOperatedApps",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"AppIDs\":[\"0c5a0000-0000-4000-8000-000000000004\"]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000004\",\"Version\":1}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadInFlightOperatedApps",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"AppIDs\":[\"0c5a0000-0000-4000-8000-000000000005\"]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":1}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000005",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":1,\"InFlight\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "PublishDesiredState",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000005",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "reason",
+                    "value": "3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"Action\":1,\"Delta\":1,\"ToBaseline\":0}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-osa-op-P3-3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "operated-system-recorded-c",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000005",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":2,\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadInFlightOperatedApps",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"AppIDs\":[\"0c5a0000-0000-4000-8000-000000000006\"]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000006\",\"Version\":1}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordRuntimeStatusChange",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000006",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "status",
+                    "value": "3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-osa-op-P4-2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-status",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000006",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000006\",\"Version\":2,\"Status\":3,\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadInFlightOperatedApps",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"AppIDs\":[\"0c5a0000-0000-4000-8000-000000000007\"]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":1}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordRuntimeStatusChange",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000007",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "status",
+                    "value": "3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-osa-op-P5-2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-status",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000007",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":2,\"Status\":3}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000007",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":2,\"Status\":3,\"InFlight\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "PublishDesiredState",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000007",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "reason",
+                    "value": "3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"Action\":2,\"Delta\":1,\"ToBaseline\":0}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-osa-op-P5-4",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "operated-system-recorded-c",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000007",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":3,\"Status\":3,\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "register-a-delivered-system-for-operation-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RegisterOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000008",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "customerID",
+                    "value": "0c5ac000-0000-4000-8000-000000000008",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "projectRef",
+                    "value": "proj-osa-0008",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "deployableBundleRef",
+                    "value": "bundle-osa-0008",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-osa-reg-P1-1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "seed-head-state",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000008",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\",\"Version\":1,\"InFlight\":true,\"ProjectRef\":\"proj-osa-0008\",\"DeployableBundleRef\":\"bundle-osa-0008\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "system-registered",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-000000000008",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\",\"Version\":1,\"InFlight\":true,\"ProjectRef\":\"proj-osa-0008\",\"DeployableBundleRef\":\"bundle-osa-0008\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadInFlightOperatedApps",
+                    "inputs": [
+                      {
+                        "name": "scope",
+                        "value": "{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"Version\":1}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "confirm-registered"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-000000000009",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000009\",\"InFlight\":true,\"ProjectRef\":\"proj-osa-0009\",\"DeployableBundleRef\":\"bundle-osa-0009\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-live-deployment-health-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-00000000000a",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"0c5a0000-0000-4000-8000-00000000000a\",\"ProjectRef\":\"proj-osa-000a\",\"DeployableBundleRef\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "send-nothing-deployed"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-operating-cost-projection-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-00000000000b",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"0c5a0000-0000-4000-8000-00000000000b\",\"Version\":1,\"InFlight\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadInFlightOperatedApps",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"AppIDs\":[\"0c5a0000-0000-4000-8000-00000000000b\"]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-00000000000b\",\"Version\":1}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "send-cost-projection"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-operating-cost-projection-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-00000000000c",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "NotFound"
+                },
+                "probes": [],
+                "unobservable": [
+                  "send-app-not-operated"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-00000000000d",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"0c5a0000-0000-4000-8000-00000000000d\",\"Version\":2,\"Status\":4,\"InFlight\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "send-withdrawn"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-00000000000e",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"0c5a0000-0000-4000-8000-00000000000e\",\"Version\":1,\"InFlight\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "WithdrawSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "0c5a0000-0000-4000-8000-00000000000e",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-osa-wd-P2-2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-withdrawn",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-00000000000e",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-00000000000e\",\"Version\":2,\"Status\":4,\"InFlight\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "operated-system-withdrawn",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "0c5a0000-0000-4000-8000-00000000000e",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-00000000000e\",\"Version\":2,\"Status\":4,\"InFlight\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadInFlightOperatedApps",
+                    "inputs": [
+                      {
+                        "name": "scope",
+                        "value": "{\"AppIDs\":[\"0c5a0000-0000-4000-8000-00000000000e\"]}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "send-withdrawn"
+                ],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "operationEstimationEngine": {
         "component": "operationEstimationEngine",
