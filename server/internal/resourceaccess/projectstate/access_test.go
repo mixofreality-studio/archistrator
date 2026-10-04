@@ -5229,7 +5229,9 @@ type altCallKey struct {
 // uc4-operate-delivered-system publish-trigger — 12 entries), extended by the
 // Task-9 architect spec's §3a/§3b/§3c/§4 batch-2 authoring (uc1's
 // read-prior-models + human-gate retrofit, uc2's revoke patch (Ruling A1),
-// uc3's escalate-operator patch (Ruling A3), and the four newly realized
+// uc3's escalate-operator patch (Ruling A3; the steer's entry pairs moved to
+// operator-steers when dct4 round 3 retyped escalate-operator to a sendSignal, which
+// carries no calls), and the four newly realized
 // views' both-surface entry steps — +40 entries, 52 total), further extended
 // by the Task-10 architect spec's §4 batch-3 authoring (the final seven
 // views' both-surface entry steps, R-1/R-2 — +48 entries, 100 total),
@@ -5341,10 +5343,10 @@ var wantAltTally = map[altCallKey]string{
 	{"uc-execute-project-activity", "activity-eligible", "architect-user", "mcp-client"}:    "s1",
 	{"uc-execute-project-activity", "activity-eligible", "web-client", "delivery-manager"}:  "s2",
 	{"uc-execute-project-activity", "activity-eligible", "mcp-client", "delivery-manager"}:  "s2",
-	{"uc-execute-project-activity", "escalate-operator", "operator", "web-client"}:          "s1",
-	{"uc-execute-project-activity", "escalate-operator", "operator", "mcp-client"}:          "s1",
-	{"uc-execute-project-activity", "escalate-operator", "web-client", "delivery-manager"}:  "s2",
-	{"uc-execute-project-activity", "escalate-operator", "mcp-client", "delivery-manager"}:  "s2",
+	{"uc-execute-project-activity", "operator-steers", "operator", "web-client"}:            "s1",
+	{"uc-execute-project-activity", "operator-steers", "operator", "mcp-client"}:            "s1",
+	{"uc-execute-project-activity", "operator-steers", "web-client", "delivery-manager"}:    "s2",
+	{"uc-execute-project-activity", "operator-steers", "mcp-client", "delivery-manager"}:    "s2",
 	{"uc-execute-project-activity", "human-decision", "architect-user", "web-client"}:       "s1",
 	{"uc-execute-project-activity", "human-decision", "architect-user", "mcp-client"}:       "s1",
 	{"uc-execute-project-activity", "human-decision", "web-client", "delivery-manager"}:     "s2",

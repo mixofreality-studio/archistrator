@@ -6002,8 +6002,15 @@
                   },
                   {
                     "id": "escalate-operator",
+                    "kind": "sendSignal",
+                    "label": "Escalate to the operator: the activity's retries are exhausted and it needs a steer",
+                    "roleName": "",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "operator-steers",
                     "kind": "action",
-                    "label": "Escalate to the operator; the steer is kept on the activity and delivered to its next attempt",
+                    "label": "The operator steers the activity (retry | skip | takeover); the steer is kept on the activity and delivered to its next attempt",
                     "roleName": "Operator",
                     "linkedActorId": "operator"
                   },
@@ -6252,6 +6259,12 @@
                   },
                   {
                     "from": "escalate-operator",
+                    "to": "operator-steers",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "operator-steers",
                     "to": "operator-note-recorded",
                     "kind": "controlFlow",
                     "guard": ""
@@ -10572,14 +10585,8 @@
                 ]
               },
               {
-                "activityNodeId": "escalate-operator",
+                "activityNodeId": "operator-steers",
                 "calls": [
-                  {
-                    "from": "delivery-manager",
-                    "to": "project-state-access",
-                    "mode": "sync",
-                    "label": "RecordOperatorNote(projectId, activityId, {noteId, kind: retry|takeover|reassign|skip, gate, text, comments}, deliveredToAttemptId) — the escalation's steer is recorded on the activity, not held in a workflow variable"
-                  },
                   {
                     "from": "operator",
                     "to": "web-client",
@@ -10607,6 +10614,12 @@
                     "mode": "sync",
                     "label": "overrideActivity(projectId, activityId, override) — same Manager entry",
                     "alt": "s2"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "RecordOperatorNote(projectId, activityId, {noteId, kind: retry|takeover|reassign|skip, gate, text, comments}, deliveredToAttemptId) — the escalation's steer is recorded on the activity, not held in a workflow variable"
                   }
                 ]
               },
@@ -10765,7 +10778,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "RecordActivityCIObserved(projectId, activityId, ciRollup) — the merge guard: the PR's required-check rollup is mirrored onto the activity's git row before mergePullRequest; nothing merges over a red build, and a refused merge (MergeBlockedByCI / MergeBranchReconciled) leaves its reason readable off project state"
+                    "label": "RecordActivityCIObserved(projectId, expectedVersion, activityId, ciRollup, cred) — the merge guard: the PR's required-check rollup is mirrored onto the activity's git row before mergePullRequest; nothing merges over a red build, and a refused merge (MergeBlockedByCI / MergeBranchReconciled) leaves its reason readable off project state"
                   },
                   {
                     "from": "delivery-manager",
