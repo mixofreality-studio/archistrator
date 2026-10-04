@@ -5392,10 +5392,16 @@ var wantAltTally = map[altCallKey]string{
 	{"var-replan-scope-change", "reenter", "architect-user", "mcp-client"}:             "s1",
 	{"var-replan-scope-change", "reenter", "web-client", "delivery-manager"}:           "s2",
 	{"var-replan-scope-change", "reenter", "mcp-client", "delivery-manager"}:           "s2",
-	{"var-view-billing-cycle", "open-billing-cycle", "architect-user", "web-client"}:   "s1",
-	{"var-view-billing-cycle", "open-billing-cycle", "architect-user", "mcp-client"}:   "s1",
-	{"var-view-billing-cycle", "read-billing-cycle", "web-client", "billing-manager"}:  "s2",
-	{"var-view-billing-cycle", "read-billing-cycle", "mcp-client", "billing-manager"}:  "s2",
+	// Task 5 review: the architect's [yes] (an architecture change) reaches the system
+	// as a client call too — the System re-dispatch at back-to-design.
+	{"var-replan-scope-change", "back-to-design", "architect-user", "web-client"}:     "s1",
+	{"var-replan-scope-change", "back-to-design", "architect-user", "mcp-client"}:     "s1",
+	{"var-replan-scope-change", "back-to-design", "web-client", "delivery-manager"}:   "s2",
+	{"var-replan-scope-change", "back-to-design", "mcp-client", "delivery-manager"}:   "s2",
+	{"var-view-billing-cycle", "open-billing-cycle", "architect-user", "web-client"}:  "s1",
+	{"var-view-billing-cycle", "open-billing-cycle", "architect-user", "mcp-client"}:  "s1",
+	{"var-view-billing-cycle", "read-billing-cycle", "web-client", "billing-manager"}: "s2",
+	{"var-view-billing-cycle", "read-billing-cycle", "mcp-client", "billing-manager"}: "s2",
 }
 
 // TestCommittedProjectJSON_DynamicViewCalls_Alt is the tolerant-decode regression
@@ -5406,7 +5412,7 @@ var wantAltTally = map[altCallKey]string{
 // dynamic views now realized), rather than only asserting absence: a call
 // that never mentions "alt" must decode EXACTLY as it did before the field
 // existed (Alt reads back nil, not a zero-value string standing in for
-// absence), and a call that IS one of wantAltTally's 114 entries must decode
+// absence), and a call that IS one of wantAltTally's 154 entries must decode
 // to exactly its authored group value.
 func TestCommittedProjectJSON_DynamicViewCalls_Alt(t *testing.T) {
 	proj := decodeCommittedProject(t)
