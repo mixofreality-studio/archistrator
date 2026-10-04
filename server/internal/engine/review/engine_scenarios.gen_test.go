@@ -17,8 +17,8 @@ import (
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "reviewEngine") }
 
-// Input_commit_to_a_project_option_P1_1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
-type Input_commit_to_a_project_option_P1_1 struct {
+// inputCommitToAProjectOptionP1S1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
+type inputCommitToAProjectOptionP1S1 struct {
 	Change         review.ReviewChange `json:"change"`
 	ActivityType   review.ActivityType `json:"activityType"`
 	LifecyclePhase string              `json:"lifecyclePhase"`
@@ -30,11 +30,11 @@ type Input_commit_to_a_project_option_P1_1 struct {
 
 // TestScenario_commit_to_a_project_option_P1 — Commit to a Project Option — [commit] · [no] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → merge → end).
 func TestScenario_commit_to_a_project_option_P1(t *testing.T) {
-	h := scenariohost.Start(t, "reviewEngine")
-	h.RunScenario(t, "commit-to-a-project-option-P1", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "reviewEngine", "commit-to-a-project-option-P1", func(t *testing.T) {
 		var subject review.ReviewEngine = newSubject(t, h)
 		// step 1: ProposeReviews (node await-decision; guards decision=[commit], revoke-window=[no])
-		var in1 Input_commit_to_a_project_option_P1_1
+		var in1 inputCommitToAProjectOptionP1S1
 		mustUnmarshal(t, `{"change":{"ActivityID": "projectDesign", "ComponentID": "", "ContentAddress": ""},"activityType":"projectDesign","lifecyclePhase":"sdp","componentID":"","policy":{"GatedPhasesByType": {}, "Preset": "vibes"},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
@@ -43,8 +43,8 @@ func TestScenario_commit_to_a_project_option_P1(t *testing.T) {
 	})
 }
 
-// Input_commit_to_a_project_option_P2_1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
-type Input_commit_to_a_project_option_P2_1 struct {
+// inputCommitToAProjectOptionP2S1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
+type inputCommitToAProjectOptionP2S1 struct {
 	Change         review.ReviewChange `json:"change"`
 	ActivityType   review.ActivityType `json:"activityType"`
 	LifecyclePhase string              `json:"lifecyclePhase"`
@@ -56,11 +56,11 @@ type Input_commit_to_a_project_option_P2_1 struct {
 
 // TestScenario_commit_to_a_project_option_P2 — Commit to a Project Option — [commit] · [yes] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → revoke → sdp-review-revoked → merge → end).
 func TestScenario_commit_to_a_project_option_P2(t *testing.T) {
-	h := scenariohost.Start(t, "reviewEngine")
-	h.RunScenario(t, "commit-to-a-project-option-P2", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "reviewEngine", "commit-to-a-project-option-P2", func(t *testing.T) {
 		var subject review.ReviewEngine = newSubject(t, h)
 		// step 1: ProposeReviews (node await-decision; guards decision=[commit], revoke-window=[yes])
-		var in1 Input_commit_to_a_project_option_P2_1
+		var in1 inputCommitToAProjectOptionP2S1
 		mustUnmarshal(t, `{"change":{"ActivityID": "projectDesign", "ComponentID": "", "ContentAddress": ""},"activityType":"projectDesign","lifecyclePhase":"sdp","componentID":"","policy":{"GatedPhasesByType": {}, "Preset": "full"},"floorTouched":true,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
@@ -69,8 +69,8 @@ func TestScenario_commit_to_a_project_option_P2(t *testing.T) {
 	})
 }
 
-// Input_commit_to_a_project_option_P3_1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
-type Input_commit_to_a_project_option_P3_1 struct {
+// inputCommitToAProjectOptionP3S1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
+type inputCommitToAProjectOptionP3S1 struct {
 	Change         review.ReviewChange `json:"change"`
 	ActivityType   review.ActivityType `json:"activityType"`
 	LifecyclePhase string              `json:"lifecyclePhase"`
@@ -82,11 +82,11 @@ type Input_commit_to_a_project_option_P3_1 struct {
 
 // TestScenario_commit_to_a_project_option_P3 — Commit to a Project Option — [reject-all + feedback] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → reject-all → sdp-review-rejected → merge → end).
 func TestScenario_commit_to_a_project_option_P3(t *testing.T) {
-	h := scenariohost.Start(t, "reviewEngine")
-	h.RunScenario(t, "commit-to-a-project-option-P3", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "reviewEngine", "commit-to-a-project-option-P3", func(t *testing.T) {
 		var subject review.ReviewEngine = newSubject(t, h)
 		// step 1: ProposeReviews (node await-decision; guards decision=[reject-all + feedback])
-		var in1 Input_commit_to_a_project_option_P3_1
+		var in1 inputCommitToAProjectOptionP3S1
 		mustUnmarshal(t, `{"change":{"ActivityID": "projectDesign", "ComponentID": "", "ContentAddress": ""},"activityType":"projectDesign","lifecyclePhase":"sdp","componentID":"","policy":{"GatedPhasesByType": {}, "Preset": ""},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
@@ -95,8 +95,8 @@ func TestScenario_commit_to_a_project_option_P3(t *testing.T) {
 	})
 }
 
-// Input_execute_a_project_activity_P3_1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P3_1 struct {
+// inputExecuteAProjectActivityP3S1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP3S1 struct {
 	Change         review.ReviewChange `json:"change"`
 	ActivityType   review.ActivityType `json:"activityType"`
 	LifecyclePhase string              `json:"lifecyclePhase"`
@@ -106,8 +106,8 @@ type Input_execute_a_project_activity_P3_1 struct {
 	Contracts      []string            `json:"contracts"`
 }
 
-// Input_execute_a_project_activity_P3_2 is step 2's parameters of ProposeReviews, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P3_2 struct {
+// inputExecuteAProjectActivityP3S2 is step 2's parameters of ProposeReviews, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP3S2 struct {
 	Change         review.ReviewChange `json:"change"`
 	ActivityType   review.ActivityType `json:"activityType"`
 	LifecyclePhase string              `json:"lifecyclePhase"`
@@ -119,18 +119,18 @@ type Input_execute_a_project_activity_P3_2 struct {
 
 // TestScenario_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
-	h := scenariohost.Start(t, "reviewEngine")
-	h.RunScenario(t, "execute-a-project-activity-P3", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P3", func(t *testing.T) {
 		var subject review.ReviewEngine = newSubject(t, h)
 		// step 1: ProposeReviews (node propose-reviews; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in1 Input_execute_a_project_activity_P3_1
+		var in1 inputExecuteAProjectActivityP3S1
 		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{"GatedPhasesByType": {}, "Preset": "vibes"},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ProposeReviews(callContext(t, h, "1"), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
 		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"{\"RequiresHuman\": false, \"ArtifactKind\": \"Construction\"}","errorExpected":false}`)
 		// step 2: ProposeReviews (node requires-human; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in2 Input_execute_a_project_activity_P3_2
+		var in2 inputExecuteAProjectActivityP3S2
 		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{"GatedPhasesByType": {}, "Preset": "vibes"},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in2)
 		var out2 any
 		var err2 error
@@ -139,8 +139,8 @@ func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	})
 }
 
-// Input_execute_a_project_activity_P4_1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P4_1 struct {
+// inputExecuteAProjectActivityP4S1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP4S1 struct {
 	Change         review.ReviewChange `json:"change"`
 	ActivityType   review.ActivityType `json:"activityType"`
 	LifecyclePhase string              `json:"lifecyclePhase"`
@@ -150,8 +150,8 @@ type Input_execute_a_project_activity_P4_1 struct {
 	Contracts      []string            `json:"contracts"`
 }
 
-// Input_execute_a_project_activity_P4_2 is step 2's parameters of ProposeReviews, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P4_2 struct {
+// inputExecuteAProjectActivityP4S2 is step 2's parameters of ProposeReviews, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP4S2 struct {
 	Change         review.ReviewChange `json:"change"`
 	ActivityType   review.ActivityType `json:"activityType"`
 	LifecyclePhase string              `json:"lifecyclePhase"`
@@ -163,18 +163,18 @@ type Input_execute_a_project_activity_P4_2 struct {
 
 // TestScenario_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P4(t *testing.T) {
-	h := scenariohost.Start(t, "reviewEngine")
-	h.RunScenario(t, "execute-a-project-activity-P4", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P4", func(t *testing.T) {
 		var subject review.ReviewEngine = newSubject(t, h)
 		// step 1: ProposeReviews (node propose-reviews; guards task-kind=review, requires-human=human required, verdict=approve)
-		var in1 Input_execute_a_project_activity_P4_1
+		var in1 inputExecuteAProjectActivityP4S1
 		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{"GatedPhasesByType": {}, "Preset": "full"},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ProposeReviews(callContext(t, h, "1"), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
 		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"{\"RequiresHuman\": true, \"ArtifactKind\": \"Construction\"}","errorExpected":false}`)
 		// step 2: ProposeReviews (node requires-human; guards task-kind=review, requires-human=human required, verdict=approve)
-		var in2 Input_execute_a_project_activity_P4_2
+		var in2 inputExecuteAProjectActivityP4S2
 		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{"GatedPhasesByType": {}, "Preset": "full"},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in2)
 		var out2 any
 		var err2 error
@@ -183,8 +183,8 @@ func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	})
 }
 
-// Input_execute_a_project_activity_P7_1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P7_1 struct {
+// inputExecuteAProjectActivityP7S1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S1 struct {
 	Change         review.ReviewChange `json:"change"`
 	ActivityType   review.ActivityType `json:"activityType"`
 	LifecyclePhase string              `json:"lifecyclePhase"`
@@ -194,8 +194,8 @@ type Input_execute_a_project_activity_P7_1 struct {
 	Contracts      []string            `json:"contracts"`
 }
 
-// Input_execute_a_project_activity_P7_2 is step 2's parameters of ProposeReviews, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P7_2 struct {
+// inputExecuteAProjectActivityP7S2 is step 2's parameters of ProposeReviews, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S2 struct {
 	Change         review.ReviewChange `json:"change"`
 	ActivityType   review.ActivityType `json:"activityType"`
 	LifecyclePhase string              `json:"lifecyclePhase"`
@@ -207,18 +207,18 @@ type Input_execute_a_project_activity_P7_2 struct {
 
 // TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
-	h := scenariohost.Start(t, "reviewEngine")
-	h.RunScenario(t, "execute-a-project-activity-P7", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P7", func(t *testing.T) {
 		var subject review.ReviewEngine = newSubject(t, h)
 		// step 1: ProposeReviews (node propose-reviews; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in1 Input_execute_a_project_activity_P7_1
+		var in1 inputExecuteAProjectActivityP7S1
 		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"detailed_design","componentID":"operationsManager","policy":{"GatedPhasesByType": {"service": ["construction"]}, "Preset": ""},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ProposeReviews(callContext(t, h, "1"), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
 		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"{\"RequiresHuman\": false, \"ArtifactKind\": \"DetailedDesign\"}","errorExpected":false}`)
 		// step 2: ProposeReviews (node requires-human; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in2 Input_execute_a_project_activity_P7_2
+		var in2 inputExecuteAProjectActivityP7S2
 		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"detailed_design","componentID":"operationsManager","policy":{"GatedPhasesByType": {"service": ["construction"]}, "Preset": ""},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in2)
 		var out2 any
 		var err2 error

@@ -18,13 +18,13 @@ import (
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "billingStateAccess") }
 
-// Input_bill_the_user_for_usage_P1_1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
-type Input_bill_the_user_for_usage_P1_1 struct {
+// inputBillTheUserForUsageP1S1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
+type inputBillTheUserForUsageP1S1 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 }
 
-// Input_bill_the_user_for_usage_P1_2 is step 2's parameters of SettleCycle, decoded from the binding's inputs.
-type Input_bill_the_user_for_usage_P1_2 struct {
+// inputBillTheUserForUsageP1S2 is step 2's parameters of SettleCycle, decoded from the binding's inputs.
+type inputBillTheUserForUsageP1S2 struct {
 	CustomerID      uuid.UUID                   `json:"customerID"`
 	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
 	Cycle           string                      `json:"cycle"`
@@ -34,18 +34,18 @@ type Input_bill_the_user_for_usage_P1_2 struct {
 
 // TestScenario_bill_the_user_for_usage_P1 — Bill the User for Usage — [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
 func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "bill-the-user-for-usage-P1", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "bill-the-user-for-usage-P1", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadBilling (node read-hosting-usage; guards charge-succeeded=[yes])
-		var in1 Input_bill_the_user_for_usage_P1_1
+		var in1 inputBillTheUserForUsageP1S1
 		mustUnmarshal(t, `{"customerID":"b1110000-0000-4000-8000-000000000001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = Step_bill_the_user_for_usage_P1_1(t, h, subject, in1)
+		out1, err1 = stepBillTheUserForUsageP1S1(t, h, subject, in1)
 		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"result":"{\"ID\":\"b1110000-0000-4000-8000-000000000001\",\"Version\":2,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
 		// step 2: SettleCycle (node record-close; guards charge-succeeded=[yes])
-		var in2 Input_bill_the_user_for_usage_P1_2
+		var in2 inputBillTheUserForUsageP1S2
 		mustUnmarshal(t, `{"customerID":"b1110000-0000-4000-8000-000000000001","expectedVersion":2,"cycle":"2026-09","outcome":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Escalated":false},"idempotencyKey":"settle-state:b1110000-0000-4000-8000-000000000001:2026-09"}`, &in2)
 		var out2 any
 		var err2 error
@@ -83,13 +83,13 @@ func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
 	})
 }
 
-// Input_bill_the_user_for_usage_P2_1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
-type Input_bill_the_user_for_usage_P2_1 struct {
+// inputBillTheUserForUsageP2S1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
+type inputBillTheUserForUsageP2S1 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 }
 
-// Input_bill_the_user_for_usage_P2_2 is step 2's parameters of SettleCycle, decoded from the binding's inputs.
-type Input_bill_the_user_for_usage_P2_2 struct {
+// inputBillTheUserForUsageP2S2 is step 2's parameters of SettleCycle, decoded from the binding's inputs.
+type inputBillTheUserForUsageP2S2 struct {
 	CustomerID      uuid.UUID                   `json:"customerID"`
 	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
 	Cycle           string                      `json:"cycle"`
@@ -97,8 +97,8 @@ type Input_bill_the_user_for_usage_P2_2 struct {
 	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
-// Input_bill_the_user_for_usage_P2_3 is step 3's parameters of SettleCycle, decoded from the binding's inputs.
-type Input_bill_the_user_for_usage_P2_3 struct {
+// inputBillTheUserForUsageP2S3 is step 3's parameters of SettleCycle, decoded from the binding's inputs.
+type inputBillTheUserForUsageP2S3 struct {
 	CustomerID      uuid.UUID                   `json:"customerID"`
 	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
 	Cycle           string                      `json:"cycle"`
@@ -108,22 +108,22 @@ type Input_bill_the_user_for_usage_P2_3 struct {
 
 // TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] · [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → persistent-decline → note-escalation-is-state → customer-delinquent → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
 func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "bill-the-user-for-usage-P2", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "bill-the-user-for-usage-P2", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadBilling (node read-hosting-usage; guards charge-succeeded=[no], retries-left=[no])
-		var in1 Input_bill_the_user_for_usage_P2_1
+		var in1 inputBillTheUserForUsageP2S1
 		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = Step_bill_the_user_for_usage_P2_1(t, h, subject, in1)
+		out1, err1 = stepBillTheUserForUsageP2S1(t, h, subject, in1)
 		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"{\"ID\":\"b1120000-0000-4000-8000-000000000002\",\"Version\":2,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
 		// step 2: SettleCycle (node persistent-decline; guards charge-succeeded=[no], retries-left=[no])
-		var in2 Input_bill_the_user_for_usage_P2_2
+		var in2 inputBillTheUserForUsageP2S2
 		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002","expectedVersion":2,"cycle":"2026-09","outcome":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Escalated":true},"idempotencyKey":"settle-state:b1120000-0000-4000-8000-000000000002:2026-09"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = Step_bill_the_user_for_usage_P2_2(t, h, subject, in2)
+		out2, err2 = stepBillTheUserForUsageP2S2(t, h, subject, in2)
 		expect(t, "bill-the-user-for-usage-P2", 2, out2, err2, `{"result":"3","errorExpected":false}`)
 		// probe 2.1: billingStateAccess.ReadPersistentlyDelinquentCustomers for customer-delinquent
 		var pout2_1 any
@@ -135,7 +135,7 @@ func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 		pout2_1, perr2_1 = subject.ReadPersistentlyDelinquentCustomers(callContext(t, h, "2.1"), probe2_1.Scope)
 		expect(t, "bill-the-user-for-usage-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"[{\"ID\":\"b1120000-0000-4000-8000-000000000002\"}]","errorExpected":false}`)
 		// step 3: SettleCycle (node record-unpaid; guards charge-succeeded=[no], retries-left=[no])
-		var in3 Input_bill_the_user_for_usage_P2_3
+		var in3 inputBillTheUserForUsageP2S3
 		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002","expectedVersion":2,"cycle":"2026-09","outcome":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Escalated":true},"idempotencyKey":"settle-state:b1120000-0000-4000-8000-000000000002:2026-09"}`, &in3)
 		var out3 any
 		var err3 error
@@ -164,13 +164,13 @@ func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	})
 }
 
-// Input_bill_the_user_for_usage_P3_1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
-type Input_bill_the_user_for_usage_P3_1 struct {
+// inputBillTheUserForUsageP3S1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
+type inputBillTheUserForUsageP3S1 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 }
 
-// Input_bill_the_user_for_usage_P3_2 is step 2's parameters of SettleCycle, decoded from the binding's inputs.
-type Input_bill_the_user_for_usage_P3_2 struct {
+// inputBillTheUserForUsageP3S2 is step 2's parameters of SettleCycle, decoded from the binding's inputs.
+type inputBillTheUserForUsageP3S2 struct {
 	CustomerID      uuid.UUID                   `json:"customerID"`
 	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
 	Cycle           string                      `json:"cycle"`
@@ -180,18 +180,18 @@ type Input_bill_the_user_for_usage_P3_2 struct {
 
 // TestScenario_bill_the_user_for_usage_P3 — Bill the User for Usage — [no] · [yes] · [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
 func TestScenario_bill_the_user_for_usage_P3(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "bill-the-user-for-usage-P3", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "bill-the-user-for-usage-P3", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadBilling (node read-hosting-usage; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
-		var in1 Input_bill_the_user_for_usage_P3_1
+		var in1 inputBillTheUserForUsageP3S1
 		mustUnmarshal(t, `{"customerID":"b1130000-0000-4000-8000-000000000003"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = Step_bill_the_user_for_usage_P3_1(t, h, subject, in1)
+		out1, err1 = stepBillTheUserForUsageP3S1(t, h, subject, in1)
 		expect(t, "bill-the-user-for-usage-P3", 1, out1, err1, `{"result":"{\"ID\":\"b1130000-0000-4000-8000-000000000003\",\"Version\":2,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
 		// step 2: SettleCycle (node record-close; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
-		var in2 Input_bill_the_user_for_usage_P3_2
+		var in2 inputBillTheUserForUsageP3S2
 		mustUnmarshal(t, `{"customerID":"b1130000-0000-4000-8000-000000000003","expectedVersion":2,"cycle":"2026-09","outcome":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Escalated":false},"idempotencyKey":"settle-state:b1130000-0000-4000-8000-000000000003:2026-09"}`, &in2)
 		var out2 any
 		var err2 error
@@ -229,13 +229,13 @@ func TestScenario_bill_the_user_for_usage_P3(t *testing.T) {
 	})
 }
 
-// Input_onboard_a_new_customer_P1_1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
-type Input_onboard_a_new_customer_P1_1 struct {
+// inputOnboardANewCustomerP1S1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
+type inputOnboardANewCustomerP1S1 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 }
 
-// Input_onboard_a_new_customer_P1_2 is step 2's parameters of BindGatewayLive, decoded from the binding's inputs.
-type Input_onboard_a_new_customer_P1_2 struct {
+// inputOnboardANewCustomerP1S2 is step 2's parameters of BindGatewayLive, decoded from the binding's inputs.
+type inputOnboardANewCustomerP1S2 struct {
 	CustomerID      uuid.UUID                   `json:"customerID"`
 	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
 	Binding         billingstate.GatewayBinding `json:"binding"`
@@ -244,15 +244,15 @@ type Input_onboard_a_new_customer_P1_2 struct {
 
 // TestScenario_onboard_a_new_customer_P1 — Onboard a New Customer — [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "onboard-a-new-customer-P1", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "onboard-a-new-customer-P1", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadBilling (node resolve-app; guards registered=[yes])
-		var in1 Input_onboard_a_new_customer_P1_1
+		var in1 inputOnboardANewCustomerP1S1
 		mustUnmarshal(t, `{"customerID":"0b010000-0000-4000-8000-000000000001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = Step_onboard_a_new_customer_P1_1(t, h, subject, in1)
+		out1, err1 = stepOnboardANewCustomerP1S1(t, h, subject, in1)
 		expect(t, "onboard-a-new-customer-P1", 1, out1, err1, `{"result":"{\"ID\":\"0b010000-0000-4000-8000-000000000001\",\"Version\":1,\"Registered\":true,\"GatewayBound\":false}","errorExpected":false}`)
 		// probe 1.1: billingStateAccess.ReadBilling for resolve-app
 		var pout1_1 any
@@ -264,7 +264,7 @@ func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
 		pout1_1, perr1_1 = subject.ReadBilling(callContext(t, h, "1.1"), probe1_1.CustomerID)
 		expect(t, "onboard-a-new-customer-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"0b010000-0000-4000-8000-000000000001\",\"Registered\":true}","errorExpected":false}`)
 		// step 2: BindGatewayLive (node bind-gateway; guards registered=[yes])
-		var in2 Input_onboard_a_new_customer_P1_2
+		var in2 inputOnboardANewCustomerP1S2
 		mustUnmarshal(t, `{"customerID":"0b010000-0000-4000-8000-000000000001","expectedVersion":1,"binding":{"GatewayCustomerRef":"cus_stp_onboard_p1"},"idempotencyKey":"bind:0b010000-0000-4000-8000-000000000001"}`, &in2)
 		var out2 any
 		var err2 error
@@ -291,21 +291,21 @@ func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
 	})
 }
 
-// Input_onboard_a_new_customer_P2_1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
-type Input_onboard_a_new_customer_P2_1 struct {
+// inputOnboardANewCustomerP2S1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
+type inputOnboardANewCustomerP2S1 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 }
 
-// Input_onboard_a_new_customer_P2_2 is step 2's parameters of RegisterCustomer, decoded from the binding's inputs.
-type Input_onboard_a_new_customer_P2_2 struct {
+// inputOnboardANewCustomerP2S2 is step 2's parameters of RegisterCustomer, decoded from the binding's inputs.
+type inputOnboardANewCustomerP2S2 struct {
 	CustomerID      uuid.UUID                    `json:"customerID"`
 	ExpectedVersion billingstate.Version         `json:"expectedVersion"`
 	Profile         billingstate.CustomerProfile `json:"profile"`
 	IdempotencyKey  fwra.IdempotencyKey          `json:"idempotencyKey"`
 }
 
-// Input_onboard_a_new_customer_P2_3 is step 3's parameters of BindGatewayLive, decoded from the binding's inputs.
-type Input_onboard_a_new_customer_P2_3 struct {
+// inputOnboardANewCustomerP2S3 is step 3's parameters of BindGatewayLive, decoded from the binding's inputs.
+type inputOnboardANewCustomerP2S3 struct {
 	CustomerID      uuid.UUID                   `json:"customerID"`
 	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
 	Binding         billingstate.GatewayBinding `json:"binding"`
@@ -314,11 +314,11 @@ type Input_onboard_a_new_customer_P2_3 struct {
 
 // TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "onboard-a-new-customer-P2", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "onboard-a-new-customer-P2", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadBilling (node resolve-app; guards registered=[no])
-		var in1 Input_onboard_a_new_customer_P2_1
+		var in1 inputOnboardANewCustomerP2S1
 		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000002"}`, &in1)
 		var out1 any
 		var err1 error
@@ -334,7 +334,7 @@ func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 		pout1_1, perr1_1 = subject.ReadBilling(callContext(t, h, "1.1"), probe1_1.CustomerID)
 		expect(t, "onboard-a-new-customer-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Registered\":false}","errorExpected":false}`)
 		// step 2: RegisterCustomer (node register-customer; guards registered=[no])
-		var in2 Input_onboard_a_new_customer_P2_2
+		var in2 inputOnboardANewCustomerP2S2
 		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000002","expectedVersion":0,"profile":{},"idempotencyKey":"register:0b020000-0000-4000-8000-000000000002"}`, &in2)
 		var out2 any
 		var err2 error
@@ -359,7 +359,7 @@ func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 		pout2_2, perr2_2 = subject.ReadBilling(callContext(t, h, "2.2"), probe2_2.CustomerID)
 		expect(t, "onboard-a-new-customer-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Registered\":true,\"GatewayBound\":false}","errorExpected":false}`)
 		// step 3: BindGatewayLive (node bind-gateway; guards registered=[no])
-		var in3 Input_onboard_a_new_customer_P2_3
+		var in3 inputOnboardANewCustomerP2S3
 		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000002","expectedVersion":1,"binding":{"GatewayCustomerRef":"cus_stp_onboard_p2"},"idempotencyKey":"bind:0b020000-0000-4000-8000-000000000002"}`, &in3)
 		var out3 any
 		var err3 error
@@ -386,18 +386,18 @@ func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	})
 }
 
-// Input_retry_a_declined_service_invoice_P1_1 is step 1's parameters of ReadPersistentlyDelinquentCustomers, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P1_1 struct {
+// inputRetryADeclinedServiceInvoiceP1S1 is step 1's parameters of ReadPersistentlyDelinquentCustomers, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP1S1 struct {
 	Scope billingstate.DelinquencyScope `json:"scope"`
 }
 
-// Input_retry_a_declined_service_invoice_P1_2 is step 2's parameters of ReadBilling, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P1_2 struct {
+// inputRetryADeclinedServiceInvoiceP1S2 is step 2's parameters of ReadBilling, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP1S2 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 }
 
-// Input_retry_a_declined_service_invoice_P1_3 is step 3's parameters of ResettleCycle, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P1_3 struct {
+// inputRetryADeclinedServiceInvoiceP1S3 is step 3's parameters of ResettleCycle, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP1S3 struct {
 	CustomerID      uuid.UUID                   `json:"customerID"`
 	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
 	Cycle           string                      `json:"cycle"`
@@ -407,25 +407,25 @@ type Input_retry_a_declined_service_invoice_P1_3 struct {
 
 // TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "retry-a-declined-service-invoice-P1", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
-		var in1 Input_retry_a_declined_service_invoice_P1_1
+		var in1 inputRetryADeclinedServiceInvoiceP1S1
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = Step_retry_a_declined_service_invoice_P1_1(t, h, subject, in1)
+		out1, err1 = stepRetryADeclinedServiceInvoiceP1S1(t, h, subject, in1)
 		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"result":"[{\"ID\":\"2e710000-0000-4000-8000-000000000001\"}]","errorExpected":false}`)
 		// step 2: ReadBilling (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
-		var in2 Input_retry_a_declined_service_invoice_P1_2
+		var in2 inputRetryADeclinedServiceInvoiceP1S2
 		mustUnmarshal(t, `{"customerID":"2e710000-0000-4000-8000-000000000001"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.ReadBilling(callContext(t, h, "2"), in2.CustomerID)
 		expect(t, "retry-a-declined-service-invoice-P1", 2, out2, err2, `{"result":"{\"ID\":\"2e710000-0000-4000-8000-000000000001\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
 		// step 3: ResettleCycle (node record-settled; guards retry-budget=[yes: retry], charge-ok=[yes])
-		var in3 Input_retry_a_declined_service_invoice_P1_3
+		var in3 inputRetryADeclinedServiceInvoiceP1S3
 		mustUnmarshal(t, `{"customerID":"2e710000-0000-4000-8000-000000000001","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Escalated":false},"idempotencyKey":"resettle-state:2e710000-0000-4000-8000-000000000001:2026-09"}`, &in3)
 		var out3 any
 		var err3 error
@@ -453,18 +453,18 @@ func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	})
 }
 
-// Input_retry_a_declined_service_invoice_P2_1 is step 1's parameters of ReadPersistentlyDelinquentCustomers, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P2_1 struct {
+// inputRetryADeclinedServiceInvoiceP2S1 is step 1's parameters of ReadPersistentlyDelinquentCustomers, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP2S1 struct {
 	Scope billingstate.DelinquencyScope `json:"scope"`
 }
 
-// Input_retry_a_declined_service_invoice_P2_2 is step 2's parameters of ReadBilling, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P2_2 struct {
+// inputRetryADeclinedServiceInvoiceP2S2 is step 2's parameters of ReadBilling, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP2S2 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 }
 
-// Input_retry_a_declined_service_invoice_P2_3 is step 3's parameters of ResettleCycle, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P2_3 struct {
+// inputRetryADeclinedServiceInvoiceP2S3 is step 3's parameters of ResettleCycle, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP2S3 struct {
 	CustomerID      uuid.UUID                   `json:"customerID"`
 	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
 	Cycle           string                      `json:"cycle"`
@@ -474,29 +474,29 @@ type Input_retry_a_declined_service_invoice_P2_3 struct {
 
 // TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "retry-a-declined-service-invoice-P2", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
-		var in1 Input_retry_a_declined_service_invoice_P2_1
+		var in1 inputRetryADeclinedServiceInvoiceP2S1
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = Step_retry_a_declined_service_invoice_P2_1(t, h, subject, in1)
+		out1, err1 = stepRetryADeclinedServiceInvoiceP2S1(t, h, subject, in1)
 		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"result":"[{\"ID\":\"2e720000-0000-4000-8000-000000000002\"}]","errorExpected":false}`)
 		// step 2: ReadBilling (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
-		var in2 Input_retry_a_declined_service_invoice_P2_2
+		var in2 inputRetryADeclinedServiceInvoiceP2S2
 		mustUnmarshal(t, `{"customerID":"2e720000-0000-4000-8000-000000000002"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.ReadBilling(callContext(t, h, "2"), in2.CustomerID)
 		expect(t, "retry-a-declined-service-invoice-P2", 2, out2, err2, `{"result":"{\"ID\":\"2e720000-0000-4000-8000-000000000002\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
 		// step 3: ResettleCycle (node delay-sweep; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
-		var in3 Input_retry_a_declined_service_invoice_P2_3
+		var in3 inputRetryADeclinedServiceInvoiceP2S3
 		mustUnmarshal(t, `{"customerID":"2e720000-0000-4000-8000-000000000002","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Escalated":true},"idempotencyKey":"sweep-state:2e720000-0000-4000-8000-000000000002:2026-09:1"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = Step_retry_a_declined_service_invoice_P2_3(t, h, subject, in3)
+		out3, err3 = stepRetryADeclinedServiceInvoiceP2S3(t, h, subject, in3)
 		expect(t, "retry-a-declined-service-invoice-P2", 3, out3, err3, `{"result":"4","errorExpected":false}`)
 		// probe 3.1: billingStateAccess.ReadCycle for cycle-awaiting-sweep
 		var pout3_1 any
@@ -520,18 +520,18 @@ func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	})
 }
 
-// Input_retry_a_declined_service_invoice_P3_1 is step 1's parameters of ReadPersistentlyDelinquentCustomers, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P3_1 struct {
+// inputRetryADeclinedServiceInvoiceP3S1 is step 1's parameters of ReadPersistentlyDelinquentCustomers, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP3S1 struct {
 	Scope billingstate.DelinquencyScope `json:"scope"`
 }
 
-// Input_retry_a_declined_service_invoice_P3_2 is step 2's parameters of ReadBilling, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P3_2 struct {
+// inputRetryADeclinedServiceInvoiceP3S2 is step 2's parameters of ReadBilling, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP3S2 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 }
 
-// Input_retry_a_declined_service_invoice_P3_3 is step 3's parameters of ResettleCycle, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P3_3 struct {
+// inputRetryADeclinedServiceInvoiceP3S3 is step 3's parameters of ResettleCycle, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP3S3 struct {
 	CustomerID      uuid.UUID                   `json:"customerID"`
 	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
 	Cycle           string                      `json:"cycle"`
@@ -541,45 +541,45 @@ type Input_retry_a_declined_service_invoice_P3_3 struct {
 
 // TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → escalate-delinquent → customer-delinquent → signal-delinquency-escalation → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "retry-a-declined-service-invoice-P3", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "retry-a-declined-service-invoice-P3", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
-		var in1 Input_retry_a_declined_service_invoice_P3_1
+		var in1 inputRetryADeclinedServiceInvoiceP3S1
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = Step_retry_a_declined_service_invoice_P3_1(t, h, subject, in1)
+		out1, err1 = stepRetryADeclinedServiceInvoiceP3S1(t, h, subject, in1)
 		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"result":"[{\"ID\":\"2e730000-0000-4000-8000-000000000003\"}]","errorExpected":false}`)
 		// step 2: ReadBilling (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
-		var in2 Input_retry_a_declined_service_invoice_P3_2
+		var in2 inputRetryADeclinedServiceInvoiceP3S2
 		mustUnmarshal(t, `{"customerID":"2e730000-0000-4000-8000-000000000003"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.ReadBilling(callContext(t, h, "2"), in2.CustomerID)
 		expect(t, "retry-a-declined-service-invoice-P3", 2, out2, err2, `{"result":"{\"ID\":\"2e730000-0000-4000-8000-000000000003\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
 		// step 3: ResettleCycle (node escalate-delinquent; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
-		var in3 Input_retry_a_declined_service_invoice_P3_3
+		var in3 inputRetryADeclinedServiceInvoiceP3S3
 		mustUnmarshal(t, `{"customerID":"2e730000-0000-4000-8000-000000000003","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Escalated":true},"idempotencyKey":"escalate-state:2e730000-0000-4000-8000-000000000003:2026-09"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = Step_retry_a_declined_service_invoice_P3_3(t, h, subject, in3)
+		out3, err3 = stepRetryADeclinedServiceInvoiceP3S3(t, h, subject, in3)
 		expect(t, "retry-a-declined-service-invoice-P3", 3, out3, err3, `{"result":"4","errorExpected":false}`)
 	})
 }
 
-// Input_retry_a_declined_service_invoice_P4_1 is step 1's parameters of ReadPersistentlyDelinquentCustomers, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P4_1 struct {
+// inputRetryADeclinedServiceInvoiceP4S1 is step 1's parameters of ReadPersistentlyDelinquentCustomers, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP4S1 struct {
 	Scope billingstate.DelinquencyScope `json:"scope"`
 }
 
-// Input_retry_a_declined_service_invoice_P4_2 is step 2's parameters of ReadBilling, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P4_2 struct {
+// inputRetryADeclinedServiceInvoiceP4S2 is step 2's parameters of ReadBilling, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP4S2 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 }
 
-// Input_retry_a_declined_service_invoice_P4_3 is step 3's parameters of ResettleCycle, decoded from the binding's inputs.
-type Input_retry_a_declined_service_invoice_P4_3 struct {
+// inputRetryADeclinedServiceInvoiceP4S3 is step 3's parameters of ResettleCycle, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP4S3 struct {
 	CustomerID      uuid.UUID                   `json:"customerID"`
 	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
 	Cycle           string                      `json:"cycle"`
@@ -589,25 +589,25 @@ type Input_retry_a_declined_service_invoice_P4_3 struct {
 
 // TestScenario_retry_a_declined_service_invoice_P4 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] · [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "retry-a-declined-service-invoice-P4", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "retry-a-declined-service-invoice-P4", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
-		var in1 Input_retry_a_declined_service_invoice_P4_1
+		var in1 inputRetryADeclinedServiceInvoiceP4S1
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = Step_retry_a_declined_service_invoice_P4_1(t, h, subject, in1)
+		out1, err1 = stepRetryADeclinedServiceInvoiceP4S1(t, h, subject, in1)
 		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"[{\"ID\":\"2e740000-0000-4000-8000-000000000004\"}]","errorExpected":false}`)
 		// step 2: ReadBilling (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
-		var in2 Input_retry_a_declined_service_invoice_P4_2
+		var in2 inputRetryADeclinedServiceInvoiceP4S2
 		mustUnmarshal(t, `{"customerID":"2e740000-0000-4000-8000-000000000004"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.ReadBilling(callContext(t, h, "2"), in2.CustomerID)
 		expect(t, "retry-a-declined-service-invoice-P4", 2, out2, err2, `{"result":"{\"ID\":\"2e740000-0000-4000-8000-000000000004\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
 		// step 3: ResettleCycle (node record-settled; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
-		var in3 Input_retry_a_declined_service_invoice_P4_3
+		var in3 inputRetryADeclinedServiceInvoiceP4S3
 		mustUnmarshal(t, `{"customerID":"2e740000-0000-4000-8000-000000000004","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Escalated":false},"idempotencyKey":"resettle-state:2e740000-0000-4000-8000-000000000004:2026-09"}`, &in3)
 		var out3 any
 		var err3 error
@@ -635,23 +635,23 @@ func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
 	})
 }
 
-// Input_view_a_billing_cycle_P1_1 is step 1's parameters of ReadCycle, decoded from the binding's inputs.
-type Input_view_a_billing_cycle_P1_1 struct {
+// inputViewABillingCycleP1S1 is step 1's parameters of ReadCycle, decoded from the binding's inputs.
+type inputViewABillingCycleP1S1 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 	Cycle      string    `json:"cycle"`
 }
 
 // TestScenario_view_a_billing_cycle_P1 — View a Billing Cycle — [no: period open] (use case view-a-billing-cycle; path start → open-billing-cycle → read-billing-cycle → cycle-closed → send-cycle-open → end).
 func TestScenario_view_a_billing_cycle_P1(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "view-a-billing-cycle-P1", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "view-a-billing-cycle-P1", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadCycle (node read-billing-cycle; guards cycle-closed=[no: period open])
-		var in1 Input_view_a_billing_cycle_P1_1
+		var in1 inputViewABillingCycleP1S1
 		mustUnmarshal(t, `{"customerID":"5ee10000-0000-4000-8000-000000000001","cycle":"2026-10"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = Step_view_a_billing_cycle_P1_1(t, h, subject, in1)
+		out1, err1 = stepViewABillingCycleP1S1(t, h, subject, in1)
 		expect(t, "view-a-billing-cycle-P1", 1, out1, err1, `{"result":"{\"Cycle\":\"2026-10\",\"Settled\":false}","errorExpected":false}`)
 		// unobservable: send-cycle-open
 		// probe 1.1: billingStateAccess.ReadCycle for read-billing-cycle
@@ -667,23 +667,23 @@ func TestScenario_view_a_billing_cycle_P1(t *testing.T) {
 	})
 }
 
-// Input_view_a_billing_cycle_P2_1 is step 1's parameters of ReadCycle, decoded from the binding's inputs.
-type Input_view_a_billing_cycle_P2_1 struct {
+// inputViewABillingCycleP2S1 is step 1's parameters of ReadCycle, decoded from the binding's inputs.
+type inputViewABillingCycleP2S1 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 	Cycle      string    `json:"cycle"`
 }
 
 // TestScenario_view_a_billing_cycle_P2 — View a Billing Cycle — [yes] (use case view-a-billing-cycle; path start → open-billing-cycle → read-billing-cycle → cycle-closed → send-cycle-settlement → end).
 func TestScenario_view_a_billing_cycle_P2(t *testing.T) {
-	h := scenariohost.Start(t, "billingStateAccess")
-	h.RunScenario(t, "view-a-billing-cycle-P2", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "view-a-billing-cycle-P2", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
 		// step 1: ReadCycle (node read-billing-cycle; guards cycle-closed=[yes])
-		var in1 Input_view_a_billing_cycle_P2_1
+		var in1 inputViewABillingCycleP2S1
 		mustUnmarshal(t, `{"customerID":"5ee20000-0000-4000-8000-000000000002","cycle":"2026-09"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = Step_view_a_billing_cycle_P2_1(t, h, subject, in1)
+		out1, err1 = stepViewABillingCycleP2S1(t, h, subject, in1)
 		expect(t, "view-a-billing-cycle-P2", 1, out1, err1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}}","errorExpected":false}`)
 		// unobservable: send-cycle-settlement
 		// probe 1.1: billingStateAccess.ReadCycle for read-billing-cycle

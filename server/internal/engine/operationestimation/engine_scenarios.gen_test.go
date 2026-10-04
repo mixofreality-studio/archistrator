@@ -17,8 +17,8 @@ import (
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "operationEstimationEngine") }
 
-// Input_commit_to_a_project_option_P1_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_commit_to_a_project_option_P1_1 struct {
+// inputCommitToAProjectOptionP1S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputCommitToAProjectOptionP1S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -26,11 +26,11 @@ type Input_commit_to_a_project_option_P1_1 struct {
 
 // TestScenario_commit_to_a_project_option_P1 — Commit to a Project Option — [commit] · [no] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → merge → end).
 func TestScenario_commit_to_a_project_option_P1(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "commit-to-a-project-option-P1", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "commit-to-a-project-option-P1", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node apply-price; guards decision=[commit], revoke-window=[no])
-		var in1 Input_commit_to_a_project_option_P1_1
+		var in1 inputCommitToAProjectOptionP1S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-normal","Terms":{"computeCost":1,"computeMarkupPercent":15,"schedule":1}},"declaredUsage":{"expectedDailyActiveUsers":1000,"requestsPerMinute":10,"avgPayloadBytes":2048},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -39,8 +39,8 @@ func TestScenario_commit_to_a_project_option_P1(t *testing.T) {
 	})
 }
 
-// Input_commit_to_a_project_option_P2_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_commit_to_a_project_option_P2_1 struct {
+// inputCommitToAProjectOptionP2S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputCommitToAProjectOptionP2S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -48,11 +48,11 @@ type Input_commit_to_a_project_option_P2_1 struct {
 
 // TestScenario_commit_to_a_project_option_P2 — Commit to a Project Option — [commit] · [yes] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → revoke → sdp-review-revoked → merge → end).
 func TestScenario_commit_to_a_project_option_P2(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "commit-to-a-project-option-P2", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "commit-to-a-project-option-P2", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node apply-price; guards decision=[commit], revoke-window=[yes])
-		var in1 Input_commit_to_a_project_option_P2_1
+		var in1 inputCommitToAProjectOptionP2S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-compressed","Terms":{"computeCost":2,"computeMarkupPercent":0,"schedule":2}},"declaredUsage":{"expectedDailyActiveUsers":250,"requestsPerMinute":2.5,"avgPayloadBytes":4096},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -61,8 +61,8 @@ func TestScenario_commit_to_a_project_option_P2(t *testing.T) {
 	})
 }
 
-// Input_execute_a_project_activity_P1_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P1_1 struct {
+// inputExecuteAProjectActivityP1S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP1S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -70,11 +70,11 @@ type Input_execute_a_project_activity_P1_1 struct {
 
 // TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P1(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "execute-a-project-activity-P1", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "execute-a-project-activity-P1", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node record-exit; guards task-kind=dispatch, exit-met=yes)
-		var in1 Input_execute_a_project_activity_P1_1
+		var in1 inputExecuteAProjectActivityP1S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-committed-p1","Terms":{"computeCost":1,"computeMarkupPercent":15,"schedule":1}},"declaredUsage":{"expectedDailyActiveUsers":500,"requestsPerMinute":0,"avgPayloadBytes":0},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -83,8 +83,8 @@ func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 	})
 }
 
-// Input_execute_a_project_activity_P2_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P2_1 struct {
+// inputExecuteAProjectActivityP2S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP2S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -92,11 +92,11 @@ type Input_execute_a_project_activity_P2_1 struct {
 
 // TestScenario_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P2(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "execute-a-project-activity-P2", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "execute-a-project-activity-P2", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		var in1 Input_execute_a_project_activity_P2_1
+		var in1 inputExecuteAProjectActivityP2S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-committed-p2","Terms":{"computeCost":2,"computeMarkupPercent":0,"schedule":2}},"declaredUsage":{"expectedDailyActiveUsers":0,"requestsPerMinute":40,"avgPayloadBytes":0},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -105,8 +105,8 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 	})
 }
 
-// Input_execute_a_project_activity_P3_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P3_1 struct {
+// inputExecuteAProjectActivityP3S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP3S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -114,11 +114,11 @@ type Input_execute_a_project_activity_P3_1 struct {
 
 // TestScenario_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "execute-a-project-activity-P3", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "execute-a-project-activity-P3", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node record-exit; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in1 Input_execute_a_project_activity_P3_1
+		var in1 inputExecuteAProjectActivityP3S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-committed-p3","Terms":{"computeCost":1,"computeMarkupPercent":15,"schedule":1}},"declaredUsage":{"expectedDailyActiveUsers":20000,"requestsPerMinute":120,"avgPayloadBytes":8192},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -127,8 +127,8 @@ func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	})
 }
 
-// Input_execute_a_project_activity_P4_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P4_1 struct {
+// inputExecuteAProjectActivityP4S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP4S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -136,11 +136,11 @@ type Input_execute_a_project_activity_P4_1 struct {
 
 // TestScenario_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P4(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "execute-a-project-activity-P4", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "execute-a-project-activity-P4", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node record-exit; guards task-kind=review, requires-human=human required, verdict=approve)
-		var in1 Input_execute_a_project_activity_P4_1
+		var in1 inputExecuteAProjectActivityP4S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-committed-p4","Terms":{"computeCost":2,"computeMarkupPercent":0,"schedule":2}},"declaredUsage":{"expectedDailyActiveUsers":75,"requestsPerMinute":0.5,"avgPayloadBytes":512},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -149,8 +149,8 @@ func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	})
 }
 
-// Input_execute_a_project_activity_P5_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P5_1 struct {
+// inputExecuteAProjectActivityP5S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -158,11 +158,11 @@ type Input_execute_a_project_activity_P5_1 struct {
 
 // TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "execute-a-project-activity-P5", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "execute-a-project-activity-P5", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in1 Input_execute_a_project_activity_P5_1
+		var in1 inputExecuteAProjectActivityP5S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-committed-p5","Terms":{"computeCost":1,"computeMarkupPercent":15,"schedule":1}},"declaredUsage":{"expectedDailyActiveUsers":3000,"requestsPerMinute":25,"avgPayloadBytes":1500},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -171,8 +171,8 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	})
 }
 
-// Input_execute_a_project_activity_P6_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P6_1 struct {
+// inputExecuteAProjectActivityP6S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP6S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -180,11 +180,11 @@ type Input_execute_a_project_activity_P6_1 struct {
 
 // TestScenario_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P6(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "execute-a-project-activity-P6", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "execute-a-project-activity-P6", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		var in1 Input_execute_a_project_activity_P6_1
+		var in1 inputExecuteAProjectActivityP6S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-committed-p6","Terms":{"computeCost":2,"computeMarkupPercent":0,"schedule":2}},"declaredUsage":{"expectedDailyActiveUsers":10000,"requestsPerMinute":60,"avgPayloadBytes":4096},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -193,8 +193,8 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 	})
 }
 
-// Input_execute_a_project_activity_P7_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_execute_a_project_activity_P7_1 struct {
+// inputExecuteAProjectActivityP7S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -202,11 +202,11 @@ type Input_execute_a_project_activity_P7_1 struct {
 
 // TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "execute-a-project-activity-P7", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "execute-a-project-activity-P7", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node record-exit; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in1 Input_execute_a_project_activity_P7_1
+		var in1 inputExecuteAProjectActivityP7S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-committed-p7","Terms":{"computeCost":1,"computeMarkupPercent":15,"schedule":1}},"declaredUsage":{"expectedDailyActiveUsers":0,"requestsPerMinute":0,"avgPayloadBytes":1024},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -215,8 +215,8 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	})
 }
 
-// Input_replan_under_scope_change_P2_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_replan_under_scope_change_P2_1 struct {
+// inputReplanUnderScopeChangeP2S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputReplanUnderScopeChangeP2S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -224,11 +224,11 @@ type Input_replan_under_scope_change_P2_1 struct {
 
 // TestScenario_replan_under_scope_change_P2 — Replan Under Scope Change — [no: scope change] · [accept] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → adopt → sdp-revision-adopted → committed-network-revised → merge-end → end).
 func TestScenario_replan_under_scope_change_P2(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "replan-under-scope-change-P2", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "replan-under-scope-change-P2", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node rebuild-options; guards classify=[no: scope change], mgmt=[accept])
-		var in1 Input_replan_under_scope_change_P2_1
+		var in1 inputReplanUnderScopeChangeP2S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-replan-normal","Terms":{"computeCost":1,"computeMarkupPercent":15,"schedule":1}},"declaredUsage":{"expectedDailyActiveUsers":1200,"requestsPerMinute":8,"avgPayloadBytes":2048},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -237,8 +237,8 @@ func TestScenario_replan_under_scope_change_P2(t *testing.T) {
 	})
 }
 
-// Input_replan_under_scope_change_P3_1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
-type Input_replan_under_scope_change_P3_1 struct {
+// inputReplanUnderScopeChangeP3S1 is step 1's parameters of EstimateForOption, decoded from the binding's inputs.
+type inputReplanUnderScopeChangeP3S1 struct {
 	Option             operationestimation.ProjectOption      `json:"option"`
 	DeclaredUsage      operationestimation.UsageAssumption    `json:"declaredUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
@@ -246,11 +246,11 @@ type Input_replan_under_scope_change_P3_1 struct {
 
 // TestScenario_replan_under_scope_change_P3 — Replan Under Scope Change — [no: scope change] · [reject] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → record-reject → sdp-revision-rejected → merge-end → end).
 func TestScenario_replan_under_scope_change_P3(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "replan-under-scope-change-P3", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "replan-under-scope-change-P3", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: EstimateForOption (node rebuild-options; guards classify=[no: scope change], mgmt=[reject])
-		var in1 Input_replan_under_scope_change_P3_1
+		var in1 inputReplanUnderScopeChangeP3S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-replan-decompressed","Terms":{"computeCost":2,"computeMarkupPercent":0,"schedule":2}},"declaredUsage":{"expectedDailyActiveUsers":400,"requestsPerMinute":3,"avgPayloadBytes":1024},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -259,8 +259,8 @@ func TestScenario_replan_under_scope_change_P3(t *testing.T) {
 	})
 }
 
-// Input_view_operating_cost_projection_P1_1 is step 1's parameters of ProjectForOperatedApp, decoded from the binding's inputs.
-type Input_view_operating_cost_projection_P1_1 struct {
+// inputViewOperatingCostProjectionP1S1 is step 1's parameters of ProjectForOperatedApp, decoded from the binding's inputs.
+type inputViewOperatingCostProjectionP1S1 struct {
 	ObservedUsage      operationestimation.ObservedUsage      `json:"observedUsage"`
 	InfrastructureKind operationestimation.InfrastructureKind `json:"infrastructureKind"`
 	ScaleWhatIfPoints  []operationestimation.ScalePoint       `json:"scaleWhatIfPoints"`
@@ -268,11 +268,11 @@ type Input_view_operating_cost_projection_P1_1 struct {
 
 // TestScenario_view_operating_cost_projection_P1 — View Operating-Cost Projection for a Deployed App — [yes] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → read-usage → project-costs → render → send-cost-projection → end).
 func TestScenario_view_operating_cost_projection_P1(t *testing.T) {
-	h := scenariohost.Start(t, "operationEstimationEngine")
-	h.RunScenario(t, "view-operating-cost-projection-P1", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operationEstimationEngine", "view-operating-cost-projection-P1", func(t *testing.T) {
 		var subject operationestimation.OperationEstimationEngine = newSubject(t, h)
 		// step 1: ProjectForOperatedApp (node project-costs; guards app-known=[yes])
-		var in1 Input_view_operating_cost_projection_P1_1
+		var in1 inputViewOperatingCostProjectionP1S1
 		mustUnmarshal(t, `{"observedUsage":{"ComputeUnitSeconds":3600000,"RequestCount":2000000,"StorageBytesMonths":10737418240,"EgressBytes":53687091200,"ObservedReplicas":2},"infrastructureKind":1,"scaleWhatIfPoints":[{"LoadMultiplier":0.5},{"LoadMultiplier":2},{"LoadMultiplier":5}]}`, &in1)
 		var out1 any
 		var err1 error
