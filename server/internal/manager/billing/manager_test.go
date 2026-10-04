@@ -42,7 +42,7 @@ package billing
 //   E3  decline → Delay → not escalated, no further charge (left for the sweep)
 //
 // F. RecomputeCycle / chargeback saga (workflow_test.go):
-//   F1  chargebackReceived → recordReversal → RecomputeNet → resettleCycle → route delta
+//   F1  chargebackReceived → RecomputeNet → resettleCycle → route delta
 //
 // G. ShortfallSweepWorkflow (workflow_test.go):
 //   G1  delinquent customers → one queued applyDelinquencyPolicy signal per customer
@@ -98,7 +98,7 @@ func testCtx() fwmgr.Context {
 // ---- A1: OnboardPaymentIntegration ------------------------------------------
 
 func Test_Onboard_EmptyDeployedAppID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.OnboardPaymentIntegration(testCtx(), uuid.Nil)
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -108,7 +108,7 @@ func Test_Onboard_EmptyDeployedAppID(t *testing.T) {
 // ---- A2: RegisterCustomer ----------------------------------------------------
 
 func Test_Register_EmptyCustomerID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RegisterCustomer(testCtx(), uuid.Nil)
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -118,7 +118,7 @@ func Test_Register_EmptyCustomerID(t *testing.T) {
 // ---- A3/A4: CloseBillingCycle --------------------------------------------
 
 func Test_Close_EmptyCustomerID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.CloseBillingCycle(testCtx(), uuid.Nil, "cycle-1")
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -126,7 +126,7 @@ func Test_Close_EmptyCustomerID(t *testing.T) {
 }
 
 func Test_Close_EmptyCycleID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.CloseBillingCycle(testCtx(), uuid.New(), "")
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -136,7 +136,7 @@ func Test_Close_EmptyCycleID(t *testing.T) {
 // ---- A5: RunShortfallSweep --------------------------------------------------
 
 func Test_Sweep_EmptyTickID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RunShortfallSweep(testCtx(), "")
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -146,7 +146,7 @@ func Test_Sweep_EmptyTickID(t *testing.T) {
 // ---- A6: RecordInboundRevenue -----------------------------------------------
 
 func Test_RecordInbound_EmptyCustomerID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CycleID: "c1", GatewayEventID: "g1"})
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -154,7 +154,7 @@ func Test_RecordInbound_EmptyCustomerID(t *testing.T) {
 }
 
 func Test_RecordInbound_EmptyCycleID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CustomerID: uuid.New(), GatewayEventID: "g1"})
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -162,7 +162,7 @@ func Test_RecordInbound_EmptyCycleID(t *testing.T) {
 }
 
 func Test_RecordInbound_EmptyGatewayEventID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CustomerID: uuid.New(), CycleID: "c1"})
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -172,7 +172,7 @@ func Test_RecordInbound_EmptyGatewayEventID(t *testing.T) {
 // ---- A7: RecordRevenueReversal ----------------------------------------------
 
 func Test_RecordReversal_EmptyGatewayEventID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{CustomerID: uuid.New(), CycleID: "c1"})
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -180,7 +180,7 @@ func Test_RecordReversal_EmptyGatewayEventID(t *testing.T) {
 }
 
 func Test_RecordReversal_EmptyCustomerID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{CycleID: "c1", GatewayEventID: "g1"})
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -234,9 +234,8 @@ func Test_GatewayIdempotencyKey(t *testing.T) {
 // billingManager workflow unit tests over the Temporal in-memory test environment
 // (testsuite.WorkflowTestSuite). Post-temporalgen migration: the ResourceAccess layer is
 // reached through the GENERATED activities (activities.gen.go) + invokers
-// (invokers.gen.go). ALL FIVE contract-backed RA ports (billingState/usage/
-// merchantGateway/messageBus/revenueLedger — B7 folded the revenue-ledger fake in
-// alongside the rest) are constructed as CONTRACT-interface test doubles, wired into
+// (invokers.gen.go). ALL FOUR contract-backed RA ports (billingState/usage/
+// merchantGateway/messageBus) are constructed as CONTRACT-interface test doubles, wired into
 // genActivities and registered under the generated activity names. The two Engines are
 // direct-in-workflow fakes over their PUBLISHED contracts (billingengine.BillingEngine /
 // intervention.InterventionEngine — no Manager-local seam). No Docker, no dev server.
@@ -330,46 +329,6 @@ func (f *fakeBillingState) ResettleCycle(_ fwra.Context, _ uuid.UUID, _ billings
 }
 
 var _ billingstate.BillingStateAccess = (*fakeBillingState)(nil)
-
-// fakeRevenueLedger records appends + serves a scripted range. Satisfies the generated
-// billingstate.RevenueLedgerAccess contract.
-type fakeRevenueLedger struct {
-	mu sync.Mutex
-
-	rangeEntries []billingstate.RevenueEntry
-	inbound      []billingstate.RevenueEntry
-	reversals    []billingstate.ReversalEntry
-}
-
-func (r *fakeRevenueLedger) RecordInboundRevenue(_ fwra.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.inbound = append(r.inbound, entry)
-	r.rangeEntries = append(r.rangeEntries, entry)
-	return billingstate.EntryRef("ref"), nil
-}
-
-func (r *fakeRevenueLedger) RecordReversal(_ fwra.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.reversals = append(r.reversals, reversal)
-	// A reversal is a new negative fact appended to the same log readRange replays.
-	r.rangeEntries = append(r.rangeEntries, billingstate.RevenueEntry{
-		CustomerID: reversal.CustomerID, CycleID: reversal.CycleID,
-		Kind: billingstate.RevenueKindReversal, Amount: reversal.Amount, GatewayEventID: reversal.GatewayEventID,
-	})
-	return billingstate.EntryRef("revref"), nil
-}
-
-func (r *fakeRevenueLedger) ReadRange(_ fwra.Context, _ uuid.UUID, _ string) ([]billingstate.RevenueEntry, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := make([]billingstate.RevenueEntry, len(r.rangeEntries))
-	copy(out, r.rangeEntries)
-	return out, nil
-}
-
-var _ billingstate.RevenueLedgerAccess = (*fakeRevenueLedger)(nil)
 
 // fakeUsage serves a scripted usage range. Satisfies usage.UsageAccess.
 type fakeUsage struct {
@@ -474,10 +433,14 @@ type fakeBillingEngine struct {
 	recomputeResult billingengine.BillingResult
 	computeN        int
 	recomputeN      int
+	// computeRevenue / recomputeRevenue are the revenue snapshots the workflow handed in.
+	computeRevenue   []billingengine.CycleRevenue
+	recomputeRevenue []billingengine.CycleRevenue
 }
 
-func (e *fakeBillingEngine) ComputeNet(_ fweng.Context, _ billingengine.CycleRevenue, _ billingengine.CycleUsage, _ billingengine.BillingTerms) (billingengine.BillingResult, error) {
+func (e *fakeBillingEngine) ComputeNet(_ fweng.Context, revenue billingengine.CycleRevenue, _ billingengine.CycleUsage, _ billingengine.BillingTerms) (billingengine.BillingResult, error) {
 	e.computeN++
+	e.computeRevenue = append(e.computeRevenue, revenue)
 	return e.computeResult, nil
 }
 
@@ -485,8 +448,9 @@ func (e *fakeBillingEngine) ProjectCommitTimeComputeCost(_ fweng.Context, _ bill
 	return billingengine.Projection{}, nil
 }
 
-func (e *fakeBillingEngine) RecomputeNet(_ fweng.Context, _ billingengine.ReBillingInput) (billingengine.BillingResult, error) {
+func (e *fakeBillingEngine) RecomputeNet(_ fweng.Context, in billingengine.ReBillingInput) (billingengine.BillingResult, error) {
 	e.recomputeN++
+	e.recomputeRevenue = append(e.recomputeRevenue, in.Revenue)
 	return e.recomputeResult, nil
 }
 
@@ -520,7 +484,6 @@ var _ intervention.InterventionEngine = (*fakeIntervention)(nil)
 
 type fakes struct {
 	state      *fakeBillingState
-	ledger     *fakeRevenueLedger
 	usage      *fakeUsage
 	gateway    *fakeGateway
 	messageBus *fakeMessageBus
@@ -531,7 +494,6 @@ type fakes struct {
 func baseDeps() (wfDeps, *fakes) {
 	f := &fakes{
 		state:      &fakeBillingState{},
-		ledger:     &fakeRevenueLedger{},
 		usage:      &fakeUsage{},
 		gateway:    &fakeGateway{},
 		messageBus: &fakeMessageBus{},
@@ -546,8 +508,7 @@ func baseDeps() (wfDeps, *fakes) {
 }
 
 // registerActs wires the contract-backed RA fakes into genActivities and registers each
-// generated activity — including the three revenueLedgerAccess ops (B7: no longer custom
-// Activities) — under its stable registered name, the name the workflow's Acts invokers
+// generated activity under its stable registered name, the name the workflow's Acts invokers
 // call by. Registering the full set each test is harmless (unused ones are never
 // dispatched) and keeps the per-workflow register helpers uniform.
 func registerActs(env *testsuite.TestWorkflowEnvironment, f *fakes) {
@@ -556,7 +517,6 @@ func registerActs(env *testsuite.TestWorkflowEnvironment, f *fakes) {
 		Usage:           f.usage,
 		MerchantGateway: f.gateway,
 		MessageBus:      f.messageBus,
-		RevenueLedger:   f.ledger,
 	}
 	reg := func(fn any, name string) {
 		env.RegisterActivityWithOptions(fn, activity.RegisterOptions{Name: name})
@@ -572,9 +532,6 @@ func registerActs(env *testsuite.TestWorkflowEnvironment, f *fakes) {
 	reg(acts.MerchantGatewayValidateStoredInstrument, "merchantGatewayAccess.validateStoredInstrument")
 	reg(acts.MessageBusDeliverSignal, "messageBus.deliverSignal")
 	reg(acts.MessageBusRegisterSchedule, "messageBus.registerSchedule")
-	reg(acts.RevenueLedgerReadRange, "revenueLedgerAccess.readRange")
-	reg(acts.RevenueLedgerRecordInboundRevenue, "revenueLedgerAccess.recordInboundRevenue")
-	reg(acts.RevenueLedgerRecordReversal, "revenueLedgerAccess.recordReversal")
 }
 
 func registerOnboard(env *testsuite.TestWorkflowEnvironment, wf *workflows, f *fakes) {
@@ -803,8 +760,10 @@ func Test_Close_NotBound_FailedPrecondition(t *testing.T) {
 	}
 }
 
-// D6: inbound-revenue signals delivered before close are drained and appended
-// (idempotent on the gateway event id); the close still settles.
+// D6: inbound-revenue signals delivered before close are drained and DROPPED — the
+// charge-only model keeps no revenue ledger (revenueLedgerAccess, a permanent no-op, was
+// deleted in dct Plan 4 Task 3) — so the revenue the net is computed over is the zero
+// snapshot whatever arrived, and the close still settles exactly once.
 func Test_Close_DrainsInboundRevenueSignals(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -828,8 +787,11 @@ func Test_Close_DrainsInboundRevenueSignals(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	if len(f.ledger.inbound) != 1 || f.ledger.inbound[0].GatewayEventID != "g1" {
-		t.Fatalf("want the inbound-revenue signal appended (dedup g1), got %v", f.ledger.inbound)
+	if len(f.state.settled) != 1 {
+		t.Fatalf("the close must still settle exactly once, got %v", f.state.settled)
+	}
+	if len(f.engine.computeRevenue) != 1 || f.engine.computeRevenue[0] != (billingengine.CycleRevenue{}) {
+		t.Fatalf("the inbound revenue must not enter the net: ComputeNet saw %+v", f.engine.computeRevenue)
 	}
 }
 
@@ -930,8 +892,9 @@ func Test_Close_ChargeDecline_Delay_NoEscalation(t *testing.T) {
 
 // ============================ F. chargeback recompute saga ==================
 
-// F1: a chargebackReceived signal runs the forward-only recompute: append reversal →
-// RecomputeNet → resettleCycle → route the delta.
+// F1: a chargebackReceived signal runs the forward-only recompute: RecomputeNet (over the
+// zero revenue snapshot — no reversal fact is recorded, there is no revenue ledger under
+// charge-only) → resettleCycle → route the delta.
 func Test_Close_Chargeback_ForwardOnlyRecompute(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -957,11 +920,11 @@ func Test_Close_Chargeback_ForwardOnlyRecompute(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	if len(f.ledger.reversals) != 1 || f.ledger.reversals[0].GatewayEventID != "cb1" {
-		t.Fatalf("want one reversal appended (dedup cb1), got %v", f.ledger.reversals)
-	}
 	if f.engine.recomputeN != 1 {
 		t.Fatalf("want one RecomputeNet, got %d", f.engine.recomputeN)
+	}
+	if f.engine.recomputeRevenue[0] != (billingengine.CycleRevenue{}) {
+		t.Fatalf("the recompute must run over the zero revenue snapshot, got %+v", f.engine.recomputeRevenue[0])
 	}
 	if len(f.state.resettled) != 1 {
 		t.Fatalf("want one resettleCycle correction, got %v", f.state.resettled)
@@ -1123,7 +1086,7 @@ var _ = time.Millisecond
 // required is presence-only: a money value with no currency is not a money value
 // (2026-08-13 contract-strictness audit).
 func Test_RecordRevenue_RequiresCurrency(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{
 		CustomerID: uuid.New(), CycleID: "cycle-1", GatewayEventID: "evt-1",
 		Amount: Money{MinorUnits: 100, Currency: ""},
@@ -1141,10 +1104,10 @@ func Test_RecordRevenue_RequiresCurrency(t *testing.T) {
 }
 
 // Test_RecordRevenueReversal_RejectsEmptyBackLink — the reverses-link is optional
-// (nil = reverses no single event), but a pointer to "" persisted into the ledger
-// through derefString as an empty id indistinguishable from absent.
+// (nil = reverses no single event), but a pointer to "" is a third state,
+// indistinguishable downstream from absent.
 func Test_RecordRevenueReversal_RejectsEmptyBackLink(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	blank := "  "
 	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{
 		CustomerID: uuid.New(), CycleID: "cycle-1", GatewayEventID: "evt-3",

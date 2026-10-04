@@ -696,8 +696,7 @@ func signedOff(activityID string, signOffs map[string]founderSignOff, p projects
 // has a field, but it only ever co-covers beside GitArtifactAccess.
 //
 // FACETS: a component may own several contracts (projectStateAccess carries
-// constructionTransitionAccess, designSessionAccess and gitActivityStatusAccess;
-// billingStateAccess carries revenueLedgerAccess). Facets share the component's
+// activityExecutionAccess, designSessionAccess and gitActivityStatusAccess). Facets share the component's
 // goPackage and are held to conditions 1 and 2 with it, but condition 3 reads only the
 // component's OWN interface — the entry whose key is the component itself. A facet
 // interface has no file of its own, and demanding one would fail a component that is

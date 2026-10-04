@@ -153,24 +153,14 @@ func generateMain(m *projectmodel.Model) {
 				{GoType: "projectstate.ProjectCatalog", GoImport: projectstatePkg},
 				{GoType: "projectstate.CredentialMinter", GoImport: projectstatePkg},
 			},
-			// constructionTransitionAccess / gitActivityStatusAccess / designSessionAccess
-			// (B6) are secondary contracts sharing projectStateAccess's own goPackage and
-			// git substrate — each variant constructor builds its OWN second GitStore over
-			// the SAME repoURL (GitLocal) or the SAME shared catalog/minter ports
-			// (GitHub, reusing the identical 4-arg tuple as projectStateAccess/GitHub
-			// above), never raw github-app credentials directly. The GitLocal arm also
-			// needs a hook (not a plain positional settings arg) purely to REUSE
-			// cfg.ProjectStateGitRepoURL rather than declare a duplicate binding-scoped
-			// setting for the same env var.
-			"constructionTransitionAccess/GitLocal": {
-				{GoType: "string"}, // repoURL
-			},
-			"constructionTransitionAccess/GitHub": {
-				{GoType: "string"}, // webHost
-				{GoType: "string"}, // account
-				{GoType: "projectstate.ProjectCatalog", GoImport: projectstatePkg},
-				{GoType: "projectstate.CredentialMinter", GoImport: projectstatePkg},
-			},
+			// gitActivityStatusAccess / designSessionAccess (B6) are secondary contracts
+			// sharing projectStateAccess's own goPackage and git substrate — each variant
+			// constructor builds its OWN second GitStore over the SAME repoURL (GitLocal)
+			// or the SAME shared catalog/minter ports (GitHub, reusing the identical
+			// 4-arg tuple as projectStateAccess/GitHub above), never raw github-app
+			// credentials directly. The GitLocal arm also needs a hook (not a plain
+			// positional settings arg) purely to REUSE cfg.ProjectStateGitRepoURL rather
+			// than declare a duplicate binding-scoped setting for the same env var.
 			"gitActivityStatusAccess/GitLocal": {
 				{GoType: "string"}, // repoURL
 			},
@@ -183,9 +173,9 @@ func generateMain(m *projectmodel.Model) {
 			"designSessionAccess/GitLocal": {
 				{GoType: "string"}, // repoURL
 			},
-			// activityExecutionAccess (stage 3) is the FIFTH facet over the same one
+			// activityExecutionAccess (stage 3) is the fourth facet over the same one
 			// component, package and git substrate — so it takes the identical tuples as
-			// its four siblings above, for the identical reason.
+			// its siblings above, for the identical reason.
 			"activityExecutionAccess/GitLocal": {
 				{GoType: "string"}, // repoURL
 			},
@@ -196,8 +186,8 @@ func generateMain(m *projectmodel.Model) {
 				{GoType: "projectstate.CredentialMinter", GoImport: projectstatePkg},
 			},
 			// episodeAccess/LocalFS (Task 8) reuses the SAME shared-repo repoURL
-			// setting (cfg.ProjectStateGitRepoURL) the constructionTransitionAccess/
-			// GitActivityStatusAccess/DesignSessionAccess GitLocal arms above already
+			// setting (cfg.ProjectStateGitRepoURL) the GitActivityStatusAccess/
+			// DesignSessionAccess/ActivityExecutionAccess GitLocal arms above already
 			// hook-arg through — one repo per server config, name-as-identity — purely
 			// to avoid a duplicate env var for the same value. The cloud profile builds
 			// the NoOp variant (no infra, no hook arg needed).

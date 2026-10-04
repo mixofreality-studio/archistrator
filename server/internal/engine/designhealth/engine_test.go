@@ -60,9 +60,10 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// DH-CONTRACT-OPCOUNT-MAX goes SILENT at stage 4a. It fires only ABOVE 12 ops, and the
 	// two contracts that carried it — systemDesignManager (16) and constructionManager (13)
 	// — dissolved into the 12-op deliveryManager. Measured on the committed state after the
-	// collapse, the largest surviving contract is 12 (deliveryManager itself,
-	// constructionTransitionAccess and activityExecutionAccess, all three exactly at the
-	// limit), so nothing is left to fire on. This is the FIRST time the repo has had no
+	// collapse, the largest surviving contract is 12 (activityExecutionAccess, and since dct
+	// Plan 4 Task 3 projectStateAccess, which took the three project-scoped records of the
+	// deleted constructionTransitionAccess — both exactly at the limit), so nothing is left
+	// to fire on. This is the FIRST time the repo has had no
 	// Manager contract past App-C's ceiling.
 	assertAbsent(t, got, RuleContractOpMax)
 	// Objective-coverage advisory: ERA-DEPENDENT. While any objective is referenced
@@ -100,10 +101,10 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	//
 	// CORRECTION (stage 4a): the stage-3 earmark said this flips when the deprecated
 	// facets are deleted. That is WRONG and re-checking it is why the pin stays.
-	// Deleting constructionTransitionAccess kills the RecordOperatorNote duplicate but
-	// NOT the AcknowledgeStaleBasis one — projectStateAccess publishes that verb too,
-	// and spec §5.3 keeps projectStateAccess at its 9 ops. The pin stays until one of
-	// those two verbs goes, not until the drain. (The rule itself stays proven by its
+	// Deleting constructionTransitionAccess (dct Plan 4 Task 3) killed the
+	// RecordOperatorNote duplicate but NOT the AcknowledgeStaleBasis one —
+	// projectStateAccess publishes that verb too. The pin stays until one of those two
+	// verbs goes. (The rule itself stays proven by its
 	// negative fixture.)
 	assertPresent(t, got, RuleContractDeadOp, methodcheck.SeverityWarning)
 	// No dangling volatility trace, no unarchitected core use case.

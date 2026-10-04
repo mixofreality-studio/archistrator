@@ -145,9 +145,9 @@ func (wf *csWorkflows) recordOperatorPaused(ctx workflow.Context, projectID Proj
 	}
 	headVersion := wf.readVersion(ctx, projectID)
 	_, err := wf.applyRecovering(ctx, projectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		// Project-level pause has no per-activity minted cred; the cred-binding git
-		// adapter mints just-in-time and the local store ignores an empty cred.
-		return wf.Acts.ConstructionTransitionRecordOperatorPaused(ctx, projectstate.ProjectID(projectID), expected, reason, railCredEnvelope{}.toProjectState())
+		// Project-level pause has no per-activity minted cred: it is a projectStateAccess
+		// verb, and that facet's cred-binding adapter mints just-in-time.
+		return wf.Acts.ProjectStateRecordOperatorPaused(ctx, projectstate.ProjectID(projectID), expected, reason)
 	})
 	return err
 }

@@ -100,6 +100,27 @@ func (i genInvokers) ProjectStateReadProjectVersion(ctx workflow.Context, projec
 	return out, err
 }
 
+// ProjectStateRecordOperatorPaused invokes activity "projectStateAccess.recordOperatorPaused".
+func (i genInvokers) ProjectStateRecordOperatorPaused(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordOperatorPaused"), "projectStateAccess.recordOperatorPaused", projectID, expectedVersion, reason).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordOperatorResumed invokes activity "projectStateAccess.recordOperatorResumed".
+func (i genInvokers) ProjectStateRecordOperatorResumed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordOperatorResumed"), "projectStateAccess.recordOperatorResumed", projectID, expectedVersion).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordReviewPolicy invokes activity "projectStateAccess.recordReviewPolicy".
+func (i genInvokers) ProjectStateRecordReviewPolicy(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordReviewPolicy"), "projectStateAccess.recordReviewPolicy", projectID, expectedVersion, policy).Get(ctx, &out)
+	return out, err
+}
+
 // ProjectStateSetOperatingModel invokes activity "projectStateAccess.setOperatingModel".
 func (i genInvokers) ProjectStateSetOperatingModel(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
 	var out projectstate.Version
@@ -241,90 +262,6 @@ func (i genInvokers) RailPostReview(ctx workflow.Context, repo sourcecontrol.Rep
 func (i genInvokers) RailSyncManagedScaffold(ctx workflow.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
 	var out bool
 	err := workflow.ExecuteActivity(i.options(ctx, "sourceControlAccess.syncManagedScaffold"), "sourceControlAccess.syncManagedScaffold", repo, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordActivityExited invokes activity "constructionTransitionAccess.recordActivityExited".
-func (i genInvokers) ConstructionTransitionRecordActivityExited(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordActivityExited"), "constructionTransitionAccess.recordActivityExited", projectID, expectedVersion, activityID, outcome, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordActivityFailed invokes activity "constructionTransitionAccess.recordActivityFailed".
-func (i genInvokers) ConstructionTransitionRecordActivityFailed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordActivityFailed"), "constructionTransitionAccess.recordActivityFailed", projectID, expectedVersion, activityID, reason, detail, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordChangeReviewed invokes activity "constructionTransitionAccess.recordChangeReviewed".
-func (i genInvokers) ConstructionTransitionRecordChangeReviewed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordChangeReviewed"), "constructionTransitionAccess.recordChangeReviewed", projectID, expectedVersion, activityID, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordOperatorNote invokes activity "constructionTransitionAccess.recordOperatorNote".
-func (i genInvokers) ConstructionTransitionRecordOperatorNote(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorNote"), "constructionTransitionAccess.recordOperatorNote", projectID, expectedVersion, activityID, note, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordOperatorNoteDelivered invokes activity "constructionTransitionAccess.recordOperatorNoteDelivered".
-func (i genInvokers) ConstructionTransitionRecordOperatorNoteDelivered(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, noteID string, attemptID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorNoteDelivered"), "constructionTransitionAccess.recordOperatorNoteDelivered", projectID, expectedVersion, activityID, noteID, attemptID, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordOperatorPaused invokes activity "constructionTransitionAccess.recordOperatorPaused".
-func (i genInvokers) ConstructionTransitionRecordOperatorPaused(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorPaused"), "constructionTransitionAccess.recordOperatorPaused", projectID, expectedVersion, reason, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordOperatorResumed invokes activity "constructionTransitionAccess.recordOperatorResumed".
-func (i genInvokers) ConstructionTransitionRecordOperatorResumed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorResumed"), "constructionTransitionAccess.recordOperatorResumed", projectID, expectedVersion, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordPhaseArtifactProduced invokes activity "constructionTransitionAccess.recordPhaseArtifactProduced".
-func (i genInvokers) ConstructionTransitionRecordPhaseArtifactProduced(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordPhaseArtifactProduced"), "constructionTransitionAccess.recordPhaseArtifactProduced", projectID, expectedVersion, activityID, mapKey, payload, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordPhaseCompleted invokes activity "constructionTransitionAccess.recordPhaseCompleted".
-func (i genInvokers) ConstructionTransitionRecordPhaseCompleted(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordPhaseCompleted"), "constructionTransitionAccess.recordPhaseCompleted", projectID, expectedVersion, activityID, phase, artifactRef, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordPhaseStarted invokes activity "constructionTransitionAccess.recordPhaseStarted".
-func (i genInvokers) ConstructionTransitionRecordPhaseStarted(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordPhaseStarted"), "constructionTransitionAccess.recordPhaseStarted", projectID, expectedVersion, activityID, phase, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordReviewPolicy invokes activity "constructionTransitionAccess.recordReviewPolicy".
-func (i genInvokers) ConstructionTransitionRecordReviewPolicy(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordReviewPolicy"), "constructionTransitionAccess.recordReviewPolicy", projectID, expectedVersion, policy, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordServiceContractProduced invokes activity "constructionTransitionAccess.recordServiceContractProduced".
-func (i genInvokers) ConstructionTransitionRecordServiceContractProduced(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordServiceContractProduced"), "constructionTransitionAccess.recordServiceContractProduced", projectID, expectedVersion, component, contract, cred).Get(ctx, &out)
 	return out, err
 }
 

@@ -340,7 +340,7 @@ func entryRef(id int64) EntryRef {
 // zero-value EntryRef per event, never persisted or read back) and every read
 // returns an empty range. Do not add any behind this type; a future real
 // local metering store is a new, separate implementation, not this one grown
-// up (mirrors revenueledger.noopRevenueLedgerAccess's documented stance).
+// up.
 type noopUsageAccess struct{}
 
 // NewNoOpUsageAccess returns the permanent no-op UsageAccess for the local

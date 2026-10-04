@@ -83,7 +83,7 @@ var _ EpisodeAccess = (*localFSEpisodeAccess)(nil)
 // binding, so composegen's generated main only ever calls this constructor as
 // `episodeAccess = episode.NewLocalFSEpisodeAccess(repoURL)` — a plain
 // single-value assignment, never `v, err :=` (there is no inverse escape
-// hatch; see NewGitLocalConstructionTransitionAccess in
+// hatch; see NewGitLocalGitActivityStatusAccess in
 // projectstateaccess.go, the composegen precedent this mirrors).
 //
 // TRUE fidelity to that precedent means more than matching its arity: like

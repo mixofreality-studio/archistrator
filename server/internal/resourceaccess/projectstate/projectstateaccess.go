@@ -1656,53 +1656,34 @@ func NewGitHubProjectStateAccess(webHost, account string, catalog ProjectCatalog
 	return &projectStateGitAdapter{store: store, minter: minter}, nil
 }
 
-// GitConstructionPorts type-asserts a ProjectStateAccess built by the Git* variants back to
-// the construction-transition + git-activity-status ports its backing *GitStore serves
-// (the construction Manager shares the design head-state store; status cascade live). ok is
-// false for a non-git ProjectStateAccess. This encapsulates the composition root's former
-// private-field type-assertion so the adapter stays unexported.
-func GitConstructionPorts(psa ProjectStateAccess) (ConstructionTransitionAccess, GitActivityStatusAccess, bool) {
+// GitActivityStatusPort type-asserts a ProjectStateAccess built by the Git* variants back to
+// the git-activity-status port its backing *GitStore serves (the delivery Manager shares the
+// design head-state store; status cascade live). ok is false for a non-git
+// ProjectStateAccess. This encapsulates the composition root's former private-field
+// type-assertion so the adapter stays unexported.
+func GitActivityStatusPort(psa ProjectStateAccess) (GitActivityStatusAccess, bool) {
 	if a, ok := psa.(*projectStateGitAdapter); ok {
-		return a.store, a.store, true
+		return a.store, true
 	}
-	return nil, nil, false
+	return nil, false
 }
 
 // ---------------------------------------------------------------------------
-// constructionTransitionAccess / gitActivityStatusAccess VARIANT CONSTRUCTORS
-// (B6). These are composegen DI entry points for the two secondary contracts
-// promoted off the SAME git substrate as projectStateAccess (B2/B3) — each
-// builds its OWN *GitStore via the identical Git* projectStateAccess
-// constructor (a second, functionally-equivalent instance addressing the same
-// repo; GitStore holds no mutable connection state, so this mirrors the
-// composition root's pre-existing "SEPARATE instance, consistent because both
-// address the same git repo" pattern, formerly in cmd/server/hooks.go) and
-// narrows it via GitConstructionPorts.
+// gitActivityStatusAccess VARIANT CONSTRUCTORS (B6). These are composegen DI entry
+// points for the secondary contract promoted off the SAME git substrate as
+// projectStateAccess (B2/B3) — each builds its OWN *GitStore via the identical Git*
+// projectStateAccess constructor (a second, functionally-equivalent instance addressing
+// the same repo; GitStore holds no mutable connection state, so this mirrors the
+// composition root's pre-existing "SEPARATE instance, consistent because both address
+// the same git repo" pattern, formerly in cmd/server/hooks.go) and narrows it via
+// GitActivityStatusPort.
 // ---------------------------------------------------------------------------
-
-// NewGitLocalConstructionTransitionAccess builds the LOCAL git
-// constructionTransitionAccess port (composegen variant token GitLocal).
-func NewGitLocalConstructionTransitionAccess(repoURL string) ConstructionTransitionAccess {
-	t, _, _ := GitConstructionPorts(NewGitLocalProjectStateAccess(repoURL))
-	return t
-}
 
 // NewGitLocalGitActivityStatusAccess builds the LOCAL git gitActivityStatusAccess
 // port (composegen variant token GitLocal).
 func NewGitLocalGitActivityStatusAccess(repoURL string) GitActivityStatusAccess {
-	_, s, _ := GitConstructionPorts(NewGitLocalProjectStateAccess(repoURL))
+	s, _ := GitActivityStatusPort(NewGitLocalProjectStateAccess(repoURL))
 	return s
-}
-
-// NewGitHubConstructionTransitionAccess builds the CLOUD git
-// constructionTransitionAccess port (composegen variant token GitHub).
-func NewGitHubConstructionTransitionAccess(webHost, account string, catalog ProjectCatalog, minter CredentialMinter) (ConstructionTransitionAccess, error) {
-	psa, err := NewGitHubProjectStateAccess(webHost, account, catalog, minter)
-	if err != nil {
-		return nil, err
-	}
-	t, _, _ := GitConstructionPorts(psa)
-	return t, nil
 }
 
 // NewGitHubGitActivityStatusAccess builds the CLOUD git gitActivityStatusAccess
@@ -1712,7 +1693,7 @@ func NewGitHubGitActivityStatusAccess(webHost, account string, catalog ProjectCa
 	if err != nil {
 		return nil, err
 	}
-	_, s, _ := GitConstructionPorts(psa)
+	s, _ := GitActivityStatusPort(psa)
 	return s, nil
 }
 
@@ -1948,6 +1929,41 @@ func (a *projectStateGitAdapter) SetReviewCommentStatusOnBranch(rc fwra.Context,
 	return a.store.SetReviewCommentStatusOnBranch(ctx, projectID, expectedVersion, branch, kind, commentID, status, cred, idempotencyKey)
 }
 
+// RecordOperatorPaused records the operator-paused head-state transition: OperatorPaused
+// true and PauseReason set. One of the three PROJECT-SCOPED records that moved here from the
+// deleted constructionTransitionAccess (dct Plan 4 Task 3); like every op on this facet it
+// takes no credential — the cred is minted just-in-time.
+func (a *projectStateGitAdapter) RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
+	cred, err := a.minter.CredentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordOperatorPaused(rc, projectID, expectedVersion, reason, cred, idempotencyKey)
+}
+
+// RecordOperatorResumed clears the recorded pause (plan B1.7). The cred is minted
+// just-in-time.
+func (a *projectStateGitAdapter) RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
+	cred, err := a.minter.CredentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordOperatorResumed(rc, projectID, expectedVersion, cred, idempotencyKey)
+}
+
+// RecordReviewPolicy persists the per-project ReviewPolicy. The cred is minted
+// just-in-time.
+func (a *projectStateGitAdapter) RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
+	cred, err := a.minter.CredentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordReviewPolicy(rc, projectID, expectedVersion, policy, cred, idempotencyKey)
+}
+
 // AcknowledgeStaleBasis clears a committed slot's StaleBasis + records the reviewer's
 // "reviewed — unaffected" audit entry on main (F45). The cred is minted just-in-time.
 func (a *projectStateGitAdapter) AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
@@ -2068,17 +2084,8 @@ func (c localProjectCatalog) ListProjectRepos(ctx context.Context, _ OwnerScope,
 	return []ProjectCatalogRef{{ProjectID: ProjectID(doc.ID), Title: doc.Name}}, nil
 }
 
-// gitconstruction.go is the git-substrate realization of the additive Phase-3
-// construction-transition verbs (constructionManager.md §5.3; see construction.go
-// for the Postgres-era port + rationale). The git GitStore satisfies the SAME
-// ConstructionTransitionAccess facet — re-cut with the Manager-threaded
-// `cred RepoCredential` (REWORK.4) the substrate swap forces, exactly as the
-// Phase-1/2 verbs are. v1 records the transition through the shared ref-CAS +
-// in-repo-dedup applyMutation path so it is durable and replay-idempotent; the
-// richer per-activity head-state status aggregate is populated from Task 4.
-
 // PhaseArtifactPayload is a tagged union of all phase artifact types.
-// Exactly one field should be set. RecordPhaseArtifactProduced inspects which
+// Exactly one field should be set. ApplyPhaseArtifactPayload inspects which
 // field is non-zero and routes it to the right map in PhaseArtifacts or
 // TestingState. mapKey is the component/surface/resource/doc name used as the
 // map key for PhaseArtifacts fields; it is unused for pointer-scalar TestingState
@@ -2109,51 +2116,6 @@ type PhaseArtifactPayload struct {
 	QualityAuditReport string
 }
 
-// RecordChangeReviewed records that activityID's change went to review.
-//
-// Retired in place (stage 3, task 3): the review is a ReviewRound on the execution
-// ledger now, and the coarse build status this used to stamp is DERIVED from that ledger
-// (spec §5.3's dispositions — a derived field that is also stored is two answers to one
-// question). The verb survives task 4 unchanged in NAME, signature and Temporal activity
-// type because five of the thirteen replay fixtures record it; it now only BIRTHS the row
-// it used to stamp, so a history that replays it still lands the same commit. Stage 4
-// deletes it once the fixtures it appears in are retired.
-func (s *GitStore) RecordChangeReviewed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordChangeReviewed: empty activityID")
-	}
-	return s.applyMutation(rc.Context, "RecordChangeReviewed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(*ActivityExecution) {})
-		return nil
-	})
-}
-
-// RecordActivityExited records the binary activity exit for activityID: CompletedAt,
-// server-resolved and WRITE-ONCE.
-//
-// The outcome is no longer stamped as a coarse build status, because it is not a fact
-// SEPARATE from the ledgers: an activity that completed is one whose every lifecycle-phase
-// gate passed, and one that was skipped or taken over is one that exited without them.
-// CoarseBuildStatusFor reads exactly that off the resolved phase set, so the stored status
-// and the ledger can no longer disagree about the same exit (spec §5.3).
-func (s *GitStore) RecordActivityExited(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityExited: empty activityID")
-	}
-	switch outcome {
-	case ActivityOutcomeCompleted, ActivityOutcomeSkipped, ActivityOutcomeTakenOver, ActivityOutcomeUnknown:
-		// Every member exits the same way; the vocabulary is named in full rather than
-		// absorbed by a default arm so a new member is a gate failure, not a silent exit.
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordActivityExited", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			stampExit(cs, now)
-		})
-		return nil
-	})
-}
-
 // stampExit writes the one terminal head fact an exit leaves: the completion clock, once.
 // WRITE-ONCE because the FIRST terminal is the true one — a later record must not re-date
 // an activity that already finished (the rule RecordActivityOutcome states and OpenActivity
@@ -2163,68 +2125,6 @@ func stampExit(cs *ActivityExecution, now time.Time) {
 		t := now
 		cs.CompletedAt = &t
 	}
-}
-
-// RecordActivityFailed records the TERMINAL-FAILURE binary exit for activityID. It
-// MIRRORS RecordActivityExited exactly (same applyMutation + idempotency ledger +
-// ref-CAS pattern) but lands a distinct terminal: CompletedAt server-resolved, plus the
-// FailureReason + FailureDetail that say WHY the activity is no longer pending. Those two
-// stay STORED (spec §5.3) precisely because they are not a roll-up of anything: they are
-// what makes the failure STICKY, so a late phase completion can never recompute a failed
-// activity back to running. This is what stops a cancelled/failed/timed-out GH-Actions run
-// (or an exhausted variance budget / unanswered escalation) from leaving the activity
-// stuck Running forever.
-func (s *GitStore) RecordActivityFailed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityFailed: empty activityID")
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordActivityFailed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			stampExit(cs, now)
-			cs.FailureReason = reason
-			cs.FailureDetail = detail
-		})
-		return nil
-	})
-}
-
-// RecordOperatorNote appends an operator's note to activityID's construction row
-// (plan B1.1), stamping RecordedAt from the server clock. NoteID is the caller's
-// deterministic id: recording the same id again with identical content appends nothing
-// (the version still advances, as it does for every applied mutation), and with
-// different content it is refused as ContractMisuse, because one id names one note.
-// Also ContractMisuse: an empty activityID or noteId, blank text, or a kind outside the
-// closed vocabulary. The row is upserted, like RecordActivityFailed's.
-func (s *GitStore) RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, note OperatorNoteInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if err := validateOperatorNoteInput(activityID, note); err != nil {
-		return 0, err
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordOperatorNote", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		var refused error
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			for _, n := range cs.OperatorNotes {
-				if n.NoteID != note.NoteID {
-					continue
-				}
-				if !sameOperatorNote(n, note) {
-					refused = fwra.New(fwra.ContractMisuse, fmt.Sprintf(
-						"projectstate.RecordOperatorNote: note %q is already recorded on %s with different content; one id names one note", note.NoteID, activityID))
-				}
-				return
-			}
-			cs.OperatorNotes = append(cs.OperatorNotes, OperatorNote{
-				NoteID:     note.NoteID,
-				Kind:       note.Kind,
-				Gate:       note.Gate,
-				Text:       note.Text,
-				Comments:   slices.Clone(note.Comments),
-				RecordedAt: now,
-			})
-		})
-		return refused
-	})
 }
 
 // validateOperatorNoteInput is RecordOperatorNote's ContractMisuse gate.
@@ -2252,57 +2152,9 @@ func sameOperatorNote(n OperatorNote, in OperatorNoteInput) bool {
 	return n.Kind == in.Kind && n.Gate == in.Gate && n.Text == in.Text && slices.Equal(n.Comments, in.Comments)
 }
 
-// RecordOperatorNoteDelivered stamps the note noteID on activityID's row as delivered to
-// the agent dispatch attemptID (projectstate.AttemptID), with DeliveredAt from the server
-// clock. A note is delivered once: re-stamping the same attempt is a no-op, and stamping
-// a different one is refused as ContractMisuse. No such row or note is NotFound; an empty
-// activityID, noteID or attemptID is ContractMisuse.
-func (s *GitStore) RecordOperatorNoteDelivered(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, noteID string, attemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	switch {
-	case activityID == "":
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNoteDelivered: empty activityID")
-	case noteID == "":
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNoteDelivered: empty noteID")
-	case attemptID == "":
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNoteDelivered: empty attemptID")
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordOperatorNoteDelivered", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		if _, ok := p.ActivityExecution[activityID]; !ok {
-			return fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.RecordOperatorNoteDelivered: no construction row for %s", activityID))
-		}
-		// Routed through the upsert rather than writing the map key directly: this was the
-		// ONE writer that bypassed it, and a row whose delivery stamp moved without its
-		// version moving is a row the other rail could interleave with unseen.
-		var outcome error
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			for i := range cs.OperatorNotes {
-				n := &cs.OperatorNotes[i]
-				if n.NoteID != noteID {
-					continue
-				}
-				switch n.DeliveredToAttemptID {
-				case attemptID:
-					return
-				case "":
-					t := now
-					n.DeliveredToAttemptID, n.DeliveredAt = attemptID, &t
-					return
-				default:
-					outcome = fwra.New(fwra.ContractMisuse, fmt.Sprintf(
-						"projectstate.RecordOperatorNoteDelivered: note %q on %s was already delivered to %s; a note is delivered once", noteID, activityID, n.DeliveredToAttemptID))
-					return
-				}
-			}
-			outcome = fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.RecordOperatorNoteDelivered: no note %q on %s", noteID, activityID))
-		})
-		return outcome
-	})
-}
-
-// RecordOperatorPaused records the operator-paused head-state transition by
+// recordOperatorPaused records the operator-paused head-state transition by
 // setting Project.OperatorPaused = true and Project.PauseReason = reason.
-func (s *GitStore) RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) recordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(rc.Context, "RecordOperatorPaused", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.OperatorPaused = true
 		p.PauseReason = reason
@@ -2310,12 +2162,12 @@ func (s *GitStore) RecordOperatorPaused(rc fwra.Context, projectID ProjectID, ex
 	})
 }
 
-// RecordOperatorResumed records the operator-resumed head-state transition (plan B1.7):
+// recordOperatorResumed records the operator-resumed head-state transition (plan B1.7):
 // it clears Project.OperatorPaused and Project.PauseReason, so the project reads — and
 // encodes, both fields being omitempty — exactly as one that was never paused. Resuming a
 // project that is not paused changes no field: the construction Manager's façade owns the
 // "not paused" precondition, so the RA stays an idempotent writer of the cleared state.
-func (s *GitStore) RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) recordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(rc.Context, "RecordOperatorResumed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.OperatorPaused = false
 		p.PauseReason = ""
@@ -2323,145 +2175,21 @@ func (s *GitStore) RecordOperatorResumed(rc fwra.Context, projectID ProjectID, e
 	})
 }
 
-// RecordReviewPolicy persists the per-project ReviewPolicy by setting
+// recordReviewPolicy persists the per-project ReviewPolicy by setting
 // Project.ReviewPolicy = policy.
-func (s *GitStore) RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) recordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(rc.Context, "RecordReviewPolicy", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.ReviewPolicy = policy
 		return nil
 	})
 }
 
-// RecordPhaseStarted records that activityID's construction agent has entered the given
-// lifecycle phase.
-//
-// Retired in place (stage 3, task 3). It used to seed the stored phase set and stamp
-// the coarse roll-up; both are DERIVED now (spec §5.3), and an entry is not a fact the
-// ledgers are missing — the attempt RecordAttemptOutcome opens is. It keeps its name,
-// signature, guards and Temporal activity type because the replay fixtures record them,
-// and it still BIRTHS the row the phase-completion below writes into.
-func (s *GitStore) RecordPhaseStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseStarted: empty activityID")
-	}
-	if phase == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseStarted: empty phase")
-	}
-	return s.applyMutation(rc.Context, "RecordPhaseStarted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(*ActivityExecution) {})
-		return nil
-	})
-}
-
-// RecordPhaseCompleted records that activityID's given lifecycle phase is complete.
-//
-// The phase-completion SLICE it used to mark is gone (spec §5.3: a lifecycle phase is
-// complete iff its GATE task's latest attempt passed, so a stored boolean beside the
-// ledger was a second answer to one question). The verb is not retired with it, because
-// the FACT is real and the old construction rail is still the one recording it until task
-// 5 moves the child workflow onto RecordAttemptOutcome: it writes that fact where the
-// derivation reads it, as a PASSED gate attempt on the append-only ledger.
-//
-// A phase with no gate task in the row's lifecycle records nothing — there is no attempt
-// to name — and a gate whose latest attempt already passed records nothing either, so a
-// Temporal retry of the same completion converges instead of growing the ledger.
-func (s *GitStore) RecordPhaseCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseCompleted: empty activityID")
-	}
-	if phase == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseCompleted: empty phase")
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordPhaseCompleted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			applyPhaseCompletion(cs, phase, artifactRef, now)
-		})
-		return nil
-	})
-}
-
-// applyPhaseCompletion records a lifecycle phase's completion the ONE way the read path
-// recognises: a PASSED attempt at that phase's gate task, appended to the ledger with the
-// canonical AttemptID and the artifact the phase produced as its evidence.
-//
-// It is deliberately NOT a second representation of the same fact. The sticky-terminal
-// guard it used to carry is gone with the stored coarse roll-up it guarded: a failure now
-// lives in FailureReason, which CoarsePhaseFor short-circuits on, so a late completion can
-// no longer resurrect a failed activity even in principle.
-func applyPhaseCompletion(cs *ActivityExecution, phase ActivityMethodPhase, artifactRef string, now time.Time) {
-	gate := GateTaskFor(phase)
-	if gate == "" {
-		return
-	}
-	if latest, ok := latestAttempt(cs.Attempts, gate); ok && latest.Outcome == OutcomePassed {
-		return // already recorded: a retry of the same completion is not a second attempt
-	}
-	n := 1
-	for _, a := range cs.Attempts {
-		if a.Task == gate && a.Attempt >= n {
-			n = a.Attempt + 1
-		}
-	}
-	t := now
-	cs.Attempts = append(cs.Attempts, TaskAttempt{
-		AttemptID: AttemptID(cs.ActivityID, gate, n),
-		Task:      gate,
-		Phase:     phase,
-		Attempt:   n,
-		// The agent, matching what cmd/backfill-attempts stamps on every attempt it writes
-		// (gate and work alike) — the construction rail dispatches its reviews to agents,
-		// and a blank actor would render as "nobody did this".
-		Actor:     ActorAgent,
-		StartedAt: &t,
-		EndedAt:   &t,
-		Outcome:   OutcomePassed,
-		Evidence:  EvidenceRef{Kind: EvidenceArtifact, Ref: artifactRef},
-		// OBSERVED, not backfilled: this is not a reconstruction from evidence recorded
-		// elsewhere. The caller is the construction workflow telling the store, live, that
-		// the phase just completed — the same class of record RecordAttemptOutcome writes.
-		// Only the REPRESENTATION moved; the observation is first-hand either way.
-		Provenance: AttemptProvenance{Origin: OriginObserved, GeneratedAt: &t},
-	})
-}
-
-// RecordServiceContractProduced writes the typed ServiceContract for component
-// into Project.ServiceContracts, lazy-allocating the map on first write.
-func (s *GitStore) RecordServiceContractProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if component == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordServiceContractProduced: empty component")
-	}
-	return s.applyMutation(rc.Context, "RecordServiceContractProduced", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		if p.ServiceContracts == nil {
-			p.ServiceContracts = make(map[string]ServiceContract)
-		}
-		p.ServiceContracts[component] = contract
-		return nil
-	})
-}
-
-// RecordPhaseArtifactProduced writes the typed artifact carried in payload into
-// the correct PhaseArtifacts / TestingState slot of the Project aggregate.
-// mapKey is used as the per-component/surface/resource/doc map key for
-// PhaseArtifacts fields; it is unused for singleton TestingState fields.
-// Exactly one payload field should be set; if none is set the verb is a no-op
-// (idempotent empty payload is tolerated — the ledger dedup will still fire).
-func (s *GitStore) RecordPhaseArtifactProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseArtifactProduced: empty activityID")
-	}
-	return s.applyMutation(rc.Context, "RecordPhaseArtifactProduced", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		applyPhaseArtifactPayload(p, mapKey, payload)
-		return nil
-	})
-}
-
 // ApplyPhaseArtifactPayload routes a phase-artifact / testing-state payload into the
-// Project aggregate — the pure, I/O-free core of RecordPhaseArtifactProduced, exported
-// so the aiarch-state MCP construction verbs (cmd/aiarch-state-mcp) reuse the SAME
-// routing the server RA uses. One source of truth for which payload field lands in
-// which PhaseArtifacts / TestingState slot; the caller validates the mutated aggregate
-// through the codec + methodcheck exactly as the server does.
+// Project aggregate, exported so the aiarch-state MCP construction verbs
+// (cmd/aiarch-state-mcp) reuse the SAME routing as the server. One source of truth for
+// which payload field lands in which PhaseArtifacts / TestingState slot; the caller
+// validates the mutated aggregate through the codec + methodcheck exactly as the server
+// does.
 func ApplyPhaseArtifactPayload(p *Project, mapKey string, payload PhaseArtifactPayload) {
 	applyPhaseArtifactPayload(p, mapKey, payload)
 }
@@ -2603,9 +2331,6 @@ func applyTestingStatePayload(p *Project, payload PhaseArtifactPayload) {
 		ensureTestingState().QualityAuditReport = payload.QualityAuditReport
 	}
 }
-
-// The Phase-3 construction-transition surface is ConstructionTransitionAccess,
-// satisfied by the git store (gitconstruction.go).
 
 // String returns the canonical name for the outcome.
 func (o ActivityOutcome) String() string {
@@ -3267,8 +2992,8 @@ func NewDesignSessionAccess(base ProjectStateAccess) DesignSessionAccess {
 // NewGitLocalDesignSessionAccess builds the LOCAL git designSessionAccess port
 // (composegen variant token GitLocal, B6) by wrapping its OWN LOCAL
 // projectStateAccess instance — a second, functionally-equivalent *GitStore
-// addressing the same repo, mirroring the constructionTransitionAccess /
-// gitActivityStatusAccess variant constructors (gitadapter.go).
+// addressing the same repo, mirroring the gitActivityStatusAccess variant
+// constructors (gitadapter.go).
 func NewGitLocalDesignSessionAccess(repoURL string) DesignSessionAccess {
 	return NewDesignSessionAccess(NewGitLocalProjectStateAccess(repoURL))
 }
@@ -3840,10 +3565,7 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 
 // gitactivity.go holds the ADDITIVE per-activity git-forward Record* verbs
 // (projectStateAccess.md §GIT-HEAD-STATE / GIT.2, D-PA-GIT, FROZEN 2026-06-12).
-// They JOIN the existing additive construction-transition verbs
-// (RecordChangeReviewed/RecordActivityExited/RecordOperatorPaused, gitconstruction.go)
-// on the SAME additive facet — NOT the core ProjectStateAccess (Phase-1/2)
-// interface, which is unchanged. Each carries the Manager-threaded
+// They live on their own additive facet — NOT the core ProjectStateAccess interface. Each carries the Manager-threaded
 // `cred RepoCredential` (REWORK.4), `expectedVersion` + `idempotencyKey`, and
 // `activityID`, and routes through the identical applyMutation ref-CAS + dedup-first
 // path with modeRequireExisting (OQ-mode RULED: the project row exists by Phase 3 —
@@ -3862,9 +3584,7 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 // (contract.gen.go, contract.gitActivityStatusAccess.schema.json) covering the
 // §GIT-HEAD-STATE branch/CI/+1/merge verbs plus the started/completed
 // construction-status verbs, as ONE 6-op contract. Kept off the core
-// ProjectStateAccess (Phase-1/2) interface, which is unchanged; the concrete
-// GitStore satisfies this plus the cred-threaded construction-transition verbs
-// (RecordChangeReviewed / RecordActivityExited / RecordActivityFailed / etc., below).
+// ProjectStateAccess (Phase-1/2) interface; the concrete GitStore satisfies it.
 
 // Compile-time proof the concrete GitStore satisfies the generated git-status facet.
 var _ GitActivityStatusAccess = (*GitStore)(nil)
@@ -4133,33 +3853,6 @@ func (c CICheckState) String() string {
 
 // UpdatedAt is the last Record* touch — SERVER-RESOLVED at commit, never
 // caller-minted.
-
-// ConstructionTransitionAccess (contract.gen.go) is the Port interface for the
-// Phase-3 construction transition verbs (App-C §6 adjudicated: 10 ops ≤ 12 cap,
-// per conformance gate lifecycle-2 T3 analysis). The interface itself is
-// GENERATED from project.json's .serviceContracts.constructionTransitionAccess
-// entry (authored via contract.constructionTransitionAccess.schema.json), so
-// like the sibling ProjectStateAccess it takes the RA-layer call context
-// (rc fwra.Context) as every op's first parameter.
-//
-// WARNING — ReadProject (the 10th op) is IN-PROCESS-ONLY (B8-follow-up ruling): it
-// returns the raw Project aggregate, whose ArtifactSlots carry the SEALED
-// ArtifactModel interface that Temporal's default JSON data converter cannot decode
-// across an Activity boundary. The op nevertheless has a generated Temporal activity
-// ("constructionTransitionAccess.readProject", activities.gen.go/worker.gen.go —
-// codegen emits one per contract op unconditionally) and a generated invoker
-// (genInvokers.ConstructionTransitionReadProject) — DO NOT invoke either from a
-// workflow: the result would decode with every slot's Model silently nil-ed/mangled.
-// Workflows needing the whole aggregate must read through
-// designSessionAccess.readProjectOnBranch, which returns the codec-safe
-// ProjectEnvelope (envelope.go). The op is KEPT on the contract because it has a live
-// in-process consumer: constructionManager.UpdateReviewPolicy
-// (internal/manager/construction/constructionmanager.go) reads the current head
-// Version through it before RecordReviewPolicy — a façade-side direct call that
-// never crosses Temporal.
-
-// Compile-time assertion: GitStore must satisfy the full 10-op port.
-var _ ConstructionTransitionAccess = (*GitStore)(nil)
 
 // ---- MissionStatement — ch. 5 business alignment ----
 
@@ -7433,8 +7126,7 @@ func (r FailureReason) String() string {
 // PhaseCompletion is one App-A internal phase record within an activity's Phases slice.
 // Binary exit (App A §1.1): Completed=true only when the review gate passed. Weight
 // is the fraction of activity progress this phase carries (sums to 100 per type).
-// ArtifactRef is a pointer into phaseArtifacts/serviceContracts/Produced — set by
-// RecordPhaseCompleted.
+// ArtifactRef is a pointer into phaseArtifacts/serviceContracts/Produced.
 type PhaseCompletion struct {
 	Phase       ActivityMethodPhase `json:"phase"`
 	Weight      int                 `json:"weight"`
@@ -10163,10 +9855,11 @@ func execMisuse(op, detail string) error {
 }
 
 // NoActivityVersionExpectation is the "I have not read this row" posture. It is NOT a
-// loophole: OpenActivity may BIRTH the row, and a tool or migration that writes history
-// it never read has no number to assert. Every WORKFLOW caller holds the row — it comes
-// back on the readProject the child already makes — so every workflow caller passes a
-// real number, and a stale one is refused.
+// loophole: OpenActivity may BIRTH the row, a tool or migration that writes history it
+// never read has no number to assert, and the pump's blocked verdict fails — and usually
+// births, through RecordActivityOutcome — a row no child holds. Every CHILD-workflow caller
+// holds the row — it comes back on the readProject the child already makes — so every
+// child caller passes a real number, and a stale one is refused.
 //
 // Stage 4a armed this. Before it the guard compared a fabricated zero: the twelve verbs
 // carried the PROJECT version alone, nothing in a workflow read a row's own version, and
@@ -10824,7 +10517,10 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 		return 0, execMisuse("RecordActivityOutcome", "neither an outcome nor a failure reason — an activity does not exit for no stated cause")
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "RecordActivityOutcome", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	if activityID == "" {
+		return 0, execMisuse("RecordActivityOutcome", "empty activityID")
+	}
+	transition := func(cs *ActivityExecution) error {
 		// THE BROKEN MERGE TAIL. The row already holds a NON-FAILURE terminal, so the walk
 		// COMPLETED ITS WORK; what failed is the tail that had to land it. Recording
 		// VarianceExhausted over that would destroy a fact the walk genuinely established,
@@ -10871,6 +10567,21 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 			// default arm that would silently absorb a future member.
 		}
 		return nil
+	}
+	return a.store.applyMutation(rc.Context, "RecordActivityOutcome", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		// A FAILURE BIRTHS AN UNOPENED ROW (dct Plan 4 Task 3, the fold of the retired
+		// RecordActivityFailed). The pump's blocked verdict fails an activity that was never
+		// opened and never can be — unclassifiable, or blocked on a dependency that does not
+		// resolve, so there is no lifecycle to pin — and the failure must still land as the
+		// sticky red node spec §4.3 requires. Only a failure, and only from a writer holding
+		// NO row version: a completion, or a claim to hold a version of a row this store does
+		// not have, still finds nothing to transition.
+		if _, held := p.ActivityExecution[activityID]; !held && reason != FailureReasonUnknown && expectedActivityVersion == NoActivityVersionExpectation {
+			var err error
+			upsertActivityExecution(p, activityID, func(cs *ActivityExecution) { err = transition(cs) })
+			return err
+		}
+		return withActivityVersion("RecordActivityOutcome", activityID, expectedActivityVersion, transition)(p)
 	})
 }
 
@@ -10878,6 +10589,13 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 // already addressed to an attempt costs ONE commit, not two. deliveredToAttemptID is
 // optional — the ordinary case is a note recorded at a gate for an attempt that does
 // not exist yet, which stays pending until the dispatch that carries it.
+//
+// THAT DISPATCH STAMPS IT BY RE-RECORDING IT (dct Plan 4 Task 3, which deleted the
+// retired pair with constructionTransitionAccess). Re-recording a held note with
+// identical content and a deliveredToAttemptID stamps it delivered to that attempt at the
+// server clock if it was not yet delivered, is a no-op if it was delivered to the same
+// attempt (a retried stamp), and is refused as ContractMisuse if it was delivered to
+// another — a note is delivered once. A re-record without an attempt never un-delivers.
 //
 // A REQUEUE NOTE RE-ARMS A TERMINAL ACTIVITY, and it is the ONE note kind that changes the row
 // (stage 4b1 task 12; see reopenTerminalRow for the whole rule and why it lives here).
@@ -10887,7 +10605,7 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 	}
 	now := a.store.now()
 	return a.onActivity(rc, "RecordOperatorNote", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
-		for _, n := range cs.OperatorNotes {
+		for i, n := range cs.OperatorNotes {
 			if n.NoteID != note.NoteID {
 				continue
 			}
@@ -10895,7 +10613,7 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 				return execMisuse("RecordOperatorNote", fmt.Sprintf(
 					"note %q is already recorded on %s with different content; one id names one note", note.NoteID, activityID))
 			}
-			return nil
+			return stampNoteDelivery(&cs.OperatorNotes[i], activityID, deliveredToAttemptID, now)
 		}
 		// THE DEDUP COMES FIRST, deliberately: a REPLAY of a requeue must be the same no-op
 		// success every other replay is. Re-arming below the dedup would make the second delivery
@@ -10922,6 +10640,29 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 		cs.OperatorNotes = append(cs.OperatorNotes, held)
 		return nil
 	})
+}
+
+// stampNoteDelivery is a re-record's delivery half (see RecordOperatorNote): stamp a held
+// note delivered to attemptID once, treat the same attempt again as the retry it is, and
+// refuse a second, different attempt. An empty attemptID is the plain identical-content
+// re-record and changes nothing.
+func stampNoteDelivery(n *OperatorNote, activityID, attemptID string, now time.Time) error {
+	switch n.DeliveredToAttemptID {
+	case attemptID:
+		return nil
+	case "":
+		if attemptID == "" {
+			return nil
+		}
+		t := now
+		n.DeliveredToAttemptID, n.DeliveredAt = attemptID, &t
+		return nil
+	}
+	if attemptID == "" {
+		return nil
+	}
+	return execMisuse("RecordOperatorNote", fmt.Sprintf(
+		"note %q on %s was already delivered to %s; a note is delivered once", n.NoteID, activityID, n.DeliveredToAttemptID))
 }
 
 // reopenTerminalRow re-arms an activity that has EXITED so the pump can select it again. It is

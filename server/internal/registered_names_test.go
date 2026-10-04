@@ -124,18 +124,6 @@ var registeredTemporalNamesGolden = []string{
 	"constructionProjectSupervision",
 	"constructionPumpNextActivity",
 	"constructionPumpSweep",
-	"constructionTransitionAccess.recordActivityExited",
-	"constructionTransitionAccess.recordActivityFailed",
-	"constructionTransitionAccess.recordChangeReviewed",
-	"constructionTransitionAccess.recordOperatorNote",
-	"constructionTransitionAccess.recordOperatorNoteDelivered",
-	"constructionTransitionAccess.recordOperatorPaused",
-	"constructionTransitionAccess.recordOperatorResumed",
-	"constructionTransitionAccess.recordPhaseArtifactProduced",
-	"constructionTransitionAccess.recordPhaseCompleted",
-	"constructionTransitionAccess.recordPhaseStarted",
-	"constructionTransitionAccess.recordReviewPolicy",
-	"constructionTransitionAccess.recordServiceContractProduced",
 	"deliveryActivity",
 	"deliveryRoundSweep",
 	"designSessionAccess.commitArtifactWithProvenance",
@@ -199,13 +187,16 @@ var registeredTemporalNamesGolden = []string{
 	"projectStateAccess.readProject",
 	"projectStateAccess.readProjectVersion",
 	"projectStateAccess.readProjectVersion",
+	"projectStateAccess.recordOperatorPaused",
+	"projectStateAccess.recordOperatorPaused",
+	"projectStateAccess.recordOperatorResumed",
+	"projectStateAccess.recordOperatorResumed",
+	"projectStateAccess.recordReviewPolicy",
+	"projectStateAccess.recordReviewPolicy",
 	"projectStateAccess.setOperatingModel",
 	"projectStateAccess.setOperatingModel",
 	"projectStateAccess.setResearchInput",
 	"projectStateAccess.setResearchInput",
-	"revenueLedgerAccess.readRange",
-	"revenueLedgerAccess.recordInboundRevenue",
-	"revenueLedgerAccess.recordReversal",
 	"sourceControlAccess.adoptProjectRepo",
 	"sourceControlAccess.commitManagedFiles",
 	"sourceControlAccess.configureBranchProtection",
@@ -235,10 +226,10 @@ func mustRegisteredNames(t *testing.T) []string {
 
 	var reg fakeRegistry
 
-	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	billing.RegisterManagerWorker(&reg, billingMgr)
 
-	deliveryMgr := delivery.NewDeliveryManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, "")
+	deliveryMgr := delivery.NewDeliveryManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, "")
 	delivery.RegisterManagerWorker(&reg, deliveryMgr)
 
 	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)

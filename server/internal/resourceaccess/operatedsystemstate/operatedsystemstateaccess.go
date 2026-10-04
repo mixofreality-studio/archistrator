@@ -369,8 +369,7 @@ func (s *postgresOperatedSystemStateAccess) mutate(
 // identically to the Postgres impl, so callers observe the SAME contract-level errors
 // in both profiles. Do not add any behind this type; a future real local head-state
 // store is a new, separate implementation, not this one grown up (mirrors
-// usage.noopUsageAccess's and revenueledger.noopRevenueLedgerAccess's documented
-// stance).
+// usage.noopUsageAccess's documented stance).
 type noopOperatedSystemStateAccess struct{}
 
 // NewNoOpOperatedSystemStateAccess returns the permanent no-op OperatedSystemStateAccess

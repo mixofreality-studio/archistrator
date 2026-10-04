@@ -512,16 +512,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"NewGitHubCloudArtifactAccess",
 		"NewGitLocalArtifactAccess",
 	},
-	// PERMANENT NO-OP CONSTRUCTOR (B5): revenueLedgerAccess has no infrastructure binding
-	// (charge-only removed the ledger's persistence — see revenueledgeraccess.go's package
-	// doc); NewRevenueLedgerAccess returns the sole, permanent no-op impl, same
-	// VARIANT-CONSTRUCTOR category as artifact/agenticjob's dry-run constructors above/below.
-	// The revenueLedgerAccess FACET re-folded into billingstate (Wave 1 reconciliation,
-	// reversing the ea56a36 split) — one component, one Go package — so its no-op constructor
-	// now lives in the billingStateAccess package alongside the generated billing surface.
-	"internal/resourceaccess/billingstate": {
-		"NewRevenueLedgerAccess",
-	},
 	// EXPLICIT NOT-CONFIGURED VARIANT CONSTRUCTOR (same VARIANT-CONSTRUCTOR category as
 	// artifact/agenticjob's dry-run constructors above): the generated stub fails every op
 	// with fwra.Unknown ("not implemented"), which burns the workflow's full retry budget
@@ -587,25 +577,23 @@ var encapsulationAllowlistData = map[string][]string{
 		// + projectstate_git_adapter.go folded in). NewGitLocal/GitHubProjectStateAccess build
 		// the cred-binding adapter over *GitStore; CredentialMinter is the port the CLOUD
 		// sourcecontrol-backed minter (kept at the composition root — NoSideways) satisfies;
-		// GitConstructionPorts encapsulates the former composition-root private-field
-		// type-assert to the git construction-transition + git-activity-status ports.
+		// GitActivityStatusPort encapsulates the former composition-root private-field
+		// type-assert to the git-activity-status port.
 		"NewGitLocalProjectStateAccess",
 		"NewGitHubProjectStateAccess",
 		"CredentialMinter",
-		"GitConstructionPorts",
+		"GitActivityStatusPort",
 		// designSessionAccess (B4): NewDesignSessionAccess wraps a base ProjectStateAccess,
 		// running the SAME branch/ledger/provenance/reconcile capability-fallback chains the
 		// design Managers' custom activities used to run inline — a facade, not a Manager-
 		// consumed constructor yet, same VARIANT-CONSTRUCTOR category as the pair above.
 		"NewDesignSessionAccess",
-		"NewGitLocalConstructionTransitionAccess",
 		"NewGitLocalGitActivityStatusAccess",
-		"NewGitHubConstructionTransitionAccess",
 		"NewGitHubGitActivityStatusAccess",
 		"NewGitLocalDesignSessionAccess",
 		"NewGitHubDesignSessionAccess",
-		// activityExecutionAccess (stage 3): the FIFTH facet's variant constructors, in the
-		// same VARIANT-CONSTRUCTOR category as the four pairs above and for the same reason
+		// activityExecutionAccess (stage 3): the facet's variant constructors, in the
+		// same VARIANT-CONSTRUCTOR category as the pairs above and for the same reason
 		// — composegen's generated composition root calls them by name per profile.
 		"NewActivityExecutionAccess",
 		"NewGitLocalActivityExecutionAccess",
@@ -864,7 +852,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"ComputeCostKind",
 		"ComputeCostTieredFloors",
 		"ComputeCostUnknown",
-		"ConstructionTransitionAccess",
 		"ContainerInstance",
 		"CoreUseCases",
 		"CoreUseCases.Kind",
@@ -929,16 +916,8 @@ var encapsulationAllowlistData = map[string][]string{
 		"GitStore.RecordActivityBranchOpened",
 		"GitStore.RecordActivityCIObserved",
 		"GitStore.RecordActivityCompleted",
-		"GitStore.RecordActivityExited",
-		"GitStore.RecordActivityFailed",
 		"GitStore.RecordActivityMerged",
 		"GitStore.RecordActivityStarted",
-		"GitStore.RecordChangeReviewed",
-		"GitStore.RecordOperatorPaused",
-		"GitStore.RecordPhaseArtifactProduced",
-		"GitStore.RecordPhaseCompleted",
-		"GitStore.RecordPhaseStarted",
-		"GitStore.RecordServiceContractProduced",
 		"GitStore.StageArtifactForReviewOnBranch",
 		"GitStore.WithCatalog",
 		"GitStore.WithClock",
