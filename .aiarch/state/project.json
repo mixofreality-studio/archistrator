@@ -1926,7 +1926,7 @@
                   {
                     "id": "publish-trigger",
                     "kind": "action",
-                    "label": "Operator deploys/withdraws/scales OR delinquency pause OR automatic scaling decision",
+                    "label": "Operator deploys/scales OR automatic scaling decision",
                     "roleName": "Operator",
                     "linkedActorId": "operator"
                   },
@@ -2618,6 +2618,20 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "authenticate-owner",
+                    "kind": "action",
+                    "label": "Establish the owner's identity from the presented access token",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "authorize-create",
+                    "kind": "action",
+                    "label": "Check the owner may create a project in their catalog",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
                     "id": "submit-create",
                     "kind": "action",
                     "label": "Submit the project name and the operating-model choice",
@@ -2708,6 +2722,21 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "set-review-policy",
+                    "kind": "action",
+                    "label": "Owner sets the project's review policy: a shipped preset, or an explicit per-gate policy",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "obj-review-policy-set",
+                    "kind": "objectNode",
+                    "label": "Review policy",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[set: preset or explicit per-gate policy]"
+                  },
+                  {
                     "id": "capture-research",
                     "kind": "action",
                     "label": "Capture the research input once system design begins",
@@ -2739,6 +2768,18 @@
                   },
                   {
                     "from": "prepare-repo",
+                    "to": "authenticate-owner",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "authenticate-owner",
+                    "to": "authorize-create",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "authorize-create",
                     "to": "submit-create",
                     "kind": "controlFlow",
                     "guard": ""
@@ -2817,6 +2858,18 @@
                   },
                   {
                     "from": "catalog-open",
+                    "to": "set-review-policy",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "set-review-policy",
+                    "to": "obj-review-policy-set",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "obj-review-policy-set",
                     "to": "capture-research",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4889,7 +4942,7 @@
                   {
                     "id": "append-session-branch",
                     "kind": "action",
-                    "label": "Append question entries to the durable review thread on the session branch",
+                    "label": "Append question entries to the task's open review round",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -5491,8 +5544,8 @@
                   },
                   {
                     "id": "retry-later",
-                    "kind": "action",
-                    "label": "Tell the operator the pause is still being applied; try again",
+                    "kind": "sendSignal",
+                    "label": "Tell the operator the pause is still being applied; the resume can be retried",
                     "roleName": "Operator",
                     "linkedActorId": "operator"
                   },
@@ -5626,6 +5679,27 @@
                     "linkedActorId": "operator"
                   },
                   {
+                    "id": "read-attempts",
+                    "kind": "action",
+                    "label": "Read the activity's recorded attempts: each episode with its outcome (succeeded, failed, cancelled, gap), cost and turns",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "read-failed-trace",
+                    "kind": "action",
+                    "label": "Read the failed attempt's trace timeline (sequenced events of that run); a gap attempt has no trace and shows an empty timeline",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "show-failure-evidence",
+                    "kind": "sendSignal",
+                    "label": "Present the failed attempt's episodes and trace timeline to the Operator",
+                    "roleName": "",
+                    "linkedActorId": "operator"
+                  },
+                  {
                     "id": "write-change",
                     "kind": "action",
                     "label": "Operator writes what changed since it failed",
@@ -5726,6 +5800,24 @@
                   },
                   {
                     "from": "review-failure",
+                    "to": "read-attempts",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "read-attempts",
+                    "to": "read-failed-trace",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "read-failed-trace",
+                    "to": "show-failure-evidence",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "show-failure-evidence",
                     "to": "write-change",
                     "kind": "controlFlow",
                     "guard": ""
@@ -6007,6 +6099,21 @@
                     "inState": "[approved, merged]"
                   },
                   {
+                    "id": "seal-project-phase",
+                    "kind": "action",
+                    "label": "Seal the project phase when this commit completed its required artifacts (system design -\u003e project design once the fifth Phase-1 kind lands; the projectDesign M0 gate -\u003e construction)",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "project-phase-advanced",
+                    "kind": "objectNode",
+                    "label": "Project",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[phase advanced]"
+                  },
+                  {
                     "id": "merge-advance",
                     "kind": "merge",
                     "label": "",
@@ -6229,6 +6336,18 @@
                   },
                   {
                     "from": "review-pr-merged",
+                    "to": "seal-project-phase",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "seal-project-phase",
+                    "to": "project-phase-advanced",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "project-phase-advanced",
                     "to": "merge-advance",
                     "kind": "controlFlow",
                     "guard": ""
@@ -6268,6 +6387,790 @@
             },
             "rejectionReason": "",
             "essenceRationale": "This is the whole delivery promise in one chain: an activity of the project network becomes eligible, an agent produces its artifact, agents and humans review it, and the activity advances through its own life cycle (Righting Software App. A). It reads identically for Requirements, for Architecture and for a Service component — which is exactly why the platform used to carry three of it. Requirements, Architecture and Project Design are activities 1–3 of the same network (Table 11-1), fenced from construction by M0; nothing about the chain changes across that fence except the data (the lifecycle) and the strategy (command, worker class, artifact codec). Venues, agents and code generation will all churn; orchestrated activity execution against a committed plan is what the business does."
+          },
+          {
+            "useCase": {
+              "id": "pause-construction",
+              "name": "Pause Construction",
+              "actors": [
+                {
+                  "id": "operator",
+                  "role": "Operator"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "execute-a-project-activity",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "choose-pause",
+                    "kind": "action",
+                    "label": "Operator chooses to pause construction and states why",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "note-pause-run-state",
+                    "kind": "note",
+                    "label": "Pause is setProjectRunState(projectId, paused, reason): the same Manager entry as resume, with the literal 'paused'; reason must be non-empty (Go-side guard). The request is accepted at once and applied asynchronously, which is why Resume asks whether the pause is fully applied. MCP and web surfaces bind to the same Manager entry.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "choose-pause"
+                  },
+                  {
+                    "id": "decide-pause-plan",
+                    "kind": "action",
+                    "label": "Determine what the pause must do under the intervention policy",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "note-plan-cancels",
+                    "kind": "note",
+                    "label": "A pause cancels nothing in flight: the plan says whether to record the pause and who is told, and the activity already running finishes. Bind by asserting that no agentic job is dispatched or cancelled and that the pause is recorded.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "decide-pause-plan"
+                  },
+                  {
+                    "id": "record-paused",
+                    "kind": "action",
+                    "label": "Record that construction is paused, with the reason",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "run-state-paused",
+                    "kind": "objectNode",
+                    "label": "Project run state",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[paused]"
+                  },
+                  {
+                    "id": "stop-pump",
+                    "kind": "action",
+                    "label": "Stop construction from starting another activity; the activity already running finishes",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "choose-pause",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "choose-pause",
+                    "to": "note-pause-run-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-pause-run-state",
+                    "to": "decide-pause-plan",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "decide-pause-plan",
+                    "to": "note-plan-cancels",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-plan-cancels",
+                    "to": "record-paused",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "record-paused",
+                    "to": "run-state-paused",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "run-state-paused",
+                    "to": "stop-pump",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "stop-pump",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "An operator must be able to stop construction on demand, record why, and leave a state that Resume Paused Construction can lift. Variation of Execute a Project Activity: it is the gate that stops the same delivery pump. What the pause must do and who is told is intervention-policy volatility, held by InterventionEngine."
+          },
+          {
+            "useCase": {
+              "id": "withdraw-a-delivered-system",
+              "name": "Withdraw a Delivered System",
+              "actors": [
+                {
+                  "id": "operator",
+                  "role": "Operator"
+                },
+                {
+                  "id": "infrastructure",
+                  "role": "Infrastructure"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "operate-a-delivered-system",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "request-withdraw",
+                    "kind": "action",
+                    "label": "Operator withdraws a delivered system",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "already-withdrawn",
+                    "kind": "decision",
+                    "label": "Already withdrawn or unknown?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "decidedBy": "operations-manager"
+                  },
+                  {
+                    "id": "note-idempotent-withdraw",
+                    "kind": "note",
+                    "label": "Withdrawing an unknown or already-withdrawn system succeeds as a no-op. The desired post-condition, no running runtime, already holds.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "already-withdrawn"
+                  },
+                  {
+                    "id": "tear-down-runtime",
+                    "kind": "action",
+                    "label": "Tear down the system's runtime",
+                    "roleName": "Infrastructure",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "record-final-usage",
+                    "kind": "action",
+                    "label": "Capture and record the final compute usage before the runtime is gone",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "compute-usage-final",
+                    "kind": "objectNode",
+                    "label": "Compute Usage",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[final recorded]"
+                  },
+                  {
+                    "id": "record-withdrawn",
+                    "kind": "action",
+                    "label": "Record the system as withdrawn",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "operated-system-withdrawn",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[withdrawn]"
+                  },
+                  {
+                    "id": "merge-out",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "send-withdrawn",
+                    "kind": "sendSignal",
+                    "label": "Confirm to the Operator that the system is withdrawn",
+                    "roleName": "",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "request-withdraw",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "request-withdraw",
+                    "to": "already-withdrawn",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "already-withdrawn",
+                    "to": "note-idempotent-withdraw",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "note-idempotent-withdraw",
+                    "to": "merge-out",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "already-withdrawn",
+                    "to": "tear-down-runtime",
+                    "kind": "guardedFlow",
+                    "guard": "[no: in flight]"
+                  },
+                  {
+                    "from": "tear-down-runtime",
+                    "to": "record-final-usage",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "record-final-usage",
+                    "to": "compute-usage-final",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "compute-usage-final",
+                    "to": "record-withdrawn",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "record-withdrawn",
+                    "to": "operated-system-withdrawn",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "operated-system-withdrawn",
+                    "to": "merge-out",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-out",
+                    "to": "send-withdrawn",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "send-withdrawn",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "End-of-life variation of Operate a Delivered System. It tears down the runtime and records the system's final usage and terminal state; it adds no new business essence."
+          },
+          {
+            "useCase": {
+              "id": "view-live-deployment-health",
+              "name": "View Live Deployment Health",
+              "actors": [
+                {
+                  "id": "operator",
+                  "role": "Operator"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "operate-a-delivered-system",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "open-deployment-diagram",
+                    "kind": "action",
+                    "label": "Operator opens the deployment diagram for a delivered system",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "request-health",
+                    "kind": "action",
+                    "label": "Request live health for the deployed system",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "anything-deployed",
+                    "kind": "decision",
+                    "label": "Has anything been deployed for this system?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "decidedBy": "operations-manager"
+                  },
+                  {
+                    "id": "send-nothing-deployed",
+                    "kind": "sendSignal",
+                    "label": "Report to the Operator that nothing has been deployed yet, so there is no live health (FailedPrecondition)",
+                    "roleName": "",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "resolve-deployment",
+                    "kind": "action",
+                    "label": "Resolve what was deployed: the deployable bundle and the project's deployment model",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "read-live-health",
+                    "kind": "action",
+                    "label": "Read live health for each node the system actually deploys",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "note-neutral-nodes",
+                    "kind": "note",
+                    "label": "Nodes on the diagram that the system does not deploy (the architect's laptop, their browser, another app's namespace) read neutral, never unhealthy. Arrange the runtime stub to return only the deployed model keys.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "read-live-health"
+                  },
+                  {
+                    "id": "send-deployment-health",
+                    "kind": "sendSignal",
+                    "label": "Return the health of every deployment-diagram node (healthy / unhealthy / neutral) to the Operator",
+                    "roleName": "",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "open-deployment-diagram",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "open-deployment-diagram",
+                    "to": "request-health",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "request-health",
+                    "to": "anything-deployed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "anything-deployed",
+                    "to": "send-nothing-deployed",
+                    "kind": "guardedFlow",
+                    "guard": "[no: no deployable bundle]"
+                  },
+                  {
+                    "from": "send-nothing-deployed",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "anything-deployed",
+                    "to": "resolve-deployment",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "resolve-deployment",
+                    "to": "read-live-health",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "read-live-health",
+                    "to": "note-neutral-nodes",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-neutral-nodes",
+                    "to": "send-deployment-health",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "send-deployment-health",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Pure read: live health for each node on the committed deployment diagram. It is a read variation of Operate a Delivered System; nothing is published or recorded."
+          },
+          {
+            "useCase": {
+              "id": "register-a-delivered-system-for-operation",
+              "name": "Register a Delivered System for Operation",
+              "actors": [
+                {
+                  "id": "operator",
+                  "role": "Operator"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "operate-a-delivered-system",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "request-registration",
+                    "kind": "action",
+                    "label": "Operator registers the delivered system for operation (customer, project, deployable bundle)",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "seed-head-state",
+                    "kind": "action",
+                    "label": "Seed the operated system's head state",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "system-registered",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[registered, version 1]"
+                  },
+                  {
+                    "id": "note-register-once",
+                    "kind": "note",
+                    "label": "Registration happens once. A replay under the same idempotency key returns the version already recorded. A second registration under a different key is a terminal Conflict, not a retry. Bind the scenario by asserting a single row at version 1.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "seed-head-state"
+                  },
+                  {
+                    "id": "confirm-registered",
+                    "kind": "sendSignal",
+                    "label": "Confirm the registration (head-state version) to the Operator",
+                    "roleName": "",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "request-registration",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "request-registration",
+                    "to": "seed-head-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "seed-head-state",
+                    "to": "system-registered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "system-registered",
+                    "to": "note-register-once",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-register-once",
+                    "to": "confirm-registered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "confirm-registered",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "One-time onboarding seed for an operated system: a variation of Operate a Delivered System that has to happen before the first deploy. It contains no new business activity; it only records which customer, project and bundle the operated system belongs to."
+          },
+          {
+            "useCase": {
+              "id": "enforce-customer-delinquency-on-operated-systems",
+              "name": "Enforce Customer Delinquency on Operated Systems",
+              "actors": [
+                {
+                  "id": "customer",
+                  "role": "Customer"
+                },
+                {
+                  "id": "infrastructure",
+                  "role": "Infrastructure"
+                }
+              ],
+              "trigger": "busMessage",
+              "classification": "nonCore",
+              "variationOf": "operate-a-delivered-system",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "delinquency-arrives",
+                    "kind": "acceptEvent",
+                    "label": "Delinquency enforcement directive arrives from billing (pause or withdraw)",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "directive-named",
+                    "kind": "decision",
+                    "label": "Directive names an action?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "note-refused-unsaid",
+                    "kind": "note",
+                    "label": "A directive that names no action (or cannot be decoded) is refused as a non-retryable error. Withdraw is irreversible, so nothing is assumed by default; expect no runtime change and no head-state write.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "directive-named"
+                  },
+                  {
+                    "id": "end-refused",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "read-customer-systems",
+                    "kind": "action",
+                    "label": "Read the delinquent customer's in-flight systems",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "action-kind",
+                    "kind": "decision",
+                    "label": "Pause or withdraw?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "remove-runtime",
+                    "kind": "action",
+                    "label": "Remove each system's runtime from the infrastructure",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "note-pause-gap",
+                    "kind": "note",
+                    "label": "Pause does not yet publish a runtime scale-to-zero (replica-override follow-up). It is recorded at head-state level only, so expect no runtime call on this arm.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "action-kind"
+                  },
+                  {
+                    "id": "merge-action",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "record-delinquency",
+                    "kind": "action",
+                    "label": "Record the delinquency action on each system",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "system-delinquency-recorded",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[delinquency paused or withdrawn]"
+                  },
+                  {
+                    "id": "note-per-system",
+                    "kind": "note",
+                    "label": "Applied to every in-flight system of the customer. Each write is guarded on version (Conflict loop) and deduplicated on its idempotency key, so a redelivered directive records once per system.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "record-delinquency"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "delinquency-arrives",
+                    "to": "directive-named",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "directive-named",
+                    "to": "note-refused-unsaid",
+                    "kind": "guardedFlow",
+                    "guard": "[no: unsaid]"
+                  },
+                  {
+                    "from": "note-refused-unsaid",
+                    "to": "end-refused",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "directive-named",
+                    "to": "read-customer-systems",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "read-customer-systems",
+                    "to": "action-kind",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "action-kind",
+                    "to": "remove-runtime",
+                    "kind": "guardedFlow",
+                    "guard": "[withdraw]"
+                  },
+                  {
+                    "from": "action-kind",
+                    "to": "note-pause-gap",
+                    "kind": "guardedFlow",
+                    "guard": "[pause]"
+                  },
+                  {
+                    "from": "remove-runtime",
+                    "to": "merge-action",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-pause-gap",
+                    "to": "merge-action",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-action",
+                    "to": "record-delinquency",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "record-delinquency",
+                    "to": "system-delinquency-recorded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "system-delinquency-recorded",
+                    "to": "note-per-system",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "note-per-system",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Variation of Operate a Delivered System entered by a queued bus message instead of an operator or a timer. It carries out the pause-or-withdraw that billing decided, using the same runtime and head-state RAs. The enforcement decision itself belongs to billing (intervention-engine), not to this chain."
           }
         ]
       },
@@ -6343,7 +7246,7 @@
             "name": "BillingManager",
             "kind": "manager",
             "layer": "manager",
-            "encapsulates": "Encapsulates the Billing Workflow volatility (B-11): cycle close, charge, retry/dunning, dispute resettlement, and delinquency escalation — the billing choreography varies as commercial terms evolve while pricing math lives in the Billing Engine.",
+            "encapsulates": "Encapsulates the Billing Workflow volatility (B-11): cycle close, charge, retry/dunning, and delinquency escalation — the billing choreography varies as commercial terms evolve while pricing math lives in the Billing Engine.",
             "encapsulatesVolatilities": [
               "Billing Workflow"
             ],
@@ -6388,7 +7291,7 @@
             "name": "BillingEngine",
             "kind": "engine",
             "layer": "engine",
-            "encapsulates": "Encapsulates the Service Pricing volatility (B-11): how a cycle's usage plus commercial terms becomes a charge, and a recomputed charge on dispute/refund correction — pricing policy changes without touching the billing workflow or the payment gateway.",
+            "encapsulates": "Encapsulates the Service Pricing volatility (B-11): how a cycle's usage plus commercial terms becomes a charge — pricing policy changes without touching the billing workflow or the payment gateway.",
             "encapsulatesVolatilities": [
               "Service Pricing"
             ],
@@ -6832,7 +7735,7 @@
             "from": "web-client",
             "to": "operations-manager",
             "mode": "sync",
-            "label": "deployAfterConstruction | withdrawSystem | scaleSystem | updateAutoscalerPolicy | queryCostProjection"
+            "label": "deployAfterConstruction | withdrawSystem | scaleSystem | updateAutoscalerPolicy | queryCostProjection | registerOperatedApp | queryDeploymentHealth"
           },
           {
             "from": "web-client",
@@ -6844,7 +7747,7 @@
             "from": "mcp-client",
             "to": "operations-manager",
             "mode": "sync",
-            "label": "deployAfterConstruction | withdrawSystem | scaleSystem | updateAutoscalerPolicy | queryCostProjection"
+            "label": "deployAfterConstruction | withdrawSystem | scaleSystem | updateAutoscalerPolicy | queryCostProjection | registerOperatedApp | queryDeploymentHealth"
           },
           {
             "from": "mcp-client",
@@ -6886,13 +7789,13 @@
             "from": "billing-manager",
             "to": "billing-engine",
             "mode": "sync",
-            "label": "ComputeCharge(cycleUsage, terms) → {chargeAmount} / RecomputeCharge (dispute/refund correction)"
+            "label": "ComputeNet(revenue, usage, terms) → {signedNet, routingDirective, computeCostApplied}"
           },
           {
             "from": "billing-manager",
             "to": "intervention-engine",
             "mode": "sync",
-            "label": "DecideOnBillingFailure(declinedCharge) → {Retry | Escalate | Delay}"
+            "label": "DecideOnSettlementFailure(failure) → {Retry | Delay | Escalate}"
           },
           {
             "from": "operations-manager",
@@ -7048,7 +7951,7 @@
             "from": "billing-manager",
             "to": "operations-manager",
             "mode": "queued",
-            "label": "delivers applyDelinquencyPolicy (queued)"
+            "label": "ApplyDelinquencyPolicy(customerId, {action}) (queued)"
           },
           {
             "from": "operations-manager",
@@ -7096,13 +7999,13 @@
             "from": "delivery-manager",
             "to": "billing-engine",
             "mode": "sync",
-            "label": "PriceConstruction(estimate) → the SDP review's cost in tokens and dollars (§6)"
+            "label": "PriceConstruction(estimate) → the SDP review's cost in tokens and dollars (§6) / ProjectCommitTimeComputeCost(option) → Projection (refuses unknown compute-cost terms)"
           },
           {
             "from": "delivery-manager",
             "to": "intervention-engine",
             "mode": "sync",
-            "label": "DecideOnVariance(variance) → {Retry | Escalate | Takeover}"
+            "label": "DecideOnVariance(variance) → {Retry | Escalate | Takeover} / ApplyPausePolicy(pauseRequest) → PausePlan"
           },
           {
             "from": "delivery-manager",
@@ -7114,7 +8017,7 @@
             "from": "delivery-manager",
             "to": "project-state-access",
             "mode": "sync",
-            "label": "readProject / stage·commit·reject·withdraw typed artifact model / plan + policy writes / the activity-execution ledgers"
+            "label": "readProject / stage·commit typed artifact model / plan + policy writes / the activity-execution ledgers"
           },
           {
             "from": "delivery-manager",
@@ -7132,7 +8035,7 @@
             "from": "delivery-manager",
             "to": "artifact-access",
             "mode": "sync",
-            "label": "storeConstructionOutput / retrieveConstructionOutput"
+            "label": "storeConstructionOutput / retrieveConstructionOutput / getTestRunIndex / readTestRunFile"
           },
           {
             "from": "delivery-manager",
@@ -7207,6 +8110,12 @@
                     "to": "review-engine",
                     "mode": "sync",
                     "label": "ProposeReviews(change, projectDesign, lifecyclePhase, componentId, policy, floorTouched, contracts) → ReviewSet — the Phase-2 rail's review gate; its sdp (M0) row is the non-overridable spend floor, so that decision always holds for a human"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "billing-engine",
+                    "mode": "sync",
+                    "label": "ProjectCommitTimeComputeCost(option) → Projection — per option, while the SDP review is assembled: refuses (InvalidInput) an option whose compute-cost regime is unregistered, so no option is priced into a plan the architect can commit to under unknown terms"
                   }
                 ]
               },
@@ -7262,12 +8171,6 @@
                     "to": "operation-estimation-engine",
                     "mode": "sync",
                     "label": "EstimateForOption(chosenOption, declaredUsageAssumptions, infrastructureKind) → {usageCostCurve}"
-                  },
-                  {
-                    "from": "delivery-manager",
-                    "to": "billing-engine",
-                    "mode": "sync",
-                    "label": "ProjectCommitTimeChargeAndComputeCost(chosenOption, terms) → {commit-time projection; build-cost ceiling}"
                   }
                 ]
               },
@@ -7358,7 +8261,7 @@
                     "from": "operator",
                     "to": "web-client",
                     "mode": "sync",
-                    "label": "initiates deploy / withdraw / scale from the operations view",
+                    "label": "initiates deploy / scale from the operations view",
                     "alt": "s1"
                   },
                   {
@@ -7607,7 +8510,7 @@
                     "from": "billing-manager",
                     "to": "billing-engine",
                     "mode": "sync",
-                    "label": "ComputeCharge(cycleUsage, terms) → {chargeAmount}"
+                    "label": "ComputeNet(revenue, usage, terms) → {SignedNet, RoutingDirective, ComputeCostApplied} — price the closed cycle's metered hosting usage under the customer's terms; a negative net routes Charge, otherwise NoAction"
                   }
                 ]
               },
@@ -7652,7 +8555,7 @@
                     "from": "billing-manager",
                     "to": "intervention-engine",
                     "mode": "sync",
-                    "label": "DecideOnBillingFailure(declinedCharge) → {Retry | Escalate | Delay}"
+                    "label": "DecideOnSettlementFailure(failure{customerId, cycleId, Kind=ChargeDeclined, AttemptCount, ShortfallAge, Policy}) → {Retry | Delay | Escalate} — the decline remediation is the Engine's policy, not the Manager's; replaces the stale DecideOnBillingFailure label"
                   }
                 ]
               },
@@ -7701,6 +8604,28 @@
                     "mode": "sync",
                     "label": "prepares the repo and opens project creation via the MCP surface (R4 cross-surface equivalence)",
                     "alt": "s1"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "authenticate-owner",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "security",
+                    "mode": "sync",
+                    "label": "resolvePrincipal(bearerToken) → Principal — authenticate the Keycloak access token on the entry request before any Manager is reached; fail-closed (401 on invalid/absent token)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "authorize-create",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "security",
+                    "mode": "sync",
+                    "label": "authorize(principal, action: {verb: start-project}, resource: {kind: deliveryCatalog, id: principal.subject}) → Permit/Deny — policy decision before startProject; fail-closed (Deny or ErrPolicyUnavailable stops the request before the Manager is called)"
                   }
                 ]
               },
@@ -7760,6 +8685,30 @@
                     "to": "project-git-repo",
                     "mode": "sync",
                     "label": "commit guarded by git ref compare-and-swap"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "estimation-engine",
+                    "mode": "sync",
+                    "label": "DerivePlan(emptySystem, noDeltas) → the birth plan: the design prefix (requirements → architecture → projectDesign), its serial edges and M0 — derived, never hand-authored, so the project is born with a committed slot 9/10 and its first activity can dispatch"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "estimation-engine",
+                    "mode": "sync",
+                    "label": "ComputeNetwork(derivedActivities, derivedNetwork) → the CPM solve whose zero-float set becomes the birth network's criticalPath (milestones solved as zero-duration nodes)"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "StageArtifactForReviewOnBranch(projectId, expectedVersion, branch=\"\" (main), activityList | network) — project birth stages the engine-derived three-activity design prefix plan (seedDesignPrefixPlan), slot 9 before slot 10, skipped when a plan already exists"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "CommitArtifactWithProvenance(projectId, stagedVersion, activityList | network, birthPlanApprovedBy, birthPlanDraftedBy) — the birth prefix plan is committed so the project's first design activity is dispatchable"
                   }
                 ]
               },
@@ -7810,6 +8759,45 @@
                     "to": "project-state-access",
                     "mode": "sync",
                     "label": "readProject / listProjects → catalog + cross-phase head state"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "set-review-policy",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "sets the project's review policy (preset or explicit per-gate policy)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "sets the review policy via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "SetProjectExecutionPolicy(projectId, {preset} | {preset, policy}) — the owner chooses which gates need a human decision",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "SetProjectExecutionPolicy(projectId, {preset} | {preset, policy}) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "RecordReviewPolicy(projectId, expectedVersion, policy) — a preset resolves to its per-gate policy (setReviewPolicy) or an explicit policy is recorded as given (updateReviewPolicy)"
                   }
                 ]
               },
@@ -7883,7 +8871,7 @@
                     "from": "billing-manager",
                     "to": "intervention-engine",
                     "mode": "sync",
-                    "label": "DecideOnBillingFailure(declinedCharge, retryHistory) → {Retry | Escalate | Delay}"
+                    "label": "DecideOnSettlementFailure(failure{customerId, cycleId, Kind=ChargeDeclined, AttemptCount=retry history count, ShortfallAge=sweeps aged, Policy}) → {Retry | Delay | Escalate} — steers retry-budget / tolerance; replaces the stale DecideOnBillingFailure label"
                   }
                 ]
               },
@@ -7945,7 +8933,7 @@
                     "from": "billing-manager",
                     "to": "operations-manager",
                     "mode": "queued",
-                    "label": "delivers applyDelinquencyPolicy (queued)"
+                    "label": "ApplyDelinquencyPolicy(customerId, {action: Pause | Withdraw}) — the one queued Manager-to-Manager edge; signal-with-start on {customerId}:delinquency; the action comes from the customer's billing terms (PauseNotWithdraw). What operations does with it is Enforce Customer Delinquency on Operated Systems"
                   }
                 ]
               }
@@ -8186,7 +9174,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "stageArtifactForReviewOnBranch(projectId, useCases, amended draft)"
+                    "label": "StageTaskOutput(projectId, architecture activity, taskId=useCases, branch, amended draft, cred) → StagedRef — the redraft is staged by the ordinary staging verb"
                   },
                   {
                     "from": "architect-user",
@@ -8239,10 +9227,30 @@
                 "activityNodeId": "reconcile",
                 "calls": [
                   {
+                    "from": "web-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "AcknowledgeStaleBasis(projectId, activityId, taskId, note: 'reviewed — unaffected') — the architect clears a stale downstream slot without reopening it; the Manager validates the task names a design slot and records the audited acknowledgement",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "AcknowledgeStaleBasis(projectId, activityId, taskId, note: 'reviewed — unaffected') — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "reconcileBranchFromMain / amend the stale slot, or acknowledgeStaleBasis('reviewed — unaffected') (audited acknowledgement)"
+                    "label": "AcknowledgeStaleBasis(projectId, expectedVersion, kind, note='reviewed — unaffected') — clears the stale slot's StaleBasis flag without a redraft and appends the note as a durable staleAck audit entry"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "amend the stale slot instead: a redraft through dispatchActivityTask, staged and reviewed exactly as in Send Back Change Requests for a Redraft"
                   }
                 ]
               },
@@ -8374,7 +9382,7 @@
                     "from": "delivery-manager",
                     "to": "billing-engine",
                     "mode": "sync",
-                    "label": "ProjectCommitTimeChargeAndComputeCost(option, terms) → revised commit-time projection"
+                    "label": "ProjectCommitTimeComputeCost(option) → Projection — per rebuilt option, re-applies the unknown-compute-cost-terms refusal before the revised SDP is presented"
                   }
                 ]
               },
@@ -8897,7 +9905,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "seedReviewCommentsOnBranch(sessionBranch, kind, round, questions) — question-type entries appended to the durable review thread"
+                    "label": "AppendReviewVerdict(projectId, activityId, roundId, {reviewerRole, operator, abstain}, questions as type=question comments, replies) — a construction task's live review thread is its activity's open review round"
                   }
                 ]
               },
@@ -8908,7 +9916,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "seedReviewCommentsOnBranch(main, kind, round, questions) — question-only thread on the committed artifact; no amendment session opens"
+                    "label": "SeedReviewCommentsOnBranch(projectId, expectedVersion, branch=\"\" (main), kind, round, questions, replies) — question-type entries and reply follow-ups appended to the slot's durable review thread on main under an OCC re-read loop; no amendment session opens"
                   },
                   {
                     "from": "project-state-access",
@@ -8942,7 +9950,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "per-question responses recorded in place in the review thread (setReviewCommentStatusOnBranch: answered)"
+                    "label": "SetReviewCommentStatus(projectId, activityId, roundId, commentId, answered) — per-question responses recorded in place in the review thread"
                   }
                 ]
               },
@@ -8964,7 +9972,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "readProjectOnBranch → open-question tally (warns at the approve gate; never blocks it)"
+                    "label": "readProject → open-question tally (warns at the approve gate; never blocks it)"
                   }
                 ]
               }
@@ -9020,7 +10028,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "rejectArtifactOnBranchWithComments(projectId, kind, notes, round, comments) — rejection recorded with the thread retained on the session branch (F28 feedback retention)"
+                    "label": "AppendReviewVerdict(projectId, activityId, roundId, {reviewerRole, actor, sendBack}, change-request comments, replies) — the send-back is the round's verdict; its anchored comments are the retained thread"
                   }
                 ]
               },
@@ -9053,7 +10061,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "stageArtifactForReviewOnBranch(projectId, kind, amended draft) — re-staged for review"
+                    "label": "StageTaskOutput(projectId, activityId, taskId, branch, amended model, cred) → StagedRef — the redraft is revision n+1 of the judged task, re-staged through the same staging verb"
                   }
                 ]
               },
@@ -9111,7 +10119,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "setReviewCommentStatusOnBranch(commentId, resolved) — comments closed; approve unblocked"
+                    "label": "SetReviewCommentStatus(projectId, activityId, roundId, commentId, resolved) — a construction task's change request is closed on the round that holds it; approve is unblocked"
                   }
                 ]
               }
@@ -9220,26 +10228,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "recordActivityStarted(activityId, assigned agent)"
-                  }
-                ]
-              },
-              {
-                "activityNodeId": "retry-later",
-                "calls": [
-                  {
-                    "from": "operator",
-                    "to": "web-client",
-                    "mode": "sync",
-                    "label": "sees that the pause is still being applied; retries the resume",
-                    "alt": "s1"
-                  },
-                  {
-                    "from": "operator",
-                    "to": "mcp-client",
-                    "mode": "sync",
-                    "label": "sees that the pause is still being applied via the MCP surface (R4 cross-surface equivalence)",
-                    "alt": "s1"
+                    "label": "OpenActivity(projectId, activityId, type, variant, lifecyclePin, cred) — construction continues by opening the next eligible activity's row; this is what 'activity started' means now"
                   }
                 ]
               }
@@ -9266,6 +10255,56 @@
                     "mode": "sync",
                     "label": "reviews the failed activity via the MCP surface (R4 cross-surface equivalence)",
                     "alt": "s1"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-attempts",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "queryProjectView({kind: episodes, projectId, activityId}) → the activity's attempt ledger",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "queryProjectView({kind: episodes, projectId, activityId}) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "episode-access",
+                    "mode": "sync",
+                    "label": "ListEpisodes(EpisodeQuery{projectId, targetRef: activityId}) — the failed activity's attempt ledger in append order, which is the evidence the Operator reviews before writing what changed"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-failed-trace",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "queryProjectView({kind: timeline, projectId, episodeId}) → the failed attempt's timeline",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "queryProjectView({kind: timeline, projectId, episodeId}) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "episode-access",
+                    "mode": "sync",
+                    "label": "ReadTraceEvents(projectId, episodeId) — the failed episode's raw trace, mined into the timeline that shows the Operator WHY the attempt failed (NotFound or a nil TracePath yields an empty timeline, not an error)"
                   }
                 ]
               },
@@ -9315,7 +10354,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "recordActivityReopened(activityId, note) — failure kept, note appended"
+                    "label": "RecordOperatorNote(projectId, activityId, {noteId keyed to the exit stamp, kind: requeue, gate: reopen, text}) — a requeue against an exited row re-arms it (startedAt/completedAt/failureReason/failureDetail cleared) in the same commit as the note; both ledgers are kept"
                   }
                 ]
               },
@@ -9343,7 +10382,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "recordOperatorNote(activityId, note, deliveredToAttemptId) — re-recording the note with the attempt it rode stamps it delivered"
+                    "label": "RecordOperatorNote(projectId, activityId, same requeue note, deliveredToAttemptId) — re-recording the held note with the attempt it rode stamps it delivered"
                   }
                 ]
               }
@@ -9401,6 +10440,12 @@
                     "to": "project-state-access",
                     "mode": "sync",
                     "label": "readProject → the next ready tasks of the activity's lifecycle DAG"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "OpenActivity(projectId, activityId, type, variant, lifecyclePin, cred) — the eligible activity's execution row is born with its lifecycle pinned (typeKey + method-assets version), so a release landing mid-flight cannot reshape a running activity; this is the write behind the activity-lifecycle-open object node"
                   }
                 ]
               },
@@ -9411,7 +10456,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "readActivityExecution → the ready frontier of the task DAG (predecessors passed, revision n)"
+                    "label": "ReadActivityExecution(projectId, activityId) → the activity's row: lifecycle pin, attempts and reviews ledgers, revision n; the ready frontier of the task DAG is derived from it"
                   }
                 ]
               },
@@ -9449,6 +10494,12 @@
                   },
                   {
                     "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "ReadProjectOnBranch(projectId, activityBranch) → ProjectEnvelope — the design model the job committed is read back off the activity branch (csWorkflows.readBackDesignModelOn) and checked against the task's exit criterion; the same verb with branch \"\" is the pump's main read (pumpnextactivity.go readProject), and readProjectForActivityView serves the in-flight testRun view"
+                  },
+                  {
+                    "from": "delivery-manager",
                     "to": "artifact-access",
                     "mode": "sync",
                     "label": "storeConstructionOutput / retrieveConstructionOutput — the produced artifact, staged against the task"
@@ -9461,6 +10512,12 @@
                   },
                   {
                     "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "StageTaskOutput(projectId, activityId, taskId, activityBranch, model, cred) → StagedRef — the task's validated model output is staged on the activity branch, never on main, pending its review round"
+                  },
+                  {
+                    "from": "delivery-manager",
                     "to": "episode-access",
                     "mode": "sync",
                     "label": "appendEpisode(record) — the terminal agentic episode of this attempt"
@@ -9470,6 +10527,12 @@
                     "to": "project-git-repo",
                     "mode": "sync",
                     "label": "append the episode record to the project's episode ledger"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "RecordAttemptOutcome(projectId, activityId, {attemptId \"\u003cactivity\u003e:\u003ctask\u003e:\u003cn\u003e\", taskId, attempt, actor, outcome, evidenceKind, evidenceRef, detail}) — the attempt is appended to the activity's attempts ledger; the exit-met guard and the retry budget read it"
                   }
                 ]
               },
@@ -9491,7 +10554,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "recordOperatorNote(activityId, note) — the escalation is recorded on the activity, not held in a workflow variable"
+                    "label": "RecordOperatorNote(projectId, activityId, {noteId, kind: retry|takeover|reassign|skip, gate, text, comments}, deliveredToAttemptId) — the escalation's steer is recorded on the activity, not held in a workflow variable"
                   },
                   {
                     "from": "operator",
@@ -9545,9 +10608,21 @@
                   },
                   {
                     "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "RecordActivityBranchOpened(projectId, activityId, branch, branchRef, prRef, crLabel, isRevert) — mirror the activity branch and its pull request onto the activity's git row (births it with CI=Pending); the Tasks lens GitHub link and the test-run venue URL read prUrl from this row"
+                  },
+                  {
+                    "from": "delivery-manager",
                     "to": "review-engine",
                     "mode": "sync",
                     "label": "ProposeReviews(change, activityType, lifecyclePhase, componentId, policy, floorTouched, contracts) → ReviewSet"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "OpenReviewRound(projectId, activityId, {taskId, round n, subject: SubjectRef(pullRequest|commit|artifact), reviewers: the ReviewSet's seats with required flags}) — the round the verdicts and the decision will land on"
                   }
                 ]
               },
@@ -9559,6 +10634,12 @@
                     "to": "review-engine",
                     "mode": "sync",
                     "label": "the ReviewSet's own seats decide it: a non-overridable floor row always holds for a human"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "artifact-access",
+                    "mode": "sync",
+                    "label": "GetTestRunIndex(testRunRef(run)) — the testing gate reads the venue's recorded run artifact index (expired? which videoRef/traceRef/go-test-stream files exist) and joins it with the run row and the projected scenarios; a run that is missing, not at the judged attempt, not all green, or no longer renderable holds the round for a human regardless of policy"
                   }
                 ]
               },
@@ -9570,6 +10651,12 @@
                     "to": "agentic-job-access",
                     "mode": "sync",
                     "label": "submitAgenticJob(review command, reviewer role) per agent seat; observeAgenticJob → each seat's verdict"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "AppendReviewVerdict(projectId, activityId, roundId, {reviewerRole, actor, approve|sendBack|abstain, attemptId}, comments, replies) — each agent seat's verdict and anchored comments are appended to the open round"
                   }
                 ]
               },
@@ -9591,6 +10678,12 @@
                     "alt": "s1"
                   },
                   {
+                    "from": "delivery-manager",
+                    "to": "artifact-access",
+                    "mode": "sync",
+                    "label": "ReadTestRunFile(testRunRef(run), path) — the reviewer opens a scenario's video / trace / the component's go test stream from the recorded test-run artifact while judging the staged artifact (web-client GET /api/v1/delivery/test-run/{run}/file -\u003e delivery-manager ReadTestRunFile)"
+                  },
+                  {
                     "from": "web-client",
                     "to": "delivery-manager",
                     "mode": "sync",
@@ -9603,6 +10696,23 @@
                     "mode": "sync",
                     "label": "submitReviewDecision(projectId, activityId, taskId, decision, feedback?) — same Manager entry",
                     "alt": "s2"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "AppendReviewVerdict(projectId, activityId, roundId, {architect-user, approve|sendBack}, anchored comments) — the human seat's verdict lands on the same round as the agents'"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "verdict",
+                "calls": [
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "DecideReviewRound(projectId, activityId, roundId, approve|sendBack, decidedBy) — the round's recorded outcome IS this guard: approve leads to commit-artifact, sendBack reopens the judged task as revision n+1"
                   }
                 ]
               },
@@ -9613,13 +10723,43 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "commitArtifactWithProvenance / commitActivityArtifacts — the staged artifact becomes committed state"
+                    "label": "StageArtifactForReviewOnBranch(projectId, expectedVersion, branch=\"\" (main), computed slot model) — at the projectDesign activity's M0 approve each engine-computed plan slot is staged on main before its provenance commit (landComputedSlotOnMain)"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "CommitArtifactWithProvenance(projectId, expectedVersion, kind, approvedBy, draftedBy) — a design activity's staged slot becomes committed state with its approver/drafter provenance (commitDesignArtifacts; M0's landComputedSlotOnMain)"
                   },
                   {
                     "from": "delivery-manager",
                     "to": "source-control-access",
                     "mode": "sync",
-                    "label": "postReview(pr, verdict, cred) · mergePullRequest(pr, cred) — the approval is relayed and the branch merges"
+                    "label": "postReview(pr, verdict, cred) — the approval is relayed to the pull request"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "GetPullRequestStatus(repo, pr, cred) → PullRequestStatus{CheckRollup, ApprovalCount, Mergeable} — the merge guard: the PR merges only when its required check is green and it is mergeable against main; a diverged branch is reconciled and read once more, otherwise the merge is refused and the observed rollup is mirrored onto the activity's git head state"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "ReconcileBranchFromMain(projectId, expectedVersion, activityBranch, preserveKinds) — merge guard: a diverged activity branch adopts main's every slot except the in-flight design slots in the preserve set (empty set = construction, adopt main entirely), then re-reads and re-applies (reconcileDivergedBranch, F80c)"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "RecordActivityCIObserved(projectId, activityId, ciRollup) — the merge guard: the PR's required-check rollup is mirrored onto the activity's git row before mergePullRequest; nothing merges over a red build, and a refused merge (MergeBlockedByCI / MergeBranchReconciled) leaves its reason readable off project state"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "mergePullRequest(pr, cred) — the branch merges"
                   },
                   {
                     "from": "delivery-manager",
@@ -9630,13 +10770,24 @@
                 ]
               },
               {
+                "activityNodeId": "seal-project-phase",
+                "calls": [
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "AdvancePhase(projectId, expectedVersion) — the read-back slots show every required kind of the phase committed, so the project's phase advances; idempotent: a phase already at or past its seal is not re-advanced"
+                  }
+                ]
+              },
+              {
                 "activityNodeId": "record-exit",
                 "calls": [
                   {
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "recordActivityOutcome(activityId, binary exit) — the LifecyclePhase is earned, never asserted"
+                    "label": "RecordActivityOutcome(projectId, activityId, completed|skipped|takenOver, failureReason, detail) — the binary exit is stamped on the row; the LifecyclePhase is earned, never asserted"
                   },
                   {
                     "from": "delivery-manager",
@@ -9655,6 +10806,399 @@
                     "to": "billing-engine",
                     "mode": "sync",
                     "label": "PriceConstruction(estimate) → the M0 gate's cost in tokens and dollars (§6)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "pause-construction",
+            "key": "var-pause-construction",
+            "title": "Pause Construction",
+            "steps": [
+              {
+                "activityNodeId": "choose-pause",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "chooses to pause construction, with a reason",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "pauses construction via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "setProjectRunState(projectId, paused, reason) — signals operatorPauseRequested to the project’s construction supervision",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "setProjectRunState(projectId, paused, reason) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "decide-pause-plan",
+                "calls": [
+                  {
+                    "from": "delivery-manager",
+                    "to": "intervention-engine",
+                    "mode": "sync",
+                    "label": "ApplyPausePolicy(PauseRequestContext{projectId, reason, policy}) → PausePlan{RecordPaused, NotifyTargets, ResumeHint} — what a pause does is the policy's decision, not the Manager's"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-paused",
+                "calls": [
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "RecordOperatorPaused(projectId, expectedVersion, reason) — the plan says RecordPaused; recorded first so a pump (re)started by the 30s sweep goes quiet at its recorded-pause gate"
+                  },
+                  {
+                    "from": "project-state-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "stop-pump",
+                "calls": [
+                  {
+                    "from": "delivery-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "deliverSignal(pump execution, operatorPauseRequested, reason) — a pump already cascading stops after its current activity"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "withdraw-a-delivered-system",
+            "key": "var-withdraw-delivered-system",
+            "title": "Withdraw a Delivered System",
+            "steps": [
+              {
+                "activityNodeId": "request-withdraw",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "withdraws the delivered system from the operations view",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "withdraws the delivered system via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "WithdrawSystem(operatedAppId, changeId, reason) → WithdrawResult",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "WithdrawSystem(operatedAppId, changeId, reason) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "readOperatedSystem(operatedAppId) → status + version (basis for the already-withdrawn guard; NotFound means unknown)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "tear-down-runtime",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-runtime-access",
+                    "mode": "sync",
+                    "label": "withdraw(operatedAppId) — removes the runtime; NotFound counts as success"
+                  },
+                  {
+                    "from": "operated-runtime-access",
+                    "to": "operated-runtime",
+                    "mode": "sync",
+                    "label": "prunes the system's runtime resources"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-final-usage",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-runtime-access",
+                    "mode": "sync",
+                    "label": "readComputeAttribution(operatedAppId) → the final attribution, read before pruning completes"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "usage-access",
+                    "mode": "sync",
+                    "label": "recordComputeUsage(finalUsageEvents) — the final capture rides the one usage write verb; idempotent on dedup id; skipped when there is no runtime event"
+                  },
+                  {
+                    "from": "usage-access",
+                    "to": "usage-log",
+                    "mode": "sync",
+                    "label": "append final usage event"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-withdrawn",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "withdrawSystem(operatedAppId, expectedVersion) — head-state terminal (Conflict re-read loop)"
+                  },
+                  {
+                    "from": "operated-system-state-access",
+                    "to": "operated-system-state",
+                    "mode": "sync",
+                    "label": "guarded in-place update (version + applied_mutation dedup)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "view-live-deployment-health",
+            "key": "var-view-live-deployment-health",
+            "title": "View Live Deployment Health",
+            "steps": [
+              {
+                "activityNodeId": "open-deployment-diagram",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "opens the deployment diagram; the live-health overlay requests node health",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "opens the deployment diagram via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "request-health",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "QueryDeploymentHealth(operatedAppId) → DeploymentHealth",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "QueryDeploymentHealth(operatedAppId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "readOperatedSystem(operatedAppId) → deployableBundleRef + projectRef (basis for the anything-deployed guard)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "resolve-deployment",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "artifact-access",
+                    "mode": "sync",
+                    "label": "retrieveConstructionOutput(deployableBundleRef) → deployable bundle"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject(projectRef) → deployment model (the cloud environment's nodes; render inputs for the desired state)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-live-health",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-runtime-access",
+                    "mode": "sync",
+                    "label": "getDeploymentResourceHealth(operatedAppId, desiredState) → RuntimeStatus for each deployed model key"
+                  },
+                  {
+                    "from": "operated-runtime-access",
+                    "to": "operated-runtime",
+                    "mode": "sync",
+                    "label": "reads live resource health for the rendered manifests"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "register-a-delivered-system-for-operation",
+            "key": "var-register-operated-system",
+            "title": "Register a Delivered System for Operation",
+            "steps": [
+              {
+                "activityNodeId": "request-registration",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "registers the delivered system from the operations view",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "registers the delivered system via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "RegisterOperatedApp(operatedAppId, customerId, projectRef, deployableBundleRef)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "operations-manager",
+                    "mode": "sync",
+                    "label": "RegisterOperatedApp(operatedAppId, customerId, projectRef, deployableBundleRef) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "seed-head-state",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "RegisterOperatedSystem(operatedAppID, customerID, projectRef, deployableBundleRef, idempotencyKey) — creates the head-state row at version 1"
+                  },
+                  {
+                    "from": "operated-system-state-access",
+                    "to": "operated-system-state",
+                    "mode": "sync",
+                    "label": "insert head-state row (idempotency-key dedup)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "enforce-customer-delinquency-on-operated-systems",
+            "key": "var-enforce-delinquency",
+            "title": "Enforce Customer Delinquency on Operated Systems",
+            "steps": [
+              {
+                "activityNodeId": "delinquency-arrives",
+                "calls": [
+                  {
+                    "from": "billing-manager",
+                    "to": "operations-manager",
+                    "mode": "queued",
+                    "label": "ApplyDelinquencyPolicy(customerId, delinquencyContext) — signal-with-start on {customerId}:delinquency"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-customer-systems",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "ReadInFlightOperatedApps(scope{customerId}) — the customer's in-flight systems with versions"
+                  },
+                  {
+                    "from": "operated-system-state-access",
+                    "to": "operated-system-state",
+                    "mode": "sync",
+                    "label": "read in-flight rows for the customer"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "remove-runtime",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-runtime-access",
+                    "mode": "sync",
+                    "label": "Withdraw(operatedAppId) — per system; a missing runtime counts as already removed"
+                  },
+                  {
+                    "from": "operated-runtime-access",
+                    "to": "operated-runtime",
+                    "mode": "sync",
+                    "label": "remove the published runtime"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-delinquency",
+                "calls": [
+                  {
+                    "from": "operations-manager",
+                    "to": "operated-system-state-access",
+                    "mode": "sync",
+                    "label": "RecordDelinquencyAction(operatedAppID, expectedVersion, action, idempotencyKey) — Paused or Withdrawn, per system (Conflict loop)"
+                  },
+                  {
+                    "from": "operated-system-state-access",
+                    "to": "operated-system-state",
+                    "mode": "sync",
+                    "label": "guarded in-place update (version + applied_mutation dedup)"
                   }
                 ]
               }

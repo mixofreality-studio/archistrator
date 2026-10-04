@@ -5331,8 +5331,6 @@ var wantAltTally = map[altCallKey]string{
 	{"var-resume-paused-construction", "choose-resume", "operator", "mcp-client"}:           "s1",
 	{"var-resume-paused-construction", "choose-resume", "web-client", "delivery-manager"}:   "s2",
 	{"var-resume-paused-construction", "choose-resume", "mcp-client", "delivery-manager"}:   "s2",
-	{"var-resume-paused-construction", "retry-later", "operator", "web-client"}:             "s1",
-	{"var-resume-paused-construction", "retry-later", "operator", "mcp-client"}:             "s1",
 	{"var-requeue-failed-activity", "review-failure", "operator", "web-client"}:             "s1",
 	{"var-requeue-failed-activity", "review-failure", "operator", "mcp-client"}:             "s1",
 	{"var-requeue-failed-activity", "write-change", "operator", "web-client"}:               "s1",
@@ -5351,6 +5349,35 @@ var wantAltTally = map[altCallKey]string{
 	{"uc-execute-project-activity", "human-decision", "architect-user", "mcp-client"}:       "s1",
 	{"uc-execute-project-activity", "human-decision", "web-client", "delivery-manager"}:     "s2",
 	{"uc-execute-project-activity", "human-decision", "mcp-client", "delivery-manager"}:     "s2",
+	// dct Plan 4 Task 4 (A5 round 1): the Manager entries the coverage pass drew, and the
+	// four new nonCore variations' actor + entry pairs. (retry-later lost its two s1 calls
+	// when it became a sendSignal — a signal node carries no calls.)
+	{"var-manage-projects", "set-review-policy", "architect-user", "web-client"}:                 "s1",
+	{"var-manage-projects", "set-review-policy", "architect-user", "mcp-client"}:                 "s1",
+	{"var-manage-projects", "set-review-policy", "web-client", "delivery-manager"}:               "s2",
+	{"var-manage-projects", "set-review-policy", "mcp-client", "delivery-manager"}:               "s2",
+	{"var-add-use-case", "reconcile", "web-client", "delivery-manager"}:                          "s2",
+	{"var-add-use-case", "reconcile", "mcp-client", "delivery-manager"}:                          "s2",
+	{"var-requeue-failed-activity", "read-attempts", "web-client", "delivery-manager"}:           "s2",
+	{"var-requeue-failed-activity", "read-attempts", "mcp-client", "delivery-manager"}:           "s2",
+	{"var-requeue-failed-activity", "read-failed-trace", "web-client", "delivery-manager"}:       "s2",
+	{"var-requeue-failed-activity", "read-failed-trace", "mcp-client", "delivery-manager"}:       "s2",
+	{"var-pause-construction", "choose-pause", "operator", "web-client"}:                         "s1",
+	{"var-pause-construction", "choose-pause", "operator", "mcp-client"}:                         "s1",
+	{"var-pause-construction", "choose-pause", "web-client", "delivery-manager"}:                 "s2",
+	{"var-pause-construction", "choose-pause", "mcp-client", "delivery-manager"}:                 "s2",
+	{"var-withdraw-delivered-system", "request-withdraw", "operator", "web-client"}:              "s1",
+	{"var-withdraw-delivered-system", "request-withdraw", "operator", "mcp-client"}:              "s1",
+	{"var-withdraw-delivered-system", "request-withdraw", "web-client", "operations-manager"}:    "s2",
+	{"var-withdraw-delivered-system", "request-withdraw", "mcp-client", "operations-manager"}:    "s2",
+	{"var-view-live-deployment-health", "open-deployment-diagram", "operator", "web-client"}:     "s1",
+	{"var-view-live-deployment-health", "open-deployment-diagram", "operator", "mcp-client"}:     "s1",
+	{"var-view-live-deployment-health", "request-health", "web-client", "operations-manager"}:    "s2",
+	{"var-view-live-deployment-health", "request-health", "mcp-client", "operations-manager"}:    "s2",
+	{"var-register-operated-system", "request-registration", "operator", "web-client"}:           "s1",
+	{"var-register-operated-system", "request-registration", "operator", "mcp-client"}:           "s1",
+	{"var-register-operated-system", "request-registration", "web-client", "operations-manager"}: "s2",
+	{"var-register-operated-system", "request-registration", "mcp-client", "operations-manager"}: "s2",
 }
 
 // TestCommittedProjectJSON_DynamicViewCalls_Alt is the tolerant-decode regression
@@ -5424,6 +5451,7 @@ var wantDecidedByTally = map[string]int{
 	"estimation-engine":   2,
 	"merchant-gateway":    2,
 	"operator":            2,
+	"operations-manager":  2,
 	"autoscaler-engine":   1,
 	"review-engine":       1,
 }
@@ -5479,10 +5507,12 @@ func TestCommittedProjectJSON_ActivityNodes_DecidedBySplit(t *testing.T) {
 	if nodeCount == 0 {
 		t.Fatal("committed use cases have zero activity nodes across all decisions — fixture assumption no longer holds")
 	}
-	if decidedByCount != 21 {
-		t.Fatalf("committed activity nodes carry DecidedBy on %d nodes, want 21 (the Task-7 "+
+	if decidedByCount != 23 {
+		t.Fatalf("committed activity nodes carry DecidedBy on %d nodes, want 23 (the Task-7 "+
 			"architect spec's D-table explicit rows, re-measured at stage 4a: the two absorbed core "+
-			"use cases took six deciders with them and execute-a-project-activity brought three) — "+
+			"use cases took six deciders with them and execute-a-project-activity brought three; dct "+
+			"Plan 4 Task 4 added two operations-manager guards — withdraw-a-delivered-system's "+
+			"already-withdrawn and view-live-deployment-health's anything-deployed) — "+
 			"investigate drift, don't just re-pin", decidedByCount)
 	}
 	if !reflect.DeepEqual(gotTally, wantDecidedByTally) {
