@@ -44445,7 +44445,894 @@
       },
       "estimationEngine": {
         "component": "estimationEngine",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"optionId\":\"normal\",\"network\":{\"activities\":[{\"activityId\":\"C-orders-access\",\"effortDays\":14,\"workerClass\":\"junior-developer\",\"onCriticalPath\":true,\"riskBucket\":2},{\"activityId\":\"C-orders-manager\",\"effortDays\":14,\"workerClass\":\"junior-developer\",\"onCriticalPath\":true,\"riskBucket\":2},{\"activityId\":\"C-pricing-engine\",\"effortDays\":7,\"workerClass\":\"junior-developer\",\"onCriticalPath\":false,\"riskBucket\":2},{\"activityId\":\"C-notify-access\",\"effortDays\":7,\"workerClass\":\"junior-developer\",\"onCriticalPath\":false,\"riskBucket\":2}],\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]},{\"activity\":\"C-pricing-engine\",\"dependsOn\":[\"C-orders-access\"]},{\"activity\":\"C-notify-access\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null},\"workerMix\":{\"classRates\":{\"junior-developer\":{\"minorUnits\":40000,\"currency\":\"USD\"}},\"staffingCap\":4},\"calendarDaysPerWeek\":7,\"indirectDailyRate\":{\"minorUnits\":10000,\"currency\":\"USD\"},\"bufferDays\":0,\"criticalSpeedup\":1}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"DurationDays\":28,\"DirectCost\":{\"minorUnits\":1680000,\"currency\":\"USD\"},\"IndirectCost\":{\"minorUnits\":280000,\"currency\":\"USD\"},\"BuildCost\":{\"minorUnits\":1960000,\"currency\":\"USD\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"optionId\":\"decompressed-normal\",\"network\":{\"activities\":[{\"activityId\":\"C-orders-access\",\"effortDays\":14,\"workerClass\":\"junior-developer\",\"onCriticalPath\":true,\"riskBucket\":2},{\"activityId\":\"C-orders-manager\",\"effortDays\":14,\"workerClass\":\"junior-developer\",\"onCriticalPath\":true,\"riskBucket\":2},{\"activityId\":\"C-pricing-engine\",\"effortDays\":7,\"workerClass\":\"junior-developer\",\"onCriticalPath\":false,\"riskBucket\":2},{\"activityId\":\"C-notify-access\",\"effortDays\":7,\"workerClass\":\"junior-developer\",\"onCriticalPath\":false,\"riskBucket\":2}],\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]},{\"activity\":\"C-pricing-engine\",\"dependsOn\":[\"C-orders-access\"]},{\"activity\":\"C-notify-access\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null},\"workerMix\":{\"classRates\":{\"junior-developer\":{\"minorUnits\":40000,\"currency\":\"USD\"}},\"staffingCap\":4},\"calendarDaysPerWeek\":7,\"indirectDailyRate\":{\"minorUnits\":10000,\"currency\":\"USD\"},\"bufferDays\":0,\"criticalSpeedup\":1}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"DurationDays\":28,\"DirectCost\":{\"minorUnits\":1680000,\"currency\":\"USD\"},\"IndirectCost\":{\"minorUnits\":280000,\"currency\":\"USD\"},\"BuildCost\":{\"minorUnits\":1960000,\"currency\":\"USD\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":0.75}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\",\"C-orders-manager\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":1}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":0.75}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\",\"C-orders-manager\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":1}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":0.75}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\",\"C-orders-manager\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":1}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":0.75}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DerivePlan",
+                "inputs": [
+                  {
+                    "name": "system",
+                    "value": "{\"components\":[],\"relationships\":[]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "deltas",
+                    "value": "{}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activities\":[{\"name\":\"requirements\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2,\"derived\":true},{\"name\":\"architecture\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2,\"derived\":true},{\"name\":\"projectDesign\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2,\"derived\":true}],\"milestones\":[{\"id\":\"M0\",\"dependsOn\":[\"projectDesign\"]}]}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ComputeNetwork",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"requirements\",\"effortDays\":5},{\"name\":\"architecture\",\"effortDays\":5},{\"name\":\"projectDesign\",\"effortDays\":5}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"architecture\",\"dependsOn\":[\"requirements\"]},{\"activity\":\"projectDesign\",\"dependsOn\":[\"architecture\"]}],\"milestones\":[{\"id\":\"M0\",\"name\":\"SDP Review Approved\",\"dependsOn\":[\"projectDesign\"]}]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Nodes\":{\"requirements\":{\"EarliestStart\":0,\"EarliestFinish\":5,\"LatestStart\":0,\"LatestFinish\":5,\"TotalFloat\":0,\"FreeFloat\":0,\"OnCriticalPath\":true},\"architecture\":{\"EarliestStart\":5,\"EarliestFinish\":10,\"LatestStart\":5,\"LatestFinish\":10,\"TotalFloat\":0,\"FreeFloat\":0,\"OnCriticalPath\":true},\"projectDesign\":{\"EarliestStart\":10,\"EarliestFinish\":15,\"LatestStart\":10,\"LatestFinish\":15,\"TotalFloat\":0,\"FreeFloat\":0,\"OnCriticalPath\":true}},\"Milestones\":[{\"ID\":\"M0\",\"OnCriticalPath\":true,\"EventTime\":15}],\"Summary\":{\"TotalDurationDays\":15,\"CriticalPathDays\":15,\"MaxFloat\":0}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DerivePlan",
+                "inputs": [
+                  {
+                    "name": "system",
+                    "value": "{\"components\":[],\"relationships\":[]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "deltas",
+                    "value": "{}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activities\":[{\"name\":\"requirements\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2,\"derived\":true},{\"name\":\"architecture\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2,\"derived\":true},{\"name\":\"projectDesign\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2,\"derived\":true}],\"milestones\":[{\"id\":\"M0\",\"dependsOn\":[\"projectDesign\"]}]}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ComputeNetwork",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"requirements\",\"effortDays\":5},{\"name\":\"architecture\",\"effortDays\":5},{\"name\":\"projectDesign\",\"effortDays\":5}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"architecture\",\"dependsOn\":[\"requirements\"]},{\"activity\":\"projectDesign\",\"dependsOn\":[\"architecture\"]}],\"milestones\":[{\"id\":\"M0\",\"name\":\"SDP Review Approved\",\"dependsOn\":[\"projectDesign\"]}]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Nodes\":{\"requirements\":{\"EarliestStart\":0,\"EarliestFinish\":5,\"LatestStart\":0,\"LatestFinish\":5,\"TotalFloat\":0,\"FreeFloat\":0,\"OnCriticalPath\":true},\"architecture\":{\"EarliestStart\":5,\"EarliestFinish\":10,\"LatestStart\":5,\"LatestFinish\":10,\"TotalFloat\":0,\"FreeFloat\":0,\"OnCriticalPath\":true},\"projectDesign\":{\"EarliestStart\":10,\"EarliestFinish\":15,\"LatestStart\":10,\"LatestFinish\":15,\"TotalFloat\":0,\"FreeFloat\":0,\"OnCriticalPath\":true}},\"Milestones\":[{\"ID\":\"M0\",\"OnCriticalPath\":true,\"EventTime\":15}],\"Summary\":{\"TotalDurationDays\":15,\"CriticalPathDays\":15,\"MaxFloat\":0}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":0.75}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":0.75}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"optionId\":\"normal-rev1\",\"network\":{\"activities\":[{\"activityId\":\"C-orders-access\",\"effortDays\":14,\"workerClass\":\"junior-developer\",\"onCriticalPath\":true,\"riskBucket\":2},{\"activityId\":\"C-orders-manager\",\"effortDays\":14,\"workerClass\":\"junior-developer\",\"onCriticalPath\":true,\"riskBucket\":2},{\"activityId\":\"C-orders-export\",\"effortDays\":7,\"workerClass\":\"junior-developer\",\"onCriticalPath\":true,\"riskBucket\":2},{\"activityId\":\"C-pricing-engine\",\"effortDays\":7,\"workerClass\":\"junior-developer\",\"onCriticalPath\":false,\"riskBucket\":2}],\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]},{\"activity\":\"C-orders-export\",\"dependsOn\":[\"C-orders-manager\"]},{\"activity\":\"C-pricing-engine\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null},\"workerMix\":{\"classRates\":{\"junior-developer\":{\"minorUnits\":40000,\"currency\":\"USD\"},\"senior-developer\":{\"minorUnits\":60000,\"currency\":\"USD\"}},\"staffingCap\":4},\"calendarDaysPerWeek\":7,\"indirectDailyRate\":{\"minorUnits\":10000,\"currency\":\"USD\"},\"bufferDays\":0,\"criticalSpeedup\":1}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"DurationDays\":35,\"DirectCost\":{\"minorUnits\":1680000,\"currency\":\"USD\"},\"IndirectCost\":{\"minorUnits\":350000,\"currency\":\"USD\"},\"BuildCost\":{\"minorUnits\":2030000,\"currency\":\"USD\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\",\"C-orders-manager\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":1}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"optionId\":\"normal-rev1\",\"network\":{\"activities\":[{\"activityId\":\"C-orders-access\",\"effortDays\":14,\"workerClass\":\"junior-developer\",\"onCriticalPath\":true,\"riskBucket\":2},{\"activityId\":\"C-orders-manager\",\"effortDays\":14,\"workerClass\":\"junior-developer\",\"onCriticalPath\":true,\"riskBucket\":2},{\"activityId\":\"C-orders-export\",\"effortDays\":7,\"workerClass\":\"senior-developer\",\"onCriticalPath\":true,\"riskBucket\":2},{\"activityId\":\"C-pricing-engine\",\"effortDays\":7,\"workerClass\":\"junior-developer\",\"onCriticalPath\":false,\"riskBucket\":2}],\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]},{\"activity\":\"C-orders-export\",\"dependsOn\":[\"C-orders-manager\"]},{\"activity\":\"C-pricing-engine\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null},\"workerMix\":{\"classRates\":{\"junior-developer\":{\"minorUnits\":40000,\"currency\":\"USD\"},\"senior-developer\":{\"minorUnits\":60000,\"currency\":\"USD\"}},\"staffingCap\":4},\"calendarDaysPerWeek\":7,\"indirectDailyRate\":{\"minorUnits\":10000,\"currency\":\"USD\"},\"bufferDays\":0,\"criticalSpeedup\":1}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"DurationDays\":35,\"DirectCost\":{\"minorUnits\":1820000,\"currency\":\"USD\"},\"IndirectCost\":{\"minorUnits\":350000,\"currency\":\"USD\"},\"BuildCost\":{\"minorUnits\":2170000,\"currency\":\"USD\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":0.75}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\",\"C-orders-manager\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":1}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":0}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":0}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\",\"C-orders-manager\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":1}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ComputeEarnedValue",
+                "inputs": [
+                  {
+                    "name": "activities",
+                    "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "network",
+                    "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "integrated",
+                    "value": "[\"C-orders-access\",\"C-orders-manager\"]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "totalWeeks",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "calendarDaysPerWeek",
+                    "value": "5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"spi\":1}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "gitActivityStatusAccess": {
         "component": "gitActivityStatusAccess",
