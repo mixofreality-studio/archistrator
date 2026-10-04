@@ -300,3 +300,19 @@ Measured on the first migration run (report `docs/bugs/2026-10-02-dct-migration-
 | A7 | Unbindable scenarios are design changes, not skips: add the missing read-only op / move the op onto the right interface / give `design-health-engine` a contract. |
 
 Expected states, outputs and hints still attach to the **last stimulus before them on the path** (now usually an RA or Engine stimulus); TP-STATE applies to whichever component owns that stimulus, and a probe may name any component's read-only op.
+
+## 12. Amendment B (2026-10-04): rulings from the Plan 4 run
+
+| # | Ruling |
+|---|---|
+| B1 (R-D) | Client surfaces are contracts with ops: `webClient` has one op per user action the use cases name (param `action` = `{kind, target data-testid, value?}`); `mcpClient` has one op per generated MCP tool. TP-OP-REACHED therefore covers clients. testgen emits Playwright for webClient and in-process MCP tool calls for mcpClient. |
+| B2 (P-4) | Hooks may import the app's own component packages through their public constructors (real collaborators, real stack — T2). They may not import a package's internals or unexported test helpers. |
+| B3 (P-5) | testgen names hooks lint-clean; no `//nolint` and no lint-config exemption. |
+| B4 (P-3) | Workflow determinism stays gated, black-box: scenariohost records the Temporal history of every workflow a scenario runs and replays it against the current worker code in the same test run; a non-determinism error fails the scenario. |
+| B5 (B-1) | `billingStateAccess` and `merchantGatewayAccess` are un-stubbed (Postgres; the local profile uses the same Postgres). The `billingstate` merge on the branch is fixed forward. |
+| B6 (A7) | Apply the report's A7-1..5 op changes; a retried charge uses `settle:{customer}:{cycle}:{attempt}`. |
+| B7 (SPA) | Screens the use cases describe but the SPA lacks are built (Revoke on M0, reject-all, amend composer, research input panel, …); the use cases stand. |
+| B8 (P-1) | Estimation durations and costs are **calendar days** (founder, 2026-10-04). |
+| B9 (P-2) | `RegisterOperatedSystem` production behaviour is reverted; the binding changes. |
+| B10 (D-1) | Every "deprecated in place" note, deprecated field and alias is deleted. |
+| B11 | Every schema change also conforms archistrator's own committed `project.json` in the same change. |
