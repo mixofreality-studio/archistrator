@@ -48220,7 +48220,416 @@
       },
       "operationEstimationEngine": {
         "component": "operationEstimationEngine",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-normal\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":15,\"schedule\":1}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":1000,\"requestsPerMinute\":10,\"avgPayloadBytes\":2048}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":6848,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":8696,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":12392,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":23480,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":41960,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-6848,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-12392,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-8696,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-compressed\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":0,\"schedule\":2}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":250,\"requestsPerMinute\":2.5,\"avgPayloadBytes\":4096}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":5462,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":5924,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":6848,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":9620,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":14240,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-5462,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-6848,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-5924,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-committed-p1\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":15,\"schedule\":1}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":500,\"requestsPerMinute\":0,\"avgPayloadBytes\":0}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":5060,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":5120,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":5240,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":5600,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":6200,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-5060,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-5240,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-5120,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-committed-p2\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":0,\"schedule\":2}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":0,\"requestsPerMinute\":40,\"avgPayloadBytes\":0}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":11912,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":18824,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":32648,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":74120,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":143240,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-11912,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-32648,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-18824,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-committed-p3\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":15,\"schedule\":1}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":20000,\"requestsPerMinute\":120,\"avgPayloadBytes\":8192}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":28136,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":51272,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":97544,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":236360,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":467720,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-28136,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-97544,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-51272,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-committed-p4\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":0,\"schedule\":2}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":75,\"requestsPerMinute\":0.5,\"avgPayloadBytes\":512}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":5095,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":5191,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":5382,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":5954,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":6908,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-5095,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-5382,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-5191,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-committed-p5\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":15,\"schedule\":1}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":3000,\"requestsPerMinute\":25,\"avgPayloadBytes\":1500}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":9680,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":14360,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":23720,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":51800,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":98600,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-9680,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-23720,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-14360,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-committed-p6\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":0,\"schedule\":2}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":10000,\"requestsPerMinute\":60,\"avgPayloadBytes\":4096}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":16568,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":28136,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":51272,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":120680,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":236360,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-16568,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-51272,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-28136,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-committed-p7\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":15,\"schedule\":1}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":0,\"requestsPerMinute\":0,\"avgPayloadBytes\":1024}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":5000,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":5000,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":5000,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":5000,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":5000,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-5000,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-5000,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-5000,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-replan-normal\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":15,\"schedule\":1}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":1200,\"requestsPerMinute\":8,\"avgPayloadBytes\":2048}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":6526,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":8053,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":11106,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":20264,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":35528,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-6526,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-11106,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-8053,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EstimateForOption",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-replan-decompressed\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":0,\"schedule\":2}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "declaredUsage",
+                    "value": "{\"expectedDailyActiveUsers\":400,\"requestsPerMinute\":3,\"avgPayloadBytes\":1024}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"UsageCostCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":5566,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":6133,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":7266,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":10664,\"currency\":\"USD\"}},{\"LoadMultiplier\":10,\"ProjectedMonthlyCost\":{\"minorUnits\":16328,\"currency\":\"USD\"}}]},\"CostSensitivityForecast\":{\"SensitivityLow\":{\"minorUnits\":-5566,\"currency\":\"USD\"},\"SensitivityHigh\":{\"minorUnits\":-7266,\"currency\":\"USD\"},\"ExpectedPerCycleCharge\":{\"minorUnits\":-6133,\"currency\":\"USD\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-operating-cost-projection-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectForOperatedApp",
+                "inputs": [
+                  {
+                    "name": "observedUsage",
+                    "value": "{\"ComputeUnitSeconds\":3600000,\"RequestCount\":2000000,\"StorageBytesMonths\":10737418240,\"EgressBytes\":53687091200,\"ObservedReplicas\":2}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "scaleWhatIfPoints",
+                    "value": "[{\"LoadMultiplier\":0.5},{\"LoadMultiplier\":2},{\"LoadMultiplier\":5}]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"CurrentRunRate\":{\"minorUnits\":76630,\"currency\":\"USD\"},\"ProjectedMonthlyCost\":{\"minorUnits\":76630,\"currency\":\"USD\"},\"ScaleWhatIfCurve\":{\"Points\":[{\"LoadMultiplier\":0.5,\"ProjectedMonthlyCost\":{\"minorUnits\":40365,\"currency\":\"USD\"}},{\"LoadMultiplier\":1,\"ProjectedMonthlyCost\":{\"minorUnits\":76630,\"currency\":\"USD\"}},{\"LoadMultiplier\":2,\"ProjectedMonthlyCost\":{\"minorUnits\":149160,\"currency\":\"USD\"}},{\"LoadMultiplier\":5,\"ProjectedMonthlyCost\":{\"minorUnits\":366750,\"currency\":\"USD\"}}]}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "operationsManager": {
         "component": "operationsManager",
