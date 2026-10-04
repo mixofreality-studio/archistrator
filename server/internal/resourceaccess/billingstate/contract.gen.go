@@ -4,7 +4,9 @@
 package billingstate
 
 import (
+	"context"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
@@ -34,7 +36,9 @@ type BillingTerms struct {
 	BillingKind     int64 `json:"BillingKind"`
 }
 
-type CustomerProfile map[string]interface{}
+type CustomerProfile struct {
+	ProjectID string `json:"ProjectID"`
+}
 
 type CustomerSummary struct {
 	ID               uuid.UUID `json:"ID"`
@@ -74,48 +78,9 @@ type BillingStateAccess interface {
 	SettleCycle(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, cycle string, outcome BillingOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
-// stubBillingStateAccess is the generated not-implemented BillingStateAccess. The component is contracted
-// but not yet built, so every method returns a not-implemented error; the bodies
-// are replaced when the component is constructed.
-type stubBillingStateAccess struct{}
-
-// NewBillingStateAccess returns the not-implemented BillingStateAccess. It takes no arguments
-// (the component has no infrastructure binding yet).
-func NewBillingStateAccess() BillingStateAccess { return &stubBillingStateAccess{} }
-
-var _ BillingStateAccess = (*stubBillingStateAccess)(nil)
-
-func (*stubBillingStateAccess) BindGatewayLive(_ fwra.Context, _ uuid.UUID, _ Version, _ GatewayBinding, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) ReadPersistentlyDelinquentCustomers(_ fwra.Context, _ DelinquencyScope) ([]CustomerSummary, error) {
-	var zero []CustomerSummary
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) ReadBilling(_ fwra.Context, _ uuid.UUID) (Billing, error) {
-	var zero Billing
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) ReadCycle(_ fwra.Context, _ uuid.UUID, _ string) (BillingCycle, error) {
-	var zero BillingCycle
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) RegisterCustomer(_ fwra.Context, _ uuid.UUID, _ Version, _ CustomerProfile, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) ResettleCycle(_ fwra.Context, _ uuid.UUID, _ Version, _ string, _ BillingOutcome, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) SettleCycle(_ fwra.Context, _ uuid.UUID, _ Version, _ string, _ BillingOutcome, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
+// NewPostgresBillingStateAccess constructs the Postgres-backed BillingStateAccess, delegating to the hand-written,
+// unexported builder newPostgresBillingStateAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewPostgresBillingStateAccess(ctx context.Context, pool *pgxpool.Pool) (BillingStateAccess, error) {
+	return newPostgresBillingStateAccess(ctx, pool)
 }

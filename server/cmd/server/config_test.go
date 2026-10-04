@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -137,40 +138,37 @@ func TestLoadConfig_RealConstruction_RequiresArtifactRepoURL(t *testing.T) {
 	}
 }
 
-// TestMissingFor_Local_NoPostgres — the local (git-local) profile declares
-// ZERO required env vars: project state is git, and Postgres exists only for
-// usage metering, which the local profile's usageAccess arm no-ops (Task 2,
-// local-first-init-funnel). Regression guard on the generated
-// requiredEnvByProfile table (config.gen.go, emitted by configgen from
+// TestMissingFor_Local_RequiresPostgres — the local (git-local) profile requires
+// ARCHISTRATOR_POSTGRES_URL: billingStateAccess and merchantGatewayAccess bind their
+// Postgres variant there too (spec §12 ruling B5). Regression guard on the
+// generated requiredEnvByProfile table (config.gen.go, emitted by configgen from
 // project.json's deployment.infrastructure "postgres" decl's profiles list).
-func TestMissingFor_Local_NoPostgres(t *testing.T) {
-	if got := MissingFor("local"); len(got) != 0 {
-		t.Fatalf(`MissingFor("local") = %v, want empty (no infra is required-class in every... local's declared profiles)`, got)
+func TestMissingFor_Local_RequiresPostgres(t *testing.T) {
+	t.Setenv("ARCHISTRATOR_POSTGRES_URL", "")
+	if got := MissingFor("local"); !slices.Equal(got, []string{"ARCHISTRATOR_POSTGRES_URL"}) {
+		t.Fatalf(`MissingFor("local") = %v, want [ARCHISTRATOR_POSTGRES_URL]`, got)
 	}
 }
 
-// TestLoadConfig_Local_NoPostgres_OK — a bare git-local boot with NO
-// ARCHISTRATOR_POSTGRES_URL set must resolve: local mode has zero external
-// dependencies (no database, period — project state is git; usageAccess is a
-// local no-op arm; there is no other Postgres-required check left in the
-// local path). Was: FAIL ("ARCHISTRATOR_POSTGRES_URL is required") before
-// Task 2 — config_adapter.go's Postgres guard was unconditional across every
-// profile.
-func TestLoadConfig_Local_NoPostgres_OK(t *testing.T) {
+// TestLoadConfig_Local_NoPostgres_FailFast — a git-local boot with NO
+// ARCHISTRATOR_POSTGRES_URL fails at load, naming the variable: the local profile's
+// billing stores are Postgres-backed (spec §12 ruling B5).
+func TestLoadConfig_Local_NoPostgres_FailFast(t *testing.T) {
 	setEnv(t, map[string]string{
 		"ARCHISTRATOR_POSTGRES_URL":               "",
 		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "true",
 		"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file:///tmp/proj.git",
 		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "true",
 	})
-	if _, err := loadResolvedConfig(); err != nil {
-		t.Fatalf("git-local profile must boot without Postgres, got: %v", err)
+	_, err := loadResolvedConfig()
+	if err == nil || !strings.Contains(err.Error(), "ARCHISTRATOR_POSTGRES_URL") {
+		t.Fatalf("git-local profile without Postgres: want an error naming ARCHISTRATOR_POSTGRES_URL, got: %v", err)
 	}
 }
 
-// TestLoadConfig_Cloud_NoPostgres_FailFast — the cloud profile is UNCHANGED:
-// Postgres stays a hard dependency there (operatedSystemStateAccess +
-// usageAccess are both still Postgres-backed on cloud).
+// TestLoadConfig_Cloud_NoPostgres_FailFast — Postgres is a hard dependency on the
+// cloud profile (operatedSystemStateAccess, usageAccess and the billing stores are
+// Postgres-backed there).
 func TestLoadConfig_Cloud_NoPostgres_FailFast(t *testing.T) {
 	setEnv(t, map[string]string{
 		"ARCHISTRATOR_POSTGRES_URL":            "",
@@ -205,7 +203,7 @@ func TestConstructionWorkflowFileDefault(t *testing.T) {
 // specific creds validateConstructionCreds still requires on the cloud profile).
 func TestLoadConfig_LocalRealConstruction_NoGitHubCreds_OK(t *testing.T) {
 	setEnv(t, map[string]string{
-		"ARCHISTRATOR_POSTGRES_URL":               "",
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://x",
 		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "true",
 		"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file:///tmp/proj.git",
 		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "false",
@@ -231,7 +229,7 @@ func TestLoadConfig_LocalRealConstruction_NoGitHubCreds_OK(t *testing.T) {
 // clobbered by the Task 6 default.
 func TestLoadConfig_LocalRealConstruction_ExplicitArtifactRepoURL_NotOverridden(t *testing.T) {
 	setEnv(t, map[string]string{
-		"ARCHISTRATOR_POSTGRES_URL":               "",
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://x",
 		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "true",
 		"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file:///tmp/proj.git",
 		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "false",

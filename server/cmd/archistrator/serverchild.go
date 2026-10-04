@@ -58,9 +58,10 @@ func locateServerBinary(override string) (string, error) {
 }
 
 // serverChildConfig is the local-profile env this package composes for the
-// spawned archistrator-server: zero external dependencies beyond git+claude
-// (Task 2's local profile) plus the loopback listen address and Temporal
-// hostport this package resolved (temporal.go).
+// spawned archistrator-server: no external dependency beyond git, claude and the
+// Postgres the parent's ARCHISTRATOR_POSTGRES_URL names (inherited, checked by
+// preflight.go), plus the loopback listen address and Temporal hostport this
+// package resolved (temporal.go).
 type serverChildConfig struct {
 	Bin              string
 	RepoDir          string // absolute path to the project repo (git-forward projectstate substrate)

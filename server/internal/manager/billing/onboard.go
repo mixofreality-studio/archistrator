@@ -1,7 +1,6 @@
 package billing
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -9,7 +8,6 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
@@ -41,14 +39,15 @@ func (wf *workflows) OnboardWorkflow(ctx workflow.Context, in onboardInput) (Bil
 	// deployed app settles under (§3.0 / UC5 line 683).
 	billing, err := wf.readBillingByDeployedApp(ctx, in.DeployedAppID)
 	if err != nil {
-		// A missing billing aggregate violates the UC5 pre-condition ("the deployed
-		// app exists and is operated"); surface it as a terminal FailedPrecondition.
-		if isReadNotFound(err) {
-			return BillingRef{}, temporal.NewNonRetryableApplicationError(
-				"no billing aggregate for the deployed app (not registered/operated)",
-				fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
-		}
 		return BillingRef{}, err
+	}
+	if !billing.Registered {
+		// A missing billing aggregate (billingStateAccess reads it as Registered=false)
+		// violates the UC5 pre-condition ("the deployed app exists and is operated");
+		// surface it as a terminal FailedPrecondition.
+		return BillingRef{}, temporal.NewNonRetryableApplicationError(
+			"no billing aggregate for the deployed app (not registered/operated)",
+			fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
 	}
 	customerID := billing.ID
 
@@ -150,16 +149,3 @@ func (wf *workflows) applyRecovering(
 			"attempt", attempt+1, "nextExpectedVersion", expected)
 	}
 }
-
-// isReadNotFound reports whether err is a head-state read's NotFound.
-func isReadNotFound(err error) bool {
-	var appErr *temporal.ApplicationError
-	if errors.As(err, &appErr) {
-		return appErr.Type() == raNotFoundErrType
-	}
-	return false
-}
-
-// raNotFoundErrType is the canonical Temporal Type() ReadBilling surfaces for a
-// missing billing aggregate.
-var raNotFoundErrType = fwmgr.RAErrType(fwra.NotFound)

@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres/testinfra"
 )
 
 // requireTemporalCLI skips tests that need a real local Temporal dev-server
@@ -208,6 +210,9 @@ func assertHTTPSurfaceAnswers(t *testing.T, addr string) {
 
 func TestServe_BootsStack_AnswersMCPOverHTTP_And_SIGTERMLeavesNoOrphans(t *testing.T) {
 	requireTemporalCLI(t)
+	// The local profile keeps billing state in Postgres (spec §12 ruling B5): the
+	// stack boots against a throwaway one, named the way an operator names theirs.
+	postgresURL := testinfra.StartPostgres(t).Config().ConnString()
 
 	archistratorBin, _ := buildBinaries(t)
 	projectDir := t.TempDir()
@@ -233,7 +238,7 @@ func TestServe_BootsStack_AnswersMCPOverHTTP_And_SIGTERMLeavesNoOrphans(t *testi
 	// archistrator + archistrator-server, no aiarch-state-mcp sibling, so the
 	// spawned archistrator-server must be told to dry-run construction (see
 	// serverchild.go's env() doc for why this is a pass-through, not forced).
-	cmd.Env = append(os.Environ(), "ARCHISTRATOR_CONSTRUCTION_DRYRUN=true")
+	cmd.Env = append(os.Environ(), "ARCHISTRATOR_CONSTRUCTION_DRYRUN=true", postgresURLEnv+"="+postgresURL)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -365,6 +370,7 @@ func TestRunServe_SingletonGuard_RefusesSecondInstance(t *testing.T) {
 // preflight itself is non-fatal) to isolate this test to the binary-missing
 // failure specifically.
 func TestRunServe_ErrorsWhenServerBinaryMissing(t *testing.T) {
+	t.Setenv(postgresURLEnv, "postgres://x")
 	installShim(t, "git", "#!/bin/sh\nexit 0\n")
 	installShim(t, "claude", "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '2.0.0 (Claude Code)'; exit 0; fi\nexit 0\n")
 

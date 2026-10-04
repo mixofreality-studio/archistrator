@@ -689,7 +689,7 @@ func signedOff(activityID string, signOffs map[string]founderSignOff, p projects
 // receiver must be a struct with at least one field, its declaration resolved across
 // every non-test file of the package (contract.gen.go included — GitArtifactAccess is
 // declared there). A ResourceAccess binds a Resource, and every placeholder in this
-// repository (noopUsageAccess, dryRunArtifacts, notConfiguredMerchantGatewayAccess, …)
+// repository (noopUsageAccess, dryRunArtifacts, noopOperatedSystemStateAccess, …)
 // is an empty struct{}: a component whose only implementation holds nothing binds
 // nothing. Engines and Managers are exempt — they are stateless by doctrine, and for
 // them stub: true stays authoritative. Accepted residual: erroringArtifactAccess{err}

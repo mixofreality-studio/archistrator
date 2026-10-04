@@ -50,24 +50,17 @@ package main
 //     not a correctness one. (constructionTransitionAccess was a fifth until dct
 //     Plan 4 Task 3 deleted it.)
 //
-//  4. POSTGRES POOL DIAL — PROFILE-GATED (local-first-init-funnel Task 2).
-//     main.gen.go's Postgres pool (postgresinfra.NewPool(ctx, cfg.PostgresURL),
-//     which PINGS — a real dial, not a lazy handle) is built ONLY when
-//     `profile == "cloud"`, so a local boot no longer dials it. The gate comes
-//     from composegen's writePostgres (framework-go-app-generator, RELEASED as
-//     v0.8.1 — platform commit e3ce3da0, tagged and pinned in server/go.mod):
-//     pool construction is no longer decided purely by consumesPostgres() ("does
-//     ANY declared binding, in ANY profile, use the postgres substrate", a
-//     GENERATION-TIME decision) but by the postgres infra key's declared
-//     `profiles` list evaluated against the RUNTIME-resolved `profile` value,
-//     mirroring how each RA's own per-profile switch arm already works. With the
-//     release pinned, a plain `GOWORK=off go run ./cmd/appgen` regen reproduces
-//     the gated main.gen.go byte-for-byte — the old regen-reverts-gating hazard
-//     (regenerating against the un-patched v0.8.0 silently reintroduced the
-//     unconditional dial) is closed. Confirmed via a real local boot with
-//     Temporal reachable and Postgres NOT reachable: the process reaches
-//     "http server listening" cleanly, with zero "postgres"/"5432" mentions in
-//     the boot log. NEVER hand-edit main.gen.go — regenerate via cmd/appgen.
+//  4. POSTGRES POOL DIAL — PROFILE-GATED. main.gen.go's Postgres pool
+//     (postgresinfra.NewPool(ctx, cfg.PostgresURL), which PINGS — a real dial, not
+//     a lazy handle) is built only for the profiles the postgres infra key lists:
+//     composegen's writePostgres (framework-go-app-generator) evaluates that
+//     `profiles` list against the RUNTIME-resolved `profile`, mirroring how each
+//     RA's own per-profile switch arm works. Since deterministic component
+//     testing ruling B5 (billingStateAccess and merchantGatewayAccess un-stubbed,
+//     the local profile on the same Postgres) the list is cloud AND local, so a
+//     local boot needs ARCHISTRATOR_POSTGRES_URL (config.gen.go's
+//     requiredEnvByProfile says so). NEVER hand-edit main.gen.go — regenerate via
+//     cmd/appgen.
 //
 //  5. WORKER PROVIDER SELECTION (resolveWorkerProvider below) — claude-local
 //     provider (local-first-init-funnel Task 3): framework-go-infrastructure-llm
@@ -1126,31 +1119,20 @@ func (h *appHooks) FinalizeOperatedRuntimeAccess(cfg *Config, v operatedruntime.
 
 // The remaining Finalize<Component> hooks (A2/B3: composegen v0.5.1 emits one for
 // EVERY constructed binding, required bindings included) have no composition-root
-// policy to apply — identity. Each is a required, single-arm stub/profile binding
+// policy to apply — identity. Each is a required, profile-switched binding
 // with no orthogonal toggle of its own (unlike operatedRuntimeAccess above).
 
-// FinalizeBillingStateAccess is identity — billingStateAccess is the required,
-// arm-less stub binding; no composition-root policy applies.
+// FinalizeBillingStateAccess is identity — billingStateAccess binds its one
+// Postgres variant on every profile; no composition-root policy applies.
 func (h *appHooks) FinalizeBillingStateAccess(_ *Config, v billingstate.BillingStateAccess) billingstate.BillingStateAccess {
 	return v
 }
 
-// FinalizeMerchantGatewayAccess swaps the generated stub (fwra.Unknown,
-// "not implemented" on every op) for the package's own not-configured
-// implementation. manager/billing and engine/billing are real, wired components;
-// resourceaccess/billingstate is NOT — it's still the generated stub (every op
-// returns fwra.Unknown, "not implemented"), earmarked as retry-waste debt in
-// docs/bugs/2026-08-09-construction-open-items.md; real state access returns with
-// the settlement re-plan (docs/billing-setup.md). This hook only fixes
-// merchantGatewayAccess: its generated stub's Unknown kind isn't in
-// gatewayActivityOptions' TerminalRA set (manager/billing/billingmanager.go), so
-// callers burned a full retry budget before failing anyway with a message that gave
-// no path forward. The not-configured implementation fails terminally (fwra.Auth)
-// with a message pointing at docs/billing-setup.md. Unconditional — Stripe is not
-// configured in ANY profile yet, so there is no cloud/local or dry-run split here
-// (unlike FinalizeOperatedRuntimeAccess above).
-func (h *appHooks) FinalizeMerchantGatewayAccess(_ *Config, _ merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess {
-	return merchantgateway.NewNotConfiguredMerchantGatewayAccess()
+// FinalizeMerchantGatewayAccess is identity — merchantGatewayAccess binds its one
+// Postgres variant (the platform's own gateway ledger) on every profile; no
+// composition-root policy applies.
+func (h *appHooks) FinalizeMerchantGatewayAccess(_ *Config, v merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess {
+	return v
 }
 
 // FinalizeOperatedSystemStateAccess is identity — operatedSystemStateAccess is
