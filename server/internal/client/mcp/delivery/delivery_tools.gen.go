@@ -450,7 +450,6 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"pauseReason":         "The reason the operator gave when pausing construction. Omitted when construction is not paused.",
 	},
 	reflect.TypeFor[mgr.PumpResult](): {
-		"activityId":  "DEPRECATED, and populated with the FIRST element of activityIds. A parallel pump dispatches a whole frontier in one tick, so one id is a lie about N; read activityIds. Kept because a reader written against the singular field still gets a true answer about one of the activities that started.",
 		"activityIds": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight).",
 	},
 	reflect.TypeFor[mgr.PumpStatus](): {

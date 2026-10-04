@@ -1726,6 +1726,9 @@ func (f *fakeSourceControl) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, 
 func (f *fakeSourceControl) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
 	return false, nil
 }
+func (f *fakeSourceControl) ReadManagedFile(_ fwra.Context, _ sourcecontrol.RepoRef, _ string, _ sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	return sourcecontrol.ManagedFileRead{Found: false}, nil
+}
 
 type orderingProjectState struct {
 	*fakeProjectStateAccess
@@ -2076,6 +2079,12 @@ func (r *scriptedRail) SyncManagedScaffold(rc fwra.Context, repo sourcecontrol.R
 	return sourcecontrol.SyncManagedScaffold(rc.Context, r, repo, cred)
 }
 
+// ReadManagedFile finds no seated file: the scripted rail seats nothing, so the
+// managed-scaffold sync never takes its fast path here.
+func (r *scriptedRail) ReadManagedFile(_ fwra.Context, _ sourcecontrol.RepoRef, _ string, _ sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	return sourcecontrol.ManagedFileRead{Found: false}, nil
+}
+
 var _ sourcecontrol.SourceControlAccess = (*scriptedRail)(nil)
 
 // ---- seqProjectState: branch-aware read-back + ordered commit/read events ------
@@ -2284,6 +2293,12 @@ func (r *fakeRail) AdoptProjectRepo(_ fwra.Context, _ sourcecontrol.RepoAdoption
 // method entirely — a latent fake/production divergence this migration surfaced).
 func (r *fakeRail) SyncManagedScaffold(rc fwra.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
 	return sourcecontrol.SyncManagedScaffold(rc.Context, r, repo, cred)
+}
+
+// ReadManagedFile finds no seated file, so the managed-scaffold sync converges the full
+// set through CommitManagedFiles (the counter the sync tests read).
+func (r *fakeRail) ReadManagedFile(_ fwra.Context, _ sourcecontrol.RepoRef, _ string, _ sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	return sourcecontrol.ManagedFileRead{Found: false}, nil
 }
 
 var _ sourcecontrol.SourceControlAccess = (*fakeRail)(nil)
@@ -5296,6 +5311,11 @@ func (r *pdScriptedRail) SyncManagedScaffold(rc fwra.Context, repo sourcecontrol
 	return sourcecontrol.SyncManagedScaffold(rc.Context, r, repo, cred)
 }
 
+// ReadManagedFile finds no seated file (the fake seats nothing).
+func (r *pdScriptedRail) ReadManagedFile(_ fwra.Context, _ sourcecontrol.RepoRef, _ string, _ sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	return sourcecontrol.ManagedFileRead{Found: false}, nil
+}
+
 var _ sourcecontrol.SourceControlAccess = (*pdScriptedRail)(nil)
 
 // ---- pdSeqProjectState: branch-aware read-back + ordered commit/read events ------
@@ -8126,7 +8146,7 @@ func Test_ExecuteNextActivity_DifferentTickIDs_SameProjectSingularPump(t *testin
 		}).
 		Return(fakePumpRun{id: wantID, runID: "run-1"}, nil)
 	mc.On("QueryWorkflow", mock.Anything, wantID, "run-1", queryPumpDispatch).
-		Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: true, Dispatched: true, ActivityID: &dispatched}}, nil)
+		Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: true, Dispatched: true, ActivityIDs: []ActivityID{dispatched}}}, nil)
 
 	m := newTestConstructionManager(mc)
 	for _, tick := range []string{"t1", "t2"} {
@@ -8134,7 +8154,7 @@ func Test_ExecuteNextActivity_DifferentTickIDs_SameProjectSingularPump(t *testin
 		if err != nil {
 			t.Fatalf("ExecuteNextActivity(tick %q): %v", tick, err)
 		}
-		if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != dispatched {
+		if !res.Dispatched || len(res.ActivityIDs) != 1 || res.ActivityIDs[0] != dispatched {
 			t.Fatalf("tick %q: want the pump's decided dispatch of %s, got %+v", tick, dispatched, res)
 		}
 	}
@@ -8218,7 +8238,7 @@ func Test_ExecuteNextActivity_QueryOutageLongerThanTerminalBudget_StillReturnsTh
 	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
 		Return(nil, errors.New("query failed: no poller")).Times(8) // ≈200ms of outage ≫ the 20ms terminal budget
 	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
-		Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: true, Dispatched: true, ActivityID: &dispatched}}, nil)
+		Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: true, Dispatched: true, ActivityIDs: []ActivityID{dispatched}}}, nil)
 	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").
 		Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING), nil).Maybe()
 
@@ -8226,7 +8246,7 @@ func Test_ExecuteNextActivity_QueryOutageLongerThanTerminalBudget_StillReturnsTh
 	if err != nil {
 		t.Fatalf("a query outage that recovers must return the decision, got %v", err)
 	}
-	if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != dispatched {
+	if !res.Dispatched || len(res.ActivityIDs) != 1 || res.ActivityIDs[0] != dispatched {
 		t.Fatalf("want the pump's decided dispatch of %s, got %+v", dispatched, res)
 	}
 }
@@ -8993,6 +9013,11 @@ func (r *stubRail) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, 
 		return false, r.syncErr
 	}
 	return false, nil
+}
+
+// ReadManagedFile finds no seated file (the fake seats nothing).
+func (r *stubRail) ReadManagedFile(_ fwra.Context, _ sourcecontrol.RepoRef, _ string, _ sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	return sourcecontrol.ManagedFileRead{Found: false}, nil
 }
 
 var _ sourcecontrol.SourceControlAccess = (*stubRail)(nil)
@@ -12209,6 +12234,10 @@ func (b *recordingSignalBus) RegisterSchedule(fwra.Context, messagebus.ScheduleI
 	return nil
 }
 
+func (b *recordingSignalBus) DescribeSchedule(fwra.Context, messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	return messagebus.ScheduleDescription{}, nil
+}
+
 var _ messagebus.MessageBus = (*recordingSignalBus)(nil)
 
 // fakeProjectLister widens fakeFullProjectState with a SCRIPTED ListProjects — the
@@ -12682,6 +12711,10 @@ func (b *fakeScheduleBus) RegisterSchedule(_ fwra.Context, scheduleID messagebus
 	b.ids = append(b.ids, scheduleID)
 	b.specs = append(b.specs, spec)
 	return nil
+}
+
+func (b *fakeScheduleBus) DescribeSchedule(fwra.Context, messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	return messagebus.ScheduleDescription{}, nil
 }
 
 var _ messagebus.MessageBus = (*fakeScheduleBus)(nil)
@@ -14637,34 +14670,6 @@ func Test_Capture_DeliveryHistories(t *testing.T) {
 // means the driver did not reach a terminal — it recorded a start and a park, which replays
 // green against ANY walker because there is barely a command sequence to disagree with.
 const deliveryReplayMinEvents = 20
-
-// Test_LegacyDeliveryActivityInput_PlanVariantDecodes pins the deploy contract of the
-// TestingVariant ordinal-0 rename (plan → none): a DeliveryActivityWorkflow started under
-// the previous worker holds its start payload for the rest of its life, and that payload
-// marshalled constructionActivity.Variant without omitempty — so EVERY non-testing
-// activity in flight reads "Variant":"plan", not only the retired N-STP/N-IT ones. The
-// literal below is the exact start payload of the post-4b1/architecture-sendback.json
-// recording BEFORE Task 4b re-records it with this worker; it is embedded rather than read
-// from the fixture so the re-recording cannot make this pin vacuous. If this fails, the
-// deploy strands every live delivery workflow with a payload decode error.
-func Test_LegacyDeliveryActivityInput_PlanVariantDecodes(t *testing.T) {
-	const legacyStartPayload = `{"ProjectID":"shape-p","ActivityID":"architecture","Activity":{"ActivityID":"architecture","Kind":2,"ComponentID":"","Layer":"","EstimateDays":0,"CRLabel":"","IsRevert":false,"Phases":null,"Type":"architecture","Variant":"plan"},"Resume":null}`
-	var in deliveryActivityInput
-	if err := json.Unmarshal([]byte(legacyStartPayload), &in); err != nil {
-		t.Fatalf("a pre-rename start payload must still decode on the new worker, got: %v", err)
-	}
-	if in.Activity.Type != projectstate.ActivityTypeArchitecture || in.Activity.Variant != projectstate.TestVariantNone {
-		t.Fatalf("legacy (architecture, plan) must decode to (Architecture, None), got (%v, %v)", in.Activity.Type, in.Activity.Variant)
-	}
-	// And the new worker never writes the legacy name back out.
-	out, err := json.Marshal(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(out), `"Variant":"plan"`) || !strings.Contains(string(out), `"Variant":"none"`) {
-		t.Fatalf("a re-marshalled payload must carry \"none\", not the decode-only alias: %s", out)
-	}
-}
 
 // Test_Replay_DeliveryHistories replays every captured generic-child history against the
 // current code. A missing fixture FAILS (it never skips), a fixture no case names fails, and
@@ -25800,7 +25805,7 @@ func Test_Pump_EligibleActivity_RunsChildToTerminal_ThenDrainsQuiet(t *testing.T
 	if err := env.GetWorkflowResult(&res); err != nil {
 		t.Fatalf("decode pump result: %v", err)
 	}
-	if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != "C-XYZ" {
+	if !res.Dispatched || len(res.ActivityIDs) != 1 || res.ActivityIDs[0] != "C-XYZ" {
 		t.Fatalf("want the run to report the activity it dispatched, got %+v", res)
 	}
 	// The child ran end-to-end exactly once — and ONCE is the claim that matters now that
@@ -25844,7 +25849,7 @@ func Test_Pump_EligibleActivity_SurfacesSyncDispatchDecision(t *testing.T) {
 	if !d.Decided {
 		t.Fatalf("want a decided dispatch decision, got %+v", d)
 	}
-	if !d.Dispatched || d.ActivityID == nil || *d.ActivityID != "C-XYZ" {
+	if !d.Dispatched || len(d.ActivityIDs) != 1 || d.ActivityIDs[0] != "C-XYZ" {
 		t.Fatalf("want Dispatched:true for C-XYZ, got %+v", d)
 	}
 }
@@ -25879,7 +25884,7 @@ func Test_Pump_DrainedNetwork_SurfacesQuiescentDecision(t *testing.T) {
 	if !d.Decided {
 		t.Fatalf("want a decided decision on a drained tick, got %+v", d)
 	}
-	if d.Dispatched || d.ActivityID != nil {
+	if d.Dispatched || len(d.ActivityIDs) != 0 {
 		t.Fatalf("want a quiescent decision (Dispatched:false, nil activity), got %+v", d)
 	}
 }
@@ -25978,7 +25983,7 @@ func Test_Pump_BlockedActivity_RecordsTerminalFailure(t *testing.T) {
 	if err := enc.Get(&d); err != nil {
 		t.Fatalf("decode pump dispatch decision: %v", err)
 	}
-	if !d.Decided || d.Dispatched || d.ActivityID != nil || len(d.ActivityIDs) != 0 {
+	if !d.Decided || d.Dispatched || len(d.ActivityIDs) != 0 {
 		t.Fatalf("want a decided non-dispatch decision, got %+v", d)
 	}
 }
@@ -26190,7 +26195,7 @@ func Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity(t *testing.T
 	if err := env.GetWorkflowResult(&res); err != nil {
 		t.Fatalf("decode pump result: %v", err)
 	}
-	if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != "C-XYZ" {
+	if !res.Dispatched || len(res.ActivityIDs) != 1 || res.ActivityIDs[0] != "C-XYZ" {
 		t.Fatalf("the run dispatched C-XYZ before the pause; want that reported, got %+v", res)
 	}
 	if childStarts != 1 {
@@ -29047,7 +29052,7 @@ func Test_Pump_DispatchDecisionIsReadableBeforeTheCascadeDrains(t *testing.T) {
 	if *qerr != nil {
 		t.Fatalf("query the in-flight pump: %v", *qerr)
 	}
-	if !answer.Decided || !answer.Dispatched || answer.ActivityID == nil || *answer.ActivityID != "C-XYZ" {
+	if !answer.Decided || !answer.Dispatched || len(answer.ActivityIDs) != 1 || answer.ActivityIDs[0] != "C-XYZ" {
 		t.Fatalf("G-P8: the dispatch must be readable while the pump is still parked; got %+v", *answer)
 	}
 	// And the WHOLE frontier is on the Query, which is where it lives until PumpResult

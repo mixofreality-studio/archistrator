@@ -907,8 +907,6 @@ export interface components {
       runId?: null | string;
     };
     DeliveryPumpResult: {
-      /** @description DEPRECATED, and populated with the FIRST element of activityIds. A parallel pump dispatches a whole frontier in one tick, so one id is a lie about N; read activityIds. Kept because a reader written against the singular field still gets a true answer about one of the activities that started. */
-      activityId?: components['schemas']['DeliveryActivityID'];
       /** @description Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight). */
       activityIds?: components['schemas']['DeliveryActivityID'][];
       dispatched: boolean;
@@ -945,7 +943,6 @@ export interface components {
       id: string;
       reopened: boolean;
       replies: components['schemas']['DeliveryReviewCommentReply'][];
-      response?: string;
       round: number;
       status: string;
       text: string;

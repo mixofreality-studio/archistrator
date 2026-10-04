@@ -108,6 +108,13 @@ func (a *genActivities) MerchantGatewayChargeCustomer(ctx context.Context, key f
 	return fwmanager.MapError(err)
 }
 
+// MerchantGatewayReadStoredInstrument wraps merchantGatewayAccess.readStoredInstrument.
+// Registered as "merchantGatewayAccess.readStoredInstrument".
+func (a *genActivities) MerchantGatewayReadStoredInstrument(ctx context.Context, customerID uuid.UUID) (merchantgateway.StoredInstrument, error) {
+	v, err := a.MerchantGateway.ReadStoredInstrument(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, customerID)
+	return v, fwmanager.MapError(err)
+}
+
 // MerchantGatewayValidateStoredInstrument wraps merchantGatewayAccess.validateStoredInstrument.
 // Registered as "merchantGatewayAccess.validateStoredInstrument".
 func (a *genActivities) MerchantGatewayValidateStoredInstrument(ctx context.Context, key fwra.IdempotencyKey, customerID uuid.UUID, idempotencyKey string) error {
@@ -120,6 +127,13 @@ func (a *genActivities) MerchantGatewayValidateStoredInstrument(ctx context.Cont
 func (a *genActivities) MessageBusDeliverSignal(ctx context.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
 	err := a.MessageBus.DeliverSignal(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, targetExecutionID, signalName, payload)
 	return fwmanager.MapError(err)
+}
+
+// MessageBusDescribeSchedule wraps messageBus.describeSchedule.
+// Registered as "messageBus.describeSchedule".
+func (a *genActivities) MessageBusDescribeSchedule(ctx context.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	v, err := a.MessageBus.DescribeSchedule(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scheduleID)
+	return v, fwmanager.MapError(err)
 }
 
 // MessageBusRegisterSchedule wraps messageBus.registerSchedule.

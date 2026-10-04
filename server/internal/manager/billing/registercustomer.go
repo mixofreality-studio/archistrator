@@ -3,8 +3,10 @@ package billing
 import (
 	"fmt"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 )
@@ -19,13 +21,24 @@ type registerInput struct {
 }
 
 // RegisterCustomerWorkflow drives ncuc1 (billingManager.md §6.3):
-//  1. ValidateStoredInstrumentActivity (merchantGatewayAccess; zero-amount auth).
+//  1. ValidateStoredInstrumentActivity (merchantGatewayAccess; zero-amount auth), read
+//     back through ReadStoredInstrument: a customer whose instrument the gateway does
+//     not hold as validated is never registered.
 //  2. RegisterCustomerActivity (head-state; opens the aggregate; Conflict loop).
 func (wf *workflows) RegisterCustomerWorkflow(ctx workflow.Context, in registerInput) (BillingRef, error) {
 	logger := workflow.GetLogger(ctx)
 
 	if verr := wf.validateStoredInstrument(ctx, in.CustomerID); verr != nil {
 		return BillingRef{}, verr
+	}
+	instrument, ierr := wf.Acts.MerchantGatewayReadStoredInstrument(ctx, in.CustomerID)
+	if ierr != nil {
+		return BillingRef{}, ierr
+	}
+	if !instrument.Validated {
+		return BillingRef{}, temporal.NewNonRetryableApplicationError(
+			"the stored instrument did not validate: the gateway holds no validated instrument for the customer",
+			fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
 	}
 
 	// Open the aggregate. A fresh registration seeds expectedVersion 0; the Conflict

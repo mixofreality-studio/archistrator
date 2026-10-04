@@ -1,7 +1,8 @@
 // Package messagebus is the messageBus component of the aiarch server's UTILITY
-// layer — the messaging surface BETWEEN MANAGERS. Two verbs, and only two:
+// layer — the messaging surface BETWEEN MANAGERS. Two write verbs and one read:
 // deliverSignal delivers a queued Manager→Manager message; registerSchedule
-// registers the recurring timers that fire through the SchedulerClient channel.
+// registers the recurring timers that fire through the SchedulerClient channel;
+// describeSchedule reads one registration back.
 //
 // RESTRICTED CLIENTELE (ch. 5, founder ruling R-F 2026-08-01). Unlike Security /
 // Logging / Diagnostics — ambient utilities any layer may call — this one is
@@ -25,15 +26,15 @@
 // made from INSIDE its own workflow body. They are NOT ops here: routing them
 // through this port would force it to import the Workflow SDK and run inside the
 // replay context, the exact coupling the layering directive forbids. They live in
-// the Manager packages and draw no architecture edges. Only the two
-// cross-component verbs surface, and a QUEUED Manager→Manager relationship — not
+// the Manager packages and draw no architecture edges. Only the cross-component
+// verbs surface, and a QUEUED Manager→Manager relationship — not
 // a call into this package — remains the architectural representation of every
 // delivery ("verb calls draw; deliveries don't").
 //
 // THE LOAD-BEARING LAYER RULE ([[the-method-layers]] "Temporal mapping"): even
 // though this utility fronts Temporal ITSELF, its PUBLIC surface imports NO
 // Temporal and carries ZERO Temporal lexemes (Workflow, Activity, Signal-type,
-// WorkflowID, RunID, TaskQueue, Worker, Namespace). Both verbs are ordinary RPC
+// WorkflowID, RunID, TaskQueue, Worker, Namespace). Every verb is ordinary RPC
 // against the runtime's control plane, performed from OUTSIDE any target
 // execution's deterministic context.
 //
@@ -52,6 +53,8 @@
 //   - RegisterSchedule → ScheduleClient().Create(...); on
 //     ErrScheduleAlreadyRunning, GetHandle(...).Update(...) to converge
 //     (idempotent on ScheduleID, last-writer-wins on a changed spec).
+//   - DescribeSchedule → ScheduleClient().GetHandle(...).Describe(...); "not
+//     found" is Registered=false, not an error.
 //
 // Idempotency is carried by CALLER-SUPPLIED ids — the target ExecutionID for a
 // delivery, the ScheduleID for a registration — never read from ambient Temporal
@@ -218,6 +221,33 @@ func (r *temporalMessageBus) RegisterSchedule(rc fwra.Context, scheduleID Schedu
 	return mapScheduleError(createErr)
 }
 
+// DescribeSchedule reads one schedule registration back: whether it is registered,
+// the logical ExecutionKind its firing starts and the target id template. An id
+// with no registration is Registered=false, not an error — the read a caller makes
+// to prove a RegisterSchedule landed.
+func (r *temporalMessageBus) DescribeSchedule(rc fwra.Context, scheduleID ScheduleID) (ScheduleDescription, error) {
+	ctx := rc.Context
+	if scheduleID == "" {
+		return ScheduleDescription{}, fwra.New(fwra.ContractMisuse, "messagebus.DescribeSchedule: empty scheduleID")
+	}
+	desc, err := r.cl.ScheduleClient().GetHandle(ctx, string(scheduleID)).Describe(ctx)
+	if err != nil {
+		var notFound *serviceerror.NotFound
+		if errors.As(err, &notFound) {
+			return ScheduleDescription{Registered: false}, nil
+		}
+		return ScheduleDescription{}, mapDescribeError(err)
+	}
+	out := ScheduleDescription{Registered: true}
+	if action, ok := desc.Schedule.Action.(*client.ScheduleWorkflowAction); ok {
+		out.TargetIDTemplate = action.ID
+		if workflowType, ok := action.Workflow.(string); ok {
+			out.ExecutionKind = r.registry.kindOf(workflowType, action.TaskQueue)
+		}
+	}
+	return out, nil
+}
+
 // scheduleWorkflowArgs builds the ScheduleWorkflowAction.Args a Schedule
 // firing starts its target workflow with — the SAME per-firing argument list
 // on every tick (a Temporal Schedule carries fixed Args, never per-firing
@@ -288,6 +318,15 @@ func mapScheduleError(err error) error {
 		return k
 	}
 	return fwra.Wrap(fwra.Transient, err, "messagebus.RegisterSchedule: runtime error")
+}
+
+// mapDescribeError classifies a schedule describe failure ("not found" is handled
+// by the caller as Registered=false).
+func mapDescribeError(err error) error {
+	if k := classifyCommon(err); k != nil {
+		return k
+	}
+	return fwra.Wrap(fwra.Transient, err, "messagebus.DescribeSchedule: runtime error")
 }
 
 // classifyCommon maps the runtime error kinds shared across every op. Returns
@@ -368,4 +407,18 @@ func newKindRegistry(table map[ExecutionKind]kindBinding) *kindRegistry {
 func (r *kindRegistry) resolve(kind ExecutionKind) (kindBinding, bool) {
 	b, ok := r.bindings[kind]
 	return b, ok
+}
+
+// kindOf is resolve's inverse: the ExecutionKind bound to workflowType on
+// taskQueue, or "" when no kind is. Several kinds sharing one binding resolve to
+// the lowest, so the answer never depends on map order.
+func (r *kindRegistry) kindOf(workflowType, taskQueue string) ExecutionKind {
+	var best ExecutionKind
+	found := false
+	for k, b := range r.bindings {
+		if b.workflowType == workflowType && b.taskQueue == taskQueue && (!found || k < best) {
+			best, found = k, true
+		}
+	}
+	return best
 }

@@ -16,7 +16,7 @@ package billing
 //   A5  RunShortfallSweep rejects empty tickId                     → ContractMisuse
 //   A8  Workflow-id derivation tokens are the §6.1 shapes
 //   A9  RoutingDirective String() coverage
-//   A10 gatewayIdempotencyKey is settle:{customerId}:{cycleId}
+//   A10 gatewayIdempotencyKey is settle:{customerId}:{cycleId}:{attempt}
 //   A11 GetBillingCycle rejects empty ids, reports the recorded settlement (open /
 //       charged / escalated) and maps billingStateAccess read errors
 //
@@ -52,6 +52,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -242,8 +243,11 @@ func Test_RoutingDirectiveName(t *testing.T) {
 
 func Test_GatewayIdempotencyKey(t *testing.T) {
 	cid := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	if got := gatewayIdempotencyKey(cid, "cycle-3"); got != "settle:"+cid.String()+":cycle-3" {
-		t.Fatalf("gateway idempotency key: %q", got)
+	if got := gatewayIdempotencyKey(cid, "cycle-3", 0); got != "settle:"+cid.String()+":cycle-3:1" {
+		t.Fatalf("gateway idempotency key (first attempt): %q", got)
+	}
+	if got := gatewayIdempotencyKey(cid, "cycle-3", 1); got != "settle:"+cid.String()+":cycle-3:2" {
+		t.Fatalf("gateway idempotency key (retry): %q", got)
 	}
 }
 
@@ -404,6 +408,12 @@ func (g *fakeGateway) ValidateStoredInstrument(_ fwra.Context, _ uuid.UUID, _ st
 	return nil
 }
 
+func (g *fakeGateway) ReadStoredInstrument(_ fwra.Context, _ uuid.UUID) (merchantgateway.StoredInstrument, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return merchantgateway.StoredInstrument{Validated: g.validated > 0}, nil
+}
+
 var _ merchantgateway.MerchantGatewayAccess = (*fakeGateway)(nil)
 
 // deliveredDelinquencySignal is the TEST'S OWN reading of the applyDelinquencyPolicy wire
@@ -447,6 +457,15 @@ func (d *fakeMessageBus) RegisterSchedule(_ fwra.Context, scheduleID messagebus.
 	defer d.mu.Unlock()
 	d.schedules = append(d.schedules, string(scheduleID))
 	return nil
+}
+
+func (d *fakeMessageBus) DescribeSchedule(_ fwra.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if slices.Contains(d.schedules, string(scheduleID)) {
+		return messagebus.ScheduleDescription{Registered: true}, nil
+	}
+	return messagebus.ScheduleDescription{}, nil
 }
 
 var _ messagebus.MessageBus = (*fakeMessageBus)(nil)
@@ -546,8 +565,10 @@ func registerActs(env *testsuite.TestWorkflowEnvironment, f *fakes) {
 	reg(acts.UsageReadRange, "usageAccess.readRange")
 	reg(acts.MerchantGatewayChargeCustomer, "merchantGatewayAccess.chargeCustomer")
 	reg(acts.MerchantGatewayValidateStoredInstrument, "merchantGatewayAccess.validateStoredInstrument")
+	reg(acts.MerchantGatewayReadStoredInstrument, "merchantGatewayAccess.readStoredInstrument")
 	reg(acts.MessageBusDeliverSignal, "messageBus.deliverSignal")
 	reg(acts.MessageBusRegisterSchedule, "messageBus.registerSchedule")
+	reg(acts.MessageBusDescribeSchedule, "messageBus.describeSchedule")
 }
 
 func registerOnboard(env *testsuite.TestWorkflowEnvironment, wf *workflows, f *fakes) {

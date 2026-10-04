@@ -461,7 +461,7 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // ===========================================================================
 // merchantGatewayAccess — D-MA. Reached through the generated CALLER-KEYED invokers
 // (merchantGatewayAccess.*): the workflow supplies the business-stable Stripe
-// Idempotency-Key EXPLICITLY (gatewayIdempotencyKey settle:{customerId}:{cycleId} for
+// Idempotency-Key EXPLICITLY (gatewayIdempotencyKey settle:{customerId}:{cycleId}:{attempt} for
 // money-moves; onboard:{id} / validate:{id} for the ad-hoc auths) as BOTH the caller key
 // (fwra.Context.IdempotencyKey) and the contract's own idempotencyKey param. The former
 // consumer-seam interface is retired; the Money value type is converted inline at the

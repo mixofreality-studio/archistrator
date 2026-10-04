@@ -24,11 +24,13 @@ import (
 //     top-level `type` beyond the service interface) — the generated Go surface
 //     actually carries those models.
 //
-// "Built" = a contract entry with a non-empty goPackage (stubs and non-built
-// entries have none and are skipped, matching cmd/modelgen's selection).
+// "Built" = a non-Client contract entry with a non-empty goPackage (stubs and non-built
+// entries have none and are skipped, and a Client contract's Go is cmd/clientgen's,
+// matching cmd/modelgen's selection).
 
 // contractEntry is the slice of a .serviceContracts entry this check reads.
 type contractEntry struct {
+	Layer     string                     `json:"layer"`
 	GoPackage string                     `json:"goPackage"`
 	Defs      map[string]json.RawMessage `json:"$defs"`
 	Interface *struct {
@@ -61,8 +63,8 @@ func TestEveryBuiltContractHasModels(t *testing.T) {
 	built := 0
 	for _, k := range keys {
 		e := top.ServiceContracts[k]
-		if e.GoPackage == "" {
-			continue // stub / non-built entry — no generated surface, like modelgen skips
+		if e.GoPackage == "" || e.Layer == "Client" {
+			continue // stub / non-built entry, or a client surface — no generated model, like modelgen skips
 		}
 		built++
 

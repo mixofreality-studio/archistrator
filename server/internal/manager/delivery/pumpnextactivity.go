@@ -257,13 +257,9 @@ func pumpDecodeSignal[T pumpLeaseSignal](ctx workflow.Context, raw any, out *T) 
 // quiescent (pause / no-project / nothing eligible) or a dispatched frontier — which is
 // BEFORE the selector park below; until then the façade keeps polling.
 type pumpDispatch struct {
-	Decided    bool        `json:"decided"`
-	Dispatched bool        `json:"dispatched"`
-	ActivityID *ActivityID `json:"activityId,omitempty"`
-	// ActivityIDs is the WHOLE frontier this run started, in declaration order. ActivityID
-	// is the first of them and is kept because the façade's PumpResult carries exactly one
-	// (see the BLOCKED note at awaitDispatchDecision): this Query is where the rest is
-	// observable until the contract grows PumpResult.activityIds.
+	Decided    bool `json:"decided"`
+	Dispatched bool `json:"dispatched"`
+	// ActivityIDs is the WHOLE frontier this run started, in declaration order.
 	ActivityIDs []ActivityID `json:"activityIds,omitempty"`
 }
 
@@ -744,25 +740,18 @@ func (wf *csWorkflows) pumpWakeUp(
 func pumpDispatchDecision(frontier []ActivityID) pumpDispatch {
 	d := pumpDispatch{Decided: true, Dispatched: len(frontier) > 0}
 	if len(frontier) > 0 {
-		first := frontier[0]
-		d.ActivityID, d.ActivityIDs = &first, append([]ActivityID(nil), frontier...)
+		d.ActivityIDs = append([]ActivityID(nil), frontier...)
 	}
 	return d
 }
 
-// pumpDispatchedResult is the run's terminal PumpResult.
-//
-// BLOCKED, AND STATED RATHER THAN WORKED AROUND: PumpResult carries ONE activity id, so a
-// run that started five reports the first. The contract delta this owes is
-// deliveryManager.$defs.PumpResult.activityIds; it is NOT hand-edited here (this wave has
-// exactly one model edit and it is already spent), so the whole frontier is observable on
-// queryPumpDispatch.ActivityIDs and in the logs until that delta lands.
+// pumpDispatchedResult is the run's terminal PumpResult: every activity the run started,
+// in declaration order.
 func pumpDispatchedResult(frontier []ActivityID) PumpResult {
 	if len(frontier) == 0 {
 		return PumpResult{Dispatched: false}
 	}
-	first := frontier[0]
-	return PumpResult{Dispatched: true, ActivityID: &first}
+	return PumpResult{Dispatched: true, ActivityIDs: append([]ActivityID(nil), frontier...)}
 }
 
 // pumpStartFrontier starts a child for EVERY eligible activity, not one, and reports what

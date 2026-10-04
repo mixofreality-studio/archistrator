@@ -207,21 +207,12 @@ export function mapDesignHealth(w: Schemas['DeliveryDesignHealth']): DesignHealt
   };
 }
 
-/**
- * Normalize a wire review-status string into the app union (unknown → 'open').
- *
- * Git-as-DB history is not rewritten, so entries committed before the thread
- * migration still carry the old vocabulary. The server shims them on read, but
- * this mapper is the SPA's own last line: `addressed` was what `answered` is now,
- * and `waived` was what `resolved` is now.
- */
+/** Normalize a wire review-status string into the app union (unknown → 'open'). */
 function reviewStatus(s: string): ReviewCommentStatus {
   switch (s) {
     case 'answered':
-    case 'addressed':
       return 'answered';
     case 'resolved':
-    case 'waived':
       return 'resolved';
     default:
       return 'open';
@@ -258,8 +249,6 @@ function mapReviewComment(w: Schemas['DeliveryReviewCommentView']): ReviewCommen
     authorRole: w.authorRole,
     round: w.round,
     status: reviewStatus(w.status),
-    // DEPRECATED (superseded by `replies`); carried through only when the wire sends it.
-    ...(w.response !== undefined ? { response: w.response } : {}),
     replies: w.replies.map(mapReviewCommentReply),
     reopened: w.reopened,
     type: reviewType(w.type),

@@ -5402,6 +5402,22 @@ var wantAltTally = map[altCallKey]string{
 	{"var-view-billing-cycle", "open-billing-cycle", "architect-user", "mcp-client"}:  "s1",
 	{"var-view-billing-cycle", "read-billing-cycle", "web-client", "billing-manager"}: "s2",
 	{"var-view-billing-cycle", "read-billing-cycle", "mcp-client", "billing-manager"}: "s2",
+	// dct Plan 5 D3 (spec §12 B1): every client op is reached, so the hand-started pump,
+	// the forced reconcile tick, the hand-applied delinquency directive and the stale
+	// acknowledgement each gain a client entry, grouped with the entry they stand in for.
+	{"uc-execute-project-activity", "pump-fires", "scheduler-client", "delivery-manager"}:        "s2",
+	{"uc-execute-project-activity", "pump-fires", "operator", "web-client"}:                      "s1",
+	{"uc-execute-project-activity", "pump-fires", "operator", "mcp-client"}:                      "s1",
+	{"uc-execute-project-activity", "pump-fires", "web-client", "delivery-manager"}:              "s2",
+	{"uc-execute-project-activity", "pump-fires", "mcp-client", "delivery-manager"}:              "s2",
+	{"uc4-operate-delivered-system", "schedule-fires", "scheduler-client", "operations-manager"}: "s2",
+	{"uc4-operate-delivered-system", "schedule-fires", "operator", "mcp-client"}:                 "s1",
+	{"uc4-operate-delivered-system", "schedule-fires", "mcp-client", "operations-manager"}:       "s2",
+	{"var-enforce-delinquency", "delinquency-arrives", "billing-manager", "operations-manager"}:  "s2",
+	{"var-enforce-delinquency", "delinquency-arrives", "operator", "mcp-client"}:                 "s1",
+	{"var-enforce-delinquency", "delinquency-arrives", "mcp-client", "operations-manager"}:       "s2",
+	{"var-add-use-case", "reconcile", "architect-user", "web-client"}:                            "s1",
+	{"var-add-use-case", "reconcile", "architect-user", "mcp-client"}:                            "s1",
 }
 
 // TestCommittedProjectJSON_DynamicViewCalls_Alt is the tolerant-decode regression
@@ -5412,7 +5428,7 @@ var wantAltTally = map[altCallKey]string{
 // dynamic views now realized), rather than only asserting absence: a call
 // that never mentions "alt" must decode EXACTLY as it did before the field
 // existed (Alt reads back nil, not a zero-value string standing in for
-// absence), and a call that IS one of wantAltTally's 154 entries must decode
+// absence), and a call that IS one of wantAltTally's 167 entries must decode
 // to exactly its authored group value.
 func TestCommittedProjectJSON_DynamicViewCalls_Alt(t *testing.T) {
 	proj := decodeCommittedProject(t)
@@ -6199,7 +6215,7 @@ func TestActivityConstructionStatus_SeededFacets_RoundTrip(t *testing.T) {
 }
 
 func TestActivityKind_String(t *testing.T) {
-	if ActivityKindService.String() != "service" || ActivityKindFrontend.String() != "frontend" || ActivityKindTesting.String() != "testing" {
+	if ActivityTypeService.String() != "service" || ActivityTypeFrontend.String() != "frontend" || ActivityTypeTesting.String() != "testing" {
 		t.Fatalf("kind strings wrong")
 	}
 }
@@ -6347,41 +6363,19 @@ func TestTestingVariant_JSONRoundTrip(t *testing.T) {
 	}
 }
 
-// TestTestingVariant_LegacyPlanDecodesToNone pins the in-flight-workflow contract of
-// the ordinal-0 rename (plan → none, deterministic component testing spec §7): every
-// delivery workflow started BEFORE this change carries its classification in a Temporal
-// payload whose Variant was marshalled WITHOUT omitempty — so every non-testing
-// activity's payload reads "Variant":"plan" (the committed replay recordings do). The
-// new worker must decode that payload, or deploying strands every live delivery
-// workflow, not just the retired N-STP/N-IT ones. "plan" is a DECODE-ONLY alias: it
-// never marshals (the F81 wire-map gate holds the map at the contract's four names).
-func TestTestingVariant_LegacyPlanDecodesToNone(t *testing.T) {
-	// The shape a pre-change constructionActivity payload has on the wire.
-	legacy := `{"ActivityID":"C-BG","Type":"service","Variant":"plan"}`
-	var got struct {
-		ActivityID string
-		Type       ActivityType
-		Variant    TestingVariant
-	}
-	if err := json.Unmarshal([]byte(legacy), &got); err != nil {
-		t.Fatalf("a legacy in-flight payload must decode, got: %v", err)
-	}
-	if got.Type != ActivityTypeService || got.Variant != TestVariantNone {
-		t.Fatalf("legacy (service, plan) must decode to (Service, None), got (%v, %v)", got.Type, got.Variant)
-	}
+// TestTestingVariant_RetiredNamesDoNotDecode pins the deletion of the ordinal-0
+// "plan" decode alias (spec §12 B10: deleted, not deprecated): the retired names
+// "plan" (N-STP) and "systemTest" (N-IT) are not wire names and fail to decode, and
+// the zero value marshals as "none".
+func TestTestingVariant_RetiredNamesDoNotDecode(t *testing.T) {
 	var bare TestingVariant
-	if err := json.Unmarshal([]byte(`"plan"`), &bare); err != nil || bare != TestVariantNone {
-		t.Fatalf(`"plan" must decode to TestVariantNone, got %v %v`, bare, err)
+	for _, retired := range []string{`"plan"`, `"systemTest"`} {
+		if err := json.Unmarshal([]byte(retired), &bare); err == nil {
+			t.Fatalf("%s (a retired variant) must not decode, got %v", retired, bare)
+		}
 	}
-	// Decode-only: the alias never comes back out, and the retired "systemTest" stays dead.
 	if b, err := json.Marshal(TestVariantNone); err != nil || string(b) != `"none"` {
 		t.Fatalf("TestVariantNone must marshal as \"none\", got %s %v", b, err)
-	}
-	if _, ok := testingVariantByName["plan"]; ok {
-		t.Fatal(`"plan" must not be in the wire-name table — it is a decode alias, not a wire name`)
-	}
-	if err := json.Unmarshal([]byte(`"systemTest"`), &bare); err == nil {
-		t.Fatal(`"systemTest" (retired ordinal 3) must not decode`)
 	}
 }
 
@@ -6485,7 +6479,7 @@ func TestLegacyActivityConstructionRow_CarriesAPreRenameEntryForward(t *testing.
 	if err := json.Unmarshal([]byte(raw), &legacy); err != nil {
 		t.Fatalf("unmarshal legacy entry: %v", err)
 	}
-	if legacy.Phase != LegacyPhaseDone || legacy.Kind != ActivityKindFrontend ||
+	if legacy.Phase != LegacyPhaseDone || legacy.Kind != ActivityTypeFrontend ||
 		legacy.CurrentPhase != MethodPhaseIntegration || len(legacy.Phases) != 1 {
 		t.Fatalf("the migration's reader must still see every derived member: %+v", legacy)
 	}
@@ -6852,14 +6846,14 @@ func TestStaleCause_RoundTripsThroughCodec(t *testing.T) {
 func TestDeriveKind(t *testing.T) {
 	cases := map[string]struct {
 		id, component string
-		want          ActivityKind
+		want          ActivityType
 	}{
-		"manager": {"C-MST", "settlementManager", ActivityKindService},
-		"engine":  {"C-BE", "billingEngine", ActivityKindService},
-		"access":  {"C-PA", "projectStateAccess", ActivityKindService},
-		"client":  {"C-CW", "webClient", ActivityKindService},
-		"spa":     {"U-SPA", "", ActivityKindFrontend},
-		"ci":      {"N-CI", "", ActivityKindTesting},
+		"manager": {"C-MST", "settlementManager", ActivityTypeService},
+		"engine":  {"C-BE", "billingEngine", ActivityTypeService},
+		"access":  {"C-PA", "projectStateAccess", ActivityTypeService},
+		"client":  {"C-CW", "webClient", ActivityTypeService},
+		"spa":     {"U-SPA", "", ActivityTypeFrontend},
+		"ci":      {"N-CI", "", ActivityTypeTesting},
 	}
 	for name, c := range cases {
 		if got := DeriveKind(c.id, c.component); got != c.want {
@@ -7227,9 +7221,6 @@ func TestAppendReviewComments_MintsDeterministicIDsAndStampsOpen(t *testing.T) {
 		if c.Round != 2 {
 			t.Errorf("comment %d round = %d, want 2", i, c.Round)
 		}
-		if c.Response != nil {
-			t.Errorf("comment %d response = %v, want nil (never written)", i, c.Response)
-		}
 		if len(c.Replies) != 0 {
 			t.Errorf("comment %d replies = %+v, want none", i, c.Replies)
 		}
@@ -7338,12 +7329,6 @@ func kindOfErr(err error) fwra.Kind {
 	return fwra.Kind(0)
 }
 
-// legacyResponsePtr is a small test helper — ReviewComment.Response is the deprecated
-// *string kept only for the read-compat shim (RULING P8: KEPT, not deleted, as a
-// never-written pointer so a pre-thread ledger committed to git still decodes); literal
-// construction in a legacy-ledger test needs an addressable value.
-func legacyResponsePtr(s string) *string { return &s }
-
 func TestNormalizeReviewThreadDerivesFromLastReply(t *testing.T) {
 	agent := ReviewCommentReply{ID: "r1", AuthorRole: "architect", Text: "Split it.", At: "2026-09-19T00:00:00Z"}
 	human := ReviewCommentReply{ID: "r2", AuthorRole: "architect-user", Text: "Still wrong.", At: "2026-09-19T01:00:00Z"}
@@ -7406,92 +7391,6 @@ func TestApplyReviewCommentStatusTransitions(t *testing.T) {
 		[]ReviewComment{{ID: "c1", Status: ReviewCommentAnswered}}, "c1", ReviewCommentAnswered,
 	); err == nil {
 		t.Fatal("expected an error for a no-op transition")
-	}
-}
-
-func TestNormalizeReviewThreadReadCompat(t *testing.T) {
-	legacy := []ReviewComment{
-		{ID: "c1", Status: "addressed", Response: legacyResponsePtr("Reworded it.")},
-		{ID: "c2", Status: "waived"},
-	}
-	got := normalizeReviewThread(migrateLegacyReviewThread(legacy, "architect", "2026-01-01T00:00:00Z"))
-	if got[0].Status != ReviewCommentAnswered {
-		t.Fatalf("legacy addressed should read as answered, got %q", got[0].Status)
-	}
-	if len(got[0].Replies) != 1 || got[0].Replies[0].Text != "Reworded it." {
-		t.Fatalf("legacy response should synthesize one reply, got %+v", got[0].Replies)
-	}
-	if got[1].Status != ReviewCommentResolved {
-		t.Fatalf("legacy waived should read as resolved, got %q", got[1].Status)
-	}
-}
-
-// TestDecodeProjectJSON_MigratesLegacyReviewThreadOnRead is the fix-round-1 covering
-// test (Important finding): migrateLegacyReviewThread was defined but never called
-// from any read path, so a committed pre-thread ledger never actually migrated —
-// decodeSlotsMap read the raw "addressed"/"waived" strings straight through forever,
-// a value validReviewCommentStatus no longer accepts. The raw JSON below is the EXACT
-// shape of all 27 legacy entries in the real committed .aiarch/state/project.json as
-// of this fix: a staleAck audit entry, status "addressed", response present but
-// EMPTY (not absent — decodeSlotsMap must handle a non-nil-but-empty *string, not
-// just a nil one). It goes through DecodeProjectJSON, the single exported decode seam
-// both the live git store (decodeProjectFromSnapshot) and the CI validator use, so
-// this proves the fix at the actual boundary every reader shares — not just a direct
-// call to the migrate helper.
-func TestDecodeProjectJSON_MigratesLegacyReviewThreadOnRead(t *testing.T) {
-	raw := []byte(`{
-		"id": "proj-1",
-		"version": 1,
-		"phase": 1,
-		"slots": {
-			"1": {
-				"kind": 1,
-				"status": 2,
-				"reviewThread": [
-					{
-						"id": "r1c1",
-						"anchor": "",
-						"anchorText": "",
-						"text": "Reviewed — unaffected: diagrams only, no term changes",
-						"authorRole": "architect",
-						"round": 1,
-						"status": "addressed",
-						"response": "",
-						"type": "staleAck",
-						"addressee": ""
-					}
-				]
-			}
-		}
-	}`)
-	p, ok, err := DecodeProjectJSON(raw, ProjectID("proj-1"))
-	if err != nil {
-		t.Fatalf("DecodeProjectJSON: %v", err)
-	}
-	if !ok {
-		t.Fatal("DecodeProjectJSON: want ok=true for a populated document")
-	}
-	thread := p.Glossary.ReviewThread
-	if len(thread) != 1 {
-		t.Fatalf("want 1 review comment, got %d", len(thread))
-	}
-	c := thread[0]
-	if c.Status != ReviewCommentAnswered {
-		t.Fatalf("legacy staleAck \"addressed\" must decode as %q, got %q (validReviewCommentStatus no longer accepts %q)",
-			ReviewCommentAnswered, c.Status, "addressed")
-	}
-	if !validReviewCommentStatus(c.Status) {
-		t.Errorf("decoded status %q must be a currently-valid wire value", c.Status)
-	}
-	// The real data's response is present but EMPTY, not a real reply — migration must
-	// NOT synthesize a reply from it.
-	if len(c.Replies) != 0 {
-		t.Errorf("an empty legacy response must not synthesize a reply, got %+v", c.Replies)
-	}
-	// The migration is transient (render-on-read): it must not touch the decoded
-	// struct's Response field itself, only Status/Replies.
-	if c.Response == nil || *c.Response != "" {
-		t.Errorf("Response must decode verbatim (present, empty), got %v", c.Response)
 	}
 }
 

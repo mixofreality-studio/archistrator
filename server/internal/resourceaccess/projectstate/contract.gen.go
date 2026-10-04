@@ -727,7 +727,6 @@ type ReviewComment struct {
 	AuthorRole string               `json:"authorRole"`
 	Round      int64                `json:"round"`
 	Status     string               `json:"status"`
-	Response   *string              `json:"response,omitempty"`
 	Replies    []ReviewCommentReply `json:"replies"`
 	Reopened   bool                 `json:"reopened"`
 	Type       string               `json:"type"`

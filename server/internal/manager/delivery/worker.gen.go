@@ -61,6 +61,7 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.GitStatusRecordActivityBranchOpened, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityBranchOpened"})
 	w.RegisterActivityWithOptions(acts.GitStatusRecordActivityCIObserved, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityCIObserved"})
 	w.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
+	w.RegisterActivityWithOptions(acts.MessageBusDescribeSchedule, activity.RegisterOptions{Name: "messageBus.describeSchedule"})
 	w.RegisterActivityWithOptions(acts.MessageBusRegisterSchedule, activity.RegisterOptions{Name: "messageBus.registerSchedule"})
 	w.RegisterActivityWithOptions(acts.ProjectStateAcknowledgeStaleBasis, activity.RegisterOptions{Name: "projectStateAccess.acknowledgeStaleBasis"})
 	w.RegisterActivityWithOptions(acts.ProjectStateAdvancePhase, activity.RegisterOptions{Name: "projectStateAccess.advancePhase"})
@@ -81,5 +82,6 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.RailOpenBranch, activity.RegisterOptions{Name: "sourceControlAccess.openBranch"})
 	w.RegisterActivityWithOptions(acts.RailOpenPullRequest, activity.RegisterOptions{Name: "sourceControlAccess.openPullRequest"})
 	w.RegisterActivityWithOptions(acts.RailPostReview, activity.RegisterOptions{Name: "sourceControlAccess.postReview"})
+	w.RegisterActivityWithOptions(acts.RailReadManagedFile, activity.RegisterOptions{Name: "sourceControlAccess.readManagedFile"})
 	w.RegisterActivityWithOptions(acts.RailSyncManagedScaffold, activity.RegisterOptions{Name: "sourceControlAccess.syncManagedScaffold"})
 }

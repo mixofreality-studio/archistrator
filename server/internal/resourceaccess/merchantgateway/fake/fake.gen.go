@@ -14,6 +14,7 @@ import (
 type FakeMerchantGatewayAccess struct {
 	ChargeCustomerFn           func(rc fwra.Context, customerID uuid.UUID, amount merchantgateway.Money, idempotencyKey string) error
 	ValidateStoredInstrumentFn func(rc fwra.Context, customerID uuid.UUID, idempotencyKey string) error
+	ReadStoredInstrumentFn     func(rc fwra.Context, customerID uuid.UUID) (merchantgateway.StoredInstrument, error)
 }
 
 func (f *FakeMerchantGatewayAccess) ChargeCustomer(rc fwra.Context, customerID uuid.UUID, amount merchantgateway.Money, idempotencyKey string) error {
@@ -28,6 +29,13 @@ func (f *FakeMerchantGatewayAccess) ValidateStoredInstrument(rc fwra.Context, cu
 		panic("FakeMerchantGatewayAccess.ValidateStoredInstrumentFn not set")
 	}
 	return f.ValidateStoredInstrumentFn(rc, customerID, idempotencyKey)
+}
+
+func (f *FakeMerchantGatewayAccess) ReadStoredInstrument(rc fwra.Context, customerID uuid.UUID) (merchantgateway.StoredInstrument, error) {
+	if f.ReadStoredInstrumentFn == nil {
+		panic("FakeMerchantGatewayAccess.ReadStoredInstrumentFn not set")
+	}
+	return f.ReadStoredInstrumentFn(rc, customerID)
 }
 
 var _ merchantgateway.MerchantGatewayAccess = (*FakeMerchantGatewayAccess)(nil)

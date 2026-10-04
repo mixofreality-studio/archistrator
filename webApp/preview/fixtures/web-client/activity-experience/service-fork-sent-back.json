@@ -19178,8 +19178,8 @@
                         "Name": "CustomerProfile",
                         "Fields": [
                           {
-                            "Name": "profile",
-                            "Type": "CustomerProfile",
+                            "Name": "ProjectID",
+                            "Type": "string",
                             "Note": ""
                           }
                         ]
@@ -19555,11 +19555,6 @@
                           {
                             "Name": "dispatched",
                             "Type": "bool",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ActivityID",
-                            "Type": "ActivityID",
                             "Note": ""
                           },
                           {
@@ -21995,9 +21990,1386 @@
                 "Status": "",
                 "Inbound": null,
                 "Outbound": null,
-                "Ops": null,
-                "DataContracts": null,
-                "ErrorModel": "",
+                "Ops": [
+                  {
+                    "Signature": "DeliveryStartProject(owner: OwnerScope, name: string, projectID: *string, model: *OperatingModel, research: *ResearchInput, start: bool) → (DeliveryStartProjectOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "OwnerScope",
+                        "Fields": [
+                          {
+                            "Name": "owner",
+                            "Type": "OwnerScope",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "name",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "OperatingModel",
+                        "Fields": [
+                          {
+                            "Name": "model",
+                            "Type": "OperatingModel",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ResearchInput",
+                        "Fields": [
+                          {
+                            "Name": "sources",
+                            "Type": "[]ResearchSource",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "bool",
+                        "Fields": [
+                          {
+                            "Name": "start",
+                            "Type": "bool",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "DeliveryStartProjectOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "StartProjectResult",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DeliveryExecuteNextActivity(projectID: ProjectID, tickID: string) → (DeliveryExecuteNextActivityOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "tickID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "DeliveryExecuteNextActivityOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "PumpResult",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DeliveryDispatchActivityTask(projectID: ProjectID, activityID: ActivityID, taskID: string, feedback: *ReviewFeedback) → (DeliveryDispatchActivityTaskOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "taskID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ReviewFeedback",
+                        "Fields": [
+                          {
+                            "Name": "notes",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "comments",
+                            "Type": "[]AnchoredComment",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "DeliveryDispatchActivityTaskOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "SessionRef",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DeliverySubmitReviewDecision(projectID: ProjectID, activityID: ActivityID, taskID: string, decision: ReviewDecisionInput, feedback: *ReviewFeedback) → error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "taskID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ReviewDecisionInput",
+                        "Fields": [
+                          {
+                            "Name": "decision",
+                            "Type": "ReviewDecision",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "acknowledgeStale",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "OptionID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "CommentID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "commentStatus",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ReviewFeedback",
+                        "Fields": [
+                          {
+                            "Name": "notes",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "comments",
+                            "Type": "[]AnchoredComment",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DeliveryAskQuestions(projectID: ProjectID, activityID: ActivityID, taskID: string, addressee: string, questions: []AnchoredComment) → error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "taskID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "addressee",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "[]AnchoredComment",
+                        "Fields": [
+                          {
+                            "Name": "questions",
+                            "Type": "[]AnchoredComment",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DeliveryAcknowledgeStaleBasis(projectID: ProjectID, activityID: ActivityID, taskID: string, note: string) → error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "taskID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "note",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DeliverySetProjectRunState(projectID: ProjectID, runState: ProjectRunState, reason: string) → error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ProjectRunState",
+                        "Fields": [
+                          {
+                            "Name": "runState",
+                            "Type": "ProjectRunState",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "reason",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DeliveryOverrideActivity(projectID: ProjectID, activityID: ActivityID, override: ActivityOverride) → error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityOverride",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "OverrideKind",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "notes",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "comments",
+                            "Type": "[]AnchoredComment",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DeliverySetProjectExecutionPolicy(projectID: ProjectID, policy: ExecutionPolicyInput) → error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ExecutionPolicyInput",
+                        "Fields": [
+                          {
+                            "Name": "preset",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "policy",
+                            "Type": "ReviewPolicyInput",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DeliveryQueryProjectView(query: ProjectViewQuery) → (DeliveryQueryProjectViewOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectViewQuery",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "ProjectViewKind",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "owner",
+                            "Type": "OwnerScope",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ProjectID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ActivityID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "artifactKind",
+                            "Type": "ArtifactKind",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "EpisodeID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ComponentID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "RunID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "DeliveryQueryProjectViewOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "ProjectView",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DeliveryQueryActivityView(projectID: ProjectID, activityID: ActivityID) → (DeliveryQueryActivityViewOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ActivityID",
+                        "Fields": [
+                          {
+                            "Name": "activityID",
+                            "Type": "ActivityID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "DeliveryQueryActivityViewOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "ActivityView",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "ActivityBuildStatus",
+                  "ActivityConstructionPhase",
+                  "ActivityConstructionStatus",
+                  "ActivityGitStatus",
+                  "ActivityID",
+                  "ActivityLifecyclePhase",
+                  "ActivityMethodPhase",
+                  "ActivityOverride",
+                  "ActivityTaskKind",
+                  "ActivityTaskState",
+                  "ActivityTaskView",
+                  "ActivityType",
+                  "ActivityView",
+                  "ActivityViewState",
+                  "AnchoredComment",
+                  "ArtifactKind",
+                  "ArtifactSlotModel",
+                  "ArtifactSlotView",
+                  "ArtifactStage",
+                  "AttemptProvenance",
+                  "AwaitingTaskGate",
+                  "CICheckState",
+                  "CheckItem",
+                  "ConstructionProgress",
+                  "ConstructionSessionView",
+                  "ConstructionStage",
+                  "ContractOp",
+                  "ContractParty",
+                  "ContractRevision",
+                  "ContractStruct",
+                  "DefectView",
+                  "DeliveryDispatchActivityTaskOutput",
+                  "DeliveryExecuteNextActivityOutput",
+                  "DeliveryQueryActivityViewOutput",
+                  "DeliveryQueryProjectViewOutput",
+                  "DeliveryStartProjectOutput",
+                  "DeliveryTestRunView",
+                  "DesignArtifactSessionStage",
+                  "DesignArtifactSessionView",
+                  "DesignHealth",
+                  "DraftModel",
+                  "EVCurve",
+                  "EpisodeKind",
+                  "EpisodeLineage",
+                  "EpisodeOutcome",
+                  "EpisodeRecordView",
+                  "EpisodeTimeline",
+                  "EpisodeUsage",
+                  "EvPoint",
+                  "EvidenceRef",
+                  "ExecutionPolicyInput",
+                  "FailureReason",
+                  "Finding",
+                  "FlaggedVariance",
+                  "GoField",
+                  "Location",
+                  "NoteComment",
+                  "OperatingModel",
+                  "OperatorNote",
+                  "OperatorNoteKind",
+                  "OverrideKind",
+                  "OwnerScope",
+                  "PendingDependency",
+                  "PendingResume",
+                  "Phase",
+                  "PhaseCompletion",
+                  "PipelinePhase",
+                  "ProbeView",
+                  "ProjectID",
+                  "ProjectRunState",
+                  "ProjectState",
+                  "ProjectSummary",
+                  "ProjectView",
+                  "ProjectViewKind",
+                  "ProjectViewQuery",
+                  "PumpResult",
+                  "PumpStatus",
+                  "ResearchInput",
+                  "ResearchSource",
+                  "ReviewCommentReply",
+                  "ReviewCommentView",
+                  "ReviewDecision",
+                  "ReviewDecisionInput",
+                  "ReviewFeedback",
+                  "ReviewPolicyInput",
+                  "ReviewPolicyView",
+                  "ReviewRosterSeat",
+                  "ReviewSet",
+                  "ReviewSubjectRef",
+                  "ReviewThreadComment",
+                  "ReviewThreadReply",
+                  "ReviewVerdictKind",
+                  "ReviewVerdictView",
+                  "Reviewer",
+                  "RuleID",
+                  "ScenarioBindingView",
+                  "ScenarioGuardView",
+                  "ScenarioInputView",
+                  "ScenarioOutcomeView",
+                  "ScenarioOutputView",
+                  "ScenarioResultView",
+                  "ScenarioStateView",
+                  "ScenarioStimulusView",
+                  "ScenarioView",
+                  "ServiceContract",
+                  "SessionRef",
+                  "Severity",
+                  "SkipReasonView",
+                  "StartProjectResult",
+                  "StepBindingView",
+                  "SubagentSpan",
+                  "TaskAttempt",
+                  "TaskRevisionComment",
+                  "TaskRevisionOutcome",
+                  "TaskRevisionProvenance",
+                  "TaskRevisionView",
+                  "TestArgView",
+                  "TestExpectView",
+                  "TestRunScenarioView",
+                  "TestRunView",
+                  "TestingStateView",
+                  "TestingVariant",
+                  "TimelineEvent",
+                  "Version"
+                ],
+                "ErrorModel": "Operations fail with error — the typed Client fault.",
+                "Idempotency": "",
+                "Revisions": null
+              },
+              "mcpClientBilling": {
+                "Component": "mcpClient",
+                "Layer": "Client",
+                "Stereotype": "mcpClientBilling contract",
+                "Volatility": "",
+                "Status": "",
+                "Inbound": null,
+                "Outbound": null,
+                "Ops": [
+                  {
+                    "Signature": "BillingGetBillingCycle(customerID: uuid.UUID, cycleID: string) → (BillingGetBillingCycleOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "customerID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "cycleID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "BillingGetBillingCycleOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "BillingCycleView",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "BillingCycleView",
+                  "BillingGetBillingCycleOutput",
+                  "RoutingDirective"
+                ],
+                "ErrorModel": "Operations fail with error — the typed Client fault.",
+                "Idempotency": "",
+                "Revisions": null
+              },
+              "mcpClientOperations": {
+                "Component": "mcpClient",
+                "Layer": "Client",
+                "Stereotype": "mcpClientOperations contract",
+                "Volatility": "",
+                "Status": "",
+                "Inbound": null,
+                "Outbound": null,
+                "Ops": [
+                  {
+                    "Signature": "OperationsApplyDelinquencyPolicy(customerID: uuid.UUID, delinquencyContext: DelinquencyContext) → error",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "customerID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "DelinquencyContext",
+                        "Fields": [
+                          {
+                            "Name": "action",
+                            "Type": "DelinquencyAction",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OperationsDeployAfterConstruction(operatedAppID: uuid.UUID, change: DesiredStateChange) → (OperationsDeployAfterConstructionOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "operatedAppID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "DesiredStateChange",
+                        "Fields": [
+                          {
+                            "Name": "reason",
+                            "Type": "DesiredStateReason",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "patchKind",
+                            "Type": "PatchKind",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ChangeID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "OperationsDeployAfterConstructionOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "DeployResult",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OperationsQueryCostProjection(operatedAppID: uuid.UUID, requestID: string, points: *ScaleWhatIfPoints) → (OperationsQueryCostProjectionOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "operatedAppID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "requestID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ScaleWhatIfPoints",
+                        "Fields": [
+                          {
+                            "Name": "points",
+                            "Type": "[]ScalePoint",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "OperationsQueryCostProjectionOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "CostProjectionSeam",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OperationsQueryDeploymentHealth(operatedAppID: uuid.UUID) → (OperationsQueryDeploymentHealthOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "operatedAppID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "OperationsQueryDeploymentHealthOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "DeploymentHealth",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OperationsQueryOperatedSystemView(operatedAppID: uuid.UUID, requestID: string) → (OperationsQueryOperatedSystemViewOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "operatedAppID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "requestID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "OperationsQueryOperatedSystemViewOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "OperatedSystemView",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OperationsReconcileOperatedState(tickID: string, scope: *ReconcileScope) → (OperationsReconcileOperatedStateOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "tickID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ReconcileScope",
+                        "Fields": [
+                          {
+                            "Name": "AppIDs",
+                            "Type": "[]uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "OperationsReconcileOperatedStateOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "ReconcileResult",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OperationsRegisterOperatedApp(operatedAppID: uuid.UUID, customerID: uuid.UUID, projectRef: string, deployableBundleRef: string) → (OperationsRegisterOperatedAppOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "operatedAppID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "customerID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "projectRef",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "deployableBundleRef",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "OperationsRegisterOperatedAppOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OperationsWithdrawSystem(operatedAppID: uuid.UUID, changeID: string, reason: WithdrawReason) → (OperationsWithdrawSystemOutput, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "operatedAppID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "changeID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "WithdrawReason",
+                        "Fields": [
+                          {
+                            "Name": "notes",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "OperationsWithdrawSystemOutput",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "WithdrawResult",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "AutoscaleAction",
+                  "AutoscaleDecisionView",
+                  "AutoscalerMode",
+                  "AutoscalerView",
+                  "CostProjectionSeam",
+                  "DelinquencyAction",
+                  "DelinquencyContext",
+                  "DeployResult",
+                  "DeploymentHealth",
+                  "DesiredStateChange",
+                  "DesiredStateReason",
+                  "HealthSnapshotView",
+                  "HealthState",
+                  "Money",
+                  "NodeHealth",
+                  "OperatedSystemView",
+                  "OperationsDeployAfterConstructionOutput",
+                  "OperationsQueryCostProjectionOutput",
+                  "OperationsQueryDeploymentHealthOutput",
+                  "OperationsQueryOperatedSystemViewOutput",
+                  "OperationsReconcileOperatedStateOutput",
+                  "OperationsRegisterOperatedAppOutput",
+                  "OperationsWithdrawSystemOutput",
+                  "PatchKind",
+                  "ReconcileResult",
+                  "ReconcileScope",
+                  "RuntimeStatusEventView",
+                  "RuntimeStatusSeam",
+                  "ScalePoint",
+                  "ScaleWhatIfPoints",
+                  "SloRowView",
+                  "Version",
+                  "WhatIfCurve",
+                  "WhatIfPoint",
+                  "WithdrawReason",
+                  "WithdrawResult"
+                ],
+                "ErrorModel": "Operations fail with error — the typed Client fault.",
                 "Idempotency": "",
                 "Revisions": null
               },
@@ -22102,10 +23474,50 @@
                         ]
                       }
                     ]
+                  },
+                  {
+                    "Signature": "ReadStoredInstrument(customerID: uuid.UUID) → (StoredInstrument, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "customerID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "StoredInstrument",
+                        "Fields": [
+                          {
+                            "Name": "Validated",
+                            "Type": "bool",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ],
                 "DataContracts": [
-                  "Money"
+                  "Money",
+                  "StoredInstrument"
                 ],
                 "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.",
                 "Idempotency": "",
@@ -22227,6 +23639,55 @@
                         ]
                       }
                     ]
+                  },
+                  {
+                    "Signature": "DescribeSchedule(scheduleID: ScheduleID) → (ScheduleDescription, error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ScheduleID",
+                        "Fields": [
+                          {
+                            "Name": "scheduleID",
+                            "Type": "ScheduleID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "ScheduleDescription",
+                        "Fields": [
+                          {
+                            "Name": "Registered",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ExecutionKind",
+                            "Type": "ExecutionKind",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "TargetIDTemplate",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ],
                 "DataContracts": [
@@ -22234,6 +23695,7 @@
                   "ExecutionID",
                   "ExecutionKind",
                   "ExecutionPayload",
+                  "ScheduleDescription",
                   "ScheduleID",
                   "ScheduleSpec",
                   "SignalName"
@@ -25421,6 +26883,75 @@
                         ]
                       }
                     ]
+                  },
+                  {
+                    "Signature": "ReadManagedFile(repo: RepoRef, path: string, cred: RepoCredential) → (ManagedFileRead, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "RepoRef",
+                        "Fields": [
+                          {
+                            "Name": "repo",
+                            "Type": "RepoRef",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "path",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "RepoCredential",
+                        "Fields": [
+                          {
+                            "Name": "Bytes",
+                            "Type": "[]byte",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ExpiresAt",
+                            "Type": "time.Time",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "ManagedFileRead",
+                        "Fields": [
+                          {
+                            "Name": "Content",
+                            "Type": "[]byte",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Found",
+                            "Type": "bool",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ],
                 "DataContracts": [
@@ -25430,6 +26961,7 @@
                   "CheckState",
                   "CommitRef",
                   "ManagedFile",
+                  "ManagedFileRead",
                   "MergeResult",
                   "ProjectID",
                   "PullRequestRef",
@@ -25563,8 +27095,1376 @@
                 "Status": "",
                 "Inbound": null,
                 "Outbound": null,
-                "Ops": null,
-                "DataContracts": null,
+                "Ops": [
+                  {
+                    "Signature": "OpenActivity(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DecideReview(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "SendBackWithComments(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "ReviewRedraft(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "AskReviewQuestions(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "AmendArtifact(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "MarkReviewedUnaffected(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "SteerActivity(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OpenFailedActivity(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "RequeueActivity(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "UIAction",
+                  "UIObservable",
+                  "UIObservation"
+                ],
+                "ErrorModel": "",
+                "Idempotency": "",
+                "Revisions": null
+              },
+              "webClientBilling": {
+                "Component": "webClient",
+                "Layer": "Client",
+                "Stereotype": "webClientBilling contract",
+                "Volatility": "",
+                "Status": "",
+                "Inbound": null,
+                "Outbound": null,
+                "Ops": [
+                  {
+                    "Signature": "OpenPaymentOnboarding(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "RegisterPaymentInstrument(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OpenBillingCycle(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "UIAction",
+                  "UIObservable",
+                  "UIObservation"
+                ],
+                "ErrorModel": "",
+                "Idempotency": "",
+                "Revisions": null
+              },
+              "webClientOperations": {
+                "Component": "webClient",
+                "Layer": "Client",
+                "Stereotype": "webClientOperations contract",
+                "Volatility": "",
+                "Status": "",
+                "Inbound": null,
+                "Outbound": null,
+                "Ops": [
+                  {
+                    "Signature": "DeployOperatedSystem(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OpenOperationsConsole(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "RequestCostProjection(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "WithdrawOperatedSystem(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OpenDeploymentDiagram(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "RegisterDeliveredSystem(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "UIAction",
+                  "UIObservable",
+                  "UIObservation"
+                ],
+                "ErrorModel": "",
+                "Idempotency": "",
+                "Revisions": null
+              },
+              "webClientPlan": {
+                "Component": "webClient",
+                "Layer": "Client",
+                "Stereotype": "webClientPlan contract",
+                "Volatility": "",
+                "Status": "",
+                "Inbound": null,
+                "Outbound": null,
+                "Ops": [
+                  {
+                    "Signature": "OpenSdpReview(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "DecideSdpOption(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "RevokeCommitment(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OpenProjectProgress(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OpenStateHistory(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OpenDeliveredSource(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OpenConstructionConsole(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "ResumeConstruction(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "PauseConstruction(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "BeginConstruction(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "UIAction",
+                  "UIObservable",
+                  "UIObservation"
+                ],
+                "ErrorModel": "",
+                "Idempotency": "",
+                "Revisions": null
+              },
+              "webClientProjects": {
+                "Component": "webClient",
+                "Layer": "Client",
+                "Stereotype": "webClientProjects contract",
+                "Volatility": "",
+                "Status": "",
+                "Inbound": null,
+                "Outbound": null,
+                "Ops": [
+                  {
+                    "Signature": "CreateProject(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "OpenProject(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "SetReviewPolicy(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "SubmitResearchInput(action: UIAction) → UIObservation",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "UIAction",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "target",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "value",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "UIObservation",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "UIObservation",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "UIAction",
+                  "UIObservable",
+                  "UIObservation"
+                ],
                 "ErrorModel": "",
                 "Idempotency": "",
                 "Revisions": null

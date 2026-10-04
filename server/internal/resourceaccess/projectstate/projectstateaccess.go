@@ -6146,20 +6146,7 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 		slot.Notes = entry.Notes
 		slot.CritiqueVerdict = entry.CritiqueVerdict
 		slot.CritiqueNotes = entry.CritiqueNotes
-		// LEGACY-VOCABULARY GRANDFATHER (review-thread status vocabulary, this feature): a
-		// committed slot's ReviewThread may still carry the RETIRED "addressed"/"waived"
-		// statuses (and a bare legacy Response string) from before the reply-thread model
-		// existed. migrateLegacyReviewThread render-on-reads it onto the current vocabulary
-		// — this is the SAME lazy-migration shape as the Revisions grandfather just below:
-		// nothing is written back here, but the in-memory Project this decode produces (and
-		// therefore every write built from it, e.g. the next normalizeReviewThread at a
-		// (re)stage) sees only current values from this point on. No caller-identity or
-		// clock is available in this pure decoder, so draftedBy/at are passed empty;
-		// migrateLegacyReviewThread defaults an empty draftedBy to "architect", and the
-		// empty `at` is unreachable for every entry actually on disk today (F45 staleAck
-		// entries carry no Response, so the reply-synthesis branch that would use `at`
-		// never fires for them).
-		slot.ReviewThread = migrateLegacyReviewThread(entry.ReviewThread, "", "")
+		slot.ReviewThread = entry.ReviewThread
 		slot.Revisions = entry.Revisions
 		// PRE-FIELD GRANDFATHER (F38 follow-up 2026-07-05): a slot committed BEFORE the
 		// Revisions field existed reads back as 0 (the zero-value / omitempty gap), yet a
@@ -6676,8 +6663,6 @@ var activityTypeNames = map[ActivityType]string{
 var activityTypeByName = invert(activityTypeNames)
 
 // MarshalJSON encodes the ActivityType as its canonical wire name.
-// NOTE: ActivityKind is a type alias for ActivityType, so this also handles
-// ActivityKind fields — they share the same underlying type and method set.
 func (t ActivityType) MarshalJSON() ([]byte, error) {
 	return marshalEnum(t, activityTypeNames, "ActivityType")
 }
@@ -6712,28 +6697,13 @@ var testingVariantNames = map[TestingVariant]string{
 }
 var testingVariantByName = invert(testingVariantNames)
 
-// testingVariantLegacyPlan is the wire name ordinal 0 carried BEFORE the rename, and it
-// is still in flight: every delivery workflow started under the old worker holds its
-// classification in a Temporal payload (constructionActivity, csDispatch) whose Variant
-// was marshalled without omitempty, so every non-testing activity's payload reads
-// "Variant":"plan". Decoding it as TestVariantNone is what keeps those workflows alive
-// across the deploy. It is a DECODE-ONLY alias, kept out of testingVariantNames so it
-// never marshals and the F81 wire-map gate (map ≡ contract enum) keeps holding.
-const testingVariantLegacyPlan = "plan"
-
 // MarshalJSON encodes the TestingVariant as its canonical wire name.
 func (v TestingVariant) MarshalJSON() ([]byte, error) {
 	return marshalEnum(v, testingVariantNames, "TestingVariant")
 }
 
 // UnmarshalJSON decodes a wire name (or legacy integer ordinal) into a TestingVariant.
-// The retired ordinal-0 name "plan" decodes to TestVariantNone (testingVariantLegacyPlan).
 func (v *TestingVariant) UnmarshalJSON(data []byte) error {
-	var name string
-	if json.Unmarshal(data, &name) == nil && name == testingVariantLegacyPlan {
-		*v = TestVariantNone
-		return nil
-	}
 	got, err := unmarshalEnum(data, testingVariantByName, "TestingVariant")
 	if err != nil {
 		return err
@@ -7238,7 +7208,7 @@ type LegacyActivityConstructionRow struct {
 	CurrentPhase  ActivityMethodPhase `json:"currentPhase,omitempty"`
 	StartedAt     *time.Time          `json:"startedAt,omitempty"`
 	CompletedAt   *time.Time          `json:"completedAt,omitempty"`
-	Kind          ActivityKind        `json:"kind,omitempty"`
+	Kind          ActivityType        `json:"kind,omitempty"`
 	BuildStatus   ActivityBuildStatus `json:"buildStatus,omitempty"`
 	FailureReason FailureReason       `json:"failureReason,omitempty"`
 	FailureDetail string              `json:"failureDetail,omitempty"`
@@ -7646,7 +7616,7 @@ func (t ActivityType) String() string {
 	case ActivityTypeProjectDesign:
 		return "projectDesign"
 	case ActivityTypeService:
-		// The zero value (== ActivityKindService, the legacy alias).
+		// The zero value.
 		return "service"
 	}
 	// Unreachable for the ten defined ActivityType values above (the exhaustive
@@ -7654,22 +7624,6 @@ func (t ActivityType) String() string {
 	// defensive fallback for an out-of-range ordinal.
 	return "service"
 }
-
-// ActivityKind is a type alias for ActivityType kept for JSON back-compat.
-// Existing project.json entries seeded with Kind use the same integer encoding;
-// the legacy 3 values (0=Service/1=Frontend/2=Testing) decode correctly through
-// ActivityType. New code should use ActivityType; ActivityKind remains valid as
-// a field type so no renaming is required at call sites.
-type ActivityKind = ActivityType
-
-// ActivityKindService / ActivityKindFrontend / ActivityKindTesting are preserved
-// as aliases to the ActivityType constants so existing code referencing the old
-// three-value names continues to compile without modification.
-const (
-	ActivityKindService  = ActivityTypeService
-	ActivityKindFrontend = ActivityTypeFrontend
-	ActivityKindTesting  = ActivityTypeTesting
-)
 
 // TestingVariant discriminates the three N-* testing activity sub-types. Only
 // meaningful when ActivityType == ActivityTypeTesting. Variant is chosen from the
@@ -7947,16 +7901,16 @@ type StaleCause struct {
 // *Client / *Manager / *Engine / *Access components and infra/integration) is
 // service, because a Client component exposes a service contract just like any
 // other service-layer component.
-func DeriveKind(activityID, componentName string) ActivityKind {
+func DeriveKind(activityID, componentName string) ActivityType {
 	_ = componentName // caller passes it; classification is id-based only
 	id := strings.ToUpper(activityID)
 	switch {
 	case strings.HasPrefix(id, "U-SPA"):
-		return ActivityKindFrontend
+		return ActivityTypeFrontend
 	case strings.HasPrefix(id, "N-"):
-		return ActivityKindTesting
+		return ActivityTypeTesting
 	default:
-		return ActivityKindService
+		return ActivityTypeService
 	}
 }
 
@@ -8890,18 +8844,8 @@ const (
 	// not a close: only the reviewer resolves (design §3.3).
 	ReviewCommentAnswered = "answered"
 	// ReviewCommentResolved — the reviewer closed the thread. Sticky; normalization
-	// never reconsiders it. Subsumes the retired "waived" (resolving an unanswered
-	// thread IS dismissing it).
+	// never reconsiders it (resolving an unanswered thread IS dismissing it).
 	ReviewCommentResolved = "resolved"
-
-	// ReviewCommentAddressed — DEPRECATED. Retired live status, kept only so a
-	// pre-thread ledger committed to git still decodes via migrateLegacyReviewThread.
-	// Never written by current code.
-	ReviewCommentAddressed = "addressed"
-	// ReviewCommentWaived — DEPRECATED. Retired live status, kept only so a
-	// pre-thread ledger committed to git still decodes via migrateLegacyReviewThread.
-	// Never written by current code.
-	ReviewCommentWaived = "waived"
 )
 
 // ReviewComment.Type wire values — the closed type enum of a ledger entry
@@ -9256,35 +9200,6 @@ func appendReviewReply(thread []ReviewComment, id, authorRole, text, at string) 
 	return nil, fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.appendReviewReply: comment %s not found in review thread", id))
 }
 
-// migrateLegacyReviewThread render-on-reads a pre-thread ledger: a non-empty
-// legacy response becomes one synthesized agent reply, and the retired statuses
-// map onto the new vocabulary. Nothing is written back — git history stays as
-// committed (design §3.5).
-//
-// Response is the deprecated, never-written *string kept on the generated
-// ReviewComment (RULING P8: kept as a pointer, not deleted, so a pre-thread
-// ledger committed to git still decodes) — nil-checked here rather than
-// compared against "" directly.
-func migrateLegacyReviewThread(thread []ReviewComment, draftedBy, at string) []ReviewComment {
-	for i := range thread {
-		c := &thread[i]
-		if c.Response != nil && *c.Response != "" && len(c.Replies) == 0 {
-			role := draftedBy
-			if role == "" {
-				role = "architect"
-			}
-			c.Replies = []ReviewCommentReply{{ID: c.ID + "-u1", AuthorRole: role, Text: *c.Response, At: at}}
-		}
-		switch c.Status {
-		case ReviewCommentAddressed:
-			c.Status = ReviewCommentAnswered
-		case ReviewCommentWaived:
-			c.Status = ReviewCommentResolved
-		}
-	}
-	return thread
-}
-
 // ReviewPolicy is the per-project, committed configuration of WHICH phases require a
 // human approval gate. It is the DOCUMENT, not the decision: the reviewEngine
 // (internal/engine/review) computes both WHO reviews and WHETHER a human must sign off,
@@ -9431,14 +9346,9 @@ type Error = fwra.Error
 // `encapsulates`). It is the one staging -> review -> commit verb family for every
 // activity, and the owner of the two append-only per-activity ledgers.
 //
-// ADDITIVE, deliberately. The three facets it supersedes are deprecated IN PLACE
-// rather than deleted, because each of their ops is a registered Temporal activity
-// whose name nine of the thirteen construction replay fixtures already record — five
-// of them pre-* histories that are never re-captured — and the SDK matches a
-// scheduled activity on lastPartOfName(activityType), so retiring a name is a
-// command-sequence change for an execution that is already in flight. Task 5 moves
-// the construction child workflow onto these verbs behind workflow.GetVersion, with
-// the old branch still calling the old ops; the deletion is a post-drain commit.
+// The activity-scoped verbs of the facets it absorbed are deleted (dct Plan 4,
+// spec §11 A5); gitActivityStatusAccess and designSessionAccess keep only the ops
+// with live callers (see their contract notes).
 //
 // NO SEPARATE COMMIT LANE. Spec §5.3 asks for a project-scoped serialized lane
 // ({projectId}:statewrite); it is deliberately NOT built, because
