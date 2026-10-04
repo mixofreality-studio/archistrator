@@ -10666,8 +10666,10 @@ type deliveryManager struct {
 	estimator estimation.EstimationEngine
 	repoBase  string
 
-	// designHealth is the DesignHealthEngine behind the designHealth read and the
-	// design-artifact gate (its contract's one op, EvaluateDesignHealth).
+	// designHealth is the DesignHealthEngine behind the designHealth read
+	// (GetDesignHealth, QueryProjectView{kind: designHealth}) — its contract's one op,
+	// EvaluateDesignHealth. The design-artifact authoring gate is not reached through
+	// the Manager: cmd/aiarch-state-mcp/crossartifact.go calls the engine's port.
 	designHealth designhealth.DesignHealthEngine
 }
 

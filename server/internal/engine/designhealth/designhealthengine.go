@@ -279,9 +279,10 @@ func severityOf(s methodcheck.Severity) Severity {
 }
 
 // evaluateRaw is the single evaluation entry point: EvaluateDesignHealth, which
-// every caller reaches through the contract, is a mapping over it. It parses raw (the committed or drafted project.json bytes) into an input and
-// evaluates it. A document that will not parse under the published projectmodel
-// codegen parser yields no findings — see the port's doc comment.
+// every caller reaches through the contract, is a mapping over it. It parses raw
+// (the committed or drafted project.json bytes) into an input and evaluates it. A
+// document that will not parse under the published projectmodel codegen parser
+// yields no findings — see the port's doc comment.
 func evaluateRaw(raw []byte) []methodcheck.Finding {
 	model, err := projectmodel.Load(raw)
 	if err != nil {
