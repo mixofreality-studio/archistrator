@@ -49613,7 +49613,479 @@
       },
       "reviewEngine": {
         "component": "reviewEngine",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProposeReviews",
+                "inputs": [
+                  {
+                    "name": "change",
+                    "value": "{\"ActivityID\": \"projectDesign\", \"ComponentID\": \"\", \"ContentAddress\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityType",
+                    "value": "projectDesign",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "lifecyclePhase",
+                    "value": "sdp",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "componentID",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"GatedPhasesByType\": {}, \"Preset\": \"vibes\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "floorTouched",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "contracts",
+                    "value": "[\"deliveryManager\",\"operatedRuntimeAccess\",\"operatedSystemStateAccess\",\"operationsManager\",\"reviewEngine\"]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"RequiresHuman\": true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProposeReviews",
+                "inputs": [
+                  {
+                    "name": "change",
+                    "value": "{\"ActivityID\": \"projectDesign\", \"ComponentID\": \"\", \"ContentAddress\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityType",
+                    "value": "projectDesign",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "lifecyclePhase",
+                    "value": "sdp",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "componentID",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"GatedPhasesByType\": {}, \"Preset\": \"full\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "floorTouched",
+                    "value": "true",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "contracts",
+                    "value": "[\"deliveryManager\",\"operatedRuntimeAccess\",\"operatedSystemStateAccess\",\"operationsManager\",\"reviewEngine\"]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"RequiresHuman\": true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProposeReviews",
+                "inputs": [
+                  {
+                    "name": "change",
+                    "value": "{\"ActivityID\": \"projectDesign\", \"ComponentID\": \"\", \"ContentAddress\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityType",
+                    "value": "projectDesign",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "lifecyclePhase",
+                    "value": "sdp",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "componentID",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"GatedPhasesByType\": {}, \"Preset\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "floorTouched",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "contracts",
+                    "value": "[\"deliveryManager\",\"operatedRuntimeAccess\",\"operatedSystemStateAccess\",\"operationsManager\",\"reviewEngine\"]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"RequiresHuman\": true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProposeReviews",
+                "inputs": [
+                  {
+                    "name": "change",
+                    "value": "{\"ActivityID\": \"C-operations-manager\", \"ComponentID\": \"operationsManager\", \"ContentAddress\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityType",
+                    "value": "service",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "lifecyclePhase",
+                    "value": "construction",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "componentID",
+                    "value": "operationsManager",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"GatedPhasesByType\": {}, \"Preset\": \"vibes\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "floorTouched",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "contracts",
+                    "value": "[\"deliveryManager\",\"operatedRuntimeAccess\",\"operatedSystemStateAccess\",\"operationsManager\",\"reviewEngine\"]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"RequiresHuman\": false, \"ArtifactKind\": \"Construction\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ProposeReviews",
+                "inputs": [
+                  {
+                    "name": "change",
+                    "value": "{\"ActivityID\": \"C-operations-manager\", \"ComponentID\": \"operationsManager\", \"ContentAddress\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityType",
+                    "value": "service",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "lifecyclePhase",
+                    "value": "construction",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "componentID",
+                    "value": "operationsManager",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"GatedPhasesByType\": {}, \"Preset\": \"vibes\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "floorTouched",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "contracts",
+                    "value": "[\"deliveryManager\",\"operatedRuntimeAccess\",\"operatedSystemStateAccess\",\"operationsManager\",\"reviewEngine\"]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"RequiresHuman\": false, \"ArtifactKind\": \"Construction\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProposeReviews",
+                "inputs": [
+                  {
+                    "name": "change",
+                    "value": "{\"ActivityID\": \"C-operations-manager\", \"ComponentID\": \"operationsManager\", \"ContentAddress\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityType",
+                    "value": "service",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "lifecyclePhase",
+                    "value": "construction",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "componentID",
+                    "value": "operationsManager",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"GatedPhasesByType\": {}, \"Preset\": \"full\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "floorTouched",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "contracts",
+                    "value": "[\"deliveryManager\",\"operatedRuntimeAccess\",\"operatedSystemStateAccess\",\"operationsManager\",\"reviewEngine\"]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"RequiresHuman\": true, \"ArtifactKind\": \"Construction\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ProposeReviews",
+                "inputs": [
+                  {
+                    "name": "change",
+                    "value": "{\"ActivityID\": \"C-operations-manager\", \"ComponentID\": \"operationsManager\", \"ContentAddress\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityType",
+                    "value": "service",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "lifecyclePhase",
+                    "value": "construction",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "componentID",
+                    "value": "operationsManager",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"GatedPhasesByType\": {}, \"Preset\": \"full\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "floorTouched",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "contracts",
+                    "value": "[\"deliveryManager\",\"operatedRuntimeAccess\",\"operatedSystemStateAccess\",\"operationsManager\",\"reviewEngine\"]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"RequiresHuman\": true, \"ArtifactKind\": \"Construction\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProposeReviews",
+                "inputs": [
+                  {
+                    "name": "change",
+                    "value": "{\"ActivityID\": \"C-operations-manager\", \"ComponentID\": \"operationsManager\", \"ContentAddress\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityType",
+                    "value": "service",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "lifecyclePhase",
+                    "value": "detailed_design",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "componentID",
+                    "value": "operationsManager",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"GatedPhasesByType\": {\"service\": [\"construction\"]}, \"Preset\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "floorTouched",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "contracts",
+                    "value": "[\"deliveryManager\",\"operatedRuntimeAccess\",\"operatedSystemStateAccess\",\"operationsManager\",\"reviewEngine\"]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"RequiresHuman\": false, \"ArtifactKind\": \"DetailedDesign\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ProposeReviews",
+                "inputs": [
+                  {
+                    "name": "change",
+                    "value": "{\"ActivityID\": \"C-operations-manager\", \"ComponentID\": \"operationsManager\", \"ContentAddress\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityType",
+                    "value": "service",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "lifecyclePhase",
+                    "value": "detailed_design",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "componentID",
+                    "value": "operationsManager",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"GatedPhasesByType\": {\"service\": [\"construction\"]}, \"Preset\": \"\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "floorTouched",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "contracts",
+                    "value": "[\"deliveryManager\",\"operatedRuntimeAccess\",\"operatedSystemStateAccess\",\"operationsManager\",\"reviewEngine\"]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"RequiresHuman\": false, \"ArtifactKind\": \"DetailedDesign\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "sourceControlAccess": {
         "component": "sourceControlAccess",
