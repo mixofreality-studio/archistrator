@@ -551,7 +551,7 @@ func cleanTestRunPath(p string) (string, error) {
 	if strings.HasPrefix(p, "/") || strings.Contains(p, "\\") {
 		return "", fwra.New(fwra.ContractMisuse, "artifact: test-run file path must be relative and slash-separated: "+p)
 	}
-	for _, seg := range strings.Split(p, "/") {
+	for seg := range strings.SplitSeq(p, "/") {
 		if seg == "" || seg == "." || seg == ".." {
 			return "", fwra.New(fwra.ContractMisuse, "artifact: test-run file path escapes the artifact: "+p)
 		}
