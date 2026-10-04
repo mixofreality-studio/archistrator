@@ -41116,6 +41116,2859 @@
           }
         ]
       },
+      "deliveryManager": {
+        "component": "deliveryManager",
+        "bindings": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "requirements"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesDraft"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "use-case-model-amendment-open",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "requirements"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":1}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "amended-use-case-draft-approved",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "AcknowledgeStaleBasis",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureDraft"
+                  },
+                  {
+                    "name": "note",
+                    "value": "reviewed — unaffected"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "requirements"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesDraft"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "use-case-model-amendment-open",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "requirements"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":1}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "amended-use-case-draft-approved",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "AcknowledgeStaleBasis",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureDraft"
+                  },
+                  {
+                    "name": "note",
+                    "value": "reviewed — unaffected"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"designHealth\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"designHealth\"}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "requirements"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesDraft"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "use-case-model-amendment-open",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "requirements"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":1}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "amended-use-case-draft-approved",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "AcknowledgeStaleBasis",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureDraft"
+                  },
+                  {
+                    "name": "note",
+                    "value": "reviewed — unaffected"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"designHealth\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"designHealth\"}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "requirements"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesDraft"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "use-case-model-amendment-open",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "requirements"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":1}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "amended-use-case-draft-approved",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "AcknowledgeStaleBasis",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureDraft"
+                  },
+                  {
+                    "name": "note",
+                    "value": "reviewed — unaffected"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AskQuestions",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureReview"
+                  },
+                  {
+                    "name": "addressee",
+                    "value": "system-architect"
+                  },
+                  {
+                    "name": "questions",
+                    "value": "[{\"jsonPath\":\"$.containers[2].responsibilities\",\"text\":\"Why does delivery-manager own the review roster rather than review-engine?\",\"anchorText\":\"review roster\",\"replyTo\":\"\"}]"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "thread-open-on-session-branch",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "architecture"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"architecture\",\"state\":\"awaitingHuman\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AskQuestions",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureReview"
+                  },
+                  {
+                    "name": "addressee",
+                    "value": "system-architect"
+                  },
+                  {
+                    "name": "questions",
+                    "value": "[{\"jsonPath\":\"$.containers[2].responsibilities\",\"text\":\"Why does delivery-manager own the review roster rather than review-engine?\",\"anchorText\":\"review roster\",\"replyTo\":\"\"}]"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "thread-open-on-session-branch",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "architecture"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"architecture\",\"state\":\"awaitingHuman\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AskQuestions",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureReview"
+                  },
+                  {
+                    "name": "addressee",
+                    "value": "system-architect"
+                  },
+                  {
+                    "name": "questions",
+                    "value": "[{\"jsonPath\":\"$.containers[2].responsibilities\",\"text\":\"Why does delivery-manager own the review roster rather than review-engine?\",\"anchorText\":\"review roster\",\"replyTo\":\"\"}]"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "thread-seeded-on-main",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "architecture"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"architecture\",\"state\":\"done\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AskQuestions",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureReview"
+                  },
+                  {
+                    "name": "addressee",
+                    "value": "system-architect"
+                  },
+                  {
+                    "name": "questions",
+                    "value": "[{\"jsonPath\":\"$.containers[2].responsibilities\",\"text\":\"Why does delivery-manager own the review roster rather than review-engine?\",\"anchorText\":\"review roster\",\"replyTo\":\"\"}]"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "thread-seeded-on-main",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "architecture"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"architecture\",\"state\":\"done\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "present-sdp-review",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "projectDesign"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":1,\"optionId\":\"opt-normal\"}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "sdp-review-committed",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "present-sdp-review",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "projectDesign"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":1,\"optionId\":\"opt-normal\"}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "sdp-review-committed",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":3}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "sdp-review-revoked",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":1,\"PhaseName\":\"project-design\"}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "present-sdp-review",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "projectDesign"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":2}"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Reject all options: each overruns the 9-month window; re-plan with a 3-developer cap and the billing integration deferred.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "sdp-review-rejected",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":1,\"PhaseName\":\"project-design\"}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "download-generated-source-code-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"activityId\":\"C-review-engine\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"session\"}"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "download-generated-source-code-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"activityId\":\"C-review-engine\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"session\"}"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ExecuteNextActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "tickID",
+                    "value": "dct-dm-exec-P1-tick-0001"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"dispatched\":true}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryActivityView",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"C-review-engine\",\"type\":\"service\"}"
+                },
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"done\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ExecuteNextActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "tickID",
+                    "value": "dct-dm-exec-P2-tick-0001"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"dispatched\":true}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryActivityView",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"C-review-engine\",\"type\":\"service\"}"
+                },
+                "probes": [
+                  {
+                    "for": "escalate-operator",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "OverrideActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  },
+                  {
+                    "name": "override",
+                    "value": "{\"kind\":2,\"notes\":\"Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"done\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ExecuteNextActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "tickID",
+                    "value": "dct-dm-exec-P3-tick-0001"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"dispatched\":true}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryActivityView",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"C-review-engine\",\"type\":\"service\"}"
+                },
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"done\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ExecuteNextActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "tickID",
+                    "value": "dct-dm-exec-P4-tick-0001"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"dispatched\":true}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryActivityView",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"C-review-engine\",\"type\":\"service\"}"
+                },
+                "probes": [
+                  {
+                    "for": "requires-human",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"awaitingHuman\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "codeReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":1}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"done\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ExecuteNextActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "tickID",
+                    "value": "dct-dm-exec-P5-tick-0001"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"dispatched\":true}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryActivityView",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"C-review-engine\",\"type\":\"service\"}"
+                },
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"done\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ExecuteNextActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "tickID",
+                    "value": "dct-dm-exec-P6-tick-0001"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"dispatched\":true}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryActivityView",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"C-review-engine\",\"type\":\"service\"}"
+                },
+                "probes": [
+                  {
+                    "for": "escalate-operator",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "OverrideActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  },
+                  {
+                    "name": "override",
+                    "value": "{\"kind\":2,\"notes\":\"Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "escalate-operator",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "OverrideActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  },
+                  {
+                    "name": "override",
+                    "value": "{\"kind\":2,\"notes\":\"Retry again: pin the integration test's Temporal namespace; the earlier failure was a namespace collision.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"done\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ExecuteNextActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "tickID",
+                    "value": "dct-dm-exec-P7-tick-0001"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"dispatched\":true}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryActivityView",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"C-review-engine\",\"type\":\"service\"}"
+                },
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"done\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StartProject",
+                "inputs": [
+                  {
+                    "name": "owner",
+                    "value": "dct-owner"
+                  },
+                  {
+                    "name": "name",
+                    "value": "dct-gtd-app"
+                  },
+                  {
+                    "name": "model",
+                    "value": "selfOperated"
+                  },
+                  {
+                    "name": "start",
+                    "value": "true"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\",\"Phase\":0,\"operatingModel\":\"selfOperated\"}}"
+                },
+                "probes": [
+                  {
+                    "for": "obj-project-head-state-created",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"projects\",\"owner\":\"dct-owner\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\"}]}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SetProjectExecutionPolicy",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-gtd-app"
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"preset\":\"checkpoints\"}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "obj-review-policy-set",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"reviewPolicy\":{\"preset\":\"checkpoints\"}}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "StartProject",
+                "inputs": [
+                  {
+                    "name": "owner",
+                    "value": "dct-owner"
+                  },
+                  {
+                    "name": "name",
+                    "value": "dct-gtd-app"
+                  },
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-gtd-app"
+                  },
+                  {
+                    "name": "research",
+                    "value": "{\"sources\":[{\"title\":\"GTD method notes\",\"content\":\"Capture, clarify, organize, reflect, engage. Weekly review is mandatory.\"}]}"
+                  },
+                  {
+                    "name": "start",
+                    "value": "false"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                },
+                "probes": [
+                  {
+                    "for": "obj-research-input-captured",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"content\":\"Capture, clarify, organize, reflect, engage. Weekly review is mandatory.\"}]}}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StartProject",
+                "inputs": [
+                  {
+                    "name": "owner",
+                    "value": "dct-owner"
+                  },
+                  {
+                    "name": "name",
+                    "value": "dct-gtd-app"
+                  },
+                  {
+                    "name": "model",
+                    "value": "archistratorOperated"
+                  },
+                  {
+                    "name": "start",
+                    "value": "true"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\",\"Phase\":0,\"operatingModel\":\"archistratorOperated\"}}"
+                },
+                "probes": [
+                  {
+                    "for": "obj-project-head-state-created",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"projects\",\"owner\":\"dct-owner\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\"}]}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SetProjectExecutionPolicy",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-gtd-app"
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"preset\":\"full\"}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "obj-review-policy-set",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"reviewPolicy\":{\"preset\":\"full\"}}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "StartProject",
+                "inputs": [
+                  {
+                    "name": "owner",
+                    "value": "dct-owner"
+                  },
+                  {
+                    "name": "name",
+                    "value": "dct-gtd-app"
+                  },
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-gtd-app"
+                  },
+                  {
+                    "name": "research",
+                    "value": "{\"sources\":[{\"title\":\"GTD method notes\",\"content\":\"Capture, clarify, organize, reflect, engage. Weekly review is mandatory.\"}]}"
+                  },
+                  {
+                    "name": "start",
+                    "value": "false"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                },
+                "probes": [
+                  {
+                    "for": "obj-research-input-captured",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"content\":\"Capture, clarify, organize, reflect, engage. Weekly review is mandatory.\"}]}}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "pause-construction-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SetProjectRunState",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "runState",
+                    "value": "paused"
+                  },
+                  {
+                    "name": "reason",
+                    "value": "Holding construction while the billing vendor contract is renegotiated."
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "run-state-paused",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":true,\"pauseReason\":\"Holding construction while the billing vendor contract is renegotiated.\"}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureDraft"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Architecture change: split billing into metering and invoicing components; this is not a scope change.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "system-amendment-open",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "sdp-revision-staged",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "projectDesign"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":1,\"optionId\":\"opt-normal\"}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "sdp-revision-adopted",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "DispatchActivityTask",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "sdp-revision-staged",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "projectDesign"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "projectDesign"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":2}"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Reject the revision: the added cost exceeds the approved ceiling; the current commitment stands.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "sdp-revision-rejected",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "requeue-a-failed-construction-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"episodes\",\"projectId\":\"dct-owner/dct-delivery\",\"activityId\":\"C-review-engine\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"episodes\"}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"timeline\",\"projectId\":\"dct-owner/dct-delivery\",\"episodeId\":\"dct-ep-review-engine-0003\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"timeline\",\"timeline\":{\"record\":{\"episodeId\":\"dct-ep-review-engine-0003\",\"outcome\":1}}}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "OverrideActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-review-engine"
+                  },
+                  {
+                    "name": "override",
+                    "value": "{\"kind\":2,\"notes\":\"Re-queue: the construction attempt failed because the contract's ReviewSet result changed; regenerate the fake and rerun from the first incomplete phase.\",\"comments\":null}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "activity-resumed-state",
+                    "component": "deliveryManager",
+                    "operation": "QueryActivityView",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-review-engine"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityId\":\"C-review-engine\",\"state\":\"running\"}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SetProjectRunState",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "runState",
+                    "value": "running"
+                  },
+                  {
+                    "name": "reason",
+                    "value": "Vendor contract signed; resume construction."
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "run-state-running",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":false}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SetProjectRunState",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "runState",
+                    "value": "running"
+                  },
+                  {
+                    "name": "reason",
+                    "value": "Vendor contract signed; resume construction."
+                  }
+                ],
+                "expect": {
+                  "errorExpected": true,
+                  "errorCode": "FailedPrecondition"
+                },
+                "probes": [
+                  {
+                    "for": "run-state-still-paused",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":true}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":2}"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Change requests before approval.\",\"comments\":[{\"jsonPath\":\"$.containers[3].name\",\"text\":\"Rename to the volatility it encapsulates.\",\"anchorText\":\"BillingThing\",\"replyTo\":\"\"}]}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "obj-draft-sent-back",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"anchorText\":\"BillingThing\",\"status\":\"open\"}]}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":5,\"commentId\":\"dct-cr-0001\",\"commentStatus\":\"resolved\"}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "obj-thread-resolved",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"status\":\"resolved\"}]}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":2}"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Change requests before approval.\",\"comments\":[{\"jsonPath\":\"$.containers[3].name\",\"text\":\"Rename to the volatility it encapsulates.\",\"anchorText\":\"BillingThing\",\"replyTo\":\"\"}]}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "obj-draft-sent-back",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"anchorText\":\"BillingThing\",\"status\":\"open\"}]}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":2}"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "{\"notes\":\"Second round: one request is not resolved.\",\"comments\":[{\"jsonPath\":\"$.containers[3].responsibilities\",\"text\":\"The response renamed it but still lists invoicing; move invoicing out.\",\"anchorText\":\"invoicing\",\"replyTo\":\"\"}]}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "obj-draft-sent-back",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\"},{\"anchor\":\"$.containers[3].responsibilities\",\"anchorText\":\"invoicing\",\"status\":\"open\"}]}}"
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 5,
+                "operation": "SubmitReviewDecision",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "architecture"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "architectureReview"
+                  },
+                  {
+                    "name": "decision",
+                    "value": "{\"decision\":5,\"commentId\":\"dct-cr-0002\",\"commentStatus\":\"resolved\"}"
+                  }
+                ],
+                "expect": {},
+                "probes": [
+                  {
+                    "for": "obj-thread-resolved",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"status\":\"resolved\"},{\"anchor\":\"$.containers[3].responsibilities\",\"status\":\"resolved\"}]}}"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"PhaseName\":\"construction\"}}"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"PhaseName\":\"construction\"}}"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"PhaseName\":\"construction\"}}"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"PhaseName\":\"construction\"}}"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-the-project-state-log-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\"}}"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-the-project-state-log-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "QueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\"}}"
+                },
+                "probes": [
+                  {
+                    "for": "project-state-unchanged",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProjectVersion",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-owner/dct-delivery"
+                      }
+                    ],
+                    "expect": {
+                      "result": "7"
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          }
+        ]
+      },
       "designSessionAccess": {
         "component": "designSessionAccess",
         "bindings": []

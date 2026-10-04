@@ -127,10 +127,19 @@ func splice(raw []byte, component string, rec []byte) ([]byte, error) {
 	if at < 0 {
 		return nil, fmt.Errorf("no .phaseArtifacts.testPlan object in the document")
 	}
+	var b bytes.Buffer
+	if err := json.Indent(&b, bytes.TrimSpace(rec), "      ", "  "); err != nil {
+		return nil, err
+	}
+	entry := "      \"" + component + "\": " + b.String()
 	open := "\n      \"" + component + "\": {"
-	start := strings.Index(doc[at:], open)
+	objEnd := strings.Index(doc[at+len(section)-1:], "\n    }")
+	if objEnd < 0 {
+		return nil, fmt.Errorf("unterminated .phaseArtifacts.testPlan object")
+	}
+	start := strings.Index(doc[at:at+len(section)-1+objEnd], open)
 	if start < 0 {
-		return nil, fmt.Errorf("no testPlan entry for %s to replace", component)
+		return insert(doc, at+len(section)-1, component, entry)
 	}
 	start += at + 1
 	end := strings.Index(doc[start:], "\n      }")
@@ -138,10 +147,31 @@ func splice(raw []byte, component string, rec []byte) ([]byte, error) {
 		return nil, fmt.Errorf("unterminated testPlan entry for %s", component)
 	}
 	end += start + len("\n      }")
-	var b bytes.Buffer
-	if err := json.Indent(&b, bytes.TrimSpace(rec), "      ", "  "); err != nil {
-		return nil, err
-	}
-	entry := "      \"" + component + "\": " + b.String()
 	return []byte(doc[:start] + entry + doc[end:]), nil
+}
+
+// insert adds the entry for a component that has no testPlan key yet, at its sorted
+// position among the object's keys (the committed document keeps them sorted). body is
+// the index of the newline that opens the object's first key line.
+func insert(doc string, body int, component, entry string) ([]byte, error) {
+	closeAt := strings.Index(doc[body:], "\n    }")
+	if closeAt < 0 {
+		return nil, fmt.Errorf("unterminated .phaseArtifacts.testPlan object")
+	}
+	closeAt += body
+	const keyLine = "\n      \""
+	for pos := body; pos < closeAt; {
+		k := strings.Index(doc[pos:closeAt], keyLine)
+		if k < 0 {
+			break
+		}
+		k += pos
+		name := doc[k+len(keyLine):]
+		name = name[:strings.IndexByte(name, '"')]
+		if name > component {
+			return []byte(doc[:k+1] + entry + ",\n" + doc[k+1:]), nil
+		}
+		pos = k + len(keyLine)
+	}
+	return []byte(doc[:closeAt] + ",\n" + entry + doc[closeAt:]), nil
 }
