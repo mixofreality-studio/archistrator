@@ -10471,6 +10471,18 @@
                   },
                   {
                     "from": "delivery-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "openPullRequest(repo, head=activityBranch, base=main, cred) → PullRequestRef — the reviewable surface"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "RecordActivityBranchOpened(projectId, expectedVersion, activityId, branch, branchRef, prRef, crLabel, isRevert, cred) — dispatch time, right after openBranch + openPullRequest on the rail and before submitAgenticJob (csWorkflows.openActivityBranchAndPR): births the activity's git row with branch + PR coordinates and CI=Pending; the Tasks lens PR link (TasksLens git.prUrl) and the test-run venue URL (TestRunPanel) read prUrl from this row via projectStateToContract.GitRows"
+                  },
+                  {
+                    "from": "delivery-manager",
                     "to": "agentic-job-access",
                     "mode": "sync",
                     "label": "submitAgenticJob(command, workerClass, branch, contract, cred) — the task's agentic job"
@@ -10491,6 +10503,18 @@
                     "to": "agentic-job-access",
                     "mode": "sync",
                     "label": "observeAgenticJob(handle) → terminal phase + summary"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "GetPullRequestStatus(repo, pr, cred) → PullRequestStatus{CheckRollup} — on every observe poll of the dispatched job the PR's check rollup is read (readPRStatus, the same read the merge guard uses); a dormant git forward (the design arm, every local profile) skips this read and the mirror below"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "RecordActivityCIObserved(projectId, expectedVersion, activityId, ciRollup, cred) — on every observe poll of the dispatched job, after GetPullRequestStatus(repo, pr, cred) reads the PR's check rollup (observeDispatchedJob → mirrorCIRollup → observeCIAndRecord): the activity row's CI verdict tracks the build while the job runs; this is display only, so a failed write is logged and swallowed. The Tasks lens CI chip (TasksLens ciVerdictFor(git.ciStatus)) renders it"
                   },
                   {
                     "from": "delivery-manager",
@@ -10600,18 +10624,6 @@
               {
                 "activityNodeId": "propose-reviews",
                 "calls": [
-                  {
-                    "from": "delivery-manager",
-                    "to": "source-control-access",
-                    "mode": "sync",
-                    "label": "openPullRequest(repo, head=activityBranch, base=main, cred) → PullRequestRef — the reviewable surface"
-                  },
-                  {
-                    "from": "delivery-manager",
-                    "to": "project-state-access",
-                    "mode": "sync",
-                    "label": "RecordActivityBranchOpened(projectId, activityId, branch, branchRef, prRef, crLabel, isRevert) — mirror the activity branch and its pull request onto the activity's git row (births it with CI=Pending); the Tasks lens GitHub link and the test-run venue URL read prUrl from this row"
-                  },
                   {
                     "from": "delivery-manager",
                     "to": "review-engine",
