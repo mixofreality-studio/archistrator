@@ -63,6 +63,13 @@ func (i genInvokers) BillingStateReadBilling(ctx workflow.Context, customerID uu
 	return out, err
 }
 
+// BillingStateReadCycle invokes activity "billingStateAccess.readCycle".
+func (i genInvokers) BillingStateReadCycle(ctx workflow.Context, customerID uuid.UUID, cycle string) (billingstate.BillingCycle, error) {
+	var out billingstate.BillingCycle
+	err := workflow.ExecuteActivity(i.options(ctx, "billingStateAccess.readCycle"), "billingStateAccess.readCycle", customerID, cycle).Get(ctx, &out)
+	return out, err
+}
+
 // BillingStateReadPersistentlyDelinquentCustomers invokes activity "billingStateAccess.readPersistentlyDelinquentCustomers".
 func (i genInvokers) BillingStateReadPersistentlyDelinquentCustomers(ctx workflow.Context, scope billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error) {
 	var out []billingstate.CustomerSummary

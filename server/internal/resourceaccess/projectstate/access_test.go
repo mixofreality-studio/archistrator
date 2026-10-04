@@ -5380,6 +5380,22 @@ var wantAltTally = map[altCallKey]string{
 	{"var-register-operated-system", "request-registration", "operator", "mcp-client"}:           "s1",
 	{"var-register-operated-system", "request-registration", "web-client", "operations-manager"}: "s2",
 	{"var-register-operated-system", "request-registration", "mcp-client", "operations-manager"}: "s2",
+	// dct Plan 4 Task 5: replan-under-scope-change is redrawn as architect-initiated (the
+	// replan sweep it entered on is deleted), so its entry, its snapshot read and its
+	// re-entry into project design are client calls; view-a-billing-cycle is the new
+	// read variation that carries billingManager.GetBillingCycle.
+	{"var-replan-scope-change", "raise-scope-trigger", "architect-user", "web-client"}: "s1",
+	{"var-replan-scope-change", "raise-scope-trigger", "architect-user", "mcp-client"}: "s1",
+	{"var-replan-scope-change", "snapshot", "web-client", "delivery-manager"}:          "s2",
+	{"var-replan-scope-change", "snapshot", "mcp-client", "delivery-manager"}:          "s2",
+	{"var-replan-scope-change", "reenter", "architect-user", "web-client"}:             "s1",
+	{"var-replan-scope-change", "reenter", "architect-user", "mcp-client"}:             "s1",
+	{"var-replan-scope-change", "reenter", "web-client", "delivery-manager"}:           "s2",
+	{"var-replan-scope-change", "reenter", "mcp-client", "delivery-manager"}:           "s2",
+	{"var-view-billing-cycle", "open-billing-cycle", "architect-user", "web-client"}:   "s1",
+	{"var-view-billing-cycle", "open-billing-cycle", "architect-user", "mcp-client"}:   "s1",
+	{"var-view-billing-cycle", "read-billing-cycle", "web-client", "billing-manager"}:  "s2",
+	{"var-view-billing-cycle", "read-billing-cycle", "mcp-client", "billing-manager"}:  "s2",
 }
 
 // TestCommittedProjectJSON_DynamicViewCalls_Alt is the tolerant-decode regression
@@ -5455,6 +5471,7 @@ var wantDecidedByTally = map[string]int{
 	"operator":            2,
 	"operations-manager":  2,
 	"autoscaler-engine":   1,
+	"billing-manager":     1,
 	"review-engine":       1,
 }
 
@@ -5509,12 +5526,13 @@ func TestCommittedProjectJSON_ActivityNodes_DecidedBySplit(t *testing.T) {
 	if nodeCount == 0 {
 		t.Fatal("committed use cases have zero activity nodes across all decisions — fixture assumption no longer holds")
 	}
-	if decidedByCount != 23 {
-		t.Fatalf("committed activity nodes carry DecidedBy on %d nodes, want 23 (the Task-7 "+
+	if decidedByCount != 24 {
+		t.Fatalf("committed activity nodes carry DecidedBy on %d nodes, want 24 (the Task-7 "+
 			"architect spec's D-table explicit rows, re-measured at stage 4a: the two absorbed core "+
 			"use cases took six deciders with them and execute-a-project-activity brought three; dct "+
 			"Plan 4 Task 4 added two operations-manager guards — withdraw-a-delivered-system's "+
-			"already-withdrawn and view-live-deployment-health's anything-deployed) — "+
+			"already-withdrawn and view-live-deployment-health's anything-deployed; Task 5 added "+
+			"view-a-billing-cycle's billing-manager cycle-closed guard) — "+
 			"investigate drift, don't just re-pin", decidedByCount)
 	}
 	if !reflect.DeepEqual(gotTally, wantDecidedByTally) {

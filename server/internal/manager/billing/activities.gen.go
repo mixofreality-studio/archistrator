@@ -52,6 +52,13 @@ func (a *genActivities) BillingStateReadBilling(ctx context.Context, customerID 
 	return v, fwmanager.MapError(err)
 }
 
+// BillingStateReadCycle wraps billingStateAccess.readCycle.
+// Registered as "billingStateAccess.readCycle".
+func (a *genActivities) BillingStateReadCycle(ctx context.Context, customerID uuid.UUID, cycle string) (billingstate.BillingCycle, error) {
+	v, err := a.BillingState.ReadCycle(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, customerID, cycle)
+	return v, fwmanager.MapError(err)
+}
+
 // BillingStateReadPersistentlyDelinquentCustomers wraps billingStateAccess.readPersistentlyDelinquentCustomers.
 // Registered as "billingStateAccess.readPersistentlyDelinquentCustomers".
 func (a *genActivities) BillingStateReadPersistentlyDelinquentCustomers(ctx context.Context, scope billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error) {

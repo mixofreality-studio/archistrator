@@ -263,6 +263,18 @@ func internalToolCatalog() []InternalTool {
 			OutputSchema: json.RawMessage("{\"$defs\":{\"Billing\":{\"type\":\"object\",\"properties\":{\"ID\":{\"type\":\"string\",\"format\":\"uuid\",\"x-go-import\":\"github.com/google/uuid\",\"x-go-type\":\"uuid.UUID\"},\"Version\":{\"$ref\":\"#/$defs/Version\"},\"GatewayBound\":{\"type\":\"boolean\"},\"Registered\":{\"type\":\"boolean\"},\"Terms\":{\"$ref\":\"#/$defs/BillingTerms\"}},\"required\":[\"ID\",\"Version\",\"GatewayBound\",\"Registered\",\"Terms\"],\"additionalProperties\":false},\"BillingTerms\":{\"type\":\"object\",\"properties\":{\"ComputeCostKind\":{\"type\":\"integer\"},\"ScheduleKind\":{\"type\":\"integer\"},\"BillingKind\":{\"type\":\"integer\"}},\"required\":[\"ComputeCostKind\",\"ScheduleKind\",\"BillingKind\"],\"additionalProperties\":false},\"Version\":{\"type\":\"integer\",\"x-go-type\":\"uint64\"}},\"$ref\":\"#/$defs/Billing\"}"),
 		},
 		{
+			Name:         "billingStateReadCycle",
+			Component:    "billingStateAccess",
+			Layer:        "ResourceAccess",
+			Operation:    "ReadCycle",
+			Params:       []string{"customerID", "cycle"},
+			ReadOnly:     true,
+			AgentHidden:  false,
+			Description:  "ReadCycle on the billingStateAccess ResourceAccess contract (read-only). Raw generated internal tool.",
+			InputSchema:  json.RawMessage("{\"additionalProperties\":false,\"properties\":{\"customerID\":{\"type\":\"string\",\"format\":\"uuid\",\"x-go-import\":\"github.com/google/uuid\",\"x-go-type\":\"uuid.UUID\"},\"cycle\":{\"type\":\"string\"}},\"required\":[\"customerID\",\"cycle\"],\"type\":\"object\"}"),
+			OutputSchema: json.RawMessage("{\"$defs\":{\"BillingCycle\":{\"type\":\"object\",\"properties\":{\"Cycle\":{\"type\":\"string\"},\"Settled\":{\"type\":\"boolean\",\"description\":\"True once the cycle's close recorded its outcome (settleCycle); false while the period is open.\"},\"Outcome\":{\"$ref\":\"#/$defs/BillingOutcome\"}},\"required\":[\"Cycle\",\"Settled\",\"Outcome\"],\"additionalProperties\":false,\"description\":\"One billing cycle as head state records it: the settled outcome of its close, or Settled=false (zero outcome) while it is open.\"},\"BillingOutcome\":{\"type\":\"object\",\"properties\":{\"Net\":{\"$ref\":\"#/$defs/Money\"},\"Directive\":{\"$ref\":\"#/$defs/RoutingDirective\"},\"Escalated\":{\"type\":\"boolean\"}},\"required\":[\"Net\",\"Directive\",\"Escalated\"],\"additionalProperties\":false},\"Money\":{\"type\":\"object\",\"properties\":{\"MinorUnits\":{\"type\":\"integer\"},\"Currency\":{\"type\":\"string\"}},\"required\":[\"MinorUnits\",\"Currency\"],\"additionalProperties\":false},\"RoutingDirective\":{\"type\":\"integer\",\"enum\":[0,2],\"x-enum-varnames\":[\"RoutingNoAction\",\"RoutingCharge\"],\"x-go-base\":\"int\",\"description\":\"Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned — never reuse.\"}},\"$ref\":\"#/$defs/BillingCycle\"}"),
+		},
+		{
 			Name:         "billingStateReadPersistentlyDelinquentCustomers",
 			Component:    "billingStateAccess",
 			Layer:        "ResourceAccess",

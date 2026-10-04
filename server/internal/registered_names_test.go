@@ -112,6 +112,7 @@ var registeredTemporalNamesGolden = []string{
 	"billingShortfallSweep",
 	"billingStateAccess.bindGatewayLive",
 	"billingStateAccess.readBilling",
+	"billingStateAccess.readCycle",
 	"billingStateAccess.readPersistentlyDelinquentCustomers",
 	"billingStateAccess.registerCustomer",
 	"billingStateAccess.resettleCycle",
