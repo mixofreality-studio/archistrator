@@ -50093,7 +50093,319 @@
       },
       "usageAccess": {
         "component": "usageAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "bill-the-user-for-usage-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadRange",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"CycleID\":\"2026-09\",\"OperatedAppID\":null}",
+                    "schemaRef": "#/$defs/UsageRangeQuery"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0001\",\"Units\":{\"Amount\":12.5,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0002\",\"Units\":{\"Amount\":7.25,\"Unit\":\"vCPU-hour\"}}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "read-hosting-usage",
+                    "component": "usageAccess",
+                    "operation": "ReadRange",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"CycleID\":\"2026-09\",\"OperatedAppID\":null}",
+                        "schemaRef": "#/$defs/UsageRangeQuery"
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0001\",\"Units\":{\"Amount\":12.5,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0002\",\"Units\":{\"Amount\":7.25,\"Unit\":\"vCPU-hour\"}}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadRange",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"CycleID\":\"2026-09\",\"OperatedAppID\":null}",
+                    "schemaRef": "#/$defs/UsageRangeQuery"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0001\",\"Units\":{\"Amount\":40.0,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0002\",\"Units\":{\"Amount\":3.5,\"Unit\":\"vCPU-hour\"}}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "read-hosting-usage",
+                    "component": "usageAccess",
+                    "operation": "ReadRange",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"CycleID\":\"2026-09\",\"OperatedAppID\":null}",
+                        "schemaRef": "#/$defs/UsageRangeQuery"
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0001\",\"Units\":{\"Amount\":40.0,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0002\",\"Units\":{\"Amount\":3.5,\"Unit\":\"vCPU-hour\"}}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadRange",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"CycleID\":\"2026-09\",\"OperatedAppID\":null}",
+                    "schemaRef": "#/$defs/UsageRangeQuery"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p3-0001\",\"Units\":{\"Amount\":0.5,\"Unit\":\"vCPU-hour\"}}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "read-hosting-usage",
+                    "component": "usageAccess",
+                    "operation": "ReadRange",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"CycleID\":\"2026-09\",\"OperatedAppID\":null}",
+                        "schemaRef": "#/$defs/UsageRangeQuery"
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p3-0001\",\"Units\":{\"Amount\":0.5,\"Unit\":\"vCPU-hour\"}}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordComputeUsage",
+                "inputs": [
+                  {
+                    "name": "events",
+                    "value": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0004\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"},\"RuntimeEventID\":\"rt-ops-p4-tick-0001\",\"RawMeter\":\"eyJjcHUiOjEyLjV9\",\"WindowStart\":\"2026-10-03T10:00:00Z\",\"WindowEnd\":\"2026-10-03T10:15:00Z\",\"OccurredAt\":\"2026-10-03T10:15:00Z\",\"RecordedAt\":\"2026-10-03T10:15:00Z\",\"Ref\":\"stp-usage-ops-p4-ref-1\"}]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "compute-usage-recorded",
+                    "component": "usageAccess",
+                    "operation": "ReadRange",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0004\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "schemaRef": "#/$defs/UsageRangeQuery"
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0004\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p4-tick-0001\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"}}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordComputeUsage",
+                "inputs": [
+                  {
+                    "name": "events",
+                    "value": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"},\"RuntimeEventID\":\"rt-ops-p5-tick-0001\",\"RawMeter\":\"eyJjcHUiOjEyLjV9\",\"WindowStart\":\"2026-10-03T10:00:00Z\",\"WindowEnd\":\"2026-10-03T10:15:00Z\",\"OccurredAt\":\"2026-10-03T10:15:00Z\",\"RecordedAt\":\"2026-10-03T10:15:00Z\",\"Ref\":\"stp-usage-ops-p5-ref-1\"},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"Units\":{\"Amount\":1.0,\"Unit\":\"vCPU-hour\"},\"RuntimeEventID\":\"rt-ops-p5-tick-0002\",\"RawMeter\":\"eyJjcHUiOjEyLjV9\",\"WindowStart\":\"2026-10-03T10:15:00Z\",\"WindowEnd\":\"2026-10-03T10:30:00Z\",\"OccurredAt\":\"2026-10-03T10:30:00Z\",\"RecordedAt\":\"2026-10-03T10:30:00Z\",\"Ref\":\"stp-usage-ops-p5-ref-2\"}]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "compute-usage-recorded",
+                    "component": "usageAccess",
+                    "operation": "ReadRange",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "schemaRef": "#/$defs/UsageRangeQuery"
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p5-tick-0001\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p5-tick-0002\",\"Units\":{\"Amount\":1.0,\"Unit\":\"vCPU-hour\"}}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-operating-cost-projection-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadRange",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                    "schemaRef": "#/$defs/UsageRangeQuery"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-view-p1-0001\",\"Units\":{\"Amount\":6.0,\"Unit\":\"vCPU-hour\"}}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "read-usage",
+                    "component": "usageAccess",
+                    "operation": "ReadRange",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "schemaRef": "#/$defs/UsageRangeQuery"
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-view-p1-0001\",\"Units\":{\"Amount\":6.0,\"Unit\":\"vCPU-hour\"}}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordComputeUsage",
+                "inputs": [
+                  {
+                    "name": "events",
+                    "value": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"},\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"RawMeter\":\"eyJjcHUiOjEyLjV9\",\"WindowStart\":\"2026-10-03T00:00:00Z\",\"WindowEnd\":\"2026-10-03T11:42:00Z\",\"OccurredAt\":\"2026-10-03T11:42:00Z\",\"RecordedAt\":\"2026-10-03T11:42:00Z\",\"Ref\":\"stp-usage-withdraw-p2-ref-final\"}]",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-final-usage",
+                    "component": "usageAccess",
+                    "operation": "ReadRange",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "schemaRef": "#/$defs/UsageRangeQuery"
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"}}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "compute-usage-final",
+                    "component": "usageAccess",
+                    "operation": "ReadRange",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "schemaRef": "#/$defs/UsageRangeQuery"
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"}}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          }
+        ]
       }
     }
   },
