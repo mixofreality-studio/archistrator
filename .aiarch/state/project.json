@@ -45336,7 +45336,779 @@
       },
       "gitActivityStatusAccess": {
         "component": "gitActivityStatusAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordActivityBranchOpened",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "12",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branchRef",
+                    "value": "refs/heads/activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "prRef",
+                    "value": "https://github.com/mixofreality-studio/stp-fixture/pull/101",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "crLabel",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "isRevert",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P1-s1-branch-opened",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "13",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordActivityCIObserved",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "13",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "ci",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P1-s2-ci-success",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "14",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordActivityBranchOpened",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "12",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branchRef",
+                    "value": "refs/heads/activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "prRef",
+                    "value": "https://github.com/mixofreality-studio/stp-fixture/pull/102",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "crLabel",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "isRevert",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P2-s1-branch-opened",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "13",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordActivityCIObserved",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "13",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "ci",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P2-s2-ci-failure",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "14",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordActivityCIObserved",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "12",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "ci",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P3-s1-ci-success",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "13",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordActivityCIObserved",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "12",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "ci",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P4-s1-ci-success",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "13",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordActivityBranchOpened",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "12",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branchRef",
+                    "value": "refs/heads/activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "prRef",
+                    "value": "https://github.com/mixofreality-studio/stp-fixture/pull/105",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "crLabel",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "isRevert",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P5-s1-branch-opened",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "13",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordActivityCIObserved",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "13",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "ci",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P5-s2-ci-failure",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "14",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "RecordActivityBranchOpened",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "14",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branchRef",
+                    "value": "refs/heads/activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "prRef",
+                    "value": "https://github.com/mixofreality-studio/stp-fixture/pull/105",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "crLabel",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "isRevert",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P5-s3-branch-opened",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "15",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "RecordActivityCIObserved",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "15",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "ci",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P5-s4-ci-success",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "16",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordActivityBranchOpened",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P6",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "12",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branchRef",
+                    "value": "refs/heads/activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "prRef",
+                    "value": "https://github.com/mixofreality-studio/stp-fixture/pull/106",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "crLabel",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "isRevert",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P6-s1-branch-opened",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "13",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordActivityCIObserved",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P6",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "13",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "ci",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P6-s2-ci-failure",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "14",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordActivityBranchOpened",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P7",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "12",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branchRef",
+                    "value": "refs/heads/activity/C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "prRef",
+                    "value": "https://github.com/mixofreality-studio/stp-fixture/pull/107",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "crLabel",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "isRevert",
+                    "value": "false",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P7-s1-branch-opened",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "13",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordActivityCIObserved",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-gas-P7",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "13",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-DM",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "ci",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-gas-P7-s2-ci-success",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "14",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
       },
       "interventionEngine": {
         "component": "interventionEngine",
