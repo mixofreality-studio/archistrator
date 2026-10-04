@@ -37452,7 +37452,1084 @@
       },
       "agenticJobAccess": {
         "component": "agenticJobAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-auc-P1\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/core-use-cases-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-useCases\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P1-1\",\"artifact_kind\":\"CoreUseCases\",\"command\":\"core-use-cases-draft\",\"target_branch\":\"aiarch/session/architecture-useCases\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-auc-P1\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P1-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aja-auc-P1",
+                        "schemaRef": "#/$defs/ProjectID"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aja-auc-P1\",\"slots\":{\"5\":{\"status\":2}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-auc-P2\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/core-use-cases-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-useCases\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P2-1\",\"artifact_kind\":\"CoreUseCases\",\"command\":\"core-use-cases-draft\",\"target_branch\":\"aiarch/session/architecture-useCases\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-auc-P2\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P2-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aja-auc-P2",
+                        "schemaRef": "#/$defs/ProjectID"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aja-auc-P2\",\"slots\":{\"5\":{\"status\":2}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-auc-P3\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/core-use-cases-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-useCases\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P3-1\",\"artifact_kind\":\"CoreUseCases\",\"command\":\"core-use-cases-draft\",\"target_branch\":\"aiarch/session/architecture-useCases\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P3\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-auc-P3\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P3-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P3\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aja-auc-P3",
+                        "schemaRef": "#/$defs/ProjectID"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aja-auc-P3\",\"slots\":{\"5\":{\"status\":2}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-auc-P4\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/core-use-cases-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-useCases\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P4-1\",\"artifact_kind\":\"CoreUseCases\",\"command\":\"core-use-cases-draft\",\"target_branch\":\"aiarch/session/architecture-useCases\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P4\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-auc-P4\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P4-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P4\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aja-auc-P4",
+                        "schemaRef": "#/$defs/ProjectID"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aja-auc-P4\",\"slots\":{\"5\":{\"status\":2}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-acq-P1\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/design-answer\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-acq-P1-1\",\"artifact_kind\":\"System\",\"command\":\"design-answer\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"aiarch/session/architecture-system\",\"job_mode\":\"answer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-acq-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-acq-P1-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":2,\"FailedStep\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-acq-P2\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/design-answer\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-acq-P2-1\",\"artifact_kind\":\"System\",\"command\":\"design-answer\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"aiarch/session/architecture-system\",\"job_mode\":\"answer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-acq-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-acq-P2-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":3,\"FailedStep\":\"agent\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-acq-P3\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/design-answer\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/answer/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-acq-P3-1\",\"artifact_kind\":\"System\",\"command\":\"design-answer\",\"target_branch\":\"aiarch/answer/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"answer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-acq-P3\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-acq-P3-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":2,\"FailedStep\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-acq-P4\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/design-answer\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/answer/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-acq-P4-1\",\"artifact_kind\":\"System\",\"command\":\"design-answer\",\"target_branch\":\"aiarch/answer/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"answer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-acq-P4\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-acq-P4-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":3,\"FailedStep\":\"agent\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-epa-P1\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P1-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P1\"},\"WorkflowFile\":\"aiarch-construct.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "dispatch-task"
+                ],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-epa-P1-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":2,\"FailedStep\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-epa-P2\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P2-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P2\"},\"WorkflowFile\":\"aiarch-construct.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "dispatch-task"
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-epa-P2-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":3,\"FailedStep\":\"construct\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-epa-P3\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P3-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"review\",\"role\":\"architect\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P3\"},\"WorkflowFile\":\"aiarch-construct.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-epa-P3-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":2,\"FailedStep\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-epa-P5\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P5-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P5\"},\"WorkflowFile\":\"aiarch-construct.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "dispatch-task"
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-epa-P5-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":3,\"FailedStep\":\"construct\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-epa-P5\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P5-3\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P5\"},\"WorkflowFile\":\"aiarch-construct.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "dispatch-task"
+                ],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-epa-P5-handle-3",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":2,\"FailedStep\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-epa-P6\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P6-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P6\"},\"WorkflowFile\":\"aiarch-construct.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "dispatch-task"
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-epa-P6-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":3,\"FailedStep\":\"construct\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-epa-P7\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P7-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"review\",\"role\":\"architect\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P7\"},\"WorkflowFile\":\"aiarch-construct.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-epa-P7-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":2,\"FailedStep\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-epa-P7\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P7-3\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\",\"operator_note\":\"review sendBack: address the reviewer's anchored comments (revision 2)\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P7\"},\"WorkflowFile\":\"aiarch-construct.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "dispatch-task"
+                ],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-epa-P7-handle-3",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":2,\"FailedStep\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-rsc-P1\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-rsc-P1-1\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-rsc-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "system-amendment-open",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aja-rsc-P1",
+                        "schemaRef": "#/$defs/ProjectID"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "aiarch/session/architecture-system",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aja-rsc-P1\",\"slots\":{\"5\":{\"status\":1}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "notify-returned-to-design"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-rsc-P2\",\"ActivityID\":\"projectDesign\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/activity-list-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-projectDesign\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/projectDesign-activityList\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-rsc-P2-1\",\"artifact_kind\":\"ActivityList\",\"command\":\"activity-list-draft\",\"target_branch\":\"aiarch/session/projectDesign-activityList\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-rsc-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-rsc-P3\",\"ActivityID\":\"projectDesign\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/network-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-projectDesign\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/projectDesign-network\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-rsc-P3-1\",\"artifact_kind\":\"Network\",\"command\":\"network-draft\",\"target_branch\":\"aiarch/session/projectDesign-network\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-rsc-P3\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "requeue-a-failed-construction-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-rfa-P1\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-rfa-P1-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\",\"operator_note\":\"requeue: the prior attempt failed on a flaky venue step; resume from the staged branch\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-rfa-P1\"},\"WorkflowFile\":\"aiarch-construct.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-sbr-P1\",\"ActivityID\":\"requirements\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/mission-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-requirements\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/requirements-mission\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-sbr-P1-1\",\"artifact_kind\":\"Mission\",\"command\":\"mission-draft\",\"target_branch\":\"aiarch/session/requirements-mission\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-sbr-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-sbr-P1-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":2,\"FailedStep\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-thread-answered",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aja-sbr-P1",
+                        "schemaRef": "#/$defs/ProjectID"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "aiarch/session/requirements-mission",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aja-sbr-P1\",\"slots\":{\"0\":{\"reviewThread\":[{\"type\":\"changeRequest\",\"status\":\"answered\"}]}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-sbr-P2\",\"ActivityID\":\"requirements\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/mission-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-requirements\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/requirements-mission\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-sbr-P2-1\",\"artifact_kind\":\"Mission\",\"command\":\"mission-draft\",\"target_branch\":\"aiarch/session/requirements-mission\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-sbr-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-sbr-P2-handle-1",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":2,\"FailedStep\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-thread-answered",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aja-sbr-P2",
+                        "schemaRef": "#/$defs/ProjectID"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "aiarch/session/requirements-mission",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aja-sbr-P2\",\"slots\":{\"0\":{\"reviewThread\":[{\"type\":\"changeRequest\",\"status\":\"answered\"}]}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SubmitAgenticJob",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"ProjectID\":\"stp-aja-sbr-P2\",\"ActivityID\":\"requirements\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/mission-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-requirements\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/requirements-mission\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-sbr-P2-3\",\"artifact_kind\":\"Mission\",\"command\":\"mission-draft\",\"target_branch\":\"aiarch/session/requirements-mission\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-sbr-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}",
+                    "schemaRef": "#/$defs/PipelineSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "ObserveAgenticJob",
+                "inputs": [
+                  {
+                    "name": "handle",
+                    "value": "stp-aja-sbr-P2-handle-3",
+                    "schemaRef": "#/$defs/PipelineHandle"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Phase\":2,\"FailedStep\":\"\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-thread-answered",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aja-sbr-P2",
+                        "schemaRef": "#/$defs/ProjectID"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "aiarch/session/requirements-mission",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aja-sbr-P2\",\"slots\":{\"0\":{\"reviewThread\":[{\"type\":\"changeRequest\",\"status\":\"answered\"}]}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
       },
       "artifactAccess": {
         "component": "artifactAccess",
