@@ -33126,7 +33126,4329 @@
     "testPlan": {
       "activityExecutionAccess": {
         "component": "activityExecutionAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-auc-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-auc-p1:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"coreUseCasesDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-auc-p1"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-auc-p1\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-auc-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-auc-p2:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"coreUseCasesDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-auc-p2"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-auc-p2\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-auc-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-auc-p3:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"coreUseCasesDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-auc-p3"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-auc-p3\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-auc-p4"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "coreUseCasesDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-auc-p4:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"coreUseCasesDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-auc-p4"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-auc-p4\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendReviewVerdict",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-ask-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "verdict",
+                    "value": "{\"reviewerRole\":\"operator\",\"actor\":\"operator\",\"verdict\":\"abstain\",\"summary\":\"Clarifying questions before a verdict.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
+                  },
+                  {
+                    "name": "comments",
+                    "value": "[{\"id\":\"q-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Does 'operated' include billing the customer?\",\"authorRole\":\"operator\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"question\",\"addressee\":\"system-architect\"}]"
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-ask-p1:verdict:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "thread-open-on-session-branch",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-ask-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SetReviewCommentStatus",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-ask-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "commentID",
+                    "value": "q-1"
+                  },
+                  {
+                    "name": "status",
+                    "value": "answered"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-ask-p1:answer:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "question-answered",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-ask-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"answered\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendReviewVerdict",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-ask-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "verdict",
+                    "value": "{\"reviewerRole\":\"operator\",\"actor\":\"operator\",\"verdict\":\"abstain\",\"summary\":\"Clarifying questions before a verdict.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
+                  },
+                  {
+                    "name": "comments",
+                    "value": "[{\"id\":\"q-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Does 'operated' include billing the customer?\",\"authorRole\":\"operator\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"question\",\"addressee\":\"system-architect\"}]"
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-ask-p2:verdict:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "thread-open-on-session-branch",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-ask-p2"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SetReviewCommentStatus",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-ask-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "commentID",
+                    "value": "q-1"
+                  },
+                  {
+                    "name": "status",
+                    "value": "answered"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-ask-p3:answer:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "question-answered",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-ask-p3"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"answered\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "typ",
+                    "value": "7"
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0"
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p1:open"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "activity-lifecycle-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadActivityExecution",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p1"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                  "errorExpected": false
+                },
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "missionDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"mission\",\"model\":{\"vision\":\"Predictably engineered software, delivered and operated on the customer's behalf.\",\"mission\":\"Deliver predictably engineered software.\",\"objectives\":[{\"number\":1,\"statement\":\"Customers receive a duration, cost and risk estimate before any code is written.\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p1:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "RecordAttemptOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "attempt",
+                    "value": "{\"attemptId\":\"D-REQ:missionDraft:1\",\"taskId\":\"missionDraft\",\"attempt\":1,\"actor\":\"agent\",\"outcome\":\"passed\",\"evidenceKind\":\"episode\",\"evidenceRef\":\"ep-stp-aea-epa-p1-missionDraft-1\",\"detail\":\"\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p1:attempt:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "staged-artifact",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p1"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p1\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "observe-validate",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p1"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p1\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "attempt-episode",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"passed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p1-missionDraft-1\"}}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "RecordActivityOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "1"
+                  },
+                  {
+                    "name": "reason",
+                    "value": "0"
+                  },
+                  {
+                    "name": "detail",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p1:exit"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "typ",
+                    "value": "7"
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0"
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p2:open"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "activity-lifecycle-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p2"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadActivityExecution",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p2"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                  "errorExpected": false
+                },
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "missionDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"mission\",\"model\":{\"vision\":\"Predictably engineered software, delivered and operated on the customer's behalf.\",\"mission\":\"Draft that misses the exit criterion.\",\"objectives\":[{\"number\":1,\"statement\":\"Customers receive a duration, cost and risk estimate before any code is written.\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p2:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "RecordAttemptOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "attempt",
+                    "value": "{\"attemptId\":\"D-REQ:missionDraft:1\",\"taskId\":\"missionDraft\",\"attempt\":1,\"actor\":\"agent\",\"outcome\":\"failed\",\"evidenceKind\":\"episode\",\"evidenceRef\":\"ep-stp-aea-epa-p2-missionDraft-1\",\"detail\":\"\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p2:attempt:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "staged-artifact",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p2"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p2\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Draft that misses the exit criterion.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "observe-validate",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p2"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p2\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Draft that misses the exit criterion.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "attempt-episode",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p2"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p2-missionDraft-1\"}}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "RecordOperatorNote",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "note",
+                    "value": "{\"noteId\":\"stp-aea-epa-p2:takeover:mission\",\"kind\":3,\"gate\":\"mission\",\"text\":\"Taking this task over: the agent cannot meet the exit criterion.\",\"comments\":null}"
+                  },
+                  {
+                    "name": "deliveredToAttemptID",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p2:note:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "operator-note-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p2"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"noteId\":\"stp-aea-epa-p2:takeover:mission\",\"kind\":3,\"gate\":\"mission\",\"text\":\"Taking this task over: the agent cannot meet the exit criterion.\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 6,
+                "operation": "RecordActivityOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "3"
+                  },
+                  {
+                    "name": "reason",
+                    "value": "0"
+                  },
+                  {
+                    "name": "detail",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p2:exit"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "typ",
+                    "value": "7"
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0"
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p3:open"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "activity-lifecycle-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p3"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadActivityExecution",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p3"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                  "errorExpected": false
+                },
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "OpenReviewRound",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "round",
+                    "value": "{\"roundId\":\"D-REQ:missionReview:mission:1\",\"taskId\":\"missionReview\",\"reviews\":\"missionDraft\",\"artifactKind\":\"mission\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p3#pr-1\"},\"reviewers\":[{\"role\":\"productManager\",\"actor\":\"agent:product-manager\",\"required\":true}]}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p3:round:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "review-pr-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p3"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p3#pr-1\"},\"outcome\":\"pending\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "AppendReviewVerdict",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "verdict",
+                    "value": "{\"reviewerRole\":\"productManager\",\"actor\":\"agent:product-manager\",\"verdict\":\"approve\",\"summary\":\"Mission meets the exit criterion.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
+                  },
+                  {
+                    "name": "comments",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p3:verdict:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p3"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"reviewerRole\":\"productManager\",\"actor\":\"agent:product-manager\",\"verdict\":\"approve\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "DecideReviewRound",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "passed"
+                  },
+                  {
+                    "name": "decidedBy",
+                    "value": "delivery-manager"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p3:decide:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p3"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"passed\",\"decidedBy\":\"delivery-manager\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 6,
+                "operation": "RecordActivityOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "1"
+                  },
+                  {
+                    "name": "reason",
+                    "value": "0"
+                  },
+                  {
+                    "name": "detail",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p3:exit"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p4"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "typ",
+                    "value": "7"
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0"
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p4:open"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "activity-lifecycle-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p4"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadActivityExecution",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p4"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                  "errorExpected": false
+                },
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "OpenReviewRound",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p4"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "round",
+                    "value": "{\"roundId\":\"D-REQ:missionReview:mission:1\",\"taskId\":\"missionReview\",\"reviews\":\"missionDraft\",\"artifactKind\":\"mission\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p4#pr-1\"},\"reviewers\":[{\"role\":\"productManager\",\"actor\":\"agent:product-manager\",\"required\":true},{\"role\":\"architect\",\"actor\":\"architect-user\",\"required\":true}]}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p4:round:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "review-pr-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p4"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p4#pr-1\"},\"outcome\":\"pending\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "AppendReviewVerdict",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p4"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "verdict",
+                    "value": "{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"approve\",\"summary\":\"Approved by the architect.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
+                  },
+                  {
+                    "name": "comments",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p4:verdict:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p4"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"approve\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "DecideReviewRound",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p4"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "passed"
+                  },
+                  {
+                    "name": "decidedBy",
+                    "value": "architect-user"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p4:decide:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p4"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"passed\",\"decidedBy\":\"architect-user\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 6,
+                "operation": "RecordActivityOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p4"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "1"
+                  },
+                  {
+                    "name": "reason",
+                    "value": "0"
+                  },
+                  {
+                    "name": "detail",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p4:exit"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p5"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "typ",
+                    "value": "7"
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0"
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p5:open"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "activity-lifecycle-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p5"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadActivityExecution",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p5"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                  "errorExpected": false
+                },
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p5"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "missionDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"mission\",\"model\":{\"vision\":\"Predictably engineered software, delivered and operated on the customer's behalf.\",\"mission\":\"First draft that misses the exit criterion.\",\"objectives\":[{\"number\":1,\"statement\":\"Customers receive a duration, cost and risk estimate before any code is written.\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p5:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "RecordAttemptOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p5"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "attempt",
+                    "value": "{\"attemptId\":\"D-REQ:missionDraft:1\",\"taskId\":\"missionDraft\",\"attempt\":1,\"actor\":\"agent\",\"outcome\":\"failed\",\"evidenceKind\":\"episode\",\"evidenceRef\":\"ep-stp-aea-epa-p5-missionDraft-1\",\"detail\":\"\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p5:attempt:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "staged-artifact",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p5"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p5\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"First draft that misses the exit criterion.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "observe-validate",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p5"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p5\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"First draft that misses the exit criterion.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "attempt-episode",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p5"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p5-missionDraft-1\"}}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p5"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "missionDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"mission\",\"model\":{\"vision\":\"Predictably engineered software, delivered and operated on the customer's behalf.\",\"mission\":\"Deliver predictably engineered software, retried.\",\"objectives\":[{\"number\":1,\"statement\":\"Customers receive a duration, cost and risk estimate before any code is written.\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p5:stage:2"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "hook": false
+              },
+              {
+                "seq": 6,
+                "operation": "RecordAttemptOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p5"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "attempt",
+                    "value": "{\"attemptId\":\"D-REQ:missionDraft:2\",\"taskId\":\"missionDraft\",\"attempt\":2,\"actor\":\"agent\",\"outcome\":\"passed\",\"evidenceKind\":\"episode\",\"evidenceRef\":\"ep-stp-aea-epa-p5-missionDraft-2\",\"detail\":\"\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p5:attempt:2"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "staged-artifact",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p5"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p5\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software, retried.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "observe-validate",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p5"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p5\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software, retried.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "attempt-episode",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p5"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p5-missionDraft-1\"}},{\"attemptId\":\"D-REQ:missionDraft:2\",\"attempt\":2,\"outcome\":\"passed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p5-missionDraft-2\"}}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 7,
+                "operation": "RecordActivityOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p5"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "1"
+                  },
+                  {
+                    "name": "reason",
+                    "value": "0"
+                  },
+                  {
+                    "name": "detail",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p5:exit"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p6"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "typ",
+                    "value": "7"
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0"
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p6:open"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "activity-lifecycle-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p6"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadActivityExecution",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p6"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                  "errorExpected": false
+                },
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p6"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "missionDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"mission\",\"model\":{\"vision\":\"Predictably engineered software, delivered and operated on the customer's behalf.\",\"mission\":\"Draft that misses the exit criterion.\",\"objectives\":[{\"number\":1,\"statement\":\"Customers receive a duration, cost and risk estimate before any code is written.\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p6:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "RecordAttemptOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p6"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "attempt",
+                    "value": "{\"attemptId\":\"D-REQ:missionDraft:1\",\"taskId\":\"missionDraft\",\"attempt\":1,\"actor\":\"agent\",\"outcome\":\"failed\",\"evidenceKind\":\"episode\",\"evidenceRef\":\"ep-stp-aea-epa-p6-missionDraft-1\",\"detail\":\"\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p6:attempt:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "staged-artifact",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p6"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p6\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Draft that misses the exit criterion.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "observe-validate",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p6"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p6\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Draft that misses the exit criterion.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "attempt-episode",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p6"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p6-missionDraft-1\"}}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "RecordOperatorNote",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p6"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "note",
+                    "value": "{\"noteId\":\"stp-aea-epa-p6:reassign:mission\",\"kind\":4,\"gate\":\"mission\",\"text\":\"Reassigning to a second worker while the escalation stays open.\",\"comments\":null}"
+                  },
+                  {
+                    "name": "deliveredToAttemptID",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p6:note:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "operator-note-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p6"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"noteId\":\"stp-aea-epa-p6:reassign:mission\",\"kind\":4,\"gate\":\"mission\",\"text\":\"Reassigning to a second worker while the escalation stays open.\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 6,
+                "operation": "RecordOperatorNote",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p6"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "note",
+                    "value": "{\"noteId\":\"stp-aea-epa-p6:takeover:mission\",\"kind\":3,\"gate\":\"mission\",\"text\":\"Taking this task over after the escalation window.\",\"comments\":null}"
+                  },
+                  {
+                    "name": "deliveredToAttemptID",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p6:note:2"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "operator-note-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p6"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"noteId\":\"stp-aea-epa-p6:reassign:mission\",\"kind\":4,\"gate\":\"mission\",\"text\":\"Reassigning to a second worker while the escalation stays open.\"},{\"noteId\":\"stp-aea-epa-p6:takeover:mission\",\"kind\":3,\"gate\":\"mission\",\"text\":\"Taking this task over after the escalation window.\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 7,
+                "operation": "RecordActivityOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p6"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "3"
+                  },
+                  {
+                    "name": "reason",
+                    "value": "0"
+                  },
+                  {
+                    "name": "detail",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p6:exit"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p7"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "typ",
+                    "value": "7"
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0"
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p7:open"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "activity-lifecycle-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p7"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadActivityExecution",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p7"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                  "errorExpected": false
+                },
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "OpenReviewRound",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p7"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "round",
+                    "value": "{\"roundId\":\"D-REQ:missionReview:mission:1\",\"taskId\":\"missionReview\",\"reviews\":\"missionDraft\",\"artifactKind\":\"mission\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p7#pr-1\"},\"reviewers\":[{\"role\":\"productManager\",\"actor\":\"agent:product-manager\",\"required\":true}]}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p7:round:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "review-pr-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p7"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p7#pr-1\"},\"outcome\":\"pending\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "AppendReviewVerdict",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p7"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "verdict",
+                    "value": "{\"reviewerRole\":\"productManager\",\"actor\":\"agent:product-manager\",\"verdict\":\"sendBack\",\"summary\":\"The mission names no customer outcome.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
+                  },
+                  {
+                    "name": "comments",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p7:verdict:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p7"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"reviewerRole\":\"productManager\",\"actor\":\"agent:product-manager\",\"verdict\":\"sendBack\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "DecideReviewRound",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p7"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "sentBack"
+                  },
+                  {
+                    "name": "decidedBy",
+                    "value": "delivery-manager"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p7:decide:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p7"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"sentBack\",\"decidedBy\":\"delivery-manager\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 6,
+                "operation": "ReadActivityExecution",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p7"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"sentBack\"}]}",
+                  "errorExpected": false
+                },
+                "hook": false
+              },
+              {
+                "seq": 7,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p7"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "missionDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"mission\",\"model\":{\"vision\":\"Predictably engineered software, delivered and operated on the customer's behalf.\",\"mission\":\"Deliver predictably engineered software (revision 2).\",\"objectives\":[{\"number\":1,\"statement\":\"Customers receive a duration, cost and risk estimate before any code is written.\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p7:stage:2"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "hook": true
+              },
+              {
+                "seq": 8,
+                "operation": "RecordAttemptOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p7"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "attempt",
+                    "value": "{\"attemptId\":\"D-REQ:missionDraft:2\",\"taskId\":\"missionDraft\",\"attempt\":2,\"actor\":\"agent\",\"outcome\":\"passed\",\"evidenceKind\":\"episode\",\"evidenceRef\":\"ep-stp-aea-epa-p7-missionDraft-2\",\"detail\":\"\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p7:attempt:2"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "staged-artifact",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p7"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p7\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software (revision 2).\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "observe-validate",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p7"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-epa-p7\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software (revision 2).\"}}}}}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "attempt-episode",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p7"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:2\",\"attempt\":2,\"outcome\":\"passed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p7-missionDraft-2\"}}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 9,
+                "operation": "RecordActivityOutcome",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-epa-p7"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "1"
+                  },
+                  {
+                    "name": "reason",
+                    "value": "0"
+                  },
+                  {
+                    "name": "detail",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-epa-p7:exit"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-rp-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-PD"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-PD"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"sdpReview\",\"model\":{\"options\":[{\"optionId\":\"opt-normal\",\"solutionKind\":\"normalSolution\",\"durationDays\":120,\"buildCost\":{\"minorUnits\":1200000,\"currency\":\"USD\"},\"compositeRisk\":0.62,\"projectedMonthlyCost\":{\"minorUnits\":80000,\"currency\":\"USD\"},\"expectedPerCycleNet\":{\"minorUnits\":12000,\"currency\":\"USD\"}}],\"recommendation\":\"opt-normal\",\"rationale\":\"Revised for the added use case: one more service activity.\"}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-rp-p2:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-PD\",\"taskId\":\"sdpReview\",\"branch\":\"activity/D-PD\"}",
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "sdp-revision-staged",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rp-p2"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-PD"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-rp-p2\",\"slots\":{\"16\":{\"model\":{\"kind\":\"sdpReview\",\"model\":{\"recommendation\":\"opt-normal\",\"rationale\":\"Revised for the added use case: one more service activity.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "signal-sdp-revision-ready"
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DecideReviewRound",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-rp-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-PD"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-PD:sdpReview:sdpReview:2"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "passed"
+                  },
+                  {
+                    "name": "decidedBy",
+                    "value": "architect-user"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-rp-p2:decide:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rp-p2"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-PD"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-PD\",\"reviews\":[{\"roundId\":\"D-PD:sdpReview:sdpReview:2\",\"taskId\":\"sdpReview\",\"outcome\":\"passed\",\"decidedBy\":\"architect-user\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-rp-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-PD"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "sdpReview"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-PD"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"sdpReview\",\"model\":{\"options\":[{\"optionId\":\"opt-normal\",\"solutionKind\":\"normalSolution\",\"durationDays\":120,\"buildCost\":{\"minorUnits\":1200000,\"currency\":\"USD\"},\"compositeRisk\":0.62,\"projectedMonthlyCost\":{\"minorUnits\":80000,\"currency\":\"USD\"},\"expectedPerCycleNet\":{\"minorUnits\":12000,\"currency\":\"USD\"}}],\"recommendation\":\"opt-normal\",\"rationale\":\"Revised for the added use case: one more service activity.\"}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-rp-p3:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-PD\",\"taskId\":\"sdpReview\",\"branch\":\"activity/D-PD\"}",
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "sdp-revision-staged",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rp-p3"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-PD"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-rp-p3\",\"slots\":{\"16\":{\"model\":{\"kind\":\"sdpReview\",\"model\":{\"recommendation\":\"opt-normal\",\"rationale\":\"Revised for the added use case: one more service activity.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "signal-sdp-revision-ready"
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DecideReviewRound",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-rp-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-PD"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-PD:sdpReview:sdpReview:2"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "sentBack"
+                  },
+                  {
+                    "name": "decidedBy",
+                    "value": "architect-user"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-rp-p3:decide:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "sdp-revision-rejected",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rp-p3"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-PD"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-PD\",\"reviews\":[{\"roundId\":\"D-PD:sdpReview:sdpReview:2\",\"taskId\":\"sdpReview\",\"outcome\":\"sentBack\",\"decidedBy\":\"architect-user\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "requeue-a-failed-construction-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordOperatorNote",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-rq-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "note",
+                    "value": "{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\",\"comments\":null}"
+                  },
+                  {
+                    "name": "deliveredToAttemptID",
+                    "value": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-rq-p1:note:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "activity-reopened-state",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rq-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"},\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "failed-attempt-kept-state",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rq-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-rq-p1-missionDraft-1\"}}]}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "requeue-note-pending-state",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rq-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordOperatorNote",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-rq-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "note",
+                    "value": "{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\",\"comments\":null}"
+                  },
+                  {
+                    "name": "deliveredToAttemptID",
+                    "value": "D-REQ:missionDraft:2"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-rq-p1:note:2"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "activity-resumed-state",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rq-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-rq-p1-missionDraft-1\"}},{\"attemptId\":\"D-REQ:missionDraft:2\",\"attempt\":2}]}",
+                      "errorExpected": false
+                    }
+                  },
+                  {
+                    "for": "requeue-note-delivered-state",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rq-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\",\"deliveredToAttemptId\":\"D-REQ:missionDraft:2\"}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-rs-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-ARCH"
+                  },
+                  {
+                    "name": "typ",
+                    "value": "8"
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0"
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-rs-p1:open"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "activity-started",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rs-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-ARCH"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendReviewVerdict",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-sb-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "verdict",
+                    "value": "{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"sendBack\",\"summary\":\"Change requests attached.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
+                  },
+                  {
+                    "name": "comments",
+                    "value": "[{\"id\":\"cr-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Name the customer outcome the mission commits to.\",\"authorRole\":\"architect\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"changeRequest\",\"addressee\":\"system-architect\"}]"
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-sb-p1:verdict:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "obj-thread-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-sb-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"cr-1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-sb-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "missionDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"mission\",\"model\":{\"vision\":\"Predictably engineered software, delivered and operated on the customer's behalf.\",\"mission\":\"Deliver predictably engineered software so customers know cost before code.\",\"objectives\":[{\"number\":1,\"statement\":\"Customers receive a duration, cost and risk estimate before any code is written.\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-sb-p1:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "obj-draft-restaged",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-sb-p1"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-sb-p1\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software so customers know cost before code.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "signal-present-amended-draft"
+                ],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "SetReviewCommentStatus",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-sb-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "commentID",
+                    "value": "cr-1"
+                  },
+                  {
+                    "name": "status",
+                    "value": "resolved"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-sb-p1:close:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "obj-thread-resolved",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-sb-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"cr-1\",\"type\":\"changeRequest\",\"status\":\"resolved\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendReviewVerdict",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-sb-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "verdict",
+                    "value": "{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"sendBack\",\"summary\":\"Change requests attached.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
+                  },
+                  {
+                    "name": "comments",
+                    "value": "[{\"id\":\"cr-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Name the customer outcome the mission commits to.\",\"authorRole\":\"architect\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"changeRequest\",\"addressee\":\"system-architect\"}]"
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-sb-p2:verdict:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "obj-thread-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-sb-p2"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"cr-1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-sb-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "missionDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"mission\",\"model\":{\"vision\":\"Predictably engineered software, delivered and operated on the customer's behalf.\",\"mission\":\"Redraft one: customers know cost before code.\",\"objectives\":[{\"number\":1,\"statement\":\"Customers receive a duration, cost and risk estimate before any code is written.\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-sb-p2:stage:1"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "obj-draft-restaged",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-sb-p2"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-sb-p2\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Redraft one: customers know cost before code.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "signal-present-amended-draft"
+                ],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "AppendReviewVerdict",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-sb-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "verdict",
+                    "value": "{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"sendBack\",\"summary\":\"Change requests attached.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
+                  },
+                  {
+                    "name": "comments",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[{\"commentId\":\"cr-1\",\"authorRole\":\"architect\",\"text\":\"Still no measurable outcome.\",\"at\":\"\"}]"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-sb-p2:verdict:2"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "obj-thread-open",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-sb-p2"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"},{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"cr-1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "StageTaskOutput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-sb-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "taskID",
+                    "value": "missionDraft"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/D-REQ"
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"mission\",\"model\":{\"vision\":\"Predictably engineered software, delivered and operated on the customer's behalf.\",\"mission\":\"Redraft two: customers know duration, cost and risk before code.\",\"objectives\":[{\"number\":1,\"statement\":\"Customers receive a duration, cost and risk estimate before any code is written.\"}]}}"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-sb-p2:stage:2"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}",
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "obj-draft-restaged",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-sb-p2"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-aea-sb-p2\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Redraft two: customers know duration, cost and risk before code.\"}}}}}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "signal-present-amended-draft"
+                ],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "SetReviewCommentStatus",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-sb-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0"
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-REQ"
+                  },
+                  {
+                    "name": "roundID",
+                    "value": "D-REQ:missionReview:mission:1"
+                  },
+                  {
+                    "name": "commentID",
+                    "value": "cr-1"
+                  },
+                  {
+                    "name": "status",
+                    "value": "resolved"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-sb-p2:close:1"
+                  }
+                ],
+                "expect": {
+                  "errorExpected": false
+                },
+                "probes": [
+                  {
+                    "for": "obj-thread-resolved",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-sb-p2"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"cr-1\",\"type\":\"changeRequest\",\"status\":\"resolved\"}]}]}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "agenticJobAccess": {
         "component": "agenticJobAccess",
