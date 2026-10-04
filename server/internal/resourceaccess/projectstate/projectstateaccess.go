@@ -10388,6 +10388,13 @@ func (a *activityExecutionAccess) ReadActivityExecution(rc fwra.Context, project
 // adapter must too, or the ids a verb binds split from the ids the rules check. A
 // project without committed use cases yields an empty input, not an error: there is
 // nothing to derive yet, which ForComponent reports as an empty set.
+//
+// A component with several contract facets (projectStateAccess) is the one place
+// this adapter departs from methodcheck.ScenarioInput: its base key carries the whole
+// family's operation surface, so a call into project-state-access resolves an op any
+// facet declares (scenarioFamilyContract). Scenario ids are unaffected — they number
+// paths, not stimuli — and ComponentScenarios files each such stimulus under the facet
+// that owns its op.
 func ScenarioInputOf(p *Project) (scenario.Input, error) {
 	in := scenario.Input{Actors: map[string]bool{}, Contracts: map[string]scenario.Contract{}}
 	if p == nil {
@@ -10406,13 +10413,18 @@ func ScenarioInputOf(p *Project) (scenario.Input, error) {
 	for key, sc := range p.ServiceContracts {
 		in.Contracts[key] = scenarioContractOf(key, sc)
 	}
+	for comp, fam := range scenarioFacetFamilies(p) {
+		in.Contracts[fam.base] = scenarioFamilyContract(p, comp, fam)
+	}
 	return in, nil
 }
 
 // ComponentScenarios derives the project's canonical scenario set and projects it
 // onto component (a serviceContracts key or a slot-5 component id — scenario.Normalize
 // folds kebab and camel spellings together): every scenario with at least one
-// stimulus into the component, with its stimuli filtered to those.
+// stimulus into the component, with its stimuli filtered to those. A stimulus into a
+// component with several contract facets is projected onto the facet that declares
+// its op (scenarioRouteFacets), so a facet key projects the calls drawn to its ops.
 func ComponentScenarios(p *Project, component string) ([]scenario.Scenario, error) {
 	if strings.TrimSpace(component) == "" {
 		return nil, errors.New("projectstate.ComponentScenarios: component must not be empty")
@@ -10425,7 +10437,97 @@ func ComponentScenarios(p *Project, component string) ([]scenario.Scenario, erro
 	if err != nil {
 		return nil, fmt.Errorf("projectstate.ComponentScenarios: %w", err)
 	}
+	scenarioRouteFacets(p, all)
 	return scenario.ForComponent(all, component), nil
+}
+
+// scenarioFacetFamily is one slot-5 component that more than one serviceContracts
+// entry names as its `component` (projectStateAccess and its facets: the facet
+// doctrine — facets are contracts, not components). base is the key the dynamic views'
+// calls resolve against: the entry keyed by the component itself, or the component id
+// when no entry is. facets are the family's other keys, sorted.
+type scenarioFacetFamily struct {
+	base   string
+	facets []string
+}
+
+// scenarioFacetFamilies groups the service contracts by the Normalize of their
+// `component`, keeping only components with more than one contract.
+func scenarioFacetFamilies(p *Project) map[string]scenarioFacetFamily {
+	byComp := map[string][]string{}
+	compID := map[string]string{}
+	for key, sc := range p.ServiceContracts {
+		comp := scenario.Normalize(sc.Component)
+		if comp == "" {
+			continue
+		}
+		byComp[comp] = append(byComp[comp], key)
+		compID[comp] = sc.Component
+	}
+	out := map[string]scenarioFacetFamily{}
+	for comp, keys := range byComp {
+		if len(keys) < 2 {
+			continue
+		}
+		sort.Strings(keys)
+		fam := scenarioFacetFamily{base: compID[comp]}
+		for _, k := range keys {
+			if scenario.Normalize(k) == comp {
+				fam.base = k
+				continue
+			}
+			fam.facets = append(fam.facets, k)
+		}
+		out[comp] = fam
+	}
+	return out
+}
+
+// scenarioFamilyContract is the operation surface a call into a facetted component
+// resolves its label against: the base contract's ops first, then each facet's in key
+// order. The derivation stays a pure function of its Input — it resolves the op — and
+// scenarioRouteFacets then files the stimulus under the facet that declares it.
+func scenarioFamilyContract(p *Project, comp string, fam scenarioFacetFamily) scenario.Contract {
+	ct := scenario.Contract{Component: fam.base}
+	if sc, ok := p.ServiceContracts[fam.base]; ok && scenario.Normalize(fam.base) == comp {
+		ct.Ops = append(ct.Ops, scenarioContractOf(fam.base, sc).Ops...)
+	}
+	for _, k := range fam.facets {
+		ct.Ops = append(ct.Ops, scenarioContractOf(k, p.ServiceContracts[k]).Ops...)
+	}
+	return ct
+}
+
+// scenarioRouteFacets re-targets, in place, every stimulus into a facetted component
+// whose resolved op a facet declares (and the base contract does not) onto that facet's
+// key: the call lands on the contract that owns the op. A stimulus with no resolved op,
+// or one the base contract declares, stays on the base.
+func scenarioRouteFacets(p *Project, all []scenario.Scenario) {
+	owner := map[string]string{} // "<normalized base>.<op>" → normalized facet key
+	for comp, fam := range scenarioFacetFamilies(p) {
+		baseOps := map[string]bool{}
+		if sc, ok := p.ServiceContracts[fam.base]; ok && scenario.Normalize(fam.base) == comp {
+			for _, op := range sc.Interface.Operations {
+				baseOps[op.Name] = true
+			}
+		}
+		for _, k := range fam.facets {
+			for _, op := range p.ServiceContracts[k].Interface.Operations {
+				key := scenario.Normalize(fam.base) + "." + op.Name
+				if _, taken := owner[key]; !taken && !baseOps[op.Name] {
+					owner[key] = scenario.Normalize(k)
+				}
+			}
+		}
+	}
+	for i := range all {
+		for j := range all[i].Stimuli {
+			in := &all[i].Stimuli[j].Input
+			if facet, ok := owner[in.To+"."+in.Op]; ok && in.Op != "" {
+				in.To = facet
+			}
+		}
+	}
 }
 
 // scenarioCommittedModel returns the slot's model as M only when the slot is

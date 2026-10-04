@@ -11769,3 +11769,73 @@ func TestScenarioInputOf_GatesOnCommittedSlots(t *testing.T) {
 		}
 	}
 }
+
+// TestComponentScenarios_RoutesFacetCallsByOpName pins the facet routing (dct Plan 4
+// Task 5, migration report §2.4): projectStateAccess is ONE slot-5 component with
+// several contract facets (every serviceContracts entry whose `component` is
+// projectStateAccess), so a dynamic-view call into project-state-access lands on the
+// facet contract that DECLARES the op its label names. Before the fix every such call
+// was filed under projectStateAccess and resolved only against its own ops, so the
+// facet ops were never reached (TP-OP-REACHED 17) and a facet's projection was empty.
+func TestComponentScenarios_RoutesFacetCallsByOpName(t *testing.T) {
+	raw, err := os.ReadFile("../../../../.aiarch/state/project.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok, err := DecodeProjectJSON(raw, ProjectID("archistrator"))
+	if err != nil || !ok {
+		t.Fatalf("decode dog-food fixture: ok=%v err=%v", ok, err)
+	}
+	opsOf := func(key string) map[string]bool {
+		sc, ok := p.ServiceContracts[key]
+		if !ok {
+			t.Fatalf("fixture precondition: no serviceContracts.%s", key)
+		}
+		out := map[string]bool{}
+		for _, op := range sc.Interface.Operations {
+			out[op.Name] = true
+		}
+		return out
+	}
+	var facets []string
+	for key, sc := range p.ServiceContracts {
+		if scenario.Normalize(sc.Component) == scenario.Normalize("projectStateAccess") && key != "projectStateAccess" {
+			facets = append(facets, key)
+		}
+	}
+	slices.Sort(facets)
+	if len(facets) == 0 {
+		t.Fatal("fixture precondition: projectStateAccess carries no facet contracts")
+	}
+
+	for _, key := range append([]string{"projectStateAccess"}, facets...) {
+		own := opsOf(key)
+		got, err := ComponentScenarios(&p, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) == 0 {
+			t.Fatalf("%s: no projected scenario; its calls are not routed to it", key)
+		}
+		reached := map[string]bool{}
+		for _, s := range got {
+			for _, st := range s.Stimuli {
+				if st.Input.To != scenario.Normalize(key) {
+					t.Fatalf("%s: %s stimulus %d targets %q", key, s.ID, st.Seq, st.Input.To)
+				}
+				if st.Input.Op != "" && !own[st.Input.Op] {
+					t.Fatalf("%s: %s stimulus %d drives %q, which %s does not declare", key, s.ID, st.Seq, st.Input.Op, key)
+				}
+				reached[st.Input.Op] = true
+			}
+		}
+		if key == "projectStateAccess" {
+			continue // its own reach is the design's business (TP-OP-REACHED), not the routing's
+		}
+		for op := range own {
+			if !reached[op] {
+				t.Errorf("%s.%s is drawn in a view but no routed stimulus drives it", key, op)
+			}
+		}
+	}
+}
