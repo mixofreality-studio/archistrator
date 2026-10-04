@@ -151,8 +151,8 @@ github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/mdelapenya/tlscert v0.2.0 h1:7H81W6Z/4weDvZBNOfQte5GpIMo0lGYEeWbkGp5LJHI=
 github.com/mdelapenya/tlscert v0.2.0/go.mod h1:O4njj3ELLnJjGdkN7M/vIVCpZ+Cf0L6muqOG4tLSl8o=
-github.com/mixofreality-studio/archistrator-platform/framework-go v0.13.0 h1:2pkb1wzhuzQneky0NjxDNY0EbzvUvMWfP2vpedos6L4=
-github.com/mixofreality-studio/archistrator-platform/framework-go v0.13.0/go.mod h1:O/JX3XM7bg+1HOfyQ0TCG4nnkED0w7R1vwcqzD5hEgM=
+github.com/mixofreality-studio/archistrator-platform/framework-go v0.14.0 h1:b32t2zfz9P5aGbuOS6AnyCGDeiy5QjdGg25AZI4DE3I=
+github.com/mixofreality-studio/archistrator-platform/framework-go v0.14.0/go.mod h1:O/JX3XM7bg+1HOfyQ0TCG4nnkED0w7R1vwcqzD5hEgM=
 github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.11.0 h1:Ir7SpbJTEKChf196iEmJeRFbqsRS7AvqgrRiaqPfjuQ=
 github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.11.0/go.mod h1:VYSvyn29pesWLeiFWi55CJlwbexh8vhQRUKpKYAdDiw=
 github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.4.0 h1:hTmyXGXmnDph074+c3ndcFdywUfEQQOqYey7Grt6WG4=

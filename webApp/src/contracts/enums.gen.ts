@@ -844,6 +844,36 @@ export const REVIEW_VERDICT_KIND_GO_VARNAMES = [
   'VerdictAbstain',
 ] as const;
 
+// --- RoutingDirective ----------------------------------------------------
+// Sources: BillingRoutingDirective
+export const ROUTING_DIRECTIVE_GO_VARNAMES = [
+  'RoutingDirectiveNoAction',
+  'RoutingDirectiveCharge',
+] as const;
+
+export type RoutingDirectiveGoVarname = (typeof ROUTING_DIRECTIVE_GO_VARNAMES)[number];
+
+// Sparse wire values (0, 2): indexed by VALUE, with holes.
+export const ROUTING_DIRECTIVE_ORDINAL_TO_GO_VARNAME: readonly (
+  | RoutingDirectiveGoVarname
+  | undefined
+)[] = ['RoutingDirectiveNoAction', undefined, 'RoutingDirectiveCharge'];
+
+// NOTE: no existing hand-authored app-string table to verify against (unwired/new enum) — derived mechanically, unverified.
+export const ROUTING_DIRECTIVE_APP_STRINGS = ['noAction', 'charge'] as const;
+
+export type RoutingDirective = (typeof ROUTING_DIRECTIVE_APP_STRINGS)[number];
+
+export const ROUTING_DIRECTIVE_ORDINAL_TO_APP: readonly (RoutingDirective | undefined)[] = [
+  'noAction',
+  undefined,
+  'charge',
+];
+
+export const ROUTING_DIRECTIVE_APP_TO_ORDINAL: Readonly<Record<RoutingDirective, number>> = {
+  noAction: 0,
+  charge: 2,
+};
 // --- RuntimeStatusSeam ---------------------------------------------------
 // Sources: OperationsRuntimeStatusSeam
 export const RUNTIME_STATUS_SEAM_GO_VARNAMES = [

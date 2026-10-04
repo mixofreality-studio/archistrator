@@ -47,3 +47,29 @@ void test('a dense int enum still aliases the varname array', () => {
   assert.ok(line !== undefined);
   assert.match(line, /= ARTIFACT_KIND_GO_VARNAMES;$/);
 });
+
+// RoutingDirective (billingManager.GetBillingCycle) is `[0, 2]` — the payout arm's 1
+// is tombstoned — and, unlike TestingVariant, gets mechanical app strings. Those
+// tables must be value-indexed too: ORDINAL_TO_APP[2] is 'charge', and 'charge'
+// maps back to 2, never to its position 1.
+const sparseMechanical = `
+openapi: 3.1.0
+components:
+  schemas:
+    BillingRoutingDirective:
+      type: integer
+      enum: [0, 2]
+      x-enum-varnames: [RoutingDirectiveNoAction, RoutingDirectiveCharge]
+`;
+
+void test('a sparse mechanical enum emits value-indexed app tables', () => {
+  const out = generateEnumsModule(sparseMechanical);
+  const lines = out.split('\n');
+  const toApp = lines.find((l) => l.startsWith('export const ROUTING_DIRECTIVE_ORDINAL_TO_APP'));
+  assert.ok(toApp !== undefined, 'the ordinal → app table is emitted');
+  assert.match(toApp, /readonly \(RoutingDirective \| undefined\)\[\] = \['noAction', undefined, 'charge'\];$/);
+  const at = lines.findIndex((l) => l.startsWith('export const ROUTING_DIRECTIVE_APP_TO_ORDINAL'));
+  assert.ok(at >= 0, 'the app → ordinal table is emitted');
+  assert.equal(lines[at + 1], '  noAction: 0,');
+  assert.equal(lines[at + 2], '  charge: 2,');
+});

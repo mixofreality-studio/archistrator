@@ -536,17 +536,22 @@ func (h *appHooks) DevConfig(cfg *Config) web.DevConfig {
 	return web.DevConfig{Enabled: cfg.AuthDevMode, Principal: devPrincipal()}
 }
 
-// WrapManagers decorates the two web/MCP-exposed managers with the composition-root
+// WrapManagers decorates the three web/MCP-exposed managers with the composition-root
 // logging seam (managerlog.go): every Infrastructure-kind error surfaced to a client
 // — through either transport — is logged once server-side with op/projectID/cause.
-// Each manager then takes its project-scoped authorization guard on top
+// Delivery and operations then take their project-scoped authorization guard on top
 // (projectScopedDeliveryManager / projectScopedOperationsManager), so a denial is
-// answered before any inner work, on either transport.
+// answered before any inner work, on either transport. Billing's one exposed op
+// (GetBillingCycle) is customer-scoped and takes no guard here: under the interim
+// authenticated-only PDP (authz.go) authentication is its gate on both transports, and
+// the REST handler's Authorize pre-step names the customer resource for when the Cedar
+// PDP lands.
 func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 	if reader, ok := managers.DeliveryManager.(delivery.TestRunFileReader); ok {
 		h.testRunFiles = reader
 	}
 	return WebManagers{
+		BillingManager: loggingBillingManager{BillingManager: managers.BillingManager, log: h.logger},
 		DeliveryManager: projectScopedDeliveryManager{
 			DeliveryManager: loggingDeliveryManager{inner: managers.DeliveryManager, log: h.logger},
 			security:        security.New(security.WithPolicyDecisionPoint(h.PolicyDecisionPoint())),
@@ -560,7 +565,7 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 // ExtraMounts adds the composition-root-only routes behind the same auth boundary:
 // GET /api/userinfo (the SPA session probe — not a manager op), GET /api/v1/capabilities
 // (the operations-argocd-deployment D9 seam — see below), and /mcp (the MCP
-// transport over the SAME four wrapped managers the REST handlers use, plus the
+// transport over the SAME three wrapped managers the REST handlers use, plus the
 // ui://archistrator/shell.html MCP-Apps resource). On the local profile, also
 // mounts the embedded SPA at "/" (local-first-init-funnel Task 4, spa_handler.go)
 // — the single-binary `archistrator init` boot serves design (UC1+UC2) AND
@@ -610,7 +615,7 @@ func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConf
 	webAppOrigin := getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173")
 	assetVersion := getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev")
 	root.Handle("/mcp", newMCPHandler(dev, validator,
-		managers.DeliveryManager, managers.OperationsManager,
+		managers.BillingManager, managers.DeliveryManager, managers.OperationsManager,
 		webAppOrigin, assetVersion))
 
 	// GET /api/v1/capabilities — the ONE thing that tells the webApp which

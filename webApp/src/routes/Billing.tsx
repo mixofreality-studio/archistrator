@@ -3,12 +3,13 @@
  * PURE SERVICE VENDOR: it bills the USER for construction tokens + hosting,
  * usage-based, no subscription, no revenue share.
  *
- * The billing backend (billingManager + Stripe via billingGatewayAccess) is
- * HUMAN-GATED on Stripe provisioning and has NO read endpoint yet. So this screen
- * renders the INTENDED layout (current invoice · payment method · service pricing
- * · invoice history) as a CLEARLY-LABELLED, explicitly-pending placeholder — NO
- * fake data, NO fetch to a non-existent endpoint that would 404. It is wired into
- * nav so the surface exists, gated as "billing backend not yet provisioned".
+ * ONE read is live: the billing-period lookup (BillingCycleLookup —
+ * billingManager.GetBillingCycle, use case view-a-billing-cycle). Everything else
+ * the billing backend (billingManager + Stripe via merchantGatewayAccess) would show
+ * has NO read endpoint yet, so the rest of the screen renders the INTENDED layout
+ * (current invoice · payment method · service pricing · invoice history) as a
+ * CLEARLY-LABELLED, explicitly-pending placeholder — NO fake data, NO fetch to a
+ * non-existent endpoint that would 404.
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -20,6 +21,7 @@ import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
+import { BillingCycleLookupContainer } from '../containers/BillingCycleLookupContainer';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
@@ -56,7 +58,7 @@ function BillingBody({ projectId }: { projectId: string }): ReactNode {
         </Box>
         <Box sx={{ flexGrow: 1 }} />
         <Chip
-          label="BACKEND PENDING"
+          label="PARTLY LIVE"
           size="small"
           sx={{ bgcolor: t.awaitingBg, color: t.awaitingFg, fontFamily: t.mono, fontWeight: 700 }}
         />
@@ -89,6 +91,9 @@ function BillingBody({ projectId }: { projectId: string }): ReactNode {
         </Typography>
       </Box>
 
+      {/* the one live read: a billing period's recorded settlement */}
+      <BillingCycleLookupContainer />
+
       {/* the explicit pending state */}
       <Paper
         data-testid={UI_IDENTIFIERS.Billing.PENDING_STATE}
@@ -98,16 +103,16 @@ function BillingBody({ projectId }: { projectId: string }): ReactNode {
         <Typography
           sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink, mt: 1 }}
         >
-          Billing backend not yet provisioned
+          Invoices, payment method and pricing not yet readable
         </Typography>
         <Box sx={{ maxWidth: 560, mx: 'auto' }}>
           <Typography
             sx={{ fontFamily: t.body, fontSize: 13, color: t.muted, mt: 0.5, lineHeight: 1.5 }}
           >
-            The billing manager (Stripe via billingGatewayAccess) is human-gated on Stripe
-            provisioning and has no read endpoint yet. No invoices are metered or charged here. The
-            intended layout is previewed below so the surface is in place; it activates once billing
-            is provisioned.
+            The billing manager (Stripe via merchantGatewayAccess) answers one read today — the
+            billing-period lookup above. It has no read for the current invoice, the payment method,
+            the price book or the invoice history yet, so their intended layout is previewed below;
+            each activates once its read exists.
           </Typography>
         </Box>
       </Paper>

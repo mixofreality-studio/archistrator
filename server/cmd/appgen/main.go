@@ -69,9 +69,9 @@ var callerKeyedOps = map[string]map[string][]string{
 }
 
 // managers is the CODE-GENERATED set: temporalgen emits contract/activities/
-// invokers/worker for each. It deliberately differs from the web-wired sets
-// (exposedManagers in cmd/clientgen, WebExposedManagers below) — billingManager
-// has a worker but no web mount.
+// invokers/worker for each. It is the same three managers as the web-wired sets
+// (exposedManagers in cmd/clientgen, WebExposedManagers below), but billingManager
+// is web-mounted with its read-only GetBillingCycle only.
 var managers = []string{"deliveryManager", "operationsManager", "billingManager"}
 
 func main() {
@@ -116,12 +116,11 @@ func main() {
 // shutdown), driving a hand cmd/server/hooks.go for the genuinely-compositional
 // policy. Four driver knobs the deployment model cannot express:
 //
-//   - WebExposedManagers = clientgen's exposedManagers (the 4 web-wired
-//     managers). billingManager carries a web-client/mcp-client relationship in
-//     the committed System model but clientgen generates no
-//     internal/client/web/billing package (money-move ops are not web-wired), so
-//     the relationship alone must not force a <mgr>web.Handler that would not
-//     compile.
+//   - WebExposedManagers = clientgen's exposedManagers (the 3 web-wired
+//     managers). billingManager is among them for its read-only GetBillingCycle
+//     (view-a-billing-cycle); clientgen narrows its generated
+//     internal/client/web/billing Handler to that op, so the money-moving ops stay
+//     unexposed.
 //   - VariantHookArgs for the variant ctors whose args the model cannot supply
 //     (G3): projectstate GitHub needs the sourcecontrol-backed catalog + minter
 //     PORTS (an RA→RA edge forbidden inside projectstate); artifact GitHubCloud
@@ -143,6 +142,7 @@ func generateMain(m *projectmodel.Model) {
 		PackageName:  configPackage,
 		EnvPrefix:    envPrefix,
 		WebExposedManagers: []string{
+			"billingManager",
 			"deliveryManager",
 			"operationsManager",
 		},

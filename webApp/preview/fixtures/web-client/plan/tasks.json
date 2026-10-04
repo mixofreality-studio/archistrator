@@ -18717,6 +18717,75 @@
                     ]
                   },
                   {
+                    "Signature": "GetBillingCycle(customerID: uuid.UUID, cycleID: string) → (BillingCycleView, fwm.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "customerID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "cycleID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "BillingCycleView",
+                        "Fields": [
+                          {
+                            "Name": "CustomerID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "CycleID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "closed",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "routed",
+                            "Type": "RoutingDirective",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "escalated",
+                            "Type": "bool",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwm.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwm.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
                     "Signature": "OnboardPaymentIntegration(deployedAppID: uuid.UUID) → (BillingRef, fwm.Error)",
                     "Stereotype": "",
                     "Note": "",
@@ -18835,6 +18904,7 @@
                   }
                 ],
                 "DataContracts": [
+                  "BillingCycleView",
                   "BillingRef",
                   "CloseCycleResult",
                   "RoutingDirective",
@@ -19004,6 +19074,65 @@
                           {
                             "Name": "Terms",
                             "Type": "BillingTerms",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "ReadCycle(customerID: uuid.UUID, cycle: string) → (BillingCycle, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "customerID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "cycle",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "BillingCycle",
+                        "Fields": [
+                          {
+                            "Name": "Cycle",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Settled",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Outcome",
+                            "Type": "BillingOutcome",
                             "Note": ""
                           }
                         ]
@@ -19270,6 +19399,7 @@
                 ],
                 "DataContracts": [
                   "Billing",
+                  "BillingCycle",
                   "BillingOutcome",
                   "BillingTerms",
                   "CustomerProfile",
@@ -20234,6 +20364,65 @@
                   "Version"
                 ],
                 "ErrorModel": "Operations fail with fwm.Error — the typed Manager fault.",
+                "Idempotency": "",
+                "Revisions": null
+              },
+              "designHealthEngine": {
+                "Component": "designHealthEngine",
+                "Layer": "Engine",
+                "Stereotype": "design-health engine contract",
+                "Volatility": "",
+                "Status": "",
+                "Inbound": null,
+                "Outbound": null,
+                "Ops": [
+                  {
+                    "Signature": "EvaluateDesignHealth(project: string) → ([]Finding, fweng.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "project",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "[]Finding",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "[]Finding",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fweng.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fweng.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "Finding",
+                  "Location",
+                  "RuleID",
+                  "Severity"
+                ],
+                "ErrorModel": "Operations fail with fweng.Error — the typed Engine fault.",
                 "Idempotency": "",
                 "Revisions": null
               },

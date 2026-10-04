@@ -3766,12 +3766,12 @@
                     "linkedActorId": null
                   },
                   {
-                    "id": "scope-trigger-routed-to-design",
+                    "id": "system-amendment-open",
                     "kind": "objectNode",
-                    "label": "Scope trigger",
+                    "label": "System design amendment session",
                     "roleName": "",
                     "linkedActorId": null,
-                    "inState": "[routed to system design]"
+                    "inState": "[open at the System]"
                   },
                   {
                     "id": "notify-returned-to-design",
@@ -3920,12 +3920,12 @@
                   },
                   {
                     "from": "back-to-design",
-                    "to": "scope-trigger-routed-to-design",
+                    "to": "system-amendment-open",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
-                    "from": "scope-trigger-routed-to-design",
+                    "from": "system-amendment-open",
                     "to": "notify-returned-to-design",
                     "kind": "controlFlow",
                     "guard": ""
@@ -9394,10 +9394,44 @@
                 "activityNodeId": "back-to-design",
                 "calls": [
                   {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "returns the change to system design: reopens the System at the architecture activity",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "returns the change to system design via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "DispatchActivityTask(projectId, architecture activity, taskId=system, feedback: the requested change) — an architecture change re-drafts the System, not the plan",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "DispatchActivityTask(projectId, architecture activity, taskId=system) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "record the routing: not a scope change — returned to system design (architecture-change path)"
+                    "label": "readProject → committed System model (amendment basis)"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "submitAgenticJob(the System redraft job) — aja-only dispatch idiom"
                   }
                 ]
               },
@@ -9454,7 +9488,7 @@
                     "from": "delivery-manager",
                     "to": "agentic-job-access",
                     "mode": "sync",
-                    "label": "re-dispatch the Phase-2 draft job at the affected step (assumptions | activities | network)"
+                    "label": "submitAgenticJob(the Phase-2 draft job at the affected step: assumptions | activities | network) — re-dispatch"
                   },
                   {
                     "from": "delivery-manager",
@@ -9522,7 +9556,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "stage the revised SDP review (options + deltas) for the management decision"
+                    "label": "StageTaskOutput(projectId, projectDesign activity, taskId=sdpReview, branch, revised SDP review, cred) → StagedRef — the revised SDP review (options + deltas) is staged for the management decision"
                   }
                 ]
               },
@@ -9566,7 +9600,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "commitOption(revisedOptionId) · recordSdpReviewOutcome(committed — revision adopted; planned earned-value curve reset)"
+                    "label": "DecideReviewRound(projectId, projectDesign activity, roundId, passed, decidedBy) · CommitArtifactWithProvenance(projectId, expectedVersion, sdpReview, approvedBy, draftedBy) — the revision is adopted: its option becomes the committed network and the planned earned-value curve resets from it"
                   },
                   {
                     "from": "project-state-access",
@@ -9583,7 +9617,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "recordSdpReviewOutcome(rejected) — the current commitment stands"
+                    "label": "DecideReviewRound(projectId, projectDesign activity, roundId, sentBack, decidedBy) — the reject is recorded on the SDP review round; the revision is not adopted and the current commitment stands"
                   }
                 ]
               }
