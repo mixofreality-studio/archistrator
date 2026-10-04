@@ -352,7 +352,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	// Gated on the resolved profile: infra["postgres"].profiles does not
 	// cover every profile, so profiles outside it never dial it.
 	var pool *pgxpool.Pool
-	if profile == "cloud" {
+	if profile == "cloud" || profile == "local" {
 		var err error
 		pool, err = postgresinfra.NewPool(ctx, cfg.PostgresURL)
 		if err != nil {
@@ -403,8 +403,25 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		logger.Info("artifactAccess (GitLocal) ready")
 	}
 	artifactAccess = hooks.FinalizeArtifactAccess(cfg, artifactAccess)
-	billingStateAccess := billingstate.NewBillingStateAccess()
-	logger.Info("billingStateAccess (stub) ready")
+	var billingStateAccess billingstate.BillingStateAccess
+	switch profile {
+	case "cloud":
+		v, err := billingstate.NewPostgresBillingStateAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		billingStateAccess = v
+		logger.Info("billingStateAccess (Postgres) ready")
+	case "local":
+		v, err := billingstate.NewPostgresBillingStateAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		billingStateAccess = v
+		logger.Info("billingStateAccess (Postgres) ready")
+	default:
+		return errors.New("billingStateAccess: no ResourceAccess variant for the active profile")
+	}
 	billingStateAccess = hooks.FinalizeBillingStateAccess(cfg, billingStateAccess)
 	var designSessionAccess projectstate.DesignSessionAccess
 	switch profile {
@@ -450,8 +467,25 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return errors.New("gitActivityStatusAccess: no ResourceAccess variant for the active profile")
 	}
 	gitActivityStatusAccess = hooks.FinalizeGitActivityStatusAccess(cfg, gitActivityStatusAccess)
-	merchantGatewayAccess := merchantgateway.NewMerchantGatewayAccess()
-	logger.Info("merchantGatewayAccess (stub) ready")
+	var merchantGatewayAccess merchantgateway.MerchantGatewayAccess
+	switch profile {
+	case "cloud":
+		v, err := merchantgateway.NewPostgresMerchantGatewayAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		merchantGatewayAccess = v
+		logger.Info("merchantGatewayAccess (Postgres) ready")
+	case "local":
+		v, err := merchantgateway.NewPostgresMerchantGatewayAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		merchantGatewayAccess = v
+		logger.Info("merchantGatewayAccess (Postgres) ready")
+	default:
+		return errors.New("merchantGatewayAccess: no ResourceAccess variant for the active profile")
+	}
 	merchantGatewayAccess = hooks.FinalizeMerchantGatewayAccess(cfg, merchantGatewayAccess)
 	var messageBus messagebus.MessageBus
 	switch profile {

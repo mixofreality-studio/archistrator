@@ -10,19 +10,35 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres/testinfra"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 )
 
-// newSubject builds the component under test the way the composition root does:
-// cmd/server/main.gen.go constructs billingStateAccess with
-// billingstate.NewBillingStateAccess() (the contract is still flagged "stub" in
-// project.json, so that is the only constructor the package exports).
+// newSubject builds the component under test the way the composition root does on
+// both profiles: cmd/server/main.gen.go constructs billingStateAccess with the
+// generated billingstate.NewPostgresBillingStateAccess over a pgx pool, which applies
+// the package's own schema. Every scenario gets its own empty Postgres, so the
+// delinquent set a scenario reads back holds exactly the customers its own
+// arrangement and stimuli wrote (five scenarios read the same project scope).
+//
+// The pool comes from the platform's Postgres testinfra rather than the host's
+// PostgresURL: opening a pool on a URL needs pgxpool or the postgres infrastructure
+// module, neither of which a hooks file may import, while a …/testinfra package is
+// admitted.
 func newSubject(t *testing.T, h *scenariohost.Host) billingstate.BillingStateAccess {
 	t.Helper()
-	_ = h
-	return billingstate.NewBillingStateAccess()
+	pool := testinfra.StartPostgres(t)
+	subject, err := billingstate.NewPostgresBillingStateAccess(h.Context(t), pool)
+	if err != nil {
+		t.Fatalf("hooks: NewPostgresBillingStateAccess: %v", err)
+	}
+	return subject
 }
+
+// billingProject is the project every arranged customer is registered under: the
+// scope the retry and delinquency scenarios read the persistently-delinquent set by.
+const billingProject = "stp-billing-project-01"
 
 // The retry scenarios read the persistently-delinquent set; the customer each one
 // expects to find is fixed by its binding, so the arrangement names it here.
@@ -42,12 +58,12 @@ type (
 	settleArgs   = inputBillTheUserForUsageP1S2 // SettleCycle
 )
 
-// arrangeRegistered opens the customer's billing aggregate (version 0 -> 1), as
-// onboarding's RegisterCustomer does.
+// arrangeRegistered opens the customer's billing aggregate (version 0 -> 1) under
+// billingProject, as onboarding's RegisterCustomer does.
 func arrangeRegistered(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, customerID string) {
 	t.Helper()
 	var a registerArgs
-	mustUnmarshal(t, fmt.Sprintf(`{"customerID":%q,"expectedVersion":0,"profile":{},"idempotencyKey":"arrange-register:%s"}`, customerID, customerID), &a)
+	mustUnmarshal(t, fmt.Sprintf(`{"customerID":%q,"expectedVersion":0,"profile":{"ProjectID":%q},"idempotencyKey":"arrange-register:%s"}`, customerID, billingProject, customerID), &a)
 	v, err := subject.RegisterCustomer(callContext(t, h, "arrange-register"), a.CustomerID, a.ExpectedVersion, a.Profile, a.IdempotencyKey)
 	if err != nil {
 		t.Fatalf("arrange: RegisterCustomer %s: %v", customerID, err)

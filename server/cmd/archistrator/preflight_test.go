@@ -27,6 +27,7 @@ func installShim(t *testing.T, name, script string) {
 }
 
 func TestRunPreflight_AllGreen(t *testing.T) {
+	t.Setenv(postgresURLEnv, "postgres://x")
 	installShim(t, "git", "#!/bin/sh\necho git-shim\nexit 0\n")
 	installShim(t, "claude", "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '2.0.0 (Claude Code)'; exit 0; fi\n"+
 		"echo '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"ok\"}'\nexit 0\n")
@@ -76,6 +77,7 @@ func TestRunPreflight_ClaudeMissing_Fatal(t *testing.T) {
 }
 
 func TestRunPreflight_SkipAuthCheck_NotFatal(t *testing.T) {
+	t.Setenv(postgresURLEnv, "postgres://x")
 	installShim(t, "git", "#!/bin/sh\nexit 0\n")
 	installShim(t, "claude", "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 0; fi\nexit 1\n") // -p would fail if ever invoked
 
@@ -88,7 +90,28 @@ func TestRunPreflight_SkipAuthCheck_NotFatal(t *testing.T) {
 	}
 }
 
+// TestRunPreflight_PostgresURLMissing_Fatal: the local profile's billing stores are
+// Postgres-backed, so a stack with no ARCHISTRATOR_POSTGRES_URL cannot start — Fatal,
+// with the variable named in the instructions.
+func TestRunPreflight_PostgresURLMissing_Fatal(t *testing.T) {
+	installShim(t, "git", "#!/bin/sh\nexit 0\n")
+	installShim(t, "claude", "#!/bin/sh\necho '2.0.0'\nexit 0\n")
+	t.Setenv(postgresURLEnv, "")
+
+	r := runPreflight(context.Background(), true)
+	if !r.Fatal() {
+		t.Fatal("expected Fatal()=true when ARCHISTRATOR_POSTGRES_URL is unset")
+	}
+	if r.pgErr == nil {
+		t.Fatal("expected pgErr to be set")
+	}
+	if !strings.Contains(r.Instructions(), postgresURLEnv) {
+		t.Fatalf("Instructions() missing the Postgres message:\n%s", r.Instructions())
+	}
+}
+
 func TestRunPreflight_AuthProbeFails_NotFatal_ButReported(t *testing.T) {
+	t.Setenv(postgresURLEnv, "postgres://x")
 	installShim(t, "git", "#!/bin/sh\nexit 0\n")
 	installShim(t, "claude", "#!/bin/sh\n"+
 		"if [ \"$1\" = \"--version\" ]; then echo '2.0.0'; exit 0; fi\n"+

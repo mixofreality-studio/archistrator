@@ -23,7 +23,7 @@ package billing
 // B. OnboardWorkflow (workflow_test.go):
 //   B1  happy path: read → bindGatewayLive → registerSchedule (charge-only: no
 //                   connected-account creation); returns the resolved customerId
-//   B2  a missing billing aggregate (read NotFound) → FailedPrecondition; no gateway bind
+//   B2  a missing billing aggregate (read Registered=false) → FailedPrecondition; no gateway bind
 //
 // C. RegisterCustomerWorkflow (workflow_test.go):
 //   C1  happy path: validateStoredInstrument → registerCustomer; returns the customerId
@@ -272,9 +272,9 @@ func Test_GatewayIdempotencyKey(t *testing.T) {
 type fakeBillingState struct {
 	mu sync.Mutex
 
-	billing    billingstate.Billing
-	delinquent []billingstate.CustomerSummary
-	notFound   bool
+	billing      billingstate.Billing
+	delinquent   []billingstate.CustomerSummary
+	unregistered bool
 
 	// settleConflictFirst, when >0, returns fwra.Conflict on the first N settleCycle
 	// calls before succeeding — drives the §6.5 re-read→re-apply loop on the
@@ -289,12 +289,13 @@ type fakeBillingState struct {
 	version    billingstate.Version
 }
 
-func (f *fakeBillingState) ReadBilling(_ fwra.Context, _ uuid.UUID) (billingstate.Billing, error) {
+func (f *fakeBillingState) ReadBilling(_ fwra.Context, id uuid.UUID) (billingstate.Billing, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.readN++
-	if f.notFound {
-		return billingstate.Billing{}, fwra.New(fwra.NotFound, "no row")
+	if f.unregistered {
+		// billingStateAccess reads a never-registered customer as Registered=false.
+		return billingstate.Billing{ID: id}, nil
 	}
 	return f.billing, nil
 }
@@ -590,7 +591,7 @@ func Test_Onboard_HappyPath(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.billing = billingstate.Billing{ID: cid, Version: 2}
+	f.state.billing = billingstate.Billing{ID: cid, Version: 2, Registered: true}
 	wf := newWorkflows(deps)
 	registerOnboard(env, wf, f)
 
@@ -614,14 +615,14 @@ func Test_Onboard_HappyPath(t *testing.T) {
 	}
 }
 
-// B2: a missing billing aggregate (read NotFound) fails the pre-condition; no money
-// move happens.
+// B2: a missing billing aggregate (read Registered=false) fails the pre-condition; no
+// money move happens.
 func Test_Onboard_NoAggregate_FailedPrecondition(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
 	deps, f := baseDeps()
-	f.state.notFound = true
+	f.state.unregistered = true
 	wf := newWorkflows(deps)
 	registerOnboard(env, wf, f)
 
@@ -935,55 +936,6 @@ func Test_Sweep_QuietSweep_NoSignals(t *testing.T) {
 	}
 	if len(f.messageBus.signals) != 0 {
 		t.Fatalf("a quiet sweep must deliver no signals, got %d", len(f.messageBus.signals))
-	}
-}
-
-// G3 (fix round 1, Task 7c live-firing review): billingStateAccess is an
-// arm-less REQUIRED binding today (no deployment perProfile arm) — this test
-// backs the Activity with the REAL generated stub (billingstate.
-// NewBillingStateAccess(), NOT a scripted fake) to reproduce exactly what fired
-// live: every op returns fwra.Unknown("not implemented"). The sweep must
-// complete CLEANLY (no workflow error, an empty result) instead of failing.
-func Test_Sweep_UnimplementedBillingState_QuietNoOpTick(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	wf := newWorkflows(wfDeps{Acts: genInvokers{Opts: activityOptions()}})
-	env.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: executionKindShortfallSweep})
-	stubActs := &genActivities{BillingState: billingstate.NewBillingStateAccess()}
-	env.RegisterActivityWithOptions(stubActs.BillingStateReadPersistentlyDelinquentCustomers,
-		activity.RegisterOptions{Name: "billingStateAccess.readPersistentlyDelinquentCustomers"})
-
-	env.ExecuteWorkflow(executionKindShortfallSweep, shortfallSweepInput{})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("want a quiet no-op tick against the unimplemented stub RA, got workflow error: %v", err)
-	}
-	var res ShortfallSweepResult
-	if err := env.GetWorkflowResult(&res); err != nil {
-		t.Fatalf("decode result: %v", err)
-	}
-	if len(res.SignalledCustomers) != 0 {
-		t.Fatalf("want an empty result on the tolerant tick, got %v", res.SignalledCustomers)
-	}
-}
-
-// G4: isRAUnimplemented is the EXACT condition gating the tolerant tick's WARN
-// log (shortfallsweep.go) — the TestWorkflowEnvironment exposes no hook to
-// assert on log TEXT, so this proves the gate itself fires correctly against
-// the REAL stub's REAL (fwmgr-mapped) error, run outside any workflow: the
-// same stubBillingStateAccess.ReadPersistentlyDelinquentCustomers call
-// Test_Sweep_UnimplementedBillingState_QuietNoOpTick exercises through the
-// Activity boundary, mapped exactly as that boundary maps it.
-func Test_IsRAUnimplemented_RealStubError(t *testing.T) {
-	stub := billingstate.NewBillingStateAccess()
-	_, err := stub.ReadPersistentlyDelinquentCustomers(fwra.Context{Context: t.Context()}, billingstate.DelinquencyScope{})
-	if err == nil {
-		t.Fatal("want the arm-less stub to return an error")
-	}
-	mapped := fwmgr.MapError(err)
-	if !isRAUnimplemented(mapped) {
-		t.Fatalf("want isRAUnimplemented(true) for the stub's mapped error, got false (mapped: %v)", mapped)
 	}
 }
 

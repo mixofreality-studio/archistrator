@@ -12143,7 +12143,8 @@
               "key": "postgres",
               "substrate": "postgres",
               "profiles": [
-                "cloud"
+                "cloud",
+                "local"
               ],
               "presence": "required",
               "env": {
@@ -12416,14 +12417,40 @@
               "presence": "required",
               "provides": [],
               "settings": [],
-              "perProfile": {}
+              "perProfile": {
+                "cloud": {
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
+                },
+                "local": {
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
+                }
+              }
             },
             {
               "component": "merchantGatewayAccess",
               "presence": "required",
               "provides": [],
               "settings": [],
-              "perProfile": {}
+              "perProfile": {
+                "cloud": {
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
+                },
+                "local": {
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
+                }
+              }
             },
             {
               "component": "messageBus",
@@ -19707,7 +19734,9 @@
       "component": "billingStateAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/billingstate",
-      "stub": true,
+      "infra": [
+        "Postgres"
+      ],
       "title": "billingStateAccess contract",
       "$defs": {
         "Billing": {
@@ -19805,10 +19834,17 @@
         },
         "CustomerProfile": {
           "type": "object",
-          "properties": {},
-          "required": [],
+          "properties": {
+            "ProjectID": {
+              "type": "string",
+              "description": "The project the customer is billed for: the link a DelinquencyScope narrows ReadPersistentlyDelinquentCustomers by. Empty = registered under no project (only a platform-wide sweep, an empty scope, finds the customer)."
+            }
+          },
+          "required": [
+            "ProjectID"
+          ],
           "additionalProperties": false,
-          "description": "Charge-only customer profile — carries no payout/connected-account fields; reserved for future registration attributes."
+          "description": "Charge-only customer profile — the registration attributes. Carries no payout/connected-account fields."
         },
         "CustomerSummary": {
           "type": "object",
@@ -19833,7 +19869,8 @@
           "type": "object",
           "properties": {
             "ProjectID": {
-              "type": "string"
+              "type": "string",
+              "description": "Narrows the sweep to the customers registered under this project (CustomerProfile.ProjectID). Empty = every persistently delinquent customer (platform-wide)."
             }
           },
           "required": [
@@ -26471,7 +26508,9 @@
       "component": "merchantGatewayAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/merchantgateway",
-      "stub": true,
+      "infra": [
+        "Postgres"
+      ],
       "title": "merchantGatewayAccess contract",
       "$defs": {
         "Money": {
