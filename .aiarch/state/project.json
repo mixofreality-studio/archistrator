@@ -46112,7 +46112,393 @@
       },
       "interventionEngine": {
         "component": "interventionEngine",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "bill-the-user-for-usage-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnSettlementFailure",
+                "inputs": [
+                  {
+                    "name": "failure",
+                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-09\",\"Kind\":1,\"AttemptCount\":2,\"ShortfallAge\":1,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":2,\"ShortfallToleranceSweeps\":1}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnSettlementFailure",
+                "inputs": [
+                  {
+                    "name": "failure",
+                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-09\",\"Kind\":1,\"AttemptCount\":0,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":2,\"ShortfallToleranceSweeps\":1}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "0",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnVariance",
+                "inputs": [
+                  {
+                    "name": "variance",
+                    "value": "{\"ProjectID\":\"stp-ie-project-0001\",\"ActivityID\":\"stp-ie-act-P2\",\"Kind\":1,\"AttemptCount\":3,\"Severity\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":0}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "escalate-operator"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnVariance",
+                "inputs": [
+                  {
+                    "name": "variance",
+                    "value": "{\"ProjectID\":\"stp-ie-project-0001\",\"ActivityID\":\"stp-ie-act-P5\",\"Kind\":2,\"AttemptCount\":1,\"Severity\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":0}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "0",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnVariance",
+                "inputs": [
+                  {
+                    "name": "variance",
+                    "value": "{\"ProjectID\":\"stp-ie-project-0001\",\"ActivityID\":\"stp-ie-act-P6\",\"Kind\":3,\"AttemptCount\":0,\"Severity\":0,\"Policy\":{\"Mode\":1,\"SLATier\":0,\"RetryBudget\":0,\"ShortfallToleranceSweeps\":0}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "escalate-operator"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnHealth",
+                "inputs": [
+                  {
+                    "name": "healthChange",
+                    "value": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"FromHealth\":1,\"ToHealth\":2,\"SLOStatus\":3,\"Severity\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":2,\"ShortfallToleranceSweeps\":0}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "operated-system-status-changed",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "compute-usage-recorded",
+                    "component": "usageAccess",
+                    "operation": "ReadRange",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\"}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "record-status"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnHealth",
+                "inputs": [
+                  {
+                    "name": "healthChange",
+                    "value": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"FromHealth\":1,\"ToHealth\":2,\"SLOStatus\":1,\"Severity\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":2,\"ShortfallToleranceSweeps\":0}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "0",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "operated-system-status-changed",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "compute-usage-recorded",
+                    "component": "usageAccess",
+                    "operation": "ReadRange",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\"}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "record-status"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "pause-construction-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ApplyPausePolicy",
+                "inputs": [
+                  {
+                    "name": "ctx",
+                    "value": "{\"ProjectID\":\"stp-ie-project-0001\",\"Reason\":\"operator pause: stp-ie P1\",\"Policy\":{\"Mode\":2,\"SLATier\":2,\"RetryBudget\":2,\"ShortfallToleranceSweeps\":0}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"RecordPaused\":true,\"NotifyTargets\":[\"operator\",\"architect\"]}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnSettlementFailure",
+                "inputs": [
+                  {
+                    "name": "failure",
+                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":0,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "0",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnSettlementFailure",
+                "inputs": [
+                  {
+                    "name": "failure",
+                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":3,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnSettlementFailure",
+                "inputs": [
+                  {
+                    "name": "failure",
+                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":3,\"ShortfallAge\":2,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DecideOnSettlementFailure",
+                "inputs": [
+                  {
+                    "name": "failure",
+                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":0,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "0",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "DecideOnSettlementFailure",
+                "inputs": [
+                  {
+                    "name": "failure",
+                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":1,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "0",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "merchantGatewayAccess": {
         "component": "merchantGatewayAccess",
