@@ -46506,7 +46506,693 @@
       },
       "operatedRuntimeAccess": {
         "component": "operatedRuntimeAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "Withdraw",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-ort-delinq-P3-withdraw-0001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "remove-runtime",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetApplicationHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "4",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "PublishDesiredState",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "desired",
+                    "value": "{\"AppName\":\"gtd\",\"Namespace\":\"op-gtd\",\"Host\":\"gtd.apps.example.test\",\"ModelKey\":\"cloud-env\",\"GatewayModelKey\":\"gateway\",\"Server\":{\"ModelKey\":\"server\",\"Image\":\"ghcr.io/example/gtd-server:1.0.0\",\"Replicas\":1},\"WebApp\":{\"ModelKey\":\"web-app\",\"Image\":\"ghcr.io/example/gtd-web:1.0.0\",\"Replicas\":1},\"Postgres\":{\"ModelKeys\":[],\"Enabled\":false,\"Instances\":0,\"StorageClass\":\"\"},\"OIDC\":{\"ModelKey\":\"keycloak\",\"Issuer\":\"https://auth.example.test/realms/gtd\",\"ClientID\":\"gtd\",\"ClientSecretRef\":\"gtd-oidc-client-secret\"},\"SelfManaged\":false}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-ort-op-P1-publish-0001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "desired-state-published-a",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetApplicationHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "1",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "publish-a",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetDeploymentResourceHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "desired",
+                        "value": "{\"AppName\":\"gtd\",\"Namespace\":\"op-gtd\",\"Host\":\"gtd.apps.example.test\",\"ModelKey\":\"cloud-env\",\"GatewayModelKey\":\"gateway\",\"Server\":{\"ModelKey\":\"server\",\"Image\":\"ghcr.io/example/gtd-server:1.0.0\",\"Replicas\":1},\"WebApp\":{\"ModelKey\":\"web-app\",\"Image\":\"ghcr.io/example/gtd-web:1.0.0\",\"Replicas\":1},\"Postgres\":{\"ModelKeys\":[],\"Enabled\":false,\"Instances\":0,\"StorageClass\":\"\"},\"OIDC\":{\"ModelKey\":\"keycloak\",\"Issuer\":\"https://auth.example.test/realms/gtd\",\"ClientID\":\"gtd\",\"ClientSecretRef\":\"gtd-oidc-client-secret\"},\"SelfManaged\":false}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetApplicationHealth",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "GetSloStatus",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"SloMet\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadComputeAttribution",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "window",
+                    "value": "{\"From\":\"2026-10-01T00:00:00Z\",\"To\":\"2026-10-02T00:00:00Z\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Units\":{\"Amount\":3600}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "pull-telemetry",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetApplicationHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000003",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "2",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetApplicationHealth",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "GetSloStatus",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"SloMet\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadComputeAttribution",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "window",
+                    "value": "{\"From\":\"2026-10-01T00:00:00Z\",\"To\":\"2026-10-02T00:00:00Z\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Units\":{\"Amount\":86400}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "pull-telemetry",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetApplicationHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000004",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "2",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "PublishDesiredState",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "desired",
+                    "value": "{\"AppName\":\"gtd\",\"Namespace\":\"op-gtd\",\"Host\":\"gtd.apps.example.test\",\"ModelKey\":\"cloud-env\",\"GatewayModelKey\":\"gateway\",\"Server\":{\"ModelKey\":\"server\",\"Image\":\"ghcr.io/example/gtd-server:1.0.0\",\"Replicas\":2},\"WebApp\":{\"ModelKey\":\"web-app\",\"Image\":\"ghcr.io/example/gtd-web:1.0.0\",\"Replicas\":1},\"Postgres\":{\"ModelKeys\":[],\"Enabled\":false,\"Instances\":0,\"StorageClass\":\"\"},\"OIDC\":{\"ModelKey\":\"keycloak\",\"Issuer\":\"https://auth.example.test/realms/gtd\",\"ClientID\":\"gtd\",\"ClientSecretRef\":\"gtd-oidc-client-secret\"},\"SelfManaged\":false}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-ort-op-P3-republish-0001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "desired-state-published-c",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetDeploymentResourceHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000004",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "desired",
+                        "value": "{\"AppName\":\"gtd\",\"Namespace\":\"op-gtd\",\"Host\":\"gtd.apps.example.test\",\"ModelKey\":\"cloud-env\",\"GatewayModelKey\":\"gateway\",\"Server\":{\"ModelKey\":\"server\",\"Image\":\"ghcr.io/example/gtd-server:1.0.0\",\"Replicas\":2},\"WebApp\":{\"ModelKey\":\"web-app\",\"Image\":\"ghcr.io/example/gtd-web:1.0.0\",\"Replicas\":1},\"Postgres\":{\"ModelKeys\":[],\"Enabled\":false,\"Instances\":0,\"StorageClass\":\"\"},\"OIDC\":{\"ModelKey\":\"keycloak\",\"Issuer\":\"https://auth.example.test/realms/gtd\",\"ClientID\":\"gtd\",\"ClientSecretRef\":\"gtd-oidc-client-secret\"},\"SelfManaged\":false}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetApplicationHealth",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000005",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "GetSloStatus",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000005",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"SloMet\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadComputeAttribution",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000005",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "window",
+                    "value": "{\"From\":\"2026-10-01T00:00:00Z\",\"To\":\"2026-10-02T00:00:00Z\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Units\":{\"Amount\":3600}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "pull-telemetry",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetApplicationHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000005",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "3",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetApplicationHealth",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000006",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "GetSloStatus",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000006",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"SloMet\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadComputeAttribution",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000006",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "window",
+                    "value": "{\"From\":\"2026-10-01T00:00:00Z\",\"To\":\"2026-10-02T00:00:00Z\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Units\":{\"Amount\":86400}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "pull-telemetry",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetApplicationHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000006",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "3",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "PublishDesiredState",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000006",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "desired",
+                    "value": "{\"AppName\":\"gtd\",\"Namespace\":\"op-gtd\",\"Host\":\"gtd.apps.example.test\",\"ModelKey\":\"cloud-env\",\"GatewayModelKey\":\"gateway\",\"Server\":{\"ModelKey\":\"server\",\"Image\":\"ghcr.io/example/gtd-server:1.0.0\",\"Replicas\":2},\"WebApp\":{\"ModelKey\":\"web-app\",\"Image\":\"ghcr.io/example/gtd-web:1.0.0\",\"Replicas\":1},\"Postgres\":{\"ModelKeys\":[],\"Enabled\":false,\"Instances\":0,\"StorageClass\":\"\"},\"OIDC\":{\"ModelKey\":\"keycloak\",\"Issuer\":\"https://auth.example.test/realms/gtd\",\"ClientID\":\"gtd\",\"ClientSecretRef\":\"gtd-oidc-client-secret\"},\"SelfManaged\":false}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-ort-op-P5-republish-0001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "desired-state-published-c",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetDeploymentResourceHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000006",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "desired",
+                        "value": "{\"AppName\":\"gtd\",\"Namespace\":\"op-gtd\",\"Host\":\"gtd.apps.example.test\",\"ModelKey\":\"cloud-env\",\"GatewayModelKey\":\"gateway\",\"Server\":{\"ModelKey\":\"server\",\"Image\":\"ghcr.io/example/gtd-server:1.0.0\",\"Replicas\":2},\"WebApp\":{\"ModelKey\":\"web-app\",\"Image\":\"ghcr.io/example/gtd-web:1.0.0\",\"Replicas\":1},\"Postgres\":{\"ModelKeys\":[],\"Enabled\":false,\"Instances\":0,\"StorageClass\":\"\"},\"OIDC\":{\"ModelKey\":\"keycloak\",\"Issuer\":\"https://auth.example.test/realms/gtd\",\"ClientID\":\"gtd\",\"ClientSecretRef\":\"gtd-oidc-client-secret\"},\"SelfManaged\":false}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetDeploymentResourceHealth",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000007",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "desired",
+                    "value": "{\"AppName\":\"gtd\",\"Namespace\":\"op-gtd\",\"Host\":\"gtd.apps.example.test\",\"ModelKey\":\"cloud-env\",\"GatewayModelKey\":\"gateway\",\"Server\":{\"ModelKey\":\"server\",\"Image\":\"ghcr.io/example/gtd-server:1.0.0\",\"Replicas\":1},\"WebApp\":{\"ModelKey\":\"web-app\",\"Image\":\"ghcr.io/example/gtd-web:1.0.0\",\"Replicas\":1},\"Postgres\":{\"ModelKeys\":[],\"Enabled\":false,\"Instances\":0,\"StorageClass\":\"\"},\"OIDC\":{\"ModelKey\":\"keycloak\",\"Issuer\":\"https://auth.example.test/realms/gtd\",\"ClientID\":\"gtd\",\"ClientSecretRef\":\"gtd-oidc-client-secret\"},\"SelfManaged\":false}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ModelKey\":\"server\",\"Status\":2},{\"ModelKey\":\"web-app\",\"Status\":2}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "read-live-health",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetApplicationHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000007",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "2",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "send-deployment-health"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "Withdraw",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000008",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-ort-wd-P2-withdraw-0001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "tear-down-runtime",
+                    "component": "operatedRuntimeAccess",
+                    "operation": "GetApplicationHealth",
+                    "inputs": [
+                      {
+                        "name": "appID",
+                        "value": "7a0e5c11-0000-4000-8000-000000000008",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "4",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadComputeAttribution",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000008",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "window",
+                    "value": "{\"From\":\"2026-10-01T00:00:00Z\",\"To\":\"2026-10-02T00:00:00Z\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Units\":{\"Amount\":1800}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "operatedSystemStateAccess": {
         "component": "operatedSystemStateAccess",
