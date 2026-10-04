@@ -38,10 +38,11 @@ import (
 //  4. ProjectStateGitRepoURL is required when ProjectStateGitLocal=true (the boot-time
 //     git-local guard — reproduces the pre-appgen hand buildDesignProjectState check).
 //     4b. LOCAL profile: ArtifactRepoURL defaults to ProjectStateGitRepoURL when unset
-//     (local-first-init-funnel Task 6) — local mode's "zero external deps beyond
-//     git+claude" thesis would otherwise be broken by requiring a SEPARATE
-//     artifact repo just to register the construction Worker; the SAME on-disk
-//     repo project state already lives in is a reasonable, zero-config default.
+//     (local-first-init-funnel Task 6) — requiring a SEPARATE artifact repo just to
+//     register the construction Worker would add a dependency local mode does not
+//     need; the SAME on-disk repo project state already lives in is a reasonable,
+//     zero-config default. (Local mode's only external dependencies are git, the
+//     claude CLI and the Postgres of (3).)
 //  5. Construction creds are required only when !ConstructionDryRun, and (Task 6)
 //     only the GitHub-Actions-specific ones on a NON-local profile — the local
 //     construction executor needs no GitHub App / construction-repo config at all.

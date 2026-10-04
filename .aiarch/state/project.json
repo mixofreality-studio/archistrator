@@ -12093,10 +12093,18 @@
                       "role": "other"
                     },
                     {
+                      "key": "local-infra-postgres",
+                      "name": "Postgres",
+                      "technology": "Postgres · ARCHISTRATOR_POSTGRES_URL",
+                      "description": "The developer-supplied Postgres holding the billing stores: BillingState head-state rows and the platform's own merchant-gateway ledger. The same Postgres variant the cloud profile binds (spec §12 ruling B5); a local boot refuses to start without it.",
+                      "tags": [],
+                      "role": "database"
+                    },
+                    {
                       "key": "local-infra-absent",
                       "name": "Not present locally",
-                      "technology": "no Postgres · no Keycloak · no GitHub App · no platform-held LLM key",
-                      "description": "The local profile designs and constructs; it does not operate or bill, so the operate/bill stores and the identity provider are deliberately absent.",
+                      "technology": "no OperatedSystemState or UsageLog store · no Keycloak · no GitHub App · no platform-held LLM key",
+                      "description": "The local profile designs and constructs; it does not operate, so the operate stores (operated-system state, usage log) and the identity provider are deliberately absent. The billing stores are present, on the local Postgres.",
                       "tags": [],
                       "role": "other"
                     }
@@ -12126,6 +12134,13 @@
                   "to": "local-infra-agentic-runner",
                   "label": "Launches construction episodes as",
                   "technology": "subprocess",
+                  "mode": "sync"
+                },
+                {
+                  "from": "local-ci-server",
+                  "to": "local-infra-postgres",
+                  "label": "Reads and writes billing state and the merchant-gateway ledger on",
+                  "technology": "SQL (pgx)",
                   "mode": "sync"
                 },
                 {

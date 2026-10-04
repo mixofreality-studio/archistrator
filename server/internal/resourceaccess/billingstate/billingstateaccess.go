@@ -299,17 +299,18 @@ RETURNING version`, customerID, uint64(expectedVersion))
 // Shared write machinery.
 // ---------------------------------------------------------------------------
 
-const dedupSelectSQL = `SELECT customer_id, resulting_version FROM billing_mutation WHERE idempotency_key = $1`
+const dedupSelectSQL = `SELECT op, customer_id, resulting_version FROM billing_mutation WHERE idempotency_key = $1`
 
 const ledgerInsertSQL = `
-INSERT INTO billing_mutation (idempotency_key, customer_id, resulting_version)
-VALUES ($1, $2, $3)`
+INSERT INTO billing_mutation (idempotency_key, op, customer_id, resulting_version)
+VALUES ($1, $2, $3, $4)`
 
 const existsSQL = `SELECT true FROM billing_customer WHERE customer_id = $1`
 
 // mutate runs one head-state write in a single transaction with the dedup-first
 // discipline: (1) a key already applied returns its recorded resulting version (no-op
-// success) — or ContractMisuse when it was applied to another customer; (2) otherwise
+// success) — or ContractMisuse when it was applied by another op or to another
+// customer (the merchantGatewayAccess rule: a key names one request); (2) otherwise
 // the write runs, the key -> version is recorded and the transaction commits. A write
 // error rolls everything back, so the ledger holds only applied writes.
 func (s *postgresBillingStateAccess) mutate(
@@ -348,7 +349,7 @@ func (s *postgresBillingStateAccess) mutate(
 	if err != nil {
 		return 0, err
 	}
-	if _, lerr := tx.Exec(ctx, ledgerInsertSQL, string(key), customerID, uint64(newV)); lerr != nil {
+	if _, lerr := tx.Exec(ctx, ledgerInsertSQL, string(key), op, customerID, uint64(newV)); lerr != nil {
 		return 0, fwpg.MapError(lerr, op+": ledger")
 	}
 	if cerr := tx.Commit(ctx); cerr != nil {
@@ -358,18 +359,22 @@ func (s *postgresBillingStateAccess) mutate(
 }
 
 // replayedVersion reports the version a key already applied resulted in. A key
-// recorded against another customer is a caller error, not a replay.
+// recorded by another op or against another customer is a caller error, not a replay:
+// a replay is the same write retried, so it carries the same op and customer.
 func replayedVersion(ctx context.Context, tx pgx.Tx, op string, customerID uuid.UUID, key fwra.IdempotencyKey) (Version, bool, error) {
 	var (
-		owner uuid.UUID
-		prior uint64
+		appliedBy string
+		owner     uuid.UUID
+		prior     uint64
 	)
-	err := tx.QueryRow(ctx, dedupSelectSQL, string(key)).Scan(&owner, &prior)
+	err := tx.QueryRow(ctx, dedupSelectSQL, string(key)).Scan(&appliedBy, &owner, &prior)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return 0, false, nil
 	case err != nil:
 		return 0, false, fwpg.MapError(err, op+": dedup")
+	case appliedBy != op:
+		return 0, false, fwra.New(fwra.ContractMisuse, op+": idempotencyKey already applied by "+appliedBy)
 	case owner != customerID:
 		return 0, false, fwra.New(fwra.ContractMisuse, op+": idempotencyKey already applied to another customer")
 	default:

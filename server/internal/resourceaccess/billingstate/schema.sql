@@ -67,9 +67,12 @@ CREATE INDEX IF NOT EXISTS billing_cycle_escalated_idx
     WHERE escalated;
 
 -- Dedup-first idempotency ledger: each successful write records its caller key with
--- the customer it wrote and the resulting version; a replayed write reads it back.
+-- the op that applied it, the customer it wrote and the resulting version; a replayed
+-- write (same key, same op, same customer) reads it back, and a key reused by another
+-- op or for another customer is refused as ContractMisuse.
 CREATE TABLE IF NOT EXISTS billing_mutation (
     idempotency_key   text        PRIMARY KEY,
+    op                text        NOT NULL,
     customer_id       uuid        NOT NULL,
     resulting_version bigint      NOT NULL,
     applied_at        timestamptz NOT NULL DEFAULT now()

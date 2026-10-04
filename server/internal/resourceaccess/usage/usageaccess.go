@@ -325,8 +325,9 @@ func entryRef(id int64) EntryRef {
 
 // noopUsageAccess is the permanent no-op UsageAccess selected on the LOCAL
 // profile (operational-concepts.md's local environment: "usageAccess=no-op" —
-// the init-funnel target has no Postgres, and usage/hosting metering is a
-// cloud-only concern per the canonical billing model — construction and
+// usage/hosting metering is a cloud-only concern per the canonical billing model,
+// so the local arm binds no store even though the local profile has a Postgres for
+// the billing stores (spec §12 ruling B5) — construction and
 // hosting are never metered on the user's own subscription/laptop). It
 // performs NO persistence: every write trivially "succeeds" (a fresh,
 // zero-value EntryRef per event, never persisted or read back) and every read

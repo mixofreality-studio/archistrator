@@ -1231,7 +1231,8 @@ var encapsulationAllowlistData = map[string][]string{
 	// Cross-package identity value types (CustomerID, OperatedAppID) consumed by downstream
 	// Managers, + Error alias. NewNoOpUsageAccess is the LOCAL-PROFILE VARIANT CONSTRUCTOR
 	// (Task 2, local-first-init-funnel): the local deployment binding declares infra: []
-	// for usageAccess (no Postgres in local mode — metering is a cloud-only concern), so
+	// for usageAccess (metering is a cloud-only concern, so the local arm binds no store
+	// even though the local profile has a Postgres for the billing stores), so
 	// there is no generated New<Infra><Component> for it; same VARIANT-CONSTRUCTOR category
 	// as artifact/agenticjob's dry-run constructors and revenueledger's permanent
 	// no-op above.
@@ -1243,8 +1244,9 @@ var encapsulationAllowlistData = map[string][]string{
 	},
 	// NewNoOpOperatedSystemStateAccess is the LOCAL-PROFILE VARIANT CONSTRUCTOR
 	// (local-first-init-funnel Task 2b): the local deployment binding declares
-	// infra: [] for operatedSystemStateAccess (no Postgres in local mode — deploy/
-	// operate is a cloud-only, paid-tier concern), so there is no generated
+	// infra: [] for operatedSystemStateAccess (deploy/operate is a cloud-only, paid-tier
+	// concern, so the local arm binds no store even though the local profile has a
+	// Postgres for the billing stores), so there is no generated
 	// New<Infra><Component> for it; same VARIANT-CONSTRUCTOR category as
 	// usage.NewNoOpUsageAccess above.
 	"internal/resourceaccess/operatedsystemstate": {
