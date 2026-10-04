@@ -354,11 +354,12 @@ func (s *postgresOperatedSystemStateAccess) mutate(
 
 // noopOperatedSystemStateAccess is the permanent LOCAL-PROFILE no-op
 // OperatedSystemStateAccess (operational-concepts.md's local environment:
-// "operatedSystemState=no-op" — local-first-init-funnel Task 2b; the init-funnel
-// target has no Postgres, and operations/deploy is a cloud-only, paid-tier concern
-// per the canonical deployment-scenario decision: "Local-first is the free
-// acquisition funnel (design + construction on the user's own subscription); hosted
-// deploy/operate is the paid tier"). It mirrors usage.noopUsageAccess's documented
+// "operatedSystemState=no-op" — local-first-init-funnel Task 2b; operations/deploy is
+// a cloud-only, paid-tier concern per the canonical deployment-scenario decision:
+// "Local-first is the free acquisition funnel (design + construction on the user's
+// own subscription); hosted deploy/operate is the paid tier" — so the local arm binds
+// no store even though the local profile has a Postgres for the billing stores, spec
+// §12 ruling B5). It mirrors usage.noopUsageAccess's documented
 // stance: NO persistence. Every read behaves as though no operated app has ever
 // existed (ReadOperatedSystem -> NotFound, matching the real store's own "missing row
 // is NotFound" contract; ReadInFlightOperatedApps -> empty). Every write trivially
