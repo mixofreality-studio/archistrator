@@ -39851,7 +39851,1270 @@
       },
       "billingStateAccess": {
         "component": "billingStateAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "bill-the-user-for-usage-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "b1110000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"b1110000-0000-4000-8000-000000000001\",\"Version\":2,\"Registered\":true,\"GatewayBound\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SettleCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "b1110000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle-state:b1110000-0000-4000-8000-000000000001:2026-09",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-close",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "b1110000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"b1110000-0000-4000-8000-000000000001\",\"Version\":3}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "invoice-paid",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "b1110000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":false,\"Directive\":2}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "period-closed-paid",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "b1110000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "b1120000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"b1120000-0000-4000-8000-000000000002\",\"Version\":2,\"Registered\":true,\"GatewayBound\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SettleCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "b1120000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":true}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle-state:b1120000-0000-4000-8000-000000000002:2026-09",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "customer-delinquent",
+                    "component": "billingStateAccess",
+                    "operation": "ReadPersistentlyDelinquentCustomers",
+                    "inputs": [
+                      {
+                        "name": "scope",
+                        "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"ID\":\"b1120000-0000-4000-8000-000000000002\"}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SettleCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "b1120000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":true}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle-state:b1120000-0000-4000-8000-000000000002:2026-09",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "invoice-unpaid",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "b1120000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":true}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "period-closed-unpaid",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "b1120000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "b1130000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"b1130000-0000-4000-8000-000000000003\",\"Version\":2,\"Registered\":true,\"GatewayBound\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SettleCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "b1130000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle-state:b1130000-0000-4000-8000-000000000003:2026-09",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-close",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "b1130000-0000-4000-8000-000000000003",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"b1130000-0000-4000-8000-000000000003\",\"Version\":3}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "invoice-paid",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "b1130000-0000-4000-8000-000000000003",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":false,\"Directive\":2}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "period-closed-paid",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "b1130000-0000-4000-8000-000000000003",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "onboard-a-new-customer-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b010000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"0b010000-0000-4000-8000-000000000001\",\"Version\":1,\"Registered\":true,\"GatewayBound\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "resolve-app",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b010000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0b010000-0000-4000-8000-000000000001\",\"Registered\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "BindGatewayLive",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b010000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "binding",
+                    "value": "{\"GatewayCustomerRef\":\"cus_stp_onboard_p1\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "bind:0b010000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "bind-gateway",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b010000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0b010000-0000-4000-8000-000000000001\",\"Version\":2}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "obj-gateway-bound",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b010000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Registered\":true,\"GatewayBound\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "onboard-a-new-customer-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b020000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Version\":0,\"Registered\":false,\"GatewayBound\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "resolve-app",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b020000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Registered\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "RegisterCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b020000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "profile",
+                    "value": "{}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "register:0b020000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "register-customer",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b020000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0b020000-0000-4000-8000-000000000002\",\"Version\":1}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "obj-customer-registered",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b020000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Registered\":true,\"GatewayBound\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "BindGatewayLive",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b020000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "binding",
+                    "value": "{\"GatewayCustomerRef\":\"cus_stp_onboard_p2\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "bind:0b020000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "bind-gateway",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b020000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0b020000-0000-4000-8000-000000000002\",\"Version\":2}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "obj-gateway-bound",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b020000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Registered\":true,\"GatewayBound\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadPersistentlyDelinquentCustomers",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"2e710000-0000-4000-8000-000000000001\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "2e710000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"2e710000-0000-4000-8000-000000000001\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ResettleCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "2e710000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "correction",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "resettle-state:2e710000-0000-4000-8000-000000000001:2026-09",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "4",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-settled",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "2e710000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"2e710000-0000-4000-8000-000000000001\",\"Version\":4}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "cycle-settled",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "2e710000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadPersistentlyDelinquentCustomers",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"2e720000-0000-4000-8000-000000000002\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "2e720000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"2e720000-0000-4000-8000-000000000002\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ResettleCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "2e720000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "correction",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":true}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "sweep-state:2e720000-0000-4000-8000-000000000002:2026-09:1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "4",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "cycle-awaiting-sweep",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "2e720000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":true}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "cycle-awaiting-sweep",
+                    "component": "billingStateAccess",
+                    "operation": "ReadPersistentlyDelinquentCustomers",
+                    "inputs": [
+                      {
+                        "name": "scope",
+                        "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"ID\":\"2e720000-0000-4000-8000-000000000002\"}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadPersistentlyDelinquentCustomers",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"2e730000-0000-4000-8000-000000000003\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "2e730000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"2e730000-0000-4000-8000-000000000003\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ResettleCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "2e730000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "correction",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":true}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "escalate-state:2e730000-0000-4000-8000-000000000003:2026-09",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "4",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadPersistentlyDelinquentCustomers",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ID\":\"2e740000-0000-4000-8000-000000000004\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "2e740000-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"2e740000-0000-4000-8000-000000000004\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ResettleCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "2e740000-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "correction",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "resettle-state:2e740000-0000-4000-8000-000000000004:2026-09",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "4",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "record-settled",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "2e740000-0000-4000-8000-000000000004",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"2e740000-0000-4000-8000-000000000004\",\"Version\":4}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "cycle-settled",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "2e740000-0000-4000-8000-000000000004",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-a-billing-cycle-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "5ee10000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-10",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Cycle\":\"2026-10\",\"Settled\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "read-billing-cycle",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "5ee10000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-10",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-10\",\"Settled\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "send-cycle-open"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-a-billing-cycle-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "5ee20000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "read-billing-cycle",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "5ee20000-0000-4000-8000-000000000002",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "send-cycle-settlement"
+                ],
+                "hook": true
+              }
+            ]
+          }
+        ]
       },
       "designSessionAccess": {
         "component": "designSessionAccess",
