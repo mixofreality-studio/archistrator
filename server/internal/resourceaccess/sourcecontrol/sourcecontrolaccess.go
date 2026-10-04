@@ -66,6 +66,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -594,31 +595,34 @@ func (a *access) SyncManagedFiles(ctx context.Context, repo RepoRef, files []Man
 	return a.putManagedFiles(ctx, repo, files, message, cred)
 }
 
-// ReadManagedFile is the hand-written auxiliary MANAGED-FILE READ surface (B4
-// sync fast-path), OFF the frozen contract like SyncManagedFiles / AppSlug: read one
-// aiarch-managed file's bytes off the repo's default branch. A missing file is
-// found=false (not an error). The SAME allowlist gatekeeper as the write path guards
-// it, so this can never become a "read any file" smell. Reached via the
-// sourcecontrol.SyncManagedScaffold package helper (managedFileReader), which reads
-// the seated .claude/.method-assets-manifest.json to fingerprint the seated .claude
-// tree by version instead of converging ~100 files on every design dispatch.
-func (a *access) ReadManagedFile(ctx context.Context, repo RepoRef, p string, cred RepoCredential) ([]byte, bool, error) {
+// ReadManagedFile reads one aiarch-managed file's bytes off the repo's default branch
+// (spec §12 B6, A7-5: the managed-file read is a contract op). A missing file is
+// Found=false, not an error. The SAME allowlist gatekeeper as the write path guards
+// it, so this can never become a "read any file" smell. The SyncManagedScaffold
+// helper reads the seated .claude/.method-assets-manifest.json through it to
+// fingerprint the seated .claude tree by version instead of converging ~100 files on
+// every design dispatch.
+func (a *access) ReadManagedFile(rc fwra.Context, repo RepoRef, p string, cred RepoCredential) (ManagedFileRead, error) {
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
-		return nil, false, err
+		return ManagedFileRead{}, err
 	}
 	if !isManagedFilePath(p) {
-		return nil, false, fwra.New(fwra.ContractMisuse,
+		return ManagedFileRead{}, fwra.New(fwra.ContractMisuse,
 			"ReadManagedFile: path "+p+" is not an aiarch-managed file")
 	}
-	return a.client.GetRepoContentsFile(ctx, fullName, p, credStr(cred))
+	content, found, err := a.client.GetRepoContentsFile(rc.Context, fullName, p, credStr(cred))
+	if err != nil {
+		return ManagedFileRead{}, err
+	}
+	return ManagedFileRead{Content: content, Found: found}, nil
 }
 
 // ManagedScaffoldSynced / RecordManagedScaffoldSynced implement the managedSyncMemo
 // auxiliary surface (F-QA2-36): the per-process record of which repos this access has
 // proven current by a FULL sync-set converge, keyed by repo and methodassets version
 // (a server upgrade naturally invalidates every entry). Same off-contract discovery
-// pattern as SyncManagedFiles / ReadManagedFile / AppSlug.
+// pattern as SyncManagedFiles / AppSlug.
 func (a *access) ManagedScaffoldSynced(repo RepoRef, version string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1373,20 +1377,11 @@ type managedFileSyncer interface {
 	SyncManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, message string, cred RepoCredential) (CommitRef, bool, error)
 }
 
-// managedFileReader is the OPTIONAL hand-written auxiliary read surface a concrete
-// SourceControlAccess may expose (the GitHub-backed access does — see
-// (*access).ReadManagedFile): read one managed file's bytes off the default branch,
-// found=false on a missing file. Same discovery pattern as managedFileSyncer; a rail
-// without it (a test fake) simply never takes the sync fast-path.
-type managedFileReader interface {
-	ReadManagedFile(ctx context.Context, repo RepoRef, path string, cred RepoCredential) ([]byte, bool, error)
-}
-
 // managedSyncMemo is the OPTIONAL per-process sync-verification memo a concrete
 // SourceControlAccess may expose (the GitHub-backed access does — see
 // (*access).ManagedScaffoldSynced): has THIS process already converged the FULL
 // sync-scoped set for repo at this methodassets version? Same discovery pattern as
-// managedFileSyncer / managedFileReader.
+// managedFileSyncer.
 //
 // WHY (F-QA2-36, torn-state belt-and-braces): the seat manifest carries a version
 // and a files list but NO per-file content hashes — so a manifest whose version
@@ -1449,7 +1444,7 @@ func recordScaffoldSynced(rail SourceControlAccess, repo RepoRef) {
 //     lies (the gtdapp incident: manifest written first, loop died mid-tree, every
 //     version-only fast-path thereafter trusted it and the tear never self-healed);
 //     AND
-//  2. the seated .claude/.method-assets-manifest.json (managedFileReader) carries
+//  2. the seated .claude/.method-assets-manifest.json (ReadManagedFile) carries
 //     exactly this server's methodassets pin — VERSION ONLY, never the files list
 //     (a materializer-written manifest may transiently carry retained orphans) —
 //     which catches cross-process drift the in-process memo cannot see. Since
@@ -1460,8 +1455,8 @@ func recordScaffoldSynced(rail SourceControlAccess, repo RepoRef) {
 // On both proofs the sync converges ONLY the two workflow files: their rendering
 // also carries the SERVER-owned (ldflags-stampable) StateMcpModulePin, which the
 // module version cannot fingerprint, so the workflows are always converged. Anything
-// less — first sync of a process, absent/unreadable/mismatched manifest, or a rail
-// without the read surface — takes the FULL seat: every sync-scoped file through the
+// less — first sync of a process, or an absent/unreadable/mismatched manifest — takes
+// the FULL seat: every sync-scoped file through the
 // same putManagedFiles converge (a current file costs a read, never a commit).
 //
 // Either way the write is ONE tree-read compare + ONE atomic commit (trees-API
@@ -1521,23 +1516,19 @@ func SyncManagedScaffold(ctx context.Context, rail SourceControlAccess, repo Rep
 
 // seatedManifestVersionCurrent reports whether the SEATED scaffold manifest can be
 // read AND carries exactly this server's methodassets version. Any failure to prove
-// currency — a rail without the read surface, a read error, a missing manifest
-// (pre-B4 repos), or a corrupt/mismatched document — answers false, and the caller
-// converges the full sync set instead (which is always correct, just slower). The
-// comparison is VERSION ONLY by design; see SyncManagedScaffold.
+// currency — a read error, a missing manifest (pre-B4 repos), or a
+// corrupt/mismatched document — answers false, and the caller converges the full
+// sync set instead (which is always correct, just slower). The comparison is
+// VERSION ONLY by design; see SyncManagedScaffold.
 func seatedManifestVersionCurrent(ctx context.Context, rail SourceControlAccess, repo RepoRef, cred RepoCredential) bool {
-	r, ok := rail.(managedFileReader)
-	if !ok {
-		return false
-	}
-	b, found, err := r.ReadManagedFile(ctx, repo, scaffoldManifestPath, cred)
-	if err != nil || !found {
+	read, err := rail.ReadManagedFile(fwra.Context{Context: ctx}, repo, scaffoldManifestPath, cred)
+	if err != nil || !read.Found {
 		return false
 	}
 	var m struct {
 		Version string `json:"version"`
 	}
-	if json.Unmarshal(b, &m) != nil {
+	if json.Unmarshal(read.Content, &m) != nil {
 		return false
 	}
 	return m.Version != "" && m.Version == methodassets.Version()
@@ -1869,6 +1860,35 @@ func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, _ []Ma
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal CommitManagedFiles: zero RepoRef")
 	}
 	return CommitRef(gitLocalScaffoldSentinel), nil
+}
+
+// ReadManagedFile reads one aiarch-managed file off the shared repo's main, in a
+// throwaway clone. The local executor seats the .claude prompt surface itself, so a
+// managed file is usually absent here: Found=false, not an error. The same allowlist
+// gatekeeper as the GitHub variant guards the path.
+func (a *gitLocalAccess) ReadManagedFile(_ fwra.Context, repo RepoRef, p string, _ RepoCredential) (ManagedFileRead, error) {
+	if RepoRefIsZero(repo) {
+		return ManagedFileRead{}, fwra.New(fwra.ContractMisuse, "gitlocal ReadManagedFile: zero RepoRef")
+	}
+	if !isManagedFilePath(p) {
+		return ManagedFileRead{}, fwra.New(fwra.ContractMisuse,
+			"gitlocal ReadManagedFile: path "+p+" is not an aiarch-managed file")
+	}
+	a.gitMu.Lock()
+	defer a.gitMu.Unlock()
+	cloneDir, cleanup, err := a.cloneMain()
+	if err != nil {
+		return ManagedFileRead{}, err
+	}
+	defer cleanup()
+	content, rerr := fs.ReadFile(os.DirFS(cloneDir), p)
+	if errors.Is(rerr, fs.ErrNotExist) {
+		return ManagedFileRead{Found: false}, nil
+	}
+	if rerr != nil {
+		return ManagedFileRead{}, fwra.Wrap(fwra.Infrastructure, rerr, "gitlocal ReadManagedFile: read "+p)
+	}
+	return ManagedFileRead{Content: content, Found: true}, nil
 }
 
 // SyncManagedScaffold is a no-op reporting NO drift/commit: the local executor materialises

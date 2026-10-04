@@ -104,7 +104,7 @@ func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycle
 	case billingengine.RoutingCharge:
 		// Charge the positive magnitude of the negative shortfall net.
 		chargeAmount := merchantgateway.Money{MinorUnits: -result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency}
-		cerr := wf.chargeCustomer(ctx, customerID, cycleID, chargeAmount)
+		cerr := wf.chargeCustomer(ctx, customerID, cycleID, attempt, chargeAmount)
 		if cerr == nil {
 			return false, nil
 		}
@@ -190,10 +190,10 @@ func (wf *workflows) foldUsage(ctx workflow.Context, customerID customerID, cycl
 }
 
 // chargeCustomer invokes merchantGatewayAccess.chargeCustomer (caller-keyed
-// settle:{customerId}:{cycleId}). A terminal decline (RA Auth) surfaces to the
+// settle:{customerId}:{cycleId}:{attempt}). A terminal decline (RA Auth) surfaces to the
 // decideOnBillingFailure branch (OQ-4).
-func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, amount merchantgateway.Money) error {
-	key := gatewayIdempotencyKey(customerID, cycleID)
+func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, attempt int, amount merchantgateway.Money) error {
+	key := gatewayIdempotencyKey(customerID, cycleID, attempt)
 	return wf.Acts.MerchantGatewayChargeCustomer(ctx, fwra.IdempotencyKey(key), customerID, amount, key)
 }
 
@@ -203,13 +203,18 @@ func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, se
 	})
 }
 
-// gatewayIdempotencyKey derives the Stripe Idempotency-Key settle:{customerId}:{cycleId}
-// for the money-moving gateway Activities (billingManager.md §6.4 line 264/706). A pure,
-// business-stable string composition — replay-safe, so it is built workflow-side and
-// supplied EXPLICITLY to the caller-keyed gateway invoker (as BOTH the caller key and the
-// contract's idempotencyKey param), preserving today's dedup token exactly.
-func gatewayIdempotencyKey(customerID customerID, cycleID cycleID) string {
-	return fmt.Sprintf("settle:%s:%s", customerID, cycleID)
+// gatewayIdempotencyKey derives the Stripe Idempotency-Key
+// settle:{customerId}:{cycleId}:{attempt} for the money-moving gateway Activities
+// (spec §12 B6). attempt is the 0-based charge attempt of this close; the key carries it
+// 1-based, the AttemptCount the intervention policy reads. A gateway replays a key's
+// recorded outcome, a decline included, so a retry under the first attempt's key could
+// never succeed: every retry is a new attempt under a new key, while a replay of one
+// attempt (a Temporal activity retry) reuses that attempt's key and charges at most once.
+// A pure, business-stable string composition — replay-safe, so it is built workflow-side
+// and supplied EXPLICITLY to the caller-keyed gateway invoker (as BOTH the caller key and
+// the contract's idempotencyKey param).
+func gatewayIdempotencyKey(customerID customerID, cycleID cycleID, attempt int) string {
+	return fmt.Sprintf("settle:%s:%s:%d", customerID, cycleID, attempt+1)
 }
 
 // isGatewayDecline reports whether err is a terminal gateway charge decline (RA Auth —

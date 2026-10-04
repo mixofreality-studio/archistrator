@@ -3673,10 +3673,7 @@ func toReviewCommentView(c projectstate.ReviewComment) ReviewCommentView {
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// toViewReplies projects a stored entry's utterance history onto the wire shape. The
-// DEPRECATED scalar ReviewComment.Response is deliberately NOT read here: the shared
-// decode point already migrates a legacy response into a synthesized first reply
-// (migrateLegacyReviewThread, design §3.5), so reading it again would double-render it.
+// toViewReplies projects a stored entry's utterance history onto the wire shape.
 func toViewReplies(in []projectstate.ReviewCommentReply) []ReviewCommentReply {
 	if len(in) == 0 {
 		return nil
@@ -5728,13 +5725,10 @@ type constructionManager struct {
 	// csWorkflows; this field exists to thread it into genActivities.
 	episodes episode.EpisodeAccess
 
-	// activityExecution (stage 3) is the generated activityExecutionAccess dep — the
-	// fifth facet of the one project-state component, owner of the per-activity attempt
-	// and review-round ledgers. Taking the dep HERE is what registers its twelve
-	// Temporal activities on this Manager's worker, which is the precondition for task
-	// 5: the construction child workflow switches onto them behind workflow.GetVersion,
-	// with the old branch still calling the deprecated-in-place facets whose activity
-	// names the replay fixtures record. Nothing in this wave CALLS these verbs yet.
+	// activityExecution is the generated activityExecutionAccess dep — a facet of the
+	// one project-state component, owner of the per-activity attempt and review-round
+	// ledgers. Taking the dep HERE is what registers its Temporal activities on this
+	// Manager's worker.
 	activityExecution projectstate.ActivityExecutionAccess
 
 	// scenarios is the projection the testRun/scenarios views and the testing gate join
@@ -5821,7 +5815,7 @@ func newConstructionManager(
 // tickID is a CORRELATION id only (logged here); it no longer shapes the workflow id,
 // so it cannot fork a second pump. It stays a required, non-empty input (the contract
 // shape is unchanged). SYNC: returns the pump's dispatch decision
-// (PumpResult{Dispatched:true, ActivityID}, or {Dispatched:false} when quiescent) as
+// (PumpResult{Dispatched:true, ActivityIDs}, or {Dispatched:false} when quiescent) as
 // soon as the pump run has decided — it does NOT block until the per-activity child (or
 // the background self-cascade over the dependency frontier) drains. A caller that
 // joined a running pump reads THAT run's decision. The decision is read off the pump
@@ -5956,14 +5950,9 @@ func (m *constructionManager) awaitDispatchDecision(ctx context.Context, we clie
 			return PumpResult{}, fatal
 		}
 		if qerr == nil && d.Decided {
-			// THE WHOLE FRONTIER IS IN d.ActivityIDs AND ONLY THE FIRST FITS HERE. The lease
-			// pump starts every eligible activity, so one tick's answer is a LIST; PumpResult
-			// carries one id, and growing it is the additive contract delta
-			// deliveryManager.$defs.PumpResult.activityIds that stage 4b2 did not spend its one
-			// model edit on. Until that lands the rest is observable on queryPumpDispatch and in
-			// the pump's own log line, and nothing in the SPA reads activityId at all (the
-			// response body is narrowed to {dispatched?: boolean}).
-			return PumpResult{Dispatched: d.Dispatched, ActivityID: d.ActivityID}, nil
+			// The lease pump starts every eligible activity, so one tick's answer is the
+			// whole frontier.
+			return PumpResult{Dispatched: d.Dispatched, ActivityIDs: d.ActivityIDs}, nil
 		}
 		now := time.Now()
 		switch {
@@ -7743,11 +7732,6 @@ type constructionActivity struct {
 	// stamp (RecordActivityStarted) and the per-phase slash command (CommandFor).
 	// Classify once, carry the result — a second derivation is a second chance to
 	// disagree, which is exactly how a phase profile and its commands drifted apart.
-	// Variant is marshalled WITHOUT omitempty, so a workflow already in flight carries
-	// its non-testing activity as the pre-rename "Variant":"plan"; projectstate decodes
-	// that legacy name to TestVariantNone (the zero pair is (Service, None)), which is
-	// what keeps every live delivery workflow — not only the retired N-STP/N-IT ones —
-	// replaying across the deploy that renamed ordinal 0.
 	Type    projectstate.ActivityType
 	Variant projectstate.TestingVariant
 }
@@ -10676,9 +10660,8 @@ type deliveryManager struct {
 var _ DeliveryManager = (*deliveryManager)(nil)
 
 // newDeliveryManager is the hand-written builder the GENERATED NewDeliveryManager
-// delegates to. Its parameter list is the contract's `deps` list in order and is
-// UNCHANGED by this task (R9 — dropping the deprecated facets is post-drain, 4b2); what
-// changed is that it no longer splits that union across three receivers.
+// delegates to. Its parameter list is the contract's `deps` list in order, and it does
+// not split that union across receivers.
 func newDeliveryManager(
 	c client.Client,
 	projectState projectstate.ProjectStateAccess,

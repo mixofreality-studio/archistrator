@@ -25,7 +25,9 @@ type onboardInput struct {
 //  1. ReadBillingActivity → resolves deployedAppId → customerId + terms.
 //  2. BindGatewayLiveActivity (head-state; Conflict loop) — charge-only: binds the
 //     gateway customer reference; no connected-account creation step.
-//  3. RegisterScheduleActivity (the per-customer closeBillingCycle:<customerId> Schedule).
+//  3. RegisterScheduleActivity (the per-customer closeBillingCycle:<customerId> Schedule),
+//     read back through DescribeSchedule: a settlement timer that did not land fails
+//     the onboarding.
 //
 // (Runtime payment-config wiring is NOT a billing step: publishing desired state into
 // the operated runtime is OperationsManager's publishDesiredState concern — the
@@ -60,9 +62,18 @@ func (wf *workflows) OnboardWorkflow(ctx workflow.Context, in onboardInput) (Bil
 		return BillingRef{}, berr
 	}
 
-	// Register the per-customer cycle-close Schedule (idempotent by id).
+	// Register the per-customer cycle-close Schedule (idempotent by id), then read it back.
 	if rerr := wf.registerCloseSchedule(ctx, customerID); rerr != nil {
 		return BillingRef{}, rerr
+	}
+	schedule, derr := wf.Acts.MessageBusDescribeSchedule(ctx, closeScheduleID(customerID))
+	if derr != nil {
+		return BillingRef{}, derr
+	}
+	if !schedule.Registered {
+		return BillingRef{}, temporal.NewNonRetryableApplicationError(
+			"the settlement-cycle schedule did not land: "+string(closeScheduleID(customerID))+" reads back unregistered",
+			fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
 	}
 
 	logger.Info("payment integration onboarded", "customerId", customerID.String(), "deployedAppId", in.DeployedAppID.String())
@@ -107,11 +118,16 @@ func (wf *workflows) bindGatewayLive(ctx workflow.Context, customerID customerID
 // KindBinding table resolves the task queue, so it is not threaded.
 func (wf *workflows) registerCloseSchedule(ctx workflow.Context, customerID customerID) error {
 	return wf.Acts.MessageBusRegisterSchedule(ctx,
-		messagebus.ScheduleID(fmt.Sprintf("%s:%s", scheduleIDCloseCyclePrefix, customerID)),
+		closeScheduleID(customerID),
 		messagebus.ScheduleSpec{
 			ExecutionKind: messagebus.ExecutionKind(executionKindClose),
 			Cadence:       messagebus.Cadence{Every: time.Duration(closeCycleDefaultIntervalSecs) * time.Second},
 		})
+}
+
+// closeScheduleID is the per-customer closeBillingCycle:<customerId> Schedule id.
+func closeScheduleID(customerID customerID) messagebus.ScheduleID {
+	return messagebus.ScheduleID(fmt.Sprintf("%s:%s", scheduleIDCloseCyclePrefix, customerID))
 }
 
 // Shared workflow-context helper (used by 3 workflows); lives in its first caller's file per the file-layout standard.

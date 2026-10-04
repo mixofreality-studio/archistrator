@@ -39,6 +39,7 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.ArtifactRetrieveConstructionOutput, activity.RegisterOptions{Name: "artifactAccess.retrieveConstructionOutput"})
 	w.RegisterActivityWithOptions(acts.ArtifactStoreConstructionOutput, activity.RegisterOptions{Name: "artifactAccess.storeConstructionOutput"})
 	w.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
+	w.RegisterActivityWithOptions(acts.MessageBusDescribeSchedule, activity.RegisterOptions{Name: "messageBus.describeSchedule"})
 	w.RegisterActivityWithOptions(acts.MessageBusRegisterSchedule, activity.RegisterOptions{Name: "messageBus.registerSchedule"})
 	w.RegisterActivityWithOptions(acts.OperatedRuntimeGetApplicationHealth, activity.RegisterOptions{Name: "operatedRuntimeAccess.getApplicationHealth"})
 	w.RegisterActivityWithOptions(acts.OperatedRuntimeGetDeploymentResourceHealth, activity.RegisterOptions{Name: "operatedRuntimeAccess.getDeploymentResourceHealth"})

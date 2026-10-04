@@ -20,6 +20,7 @@ type FakeSourceControlAccess struct {
 	OpenPullRequestFn      func(rc fwra.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error)
 	PostReviewFn           func(rc fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential) error
 	SyncManagedScaffoldFn  func(rc fwra.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error)
+	ReadManagedFileFn      func(rc fwra.Context, repo sourcecontrol.RepoRef, path string, cred sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error)
 }
 
 func (f *FakeSourceControlAccess) AdoptProjectRepo(rc fwra.Context, spec sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
@@ -83,6 +84,13 @@ func (f *FakeSourceControlAccess) SyncManagedScaffold(rc fwra.Context, repo sour
 		panic("FakeSourceControlAccess.SyncManagedScaffoldFn not set")
 	}
 	return f.SyncManagedScaffoldFn(rc, repo, cred)
+}
+
+func (f *FakeSourceControlAccess) ReadManagedFile(rc fwra.Context, repo sourcecontrol.RepoRef, path string, cred sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	if f.ReadManagedFileFn == nil {
+		panic("FakeSourceControlAccess.ReadManagedFileFn not set")
+	}
+	return f.ReadManagedFileFn(rc, repo, path, cred)
 }
 
 var _ sourcecontrol.SourceControlAccess = (*FakeSourceControlAccess)(nil)

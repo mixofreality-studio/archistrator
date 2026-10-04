@@ -341,6 +341,10 @@ func (b *fakeMessageBus) RegisterSchedule(_ fwra.Context, _ messagebus.ScheduleI
 	return nil
 }
 
+func (b *fakeMessageBus) DescribeSchedule(fwra.Context, messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	return messagebus.ScheduleDescription{}, nil
+}
+
 var _ messagebus.MessageBus = (*fakeMessageBus)(nil)
 
 func TestFinalizeMessageBus_DryRun_SkipsConstructionSchedules(t *testing.T) {

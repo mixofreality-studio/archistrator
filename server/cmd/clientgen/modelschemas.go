@@ -97,9 +97,6 @@ func modelWellKnown() map[reflect.Type]*jsonschema.Schema {
 // IDENTITIES only — the string values are never hand-listed here; they are produced
 // by live-marshalling each ordinal (see stringEnumWireValues), so the emitted enum
 // is ground-truth-by-construction and cannot drift from the marshaller.
-//
-// (ActivityKind is a type alias for ActivityType — same reflect.Type — so listing
-// ActivityType covers both.)
 func stringEnumTypes() []reflect.Type {
 	return []reflect.Type{
 		reflect.TypeFor[projectstate.Axis](),

@@ -1281,16 +1281,16 @@ func TestU44c_SyncManagedScaffoldFastPathConvergesWorkflows(t *testing.T) {
 // with the 2026-07-17 runtime-materialization ratification; see the section
 // header above.)
 
-// U45: FALLBACK. A rail that lacks the auxiliary sync + read surfaces (here: the real
+// U45: FALLBACK. A rail that lacks the auxiliary sync + memo surfaces (here: the real
 // access hidden behind an interface-embedding wrapper, so the type assertions miss)
 // still CONVERGES the full sync set through the frozen CommitManagedFiles verb — the
 // refreshed bytes land — but reports changed=false (the frozen verb does not report
-// drift) and never takes the fast path (no read surface).
+// drift) and never takes the fast path (no memo).
 func TestU45_SyncManagedScaffoldFallsBackToFrozenVerb(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
 	fake.SeedRepoFile(testAccount, "alpha", DesignWorkflowPath, []byte("stale seated workflow"))
-	wrapped := struct{ SourceControlAccess }{a} // hides SyncManagedFiles + ReadManagedFile + AppSlug
+	wrapped := struct{ SourceControlAccess }{a} // hides SyncManagedFiles + the sync memo + AppSlug
 
 	changed, err := SyncManagedScaffold(context.Background(), wrapped, repo, cred)
 	if err != nil {
@@ -2015,6 +2015,9 @@ func (railWithoutSlug) PostReview(fwra.Context, RepoRef, PullRequestRef, ReviewS
 	panic("unused")
 }
 func (railWithoutSlug) SyncManagedScaffold(fwra.Context, RepoRef, RepoCredential) (bool, error) {
+	panic("unused")
+}
+func (railWithoutSlug) ReadManagedFile(fwra.Context, RepoRef, string, RepoCredential) (ManagedFileRead, error) {
 	panic("unused")
 }
 

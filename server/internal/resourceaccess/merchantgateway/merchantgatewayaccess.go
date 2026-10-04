@@ -116,6 +116,25 @@ func (s *postgresMerchantGatewayAccess) ChargeCustomer(rc fwra.Context, customer
 	})
 }
 
+// ReadStoredInstrument reports whether the customer holds a stored instrument that
+// passed the zero-amount validation. Read-only: a customer the gateway never validated
+// is Validated=false, not an error.
+func (s *postgresMerchantGatewayAccess) ReadStoredInstrument(rc fwra.Context, customerID uuid.UUID) (StoredInstrument, error) {
+	const op = "merchantgateway.ReadStoredInstrument"
+	if customerID == uuid.Nil {
+		return StoredInstrument{}, fwra.New(fwra.ContractMisuse, op+": zero customerID")
+	}
+	var validated bool
+	err := s.pool.QueryRow(rc.Context, instrumentExistsSQL, customerID).Scan(&validated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return StoredInstrument{Validated: false}, nil
+	}
+	if err != nil {
+		return StoredInstrument{}, fwpg.MapError(err, op)
+	}
+	return StoredInstrument{Validated: validated}, nil
+}
+
 const selectRequestSQL = `
 SELECT kind, customer_id, amount_minor_units, currency, declined
 FROM merchant_gateway_request

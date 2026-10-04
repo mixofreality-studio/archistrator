@@ -225,6 +225,13 @@ func (i genInvokers) RailPostReview(ctx workflow.Context, repo sourcecontrol.Rep
 	return err
 }
 
+// RailReadManagedFile invokes activity "sourceControlAccess.readManagedFile".
+func (i genInvokers) RailReadManagedFile(ctx workflow.Context, repo sourcecontrol.RepoRef, path string, cred sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	var out sourcecontrol.ManagedFileRead
+	err := workflow.ExecuteActivity(i.options(ctx, "sourceControlAccess.readManagedFile"), "sourceControlAccess.readManagedFile", repo, path, cred).Get(ctx, &out)
+	return out, err
+}
+
 // RailSyncManagedScaffold invokes activity "sourceControlAccess.syncManagedScaffold".
 func (i genInvokers) RailSyncManagedScaffold(ctx workflow.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
 	var out bool
@@ -355,6 +362,13 @@ func (i genInvokers) ActivityExecutionStageTaskOutput(ctx workflow.Context, proj
 func (i genInvokers) MessageBusDeliverSignal(ctx workflow.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
 	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.deliverSignal"), "messageBus.deliverSignal", targetExecutionID, signalName, payload).Get(ctx, nil)
 	return err
+}
+
+// MessageBusDescribeSchedule invokes activity "messageBus.describeSchedule".
+func (i genInvokers) MessageBusDescribeSchedule(ctx workflow.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	var out messagebus.ScheduleDescription
+	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.describeSchedule"), "messageBus.describeSchedule", scheduleID).Get(ctx, &out)
+	return out, err
 }
 
 // MessageBusRegisterSchedule invokes activity "messageBus.registerSchedule".

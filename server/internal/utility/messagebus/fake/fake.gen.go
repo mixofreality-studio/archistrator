@@ -13,6 +13,7 @@ import (
 type FakeMessageBus struct {
 	DeliverSignalFn    func(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error
 	RegisterScheduleFn func(rc fwra.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error
+	DescribeScheduleFn func(rc fwra.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error)
 }
 
 func (f *FakeMessageBus) DeliverSignal(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
@@ -27,6 +28,13 @@ func (f *FakeMessageBus) RegisterSchedule(rc fwra.Context, scheduleID messagebus
 		panic("FakeMessageBus.RegisterScheduleFn not set")
 	}
 	return f.RegisterScheduleFn(rc, scheduleID, spec)
+}
+
+func (f *FakeMessageBus) DescribeSchedule(rc fwra.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	if f.DescribeScheduleFn == nil {
+		panic("FakeMessageBus.DescribeScheduleFn not set")
+	}
+	return f.DescribeScheduleFn(rc, scheduleID)
 }
 
 var _ messagebus.MessageBus = (*FakeMessageBus)(nil)

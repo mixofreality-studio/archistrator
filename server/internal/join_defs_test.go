@@ -56,8 +56,9 @@ type slot5Component struct {
 
 // contractLayerToKind maps a ServiceContract.Layer (Method-cased) to the slot-5
 // component kind it must join to. Only the buildable layers are in the map; a
-// built contract in any other layer (Client, Resource) is itself a failure
-// (reported below).
+// built contract in any other layer (Resource) is itself a failure (reported
+// below). A Client contract is never built — modelgen skips it — and is checked by
+// TestEveryClientContractNamesItsSurface instead.
 var contractLayerToKind = map[string]string{
 	"Manager":        "manager",
 	"Engine":         "engine",
@@ -116,14 +117,74 @@ func TestEveryBuiltContractJoinsAComponent(t *testing.T) {
 	built := 0
 	for _, k := range keys {
 		e := top.ServiceContracts[k]
-		if e.GoPackage == "" {
-			continue // stub / non-built entry — no build target, like modelgen skips
+		if e.GoPackage == "" || e.Layer == "Client" {
+			continue // stub / non-built entry, or a client surface — no build target, like modelgen skips (TestEveryClientContractNamesItsSurface checks the client ones)
 		}
 		built++
 		checkContractJoin(t, k, e, index, byName)
 	}
 	if built == 0 {
 		t.Fatal("no built (goPackage) service contracts found — the check verified nothing")
+	}
+}
+
+// TestEveryClientContractNamesItsSurface is the client half of the join (spec §12 B1:
+// a client surface is a contract whose ops are the web client's user actions or the MCP
+// client's generated tools). modelgen builds nothing for a Client contract — its Go is
+// cmd/clientgen's — so it is not a "built" contract above, but it must still JOIN a
+// slot-5 client component (by its key, or as a facet through its `component` field),
+// and a goPackage on it must name a package cmd/clientgen generated (one holding a
+// *_tools.gen.go file): that package is where testgen serves the tools in-process for
+// the client's scenario tests, so a goPackage naming anything else is a test surface
+// with nothing behind it.
+func TestEveryClientContractNamesItsSurface(t *testing.T) {
+	repoRoot := findRepoRootFromCwd(t)
+	raw, err := os.ReadFile(filepath.Join(repoRoot, ".aiarch", "state", "project.json"))
+	if err != nil {
+		t.Fatalf("read project.json: %v", err)
+	}
+	var top struct {
+		ServiceContracts map[string]joinContractEntry `json:"serviceContracts"`
+		Slots            map[string]struct {
+			Model struct {
+				Components []slot5Component `json:"components"`
+			} `json:"model"`
+		} `json:"slots"`
+	}
+	if err := json.Unmarshal(raw, &top); err != nil {
+		t.Fatalf("parse project.json: %v", err)
+	}
+	clients := map[string]bool{}
+	for _, c := range top.Slots["5"].Model.Components {
+		if c.Kind == "client" {
+			clients[normalizeComponentName(c.ID)] = true
+		}
+	}
+	keys := make([]string, 0, len(top.ServiceContracts))
+	for k := range top.ServiceContracts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	seen := 0
+	for _, k := range keys {
+		e := top.ServiceContracts[k]
+		if e.Layer != "Client" {
+			continue
+		}
+		seen++
+		if !clients[normalizeComponentName(k)] && !clients[normalizeComponentName(e.Component)] {
+			t.Errorf("%s: client contract joins no slot-5 client component — neither its key nor its component field %q names one", k, e.Component)
+		}
+		if e.GoPackage == "" {
+			continue
+		}
+		tools, err := filepath.Glob(filepath.Join(repoRoot, "server", e.GoPackage, "*_tools.gen.go"))
+		if err != nil || len(tools) == 0 {
+			t.Errorf("%s: goPackage %q holds no cmd/clientgen *_tools.gen.go — a client contract's goPackage must name the generated tools package its scenario tests serve", k, e.GoPackage)
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no Client-layer service contracts found — the check verified nothing")
 	}
 }
 

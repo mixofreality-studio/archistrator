@@ -30,6 +30,11 @@ type ManagedFile struct {
 	Content []byte `json:"Content"`
 }
 
+type ManagedFileRead struct {
+	Content []byte `json:"Content"`
+	Found   bool   `json:"Found"`
+}
+
 type MergeResult struct {
 	Commit string `json:"Commit"`
 	Merged bool   `json:"Merged"`
@@ -91,6 +96,7 @@ type SourceControlAccess interface {
 	OpenPullRequest(rc fwra.Context, repo RepoRef, spec PullRequestSpec, cred RepoCredential) (PullRequestRef, error)
 	PostReview(rc fwra.Context, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential) error
 	SyncManagedScaffold(rc fwra.Context, repo RepoRef, cred RepoCredential) (bool, error)
+	ReadManagedFile(rc fwra.Context, repo RepoRef, path string, cred RepoCredential) (ManagedFileRead, error)
 }
 
 // NewGitHubSourceControlAccess constructs the GitHub-backed SourceControlAccess, delegating to the hand-written,

@@ -118,6 +118,13 @@ func (i genInvokers) MerchantGatewayChargeCustomer(ctx workflow.Context, key fwr
 	return err
 }
 
+// MerchantGatewayReadStoredInstrument invokes activity "merchantGatewayAccess.readStoredInstrument".
+func (i genInvokers) MerchantGatewayReadStoredInstrument(ctx workflow.Context, customerID uuid.UUID) (merchantgateway.StoredInstrument, error) {
+	var out merchantgateway.StoredInstrument
+	err := workflow.ExecuteActivity(i.options(ctx, "merchantGatewayAccess.readStoredInstrument"), "merchantGatewayAccess.readStoredInstrument", customerID).Get(ctx, &out)
+	return out, err
+}
+
 // MerchantGatewayValidateStoredInstrument invokes activity "merchantGatewayAccess.validateStoredInstrument".
 func (i genInvokers) MerchantGatewayValidateStoredInstrument(ctx workflow.Context, key fwra.IdempotencyKey, customerID uuid.UUID, idempotencyKey string) error {
 	err := workflow.ExecuteActivity(i.options(ctx, "merchantGatewayAccess.validateStoredInstrument"), "merchantGatewayAccess.validateStoredInstrument", key, customerID, idempotencyKey).Get(ctx, nil)
@@ -128,6 +135,13 @@ func (i genInvokers) MerchantGatewayValidateStoredInstrument(ctx workflow.Contex
 func (i genInvokers) MessageBusDeliverSignal(ctx workflow.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
 	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.deliverSignal"), "messageBus.deliverSignal", targetExecutionID, signalName, payload).Get(ctx, nil)
 	return err
+}
+
+// MessageBusDescribeSchedule invokes activity "messageBus.describeSchedule".
+func (i genInvokers) MessageBusDescribeSchedule(ctx workflow.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	var out messagebus.ScheduleDescription
+	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.describeSchedule"), "messageBus.describeSchedule", scheduleID).Get(ctx, &out)
+	return out, err
 }
 
 // MessageBusRegisterSchedule invokes activity "messageBus.registerSchedule".

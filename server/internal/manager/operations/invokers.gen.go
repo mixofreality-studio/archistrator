@@ -188,6 +188,13 @@ func (i genInvokers) MessageBusDeliverSignal(ctx workflow.Context, targetExecuti
 	return err
 }
 
+// MessageBusDescribeSchedule invokes activity "messageBus.describeSchedule".
+func (i genInvokers) MessageBusDescribeSchedule(ctx workflow.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	var out messagebus.ScheduleDescription
+	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.describeSchedule"), "messageBus.describeSchedule", scheduleID).Get(ctx, &out)
+	return out, err
+}
+
 // MessageBusRegisterSchedule invokes activity "messageBus.registerSchedule".
 func (i genInvokers) MessageBusRegisterSchedule(ctx workflow.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
 	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.registerSchedule"), "messageBus.registerSchedule", scheduleID, spec).Get(ctx, nil)

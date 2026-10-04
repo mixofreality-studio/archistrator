@@ -1269,8 +1269,9 @@ func (h *appHooks) constructionExecutionKinds(cfg *Config) map[messagebus.Execut
 
 // dryRunConstructionScheduleGate wraps messageBus so a RegisterSchedule call
 // naming one of construction's own ExecutionKinds is skipped (logged, not
-// forwarded) while every other call — billing/operations RegisterSchedule, and
-// DeliverSignal for any Manager — passes straight through to inner. Built only
+// forwarded) while every other call — billing/operations RegisterSchedule,
+// DescribeSchedule, and DeliverSignal for any Manager — passes straight through
+// to inner. Built only
 // by FinalizeMessageBus above, only when CONSTRUCTION_DRYRUN=true.
 type dryRunConstructionScheduleGate struct {
 	inner  messagebus.MessageBus
@@ -1295,6 +1296,13 @@ func (g dryRunConstructionScheduleGate) RegisterSchedule(rc fwra.Context, schedu
 		return nil
 	}
 	return g.inner.RegisterSchedule(rc, scheduleID, spec)
+}
+
+// DescribeSchedule always passes through — a read never creates a Schedule, so the
+// gate has nothing to intercept (a skipped construction Schedule reads back as
+// Registered=false, which is the truth on a dry-run boot).
+func (g dryRunConstructionScheduleGate) DescribeSchedule(rc fwra.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	return g.inner.DescribeSchedule(rc, scheduleID)
 }
 
 // registerConstruction is the construction Worker gate (run()'s selectConstructionDeps):

@@ -92,21 +92,10 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// The facet join, promoted from the family-D gate, must find NO fossil on the
 	// reconciled state (all four facets resolve + layer-match).
 	assertAbsent(t, got, ruleContractFacet)
-	// Stage 3 (2026-09-23) added the activityExecutionAccess facet ADDITIVELY and
-	// left the three folded facets deprecated in place so every Temporal activity
-	// name survives replay until the stage-4 drain. Two verbs now exist on two
-	// facets with differing signatures (AcknowledgeStaleBasis, RecordOperatorNote),
-	// which is exactly the dead-op duplicate this rule reports — at Warning, as a
-	// TRANSITIONAL fact.
-	//
-	// CORRECTION (stage 4a): the stage-3 earmark said this flips when the deprecated
-	// facets are deleted. That is WRONG and re-checking it is why the pin stays.
-	// Deleting constructionTransitionAccess (dct Plan 4 Task 3) killed the
-	// RecordOperatorNote duplicate but NOT the AcknowledgeStaleBasis one —
-	// projectStateAccess publishes that verb too. The pin stayed until one of those two
-	// verbs went — and dct Plan 4 Task 4 deleted the activity-scoped twin (no Manager
-	// ever called it), so the committed state now carries NO cross-facet duplicate and
-	// the rule must stay silent. (The rule itself stays proven by its negative fixture.)
+	// The committed state carries NO cross-facet duplicate op: dct Plan 4 deleted the
+	// activity-scoped twins (constructionTransitionAccess, and the AcknowledgeStaleBasis
+	// that activityExecutionAccess shared with projectStateAccess), so the rule must stay
+	// silent. (The rule itself stays proven by its negative fixture.)
 	assertAbsent(t, got, ruleContractDeadOp)
 	// No dangling volatility trace, no unarchitected core use case.
 	assertAbsent(t, got, ruleVolTrace)

@@ -182,6 +182,13 @@ func (a *genActivities) MessageBusDeliverSignal(ctx context.Context, targetExecu
 	return fwmanager.MapError(err)
 }
 
+// MessageBusDescribeSchedule wraps messageBus.describeSchedule.
+// Registered as "messageBus.describeSchedule".
+func (a *genActivities) MessageBusDescribeSchedule(ctx context.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	v, err := a.MessageBus.DescribeSchedule(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scheduleID)
+	return v, fwmanager.MapError(err)
+}
+
 // MessageBusRegisterSchedule wraps messageBus.registerSchedule.
 // Registered as "messageBus.registerSchedule".
 func (a *genActivities) MessageBusRegisterSchedule(ctx context.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {

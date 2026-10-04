@@ -344,13 +344,6 @@ export interface ReviewCommentView {
   authorRole: string;
   round: number;
   status: ReviewCommentStatus;
-  /**
-   * DEPRECATED — superseded by `replies` (a thread's reply utterances). Still present
-   * on the wire for back-compat; never read or write it in new code. Its last reader
-   * (ChatRail) is gone; the read-compat shim that synthesizes a first reply from it
-   * lives server-side, so nothing in the SPA consults this field any more.
-   */
-  response?: string;
   /** The reply utterances appended to this thread, oldest first. */
   replies: ReviewCommentReply[];
   /** True when a thread the server had marked `answered` received a new human reply. */

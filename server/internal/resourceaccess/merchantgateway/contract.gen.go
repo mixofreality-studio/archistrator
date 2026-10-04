@@ -15,10 +15,15 @@ type Money struct {
 	Currency   string `json:"Currency"`
 }
 
+type StoredInstrument struct {
+	Validated bool `json:"Validated"`
+}
+
 // MerchantGatewayAccess is the generated service-contract interface for this component.
 type MerchantGatewayAccess interface {
 	ChargeCustomer(rc fwra.Context, customerID uuid.UUID, amount Money, idempotencyKey string) error
 	ValidateStoredInstrument(rc fwra.Context, customerID uuid.UUID, idempotencyKey string) error
+	ReadStoredInstrument(rc fwra.Context, customerID uuid.UUID) (StoredInstrument, error)
 }
 
 // NewPostgresMerchantGatewayAccess constructs the Postgres-backed MerchantGatewayAccess, delegating to the hand-written,

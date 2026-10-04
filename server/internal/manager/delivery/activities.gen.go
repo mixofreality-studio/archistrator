@@ -220,6 +220,13 @@ func (a *genActivities) RailPostReview(ctx context.Context, repo sourcecontrol.R
 	return fwmanager.MapError(err)
 }
 
+// RailReadManagedFile wraps sourceControlAccess.readManagedFile.
+// Registered as "sourceControlAccess.readManagedFile".
+func (a *genActivities) RailReadManagedFile(ctx context.Context, repo sourcecontrol.RepoRef, path string, cred sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	v, err := a.Rail.ReadManagedFile(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, repo, path, cred)
+	return v, fwmanager.MapError(err)
+}
+
 // RailSyncManagedScaffold wraps sourceControlAccess.syncManagedScaffold.
 // Registered as "sourceControlAccess.syncManagedScaffold".
 func (a *genActivities) RailSyncManagedScaffold(ctx context.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
@@ -351,6 +358,13 @@ func (a *genActivities) ActivityExecutionStageTaskOutput(ctx context.Context, pr
 func (a *genActivities) MessageBusDeliverSignal(ctx context.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
 	err := a.MessageBus.DeliverSignal(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, targetExecutionID, signalName, payload)
 	return fwmanager.MapError(err)
+}
+
+// MessageBusDescribeSchedule wraps messageBus.describeSchedule.
+// Registered as "messageBus.describeSchedule".
+func (a *genActivities) MessageBusDescribeSchedule(ctx context.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	v, err := a.MessageBus.DescribeSchedule(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scheduleID)
+	return v, fwmanager.MapError(err)
 }
 
 // MessageBusRegisterSchedule wraps messageBus.registerSchedule.
