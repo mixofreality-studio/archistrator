@@ -38930,7 +38930,164 @@
       },
       "autoscalerEngine": {
         "component": "autoscalerEngine",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "operate-a-delivered-system-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProposeDesiredState",
+                "inputs": [
+                  {
+                    "name": "telemetry",
+                    "value": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"ObservedAt\":\"2026-10-03T12:00:00Z\",\"RequestsPerSecond\":12.5,\"P95LatencyMs\":85,\"InflightRequests\":3,\"CurrentReplicas\":2,\"CPUUtilization\":0.5,\"MemoryUtilization\":0.4,\"Health\":1,\"SLOStatus\":1,\"TimeSinceLastRequest\":1000000000}",
+                    "schemaRef": "#/$defs/Telemetry"
+                  },
+                  {
+                    "name": "currentDesired",
+                    "value": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"InfrastructureKind\":1,\"Replicas\":2,\"LastDecisionAt\":\"2026-10-03T11:00:00Z\"}",
+                    "schemaRef": "#/$defs/DesiredState"
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"Kind\":1,\"Mode\":0,\"MinReplicas\":1,\"MaxReplicas\":5,\"BaselineReplicas\":1,\"MaxStepDelta\":2,\"IdleThreshold\":600000000000,\"ScaleUpCPU\":0.8,\"ScaleDownCPU\":0.2,\"ScaleDownGrace\":300000000000,\"SLATier\":1,\"Pinned\":false,\"MaxBurstCap\":4}",
+                    "schemaRef": "#/$defs/AutoscalerPolicy"
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": "#/$defs/InfrastructureKind"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Kind\":0,\"Delta\":0,\"ToBaseline\":0,\"Reason\":{\"Code\":10}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProposeDesiredState",
+                "inputs": [
+                  {
+                    "name": "telemetry",
+                    "value": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"ObservedAt\":\"2026-10-03T12:00:00Z\",\"RequestsPerSecond\":40,\"P95LatencyMs\":310,\"InflightRequests\":25,\"CurrentReplicas\":2,\"CPUUtilization\":0.92,\"MemoryUtilization\":0.6,\"Health\":1,\"SLOStatus\":1,\"TimeSinceLastRequest\":0}",
+                    "schemaRef": "#/$defs/Telemetry"
+                  },
+                  {
+                    "name": "currentDesired",
+                    "value": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"InfrastructureKind\":1,\"Replicas\":2,\"LastDecisionAt\":\"2026-10-03T11:00:00Z\"}",
+                    "schemaRef": "#/$defs/DesiredState"
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"Kind\":1,\"Mode\":0,\"MinReplicas\":1,\"MaxReplicas\":5,\"BaselineReplicas\":1,\"MaxStepDelta\":2,\"IdleThreshold\":600000000000,\"ScaleUpCPU\":0.8,\"ScaleDownCPU\":0.2,\"ScaleDownGrace\":300000000000,\"SLATier\":1,\"Pinned\":false,\"MaxBurstCap\":4}",
+                    "schemaRef": "#/$defs/AutoscalerPolicy"
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": "#/$defs/InfrastructureKind"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Kind\":1,\"Delta\":2,\"ToBaseline\":0,\"Reason\":{\"Code\":1}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProposeDesiredState",
+                "inputs": [
+                  {
+                    "name": "telemetry",
+                    "value": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"ObservedAt\":\"2026-10-03T12:00:00Z\",\"RequestsPerSecond\":90,\"P95LatencyMs\":820,\"InflightRequests\":60,\"CurrentReplicas\":5,\"CPUUtilization\":0.95,\"MemoryUtilization\":0.7,\"Health\":2,\"SLOStatus\":1,\"TimeSinceLastRequest\":0}",
+                    "schemaRef": "#/$defs/Telemetry"
+                  },
+                  {
+                    "name": "currentDesired",
+                    "value": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"InfrastructureKind\":1,\"Replicas\":5,\"LastDecisionAt\":\"2026-10-03T11:00:00Z\"}",
+                    "schemaRef": "#/$defs/DesiredState"
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"Kind\":1,\"Mode\":0,\"MinReplicas\":1,\"MaxReplicas\":5,\"BaselineReplicas\":1,\"MaxStepDelta\":2,\"IdleThreshold\":600000000000,\"ScaleUpCPU\":0.8,\"ScaleDownCPU\":0.2,\"ScaleDownGrace\":300000000000,\"SLATier\":1,\"Pinned\":false,\"MaxBurstCap\":4}",
+                    "schemaRef": "#/$defs/AutoscalerPolicy"
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": "#/$defs/InfrastructureKind"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Kind\":0,\"Delta\":0,\"ToBaseline\":0,\"Reason\":{\"Code\":9}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProposeDesiredState",
+                "inputs": [
+                  {
+                    "name": "telemetry",
+                    "value": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"ObservedAt\":\"2026-10-03T12:00:00Z\",\"RequestsPerSecond\":3.5,\"P95LatencyMs\":0,\"InflightRequests\":2,\"CurrentReplicas\":0,\"CPUUtilization\":0,\"MemoryUtilization\":0,\"Health\":0,\"SLOStatus\":1,\"TimeSinceLastRequest\":0}",
+                    "schemaRef": "#/$defs/Telemetry"
+                  },
+                  {
+                    "name": "currentDesired",
+                    "value": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"InfrastructureKind\":1,\"Replicas\":0,\"LastDecisionAt\":\"2026-10-03T10:00:00Z\"}",
+                    "schemaRef": "#/$defs/DesiredState"
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"Kind\":1,\"Mode\":0,\"MinReplicas\":0,\"MaxReplicas\":5,\"BaselineReplicas\":1,\"MaxStepDelta\":2,\"IdleThreshold\":600000000000,\"ScaleUpCPU\":0.8,\"ScaleDownCPU\":0.2,\"ScaleDownGrace\":300000000000,\"SLATier\":1,\"Pinned\":false,\"MaxBurstCap\":4}",
+                    "schemaRef": "#/$defs/AutoscalerPolicy"
+                  },
+                  {
+                    "name": "infrastructureKind",
+                    "value": "1",
+                    "schemaRef": "#/$defs/InfrastructureKind"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Kind\":4,\"Delta\":0,\"ToBaseline\":2,\"Reason\":{\"Code\":4}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "billingEngine": {
         "component": "billingEngine",
