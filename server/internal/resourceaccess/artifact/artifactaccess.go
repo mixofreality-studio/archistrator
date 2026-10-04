@@ -65,9 +65,6 @@ import (
 //     branch / address; the prior output is never overwritten (immutable history).
 //   - RetrieveConstructionOutput resolves an address back to its bytes+MIMEType via
 //     the satellite (read the content file and its sibling meta.json at the commit).
-//   - RetrieveOutputTree resolves the address's commit, flattens its tree into a
-//     path->address map (each entry address is "{commitToken}:{entryPath}", itself
-//     retrievable via RetrieveConstructionOutput), pinned to the queried address.
 //
 // The receiver imports NO Temporal (layer rule): the idempotencyKey arrives as an
 // ordinary parameter and is never read from ambient context. Git vocabulary lives
@@ -158,39 +155,6 @@ func (g *GitArtifactAccess) RetrieveConstructionOutput(rc fwra.Context, contentA
 	return ConstructionOutput{Bytes: contentBytes, MIMEType: mime}, nil
 }
 
-// RetrieveOutputTree resolves the commit at contentAddress and returns its flat
-// path->content-address snapshot (artifactAccess.md §2.3). Every entry address is
-// itself a content address resolvable by RetrieveConstructionOutput. An unknown
-// address surfaces as fwra.NotFound.
-func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress string) (OutputTree, error) {
-	commitToken, _, err := parseAddress(contentAddress)
-	if err != nil {
-		return OutputTree{}, err
-	}
-	ctx := rc.Context
-	auth, err := g.auth(ctx)
-	if err != nil {
-		return OutputTree{}, err
-	}
-
-	paths, err := g.git.WalkTreeFiles(ctx, commitToken, auth)
-	if err != nil {
-		return OutputTree{}, err
-	}
-
-	// The generated OutputTree.Entries map is keyed by string (JSON Schema map keys
-	// are always strings); the logical OutputPath key bridges to its string form at
-	// this boundary (a within-package conversion — OutputPath is the contract's own
-	// named scalar, but the map key carries the bare string per the wire shape).
-	entries := map[string]string{}
-	for _, name := range paths {
-		// Each file entry is addressed by the SAME commit token + its path, so it
-		// round-trips through RetrieveConstructionOutput.
-		entries[string(OutputPath(name))] = makeAddress(commitToken, name)
-	}
-	return OutputTree{Root: contentAddress, Entries: entries}, nil
-}
-
 // Package artifact is the artifactAccess component of the aiarch server's
 // ResourceAccess layer — the Temporal-free port over the content-addressable
 // store for PHASE-3 CONSTRUCTION OUTPUTS only (artifactAccess.md, re-cut
@@ -204,14 +168,14 @@ func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress s
 // Manager-owned Temporal Activity and passes the idempotencyKey in as an
 // ordinary parameter; this package never reads Temporal context.
 //
-// The shared value types ConstructionOutput / OutputTree / OutputPath are owned
+// The shared value type ConstructionOutput is owned
 // HERE (construction.go) — this is the RA that stores them. workerAccess —
 // which PRODUCES a ConstructionOutput — imports them as a downward edge.
 //
 // Derived faithfully from the frozen artifactAccess.md contract (Phase-3 CAS).
 
-// The ArtifactAccess port interface and its I/O value types (ConstructionOutput,
-// OutputTree, and the named scalar OutputPath) are now GENERATED from
+// The ArtifactAccess port interface and its I/O value types (ConstructionOutput and
+// the test-run index) are now GENERATED from
 // this component's `.serviceContracts` entry in .aiarch/state/project.json into
 // contract.gen.go (schema-first; edit that entry and run
 // `make gen`). Each method takes the ResourceAccess call Context `rc fwra.Context`
@@ -227,8 +191,6 @@ func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress s
 //     commit message; this method never reads Temporal.
 //   - RetrieveConstructionOutput is a pure by-address read; an unknown address
 //     surfaces as fwra.NotFound. Byte-identical across retries.
-//   - RetrieveOutputTree returns the flat path->content-address snapshot at a
-//     tree-root address; an unknown address surfaces as fwra.NotFound.
 //
 // The shared ResourceAccess error model is framework-go's fwra.Error, constructed
 // with fwra.New / fwra.Wrap using the shared kinds (fwra.NotFound, fwra.Conflict,
@@ -253,11 +215,6 @@ func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress s
 //     by workerAccess (which produces a ConstructionOutput as a downward import —
 //     the worker RA can read the artifact RA's value types because they sit at the
 //     same layer and the producer→store value flow is the natural direction).
-//   - OutputTree is a frozen path->content-address snapshot (artifactAccess.md §3).
-//     Its Entries map is generated as map[string]string (JSON Schema map keys are
-//     always strings); the impl bridges the logical OutputPath key at the boundary.
-//   - OutputPath is a logical, slash-separated path within an OutputTree
-//     (artifactAccess.md §3). Infrastructure-opaque.
 
 // helpers.go holds the INFRASTRUCTURE-PRIVATE address/branch/meta encoding for the
 // content-addressable construction-output store. It imports NO git package — git
@@ -478,10 +435,6 @@ func (e erroringArtifactAccess) StoreConstructionOutput(fwra.Context, Constructi
 
 func (e erroringArtifactAccess) RetrieveConstructionOutput(fwra.Context, string) (ConstructionOutput, error) {
 	return ConstructionOutput{}, e.err
-}
-
-func (e erroringArtifactAccess) RetrieveOutputTree(fwra.Context, string) (OutputTree, error) {
-	return OutputTree{}, e.err
 }
 
 func (e erroringArtifactAccess) GetTestRunIndex(fwra.Context, TestRunRef) (TestRunIndex, error) {
@@ -1036,10 +989,6 @@ func (dryRunArtifacts) StoreConstructionOutput(rc fwra.Context, _ ConstructionOu
 
 func (dryRunArtifacts) RetrieveConstructionOutput(_ fwra.Context, _ string) (ConstructionOutput, error) {
 	return ConstructionOutput{Bytes: []byte("dry-run construction output"), MIMEType: "text/plain"}, nil
-}
-
-func (dryRunArtifacts) RetrieveOutputTree(_ fwra.Context, contentAddress string) (OutputTree, error) {
-	return OutputTree{Root: contentAddress, Entries: map[string]string{}}, nil
 }
 
 func (dryRunArtifacts) GetTestRunIndex(_ fwra.Context, _ TestRunRef) (TestRunIndex, error) {

@@ -13,7 +13,7 @@
 //     (installation_token, ghs_…, installation id, App JWT, owner/repo,
 //     workflow_dispatch, /pulls, /merge, required_status_checks). The opaque
 //     value types (AccountRef, RepoAdoptionSpec, ManagedFile,
-//     Installation, RepoRef, RepoCredential, CommitRef,
+//     RepoRef, RepoCredential, CommitRef,
 //     BranchName/Ref, PullRequestSpec/Ref/Status, MergeResult, ReviewSubmission)
 //     wrap the vendor ids; callers never parse them. ALL GitHub vocabulary lives
 //     inside the framework-go-infrastructure-github satellite and this package's
@@ -224,7 +224,6 @@ type githubClient interface {
 	GetPullStatus(ctx context.Context, fullName string, number int, instToken string) (fwgithub.PullStatus, error)
 	PostReview(ctx context.Context, fullName string, number int, event, body, instToken string) error
 	MergePullRequest(ctx context.Context, fullName string, number int, instToken string) (commit string, alreadyMerged bool, err error)
-	ConfigureBranchProtection(ctx context.Context, fullName, branch, appSlug, instToken string) error
 }
 
 // *fwgithub.AppClient satisfies githubClient directly (method names + signatures
@@ -244,8 +243,9 @@ type access struct {
 	// discovered. Provider-opaque to callers (it rides inside AccountRef/RepoRef);
 	// the composition root supplies it.
 	defaultAccount string
-	// appSlug is the App's slug, used as the merge-restriction + bypass actor in
-	// ConfigureBranchProtection. A C-SC wiring detail off the contract surface.
+	// appSlug is the App's slug: the Bot actor the seated design workflow allows
+	// (AppSlug) and the managed scaffold renders. A C-SC wiring detail off the
+	// contract surface.
 	appSlug string
 	// repoPrivate selects repo visibility on provision (a provider hint, not a
 	// contract field).
@@ -340,25 +340,6 @@ func (a *access) AppSlug() string {
 // ---------------------------------------------------------------------------
 // Contract #1 — ISourceControlLifecycle.
 // ---------------------------------------------------------------------------
-
-// InstallAuthorizeApp discovers/confirms the installation for `account`. NotFound
-// (the contract's NotInstalled) surfaces from the satellite when the App is not
-// installed. Idempotent on account (pure discovery).
-func (a *access) InstallAuthorizeApp(rc fwra.Context, account AccountRef) (Installation, error) {
-	// The cross-cutting ctx (and the optional IdempotencyKey, carried for traceability)
-	// now ride the ResourceAccess call Context. fwra.Context embeds context.Context;
-	// this verb is idempotent on the account, so it reads only ctx here.
-	ctx := rc.Context
-	acct := a.resolveAccount(account)
-	if acct == "" {
-		return "", fwra.New(fwra.ContractMisuse, "InstallAuthorizeApp: empty account")
-	}
-	id, err := a.client.FindInstallation(ctx, acct)
-	if err != nil {
-		return "", err
-	}
-	return Installation(itoa64(id)), nil
-}
 
 // AdoptProjectRepo verifies the user's EXISTING repo (spec.RepoName under
 // spec.Account) is reachable under the App installation, then BEST-EFFORT tags it
@@ -652,7 +633,7 @@ func (a *access) RecordManagedScaffoldSynced(repo RepoRef, version string) {
 
 // managedScaffoldBranch is the branch the managed-scaffold seat/sync converges —
 // "main", the rail-wide default-branch assumption this RA already bakes into
-// OpenBranch (cuts from main) and ConfigureBranchProtection (protects main).
+// OpenBranch (cuts from main).
 const managedScaffoldBranch = "main"
 
 // putManagedFiles is the SHARED seat/sync write behind CommitManagedFiles (the frozen
@@ -988,16 +969,6 @@ func (a *access) MergePullRequest(rc fwra.Context, repo RepoRef, pr PullRequestR
 	return MergeResult{Commit: commit, Merged: true}, nil
 }
 
-// ConfigureBranchProtection provisions the App-only-merger backstop on main.
-func (a *access) ConfigureBranchProtection(rc fwra.Context, repo RepoRef, cred RepoCredential) error {
-	ctx := rc.Context
-	_, fullName, err := a.requireRepoCred(repo, cred)
-	if err != nil {
-		return err
-	}
-	return a.client.ConfigureBranchProtection(ctx, fullName, "main", a.appSlug, credStr(cred))
-}
-
 // ---------------------------------------------------------------------------
 // Internal helpers.
 // ---------------------------------------------------------------------------
@@ -1082,8 +1053,7 @@ func prNumber(pr PullRequestRef) (int, error) {
 	return n, nil
 }
 
-func itoa(n int) string     { return strconv.Itoa(n) }
-func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
+func itoa(n int) string { return strconv.Itoa(n) }
 
 // agenticdesign.go supplies the aiarch-MANAGED project scaffold archistrator-server
 // seats into each user project repo at project birth (CommitManagedFiles). Since the
@@ -1592,24 +1562,12 @@ func RailAppSlug(rail SourceControlAccess) string {
 // value type → generated scalar + free functions" pattern (same as
 // durableexecution's ExecutionHandle/ExecutionStatus and agenticjob's
 // PipelineHandle/PipelinePhase/RepoTarget). The opaque-handle value types
-// (Installation, RepoRef, CommitRef, BranchRef, PullRequestRef) are generated as
+// (RepoRef, CommitRef, BranchRef, PullRequestRef) are generated as
 // $def named scalars (contract.gen.go); the RepoCredential struct + the CheckState
 // enum are generated as a struct / enum. Their methods would not survive codegen,
 // so they live here as free functions the impl + callers call. The opaque token
 // the impl packs IS the string value, so the handle behaviour is a thin, parse-free
 // pass over that value.
-
-// ---------------------------------------------------------------------------
-// Installation behaviour (free functions over the generated named scalar).
-// ---------------------------------------------------------------------------
-
-// InstallationString returns the canonical printable form (logs, audit). Replaces
-// the former Installation.String() method.
-func InstallationString(i Installation) string { return string(i) }
-
-// InstallationIsZero reports whether the handle addresses no installation. Replaces
-// the former Installation.IsZero() method.
-func InstallationIsZero(i Installation) bool { return i == "" }
 
 // ---------------------------------------------------------------------------
 // RepoRef behaviour (free functions over the generated named scalar).
@@ -1809,9 +1767,7 @@ func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug string,
 //     NOTHING pushed (the manager's F80c reconcile + re-approve path then applies).
 //   - SyncManagedScaffold → (false, nil) no-op (the local executor seats .claude itself).
 //   - Birth ops (CreateProject, rail non-nil): AdoptProjectRepo returns the deterministic
-//     local RepoRef (the shared repo already exists); CommitManagedFiles /
-//     ConfigureBranchProtection are no-ops; InstallAuthorizeApp is unreachable
-//     (ContractMisuse) — there is no GitHub App funnel locally.
+//     local RepoRef (the shared repo already exists); CommitManagedFiles is a no-op.
 //
 // DUPLICATED GIT HELPERS: the tiny `git` subprocess plumbing below is deliberately
 // re-implemented rather than shared with agenticjob (an RA may not import a
@@ -1913,21 +1869,6 @@ func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, _ []Ma
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal CommitManagedFiles: zero RepoRef")
 	}
 	return CommitRef(gitLocalScaffoldSentinel), nil
-}
-
-// ConfigureBranchProtection is a no-op success: there is no hosted branch-protection to
-// provision on a local repo (the App-only-merger backstop is a GitHub construct).
-func (a *gitLocalAccess) ConfigureBranchProtection(_ fwra.Context, repo RepoRef, _ RepoCredential) error {
-	if RepoRefIsZero(repo) {
-		return fwra.New(fwra.ContractMisuse, "gitlocal ConfigureBranchProtection: zero RepoRef")
-	}
-	return nil
-}
-
-// InstallAuthorizeApp is unreachable on the local profile: the App-installation funnel is a
-// GitHub-only onboarding step. Reaching it is a wiring bug, surfaced as ContractMisuse.
-func (a *gitLocalAccess) InstallAuthorizeApp(_ fwra.Context, _ AccountRef) (Installation, error) {
-	return "", fwra.New(fwra.ContractMisuse, "gitlocal InstallAuthorizeApp: unreachable on the local profile (no GitHub App funnel)")
 }
 
 // SyncManagedScaffold is a no-op reporting NO drift/commit: the local executor materialises

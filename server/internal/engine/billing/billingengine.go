@@ -92,16 +92,7 @@ func (BillingEngineImpl) ComputeNet(_ fweng.Context, revenue CycleRevenue, usage
 	return computeNet(revenue, usage, terms)
 }
 
-// RecomputeNet computes the corrected signed net for a reversal-adjusted cycle. The
-// computation is identical to ComputeNet over the reversal-adjusted revenue total —
-// the Manager has already recorded the chargeback reversal and re-read the range
-// before calling; the Engine never re-reads any ledger. The Manager computes the
-// delta vs affectedCycle.PriorSettled. (billingEngine.md §2.2)
-func (BillingEngineImpl) RecomputeNet(_ fweng.Context, affectedCycle ReBillingInput) (BillingResult, error) {
-	return computeNet(affectedCycle.Revenue, affectedCycle.Usage, affectedCycle.Terms)
-}
-
-// computeNet is the shared, pure net computation behind ComputeNet and RecomputeNet.
+// computeNet is the pure net computation behind ComputeNet.
 //
 // Money math is exact integer minor units throughout:
 //

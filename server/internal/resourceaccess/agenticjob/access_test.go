@@ -384,14 +384,11 @@ func TestSubmitContractMisuse(t *testing.T) {
 	}
 }
 
-func TestObserveCancelHandleMisuse(t *testing.T) {
+func TestObserveHandleMisuse(t *testing.T) {
 	a := newAccessForTest(t, newFakeActions())
 	ctx := context.Background()
 	if _, err := a.ObserveAgenticJob(obsRC(ctx), PipelineHandle("")); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("zero handle observe kind = %v", kind(err))
-	}
-	if err := a.CancelAgenticJob(obsRC(ctx), PipelineHandle("")); kind(err) != fwra.ContractMisuse {
-		t.Fatalf("zero handle cancel kind = %v", kind(err))
 	}
 	bad := ParsePipelineHandle("garbage-no-slash")
 	if _, err := a.ObserveAgenticJob(obsRC(ctx), bad); kind(err) != fwra.ContractMisuse {
@@ -526,7 +523,7 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 		if PipelineHandleString(h) != "run/1@acme/my-system/aiarch-design.yml" {
 			t.Fatalf("handle = %q, want run/1@acme/my-system/aiarch-design.yml", PipelineHandleString(h))
 		}
-		assertObserveCancelReaddressTarget(t, a, f, h, want)
+		assertObserveReaddressTarget(t, a, f, h, want)
 	})
 
 	// UC3 CONSTRUCTION dispatch (zero TargetRepo): the handle stays the legacy
@@ -576,9 +573,9 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 	})
 }
 
-// assertObserveCancelReaddressTarget asserts a later Observe AND Cancel on the handle
-// re-address the encoded per-project target (not the construction-repo default).
-func assertObserveCancelReaddressTarget(t *testing.T, a *access, f *fakeActions, h PipelineHandle, want ghTarget) {
+// assertObserveReaddressTarget asserts a later Observe on the handle re-addresses the
+// encoded per-project target (not the construction-repo default).
+func assertObserveReaddressTarget(t *testing.T, a *access, f *fakeActions, h PipelineHandle, want ghTarget) {
 	t.Helper()
 	// Observe re-addresses the per-project repo (not the construction default).
 	if _, err := a.ObserveAgenticJob(obsRC(context.Background()), h); err != nil {
@@ -586,13 +583,6 @@ func assertObserveCancelReaddressTarget(t *testing.T, a *access, f *fakeActions,
 	}
 	if f.lastGetTarget != want {
 		t.Fatalf("observe target = %+v, want %+v", f.lastGetTarget, want)
-	}
-	// Cancel re-addresses the per-project repo too.
-	if err := a.CancelAgenticJob(obsRC(context.Background()), h); err != nil {
-		t.Fatalf("cancel: %v", err)
-	}
-	if f.lastCancelTarget != want {
-		t.Fatalf("cancel target = %+v, want %+v", f.lastCancelTarget, want)
 	}
 }
 
@@ -719,19 +709,6 @@ func TestSubmitErrorKinds(t *testing.T) {
 	a2 := newAccessForTest(t, f2)
 	if _, err := a2.SubmitAgenticJob(subRC(context.Background(), "k"), goodSpec()); kind(err) != fwra.Transient {
 		t.Fatalf("transient submit kind = %v", kind(err))
-	}
-}
-
-func TestCancel(t *testing.T) {
-	f := newFakeActions()
-	a := newAccessForTest(t, f)
-	h, _ := a.SubmitAgenticJob(subRC(context.Background(), "k"), goodSpec())
-	if err := a.CancelAgenticJob(obsRC(context.Background()), h); err != nil {
-		t.Fatalf("cancel running: %v", err)
-	}
-	// cancel an absent run → seam NotFound → RA success
-	if err := a.CancelAgenticJob(obsRC(context.Background()), ParsePipelineHandle("run/999")); err != nil {
-		t.Fatalf("cancel absent = %v, want nil", err)
 	}
 }
 
@@ -1111,24 +1088,6 @@ func assertNoLingeringWorktrees(t *testing.T, repoDir string) {
 	}
 }
 
-// waitForNoLingeringWorktrees polls assertNoLingeringWorktrees's condition until
-// it holds or the deadline passes — for paths (cancel) where the terminal status
-// is recorded before awaitCompletion's asynchronous worktree removal finishes.
-func waitForNoLingeringWorktrees(t *testing.T, repoDir string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		out := testGitOut(t, repoDir, "worktree", "list", "--porcelain")
-		if strings.Count(out, "worktree ") == 1 {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("worktree was not removed within %s:\n%s", timeout, out)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // U2-U7 — contract misuse / not-found
 // ---------------------------------------------------------------------------
@@ -1184,7 +1143,7 @@ func TestLocalExecSubmit_ContractMisuse(t *testing.T) {
 	})
 }
 
-func TestLocalExecObserveCancel_HandleMisuse(t *testing.T) {
+func TestLocalExecObserve_HandleMisuse(t *testing.T) {
 	_, url := newSharedRepo(t)
 	a := newLocalExecForTest(t, url, 0)
 	ctx := obsRC(context.Background())
@@ -1192,9 +1151,6 @@ func TestLocalExecObserveCancel_HandleMisuse(t *testing.T) {
 	for _, h := range []PipelineHandle{"", "run/42", "local:"} {
 		if _, err := a.ObserveAgenticJob(ctx, h); kind(err) != fwra.ContractMisuse {
 			t.Fatalf("Observe(%q) kind = %v, want ContractMisuse", h, kind(err))
-		}
-		if err := a.CancelAgenticJob(ctx, h); kind(err) != fwra.ContractMisuse {
-			t.Fatalf("Cancel(%q) kind = %v, want ContractMisuse", h, kind(err))
 		}
 	}
 }
@@ -1227,11 +1183,11 @@ func TestLocalExecObserve_RestartLostHandle_TerminalFailed(t *testing.T) {
 }
 
 // FR1b — a KNOWN, still-running handle must STILL report running (the terminal-lost path
-// must not swallow a legitimately in-flight run). A never-terminating shim keeps the run
-// in localRunRunning while we observe it.
+// must not swallow a legitimately in-flight run). A slow shim keeps the run in
+// localRunRunning while we observe it, then exits on its own (there is no cancel verb).
 func TestLocalExecObserve_KnownRunning_StillRunning(t *testing.T) {
 	_, url := newSharedRepo(t)
-	installClaudeShim(t, "#!/bin/sh\nexec sleep 30\n")
+	installClaudeShim(t, "#!/bin/sh\nexec sleep 3\n")
 	a := newLocalExecForTest(t, url, 20*time.Second)
 
 	spec := localSpec("C-RUNNING", "someComponent", "service-construction")
@@ -1253,19 +1209,8 @@ func TestLocalExecObserve_KnownRunning_StillRunning(t *testing.T) {
 	if obs.Episode != nil {
 		t.Fatalf("Episode = %+v on a still-running observation, want nil", obs.Episode)
 	}
-	// Clean up: cancel the sleeping subprocess so the test does not leak it.
-	if err := a.CancelAgenticJob(obsRC(context.Background()), handle); err != nil {
-		t.Fatalf("Cancel: %v", err)
-	}
-	waitForTerminal(t, a, handle, 5*time.Second)
-}
-
-func TestLocalExecCancel_UnknownHandle_NoopSuccess(t *testing.T) {
-	_, url := newSharedRepo(t)
-	a := newLocalExecForTest(t, url, 0)
-	if err := a.CancelAgenticJob(obsRC(context.Background()), "local:deadbeef"); err != nil {
-		t.Fatalf("Cancel(unknown): unexpected error: %v", err)
-	}
+	// Clean up: let the sleeping subprocess exit so the test does not leak it.
+	waitForTerminal(t, a, handle, 15*time.Second)
 }
 
 // ---------------------------------------------------------------------------
@@ -1758,61 +1703,6 @@ func TestLocalExecObserve_CleanExitNoCommit_Failed(t *testing.T) {
 // ---------------------------------------------------------------------------
 // C1-C2 — cancel
 // ---------------------------------------------------------------------------
-
-func TestLocalExecCancel_Running_ConvergesToCancelledNeverFailed(t *testing.T) {
-	sharedDir, url := newSharedRepo(t)
-	installClaudeShim(t, "#!/bin/sh\nexec sleep 30\n")
-	a := newLocalExecForTest(t, url, 20*time.Second)
-
-	spec := localSpec("C-CANCEL", "someComponent", "service-construction")
-	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "cancel-key"), spec)
-	if err != nil {
-		t.Fatalf("Submit: %v", err)
-	}
-
-	// Give the subprocess a moment to actually start before cancelling.
-	time.Sleep(200 * time.Millisecond)
-	if err := a.CancelAgenticJob(obsRC(context.Background()), handle); err != nil {
-		t.Fatalf("Cancel: %v", err)
-	}
-
-	obs := waitForTerminal(t, a, handle, 5*time.Second)
-	if obs.Phase != PhaseCancelled {
-		t.Fatalf("Phase = %v, want PhaseCancelled (diagnostic: %q)", obs.Phase, obs.Diagnostic)
-	}
-	// LW1 — the worktree is removed on the cancel path too. Cancel records the
-	// terminal status IMMEDIATELY while awaitCompletion (which does the removal
-	// after cmd.Wait returns) is still unwinding the SIGTERM'd subprocess, so
-	// poll briefly rather than asserting instantaneously.
-	waitForNoLingeringWorktrees(t, sharedDir, 10*time.Second)
-}
-
-func TestLocalExecCancel_AlreadyTerminal_NoopSuccess(t *testing.T) {
-	_, url := newSharedRepo(t)
-	// commitShim (not a bare exit-0 shim): a clean exit must ADVANCE the activity
-	// branch ref to count as PhaseSucceeded under the worktree rework (LF3).
-	commitShim(t, filepath.Join(t.TempDir(), "capture"))
-	a := newLocalExecForTest(t, url, 10*time.Second)
-
-	spec := localSpec("C-DONE", "someComponent", "service-construction")
-	handle, err := a.SubmitAgenticJob(subRC(context.Background(), "done-key"), spec)
-	if err != nil {
-		t.Fatalf("Submit: %v", err)
-	}
-	waitForTerminal(t, a, handle, 10*time.Second)
-
-	if err := a.CancelAgenticJob(obsRC(context.Background()), handle); err != nil {
-		t.Fatalf("Cancel(already-terminal): unexpected error: %v", err)
-	}
-	// still succeeded, not overwritten by the no-op cancel.
-	obs, err := a.ObserveAgenticJob(obsRC(context.Background()), handle)
-	if err != nil {
-		t.Fatalf("Observe: %v", err)
-	}
-	if obs.Phase != PhaseSucceeded {
-		t.Fatalf("Phase after no-op cancel = %v, want it to remain PhaseSucceeded", obs.Phase)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // U8-U9 — value semantics
@@ -4048,40 +3938,6 @@ func TestParseEpisodeStreamDerivesBoundsFromTheStream(t *testing.T) {
 	}
 }
 
-// TE8 — the CANCEL arm. awaitCompletion's already-cancelled short-circuit must
-// still close the trace, mine it, and publish a summary whose Outcome is
-// CANCELLED — overriding whatever the (necessarily partial) stream says. The
-// sleeping shim writes nothing at all, so this is also the empty-trace case: a
-// summary is still published, because "we ran an agent and it produced no
-// evidence" is itself the fact the capture seam records.
-func TestLocalExecCancel_TerminalObservationCarriesCancelledEpisode(t *testing.T) {
-	_, url := newSharedRepo(t)
-	installClaudeShim(t, "#!/bin/sh\nexec sleep 30\n")
-	a := newLocalExecForTest(t, url, 20*time.Second)
-
-	const key fwra.IdempotencyKey = "episode-cancel-key"
-	handle, err := a.SubmitAgenticJob(subRC(context.Background(), key),
-		localSpec("C-EPCANCEL", "someComponent", "service-construction"))
-	if err != nil {
-		t.Fatalf("Submit: %v", err)
-	}
-	time.Sleep(200 * time.Millisecond)
-	if err := a.CancelAgenticJob(obsRC(context.Background()), handle); err != nil {
-		t.Fatalf("Cancel: %v", err)
-	}
-
-	obs := waitForEpisode(t, a, handle, 10*time.Second)
-	if obs.Phase != PhaseCancelled {
-		t.Fatalf("Phase = %v, want PhaseCancelled", obs.Phase)
-	}
-	if obs.Episode.Outcome != EpisodeCancelled {
-		t.Fatalf("Episode.Outcome = %v, want EpisodeCancelled (the operator's intent overrides the stream)", obs.Episode.Outcome)
-	}
-	if obs.Episode.EpisodeID != dedupToken(key) {
-		t.Fatalf("Episode.EpisodeID = %q, want the dedup token %q", obs.Episode.EpisodeID, dedupToken(key))
-	}
-}
-
 // TE9 — the RESTART-LOST arm. The run record is gone, so the RA cannot attest
 // the outcome — but the trace it wrote is still on disk and is real evidence.
 // The observation reports a GAP episode recovered from the handle's own token,
@@ -4221,12 +4077,9 @@ func TestLocalExecObserve_FailedRun_TerminalObservationCarriesFailedEpisode(t *t
 // waitForEpisode polls to a terminal observation that CARRIES its episode
 // summary — the whole point of the capture seam on the local arm.
 //
-// It polls rather than reading the first terminal observation because on the
-// CANCEL arm the two facts land at different moments: CancelAgenticJob records
-// PhaseCancelled synchronously, while the episode can only be mined once the
-// SIGTERM'd subprocess has actually unwound and awaitCompletion has closed the
-// trace. Same reason TestLocalExecCancel_Running_ConvergesToCancelledNeverFailed
-// polls for the worktree removal instead of asserting it instantaneously.
+// It polls rather than reading the first terminal observation so the helper never
+// depends on the terminal status and the mined episode being published in one
+// observation.
 func waitForEpisode(t *testing.T, a *localExecAccess, handle PipelineHandle, timeout time.Duration) PipelineObservation {
 	t.Helper()
 	obs := waitForTerminal(t, a, handle, timeout)

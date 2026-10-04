@@ -152,7 +152,6 @@ void test('readiness comes from the server’s waitsOn: blocked while it waits, 
         { activity: 'C-billing-state-access', dependsOn: [] },
       ],
     },
-    () => undefined,
     undefined,
     'not-started',
     (id) => rows[id]

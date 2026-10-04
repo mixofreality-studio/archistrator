@@ -96,14 +96,6 @@ func (s *postgresUsageAccess) RecordComputeUsage(rc fwra.Context, events []Usage
 	return s.appendBatch(rc.Context, "usage.RecordComputeUsage", events)
 }
 
-// RecordFinalUsage appends the final usage batch captured at withdraw
-// (contract §2.2). Same table, same transaction shape, same idempotency as
-// RecordComputeUsage — the "final" distinction is the business moment, not a
-// column this seam exposes (contract §6).
-func (s *postgresUsageAccess) RecordFinalUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error) {
-	return s.appendBatch(rc.Context, "usage.RecordFinalUsage", events)
-}
-
 // insertSQL appends one immutable fact. ON CONFLICT (runtime_event_id)
 // DO NOTHING — NOT DO UPDATE, which the append-only trigger would (rightly)
 // reject. A conflicting row returns no RETURNING row; appendBatch then
@@ -354,13 +346,6 @@ var _ UsageAccess = noopUsageAccess{}
 // EntryRef per input event so callers folding the returned slice length
 // against the input see no mismatch.
 func (noopUsageAccess) RecordComputeUsage(_ fwra.Context, events []UsageEvent) ([]EntryRef, error) {
-	return make([]EntryRef, len(events)), nil
-}
-
-// RecordFinalUsage drops the batch (local no-op); same shape as
-// RecordComputeUsage — the "final" distinction is a business moment this
-// no-op does not observe.
-func (noopUsageAccess) RecordFinalUsage(_ fwra.Context, events []UsageEvent) ([]EntryRef, error) {
 	return make([]EntryRef, len(events)), nil
 }
 

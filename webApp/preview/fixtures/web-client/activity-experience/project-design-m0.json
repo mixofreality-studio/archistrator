@@ -1186,7 +1186,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -1422,7 +1421,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -1658,7 +1656,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -1894,7 +1891,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -2130,7 +2126,6 @@
                 ],
                 "CurrentPhase": "integration",
                 "BuildStatus": 1,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -2307,7 +2302,6 @@
                 "Phases": null,
                 "CurrentPhase": "",
                 "BuildStatus": 0,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "classified": true,
@@ -2360,7 +2354,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -2560,7 +2553,6 @@
                 "Phases": null,
                 "CurrentPhase": "",
                 "BuildStatus": 0,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "classified": true,
@@ -2613,7 +2605,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -2849,7 +2840,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -3085,7 +3075,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -3285,7 +3274,6 @@
                 "Phases": null,
                 "CurrentPhase": "",
                 "BuildStatus": 0,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "classified": true,
@@ -3338,7 +3326,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -3574,7 +3561,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -3810,7 +3796,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -4046,7 +4031,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -4282,7 +4266,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -4518,7 +4501,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -4754,7 +4736,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -4990,7 +4971,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -5226,7 +5206,6 @@
                 ],
                 "CurrentPhase": "integration",
                 "BuildStatus": 1,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -5435,7 +5414,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -5635,7 +5613,6 @@
                 "Phases": [],
                 "CurrentPhase": "",
                 "BuildStatus": 0,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "classified": false,
@@ -5652,7 +5629,6 @@
                 "Phases": [],
                 "CurrentPhase": "",
                 "BuildStatus": 0,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -5802,7 +5778,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -5952,7 +5927,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -6080,7 +6054,6 @@
                 "Phases": null,
                 "CurrentPhase": "",
                 "BuildStatus": 0,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "classified": true,
@@ -6119,7 +6092,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -6247,7 +6219,6 @@
                 "Phases": null,
                 "CurrentPhase": "",
                 "BuildStatus": 0,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "classified": true,
@@ -6272,7 +6243,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -6336,7 +6306,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -6403,7 +6372,6 @@
                 ],
                 "CurrentPhase": "",
                 "BuildStatus": 2,
-                "Produced": null,
                 "FailureReason": 0,
                 "FailureDetail": "",
                 "attempts": [
@@ -7684,130 +7652,6 @@
                     ]
                   },
                   {
-                    "Signature": "CommitActivityArtifacts(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, artifacts: CommitArtifactsInput, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "int64",
-                        "Fields": [
-                          {
-                            "Name": "expectedActivityVersion",
-                            "Type": "int64",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "CommitArtifactsInput",
-                        "Fields": [
-                          {
-                            "Name": "TaskID",
-                            "Type": "MethodTask",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "commit",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "artifacts",
-                            "Type": "[]ProducedArtifact",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "approvedBy",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "draftedBy",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
                     "Signature": "RecordActivityOutcome(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, outcome: ActivityOutcome, reason: FailureReason, detail: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
@@ -8066,120 +7910,6 @@
                     ]
                   },
                   {
-                    "Signature": "AcknowledgeStaleBasis(projectID: ProjectID, expectedVersion: Version, expectedActivityVersion: int64, activityID: string, kind: ArtifactKind, note: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "int64",
-                        "Fields": [
-                          {
-                            "Name": "expectedActivityVersion",
-                            "Type": "int64",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "note",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
                     "Signature": "ReadActivityExecution(projectID: ProjectID, activityID: string) → (ActivityExecution, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
@@ -8233,13 +7963,11 @@
                   "ActivityOutcome",
                   "ActivityType",
                   "ArtifactKind",
-                  "CommitArtifactsInput",
                   "FailureReason",
                   "LifecyclePin",
                   "NoteComment",
                   "OperatorNoteInput",
                   "OperatorNoteKind",
-                  "ProducedArtifact",
                   "ProjectID",
                   "RepoCredential",
                   "ReviewComment",
@@ -8271,35 +7999,6 @@
                 "Inbound": null,
                 "Outbound": null,
                 "Ops": [
-                  {
-                    "Signature": "CancelAgenticJob(handle: PipelineHandle) → fwra.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "PipelineHandle",
-                        "Fields": [
-                          {
-                            "Name": "handle",
-                            "Type": "PipelineHandle",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
                   {
                     "Signature": "ObserveAgenticJob(handle: PipelineHandle) → (PipelineObservation, fwra.Error)",
                     "Stereotype": "",
@@ -8478,7 +8177,226 @@
                 "Idempotency": "",
                 "Revisions": null
               },
-              "artifactAccess": {"Component": "artifactAccess", "Layer": "ResourceAccess", "Stereotype": "artifact contract", "Volatility": "", "Status": "", "Inbound": null, "Outbound": null, "Ops": [{"Signature": "GetTestRunIndex(run: TestRunRef) → (TestRunIndex, fwra.Error)", "Stereotype": "", "Note": "", "Inputs": [{"Name": "TestRunRef", "Fields": [{"Name": "RunID", "Type": "string", "Note": ""}, {"Name": "Artifact", "Type": "string", "Note": ""}]}], "Outputs": [{"Name": "TestRunIndex", "Fields": [{"Name": "Results", "Type": "[]byte", "Note": ""}, {"Name": "Files", "Type": "[]string", "Note": ""}, {"Name": "Expired", "Type": "bool", "Note": ""}]}, {"Name": "fwra.Error", "Fields": [{"Name": "fault", "Type": "fwra.Error", "Note": ""}]}]}, {"Signature": "ReadTestRunFile(run: TestRunRef, path: string) → (ConstructionOutput, fwra.Error)", "Stereotype": "", "Note": "", "Inputs": [{"Name": "TestRunRef", "Fields": [{"Name": "RunID", "Type": "string", "Note": ""}, {"Name": "Artifact", "Type": "string", "Note": ""}]}, {"Name": "string", "Fields": [{"Name": "path", "Type": "string", "Note": ""}]}], "Outputs": [{"Name": "ConstructionOutput", "Fields": [{"Name": "Bytes", "Type": "[]byte", "Note": ""}, {"Name": "MIMEType", "Type": "string", "Note": ""}]}, {"Name": "fwra.Error", "Fields": [{"Name": "fault", "Type": "fwra.Error", "Note": ""}]}]}, {"Signature": "RetrieveConstructionOutput(contentAddress: string) → (ConstructionOutput, fwra.Error)", "Stereotype": "", "Note": "", "Inputs": [{"Name": "string", "Fields": [{"Name": "contentAddress", "Type": "string", "Note": ""}]}], "Outputs": [{"Name": "ConstructionOutput", "Fields": [{"Name": "Bytes", "Type": "[]byte", "Note": ""}, {"Name": "MIMEType", "Type": "string", "Note": ""}]}, {"Name": "fwra.Error", "Fields": [{"Name": "fault", "Type": "fwra.Error", "Note": ""}]}]}, {"Signature": "RetrieveOutputTree(contentAddress: string) → (OutputTree, fwra.Error)", "Stereotype": "", "Note": "", "Inputs": [{"Name": "string", "Fields": [{"Name": "contentAddress", "Type": "string", "Note": ""}]}], "Outputs": [{"Name": "OutputTree", "Fields": [{"Name": "Root", "Type": "string", "Note": ""}, {"Name": "Entries", "Type": "object", "Note": ""}]}, {"Name": "fwra.Error", "Fields": [{"Name": "fault", "Type": "fwra.Error", "Note": ""}]}]}, {"Signature": "StoreConstructionOutput(content: ConstructionOutput) → (string, fwra.Error)", "Stereotype": "", "Note": "", "Inputs": [{"Name": "ConstructionOutput", "Fields": [{"Name": "Bytes", "Type": "[]byte", "Note": ""}, {"Name": "MIMEType", "Type": "string", "Note": ""}]}], "Outputs": [{"Name": "string", "Fields": [{"Name": "result", "Type": "string", "Note": ""}]}, {"Name": "fwra.Error", "Fields": [{"Name": "fault", "Type": "fwra.Error", "Note": ""}]}]}], "DataContracts": ["ConstructionOutput", "OutputPath", "OutputTree", "TestRunIndex", "TestRunRef"], "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.", "Idempotency": "", "Revisions": null},
+              "artifactAccess": {
+                "Component": "artifactAccess",
+                "Layer": "ResourceAccess",
+                "Stereotype": "artifact contract",
+                "Volatility": "",
+                "Status": "",
+                "Inbound": null,
+                "Outbound": null,
+                "Ops": [
+                  {
+                    "Signature": "GetTestRunIndex(run: TestRunRef) → (TestRunIndex, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "TestRunRef",
+                        "Fields": [
+                          {
+                            "Name": "RunID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Artifact",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "TestRunIndex",
+                        "Fields": [
+                          {
+                            "Name": "Results",
+                            "Type": "[]byte",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Files",
+                            "Type": "[]string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Expired",
+                            "Type": "bool",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "ReadTestRunFile(run: TestRunRef, path: string) → (ConstructionOutput, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "TestRunRef",
+                        "Fields": [
+                          {
+                            "Name": "RunID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Artifact",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "path",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "ConstructionOutput",
+                        "Fields": [
+                          {
+                            "Name": "Bytes",
+                            "Type": "[]byte",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "MIMEType",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "RetrieveConstructionOutput(contentAddress: string) → (ConstructionOutput, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "contentAddress",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "ConstructionOutput",
+                        "Fields": [
+                          {
+                            "Name": "Bytes",
+                            "Type": "[]byte",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "MIMEType",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "StoreConstructionOutput(content: ConstructionOutput) → (string, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ConstructionOutput",
+                        "Fields": [
+                          {
+                            "Name": "Bytes",
+                            "Type": "[]byte",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "MIMEType",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "DataContracts": [
+                  "ConstructionOutput",
+                  "TestRunIndex",
+                  "TestRunRef"
+                ],
+                "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.",
+                "Idempotency": "",
+                "Revisions": null
+              },
               "autoscalerEngine": {
                 "Component": "autoscalerEngine",
                 "Layer": "Engine",
@@ -8867,70 +8785,6 @@
                         ]
                       }
                     ]
-                  },
-                  {
-                    "Signature": "RecomputeNet(affectedCycle: ReBillingInput) → (BillingResult, fweng.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ReBillingInput",
-                        "Fields": [
-                          {
-                            "Name": "Revenue",
-                            "Type": "CycleRevenue",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Usage",
-                            "Type": "CycleUsage",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Terms",
-                            "Type": "BillingTerms",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "PriorSettled",
-                            "Type": "BillingResult",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "BillingResult",
-                        "Fields": [
-                          {
-                            "Name": "SignedNet",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "RoutingDirective",
-                            "Type": "RoutingDirective",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ComputeCostApplied",
-                            "Type": "Money",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fweng.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fweng.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
                   }
                 ],
                 "DataContracts": [
@@ -8943,7 +8797,6 @@
                   "OptionID",
                   "ProjectOption",
                   "Projection",
-                  "ReBillingInput",
                   "RoutingDirective",
                   "ScheduleKind"
                 ],
@@ -9064,109 +8917,6 @@
                     ]
                   },
                   {
-                    "Signature": "RecordInboundRevenue(event: GatewayRevenueEvent) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "GatewayRevenueEvent",
-                        "Fields": [
-                          {
-                            "Name": "GatewayEventID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "CustomerID",
-                            "Type": "uuid.UUID",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "CycleID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "amount",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "occurredAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordRevenueReversal(event: GatewayReversalEvent) → fwm.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "GatewayReversalEvent",
-                        "Fields": [
-                          {
-                            "Name": "GatewayEventID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "CustomerID",
-                            "Type": "uuid.UUID",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "CycleID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "amount",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ReversesGatewayEventID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "occurredAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwm.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwm.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
                     "Signature": "RegisterCustomer(customerID: uuid.UUID) → (BillingRef, fwm.Error)",
                     "Stereotype": "",
                     "Note": "",
@@ -9248,9 +8998,6 @@
                 "DataContracts": [
                   "BillingRef",
                   "CloseCycleResult",
-                  "GatewayRevenueEvent",
-                  "GatewayReversalEvent",
-                  "Money",
                   "RoutingDirective",
                   "ShortfallSweepResult"
                 ],
@@ -9692,1175 +9439,6 @@
                   "GatewayBinding",
                   "Money",
                   "RoutingDirective",
-                  "Version"
-                ],
-                "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.",
-                "Idempotency": "",
-                "Revisions": null
-              },
-              "constructionTransitionAccess": {
-                "Component": "projectStateAccess",
-                "Layer": "ResourceAccess",
-                "Stereotype": "constructionTransitionAccess contract",
-                "Volatility": "",
-                "Status": "",
-                "Inbound": null,
-                "Outbound": null,
-                "Ops": [
-                  {
-                    "Signature": "RecordChangeReviewed(projectID: ProjectID, expectedVersion: Version, activityID: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordActivityExited(projectID: ProjectID, expectedVersion: Version, activityID: string, outcome: ActivityOutcome, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ActivityOutcome",
-                        "Fields": [
-                          {
-                            "Name": "outcome",
-                            "Type": "ActivityOutcome",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordActivityFailed(projectID: ProjectID, expectedVersion: Version, activityID: string, reason: FailureReason, detail: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "FailureReason",
-                        "Fields": [
-                          {
-                            "Name": "reason",
-                            "Type": "FailureReason",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "detail",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordOperatorPaused(projectID: ProjectID, expectedVersion: Version, reason: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "reason",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordOperatorResumed(projectID: ProjectID, expectedVersion: Version, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordReviewPolicy(projectID: ProjectID, expectedVersion: Version, policy: ReviewPolicy, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ReviewPolicy",
-                        "Fields": [
-                          {
-                            "Name": "gatedPhasesByType",
-                            "Type": "object",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "preset",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordPhaseStarted(projectID: ProjectID, expectedVersion: Version, activityID: string, phase: ActivityMethodPhase, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ActivityMethodPhase",
-                        "Fields": [
-                          {
-                            "Name": "phase",
-                            "Type": "ActivityMethodPhase",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordPhaseCompleted(projectID: ProjectID, expectedVersion: Version, activityID: string, phase: ActivityMethodPhase, artifactRef: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ActivityMethodPhase",
-                        "Fields": [
-                          {
-                            "Name": "phase",
-                            "Type": "ActivityMethodPhase",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "artifactRef",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordServiceContractProduced(projectID: ProjectID, expectedVersion: Version, component: string, contract: ServiceContract, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "component",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ServiceContract",
-                        "Fields": [
-                          {
-                            "Name": "contract",
-                            "Type": "ServiceContract",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordPhaseArtifactProduced(projectID: ProjectID, expectedVersion: Version, activityID: string, mapKey: string, payload: PhaseArtifactPayload, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "mapKey",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "PhaseArtifactPayload",
-                        "Fields": [
-                          {
-                            "Name": "payload",
-                            "Type": "PhaseArtifactPayload",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordOperatorNote(projectID: ProjectID, expectedVersion: Version, activityID: string, note: OperatorNoteInput, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "OperatorNoteInput",
-                        "Fields": [
-                          {
-                            "Name": "NoteID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "kind",
-                            "Type": "OperatorNoteKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "gate",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "text",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "comments",
-                            "Type": "[]NoteComment",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordOperatorNoteDelivered(projectID: ProjectID, expectedVersion: Version, activityID: string, noteID: string, attemptID: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "noteID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "attemptID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ],
-                "DataContracts": [
-                  "ActivityMethodPhase",
-                  "ActivityOutcome",
-                  "FailureReason",
-                  "NoteComment",
-                  "OperatorNoteInput",
-                  "OperatorNoteKind",
-                  "ProjectID",
-                  "RepoCredential",
-                  "ReviewPolicy",
                   "Version"
                 ],
                 "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.",
@@ -11519,6 +10097,16 @@
                             "Name": "EpisodeID",
                             "Type": "string",
                             "Note": ""
+                          },
+                          {
+                            "Name": "ComponentID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "RunID",
+                            "Type": "string",
+                            "Note": ""
                           }
                         ]
                       }
@@ -11570,6 +10158,16 @@
                           {
                             "Name": "timeline",
                             "Type": "EpisodeTimeline",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "testRun",
+                            "Type": "DeliveryTestRunView",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "scenarios",
+                            "Type": "[]ScenarioView",
                             "Note": ""
                           }
                         ]
@@ -11703,6 +10301,7 @@
                   "ContractRevision",
                   "ContractStruct",
                   "DefectView",
+                  "DeliveryTestRunView",
                   "DesignArtifactSessionStage",
                   "DesignArtifactSessionView",
                   "DesignHealth",
@@ -11736,7 +10335,7 @@
                   "PhaseCompletion",
                   "PhaseDecision",
                   "PipelinePhase",
-                  "ProducedArtifact",
+                  "ProbeView",
                   "ProjectID",
                   "ProjectRunState",
                   "ProjectState",
@@ -11765,23 +10364,31 @@
                   "Reviewer",
                   "RuleID",
                   "SDPDecision",
+                  "ScenarioBindingView",
+                  "ScenarioGuardView",
+                  "ScenarioInputView",
+                  "ScenarioOutcomeView",
+                  "ScenarioOutputView",
+                  "ScenarioResultView",
+                  "ScenarioStateView",
+                  "ScenarioStimulusView",
+                  "ScenarioView",
                   "ServiceContract",
                   "SessionRef",
                   "Severity",
+                  "SkipReasonView",
                   "StartProjectResult",
+                  "StepBindingView",
                   "SubagentSpan",
-                  "SystemTestPlanView",
                   "TaskAttempt",
                   "TaskRevisionComment",
                   "TaskRevisionOutcome",
                   "TaskRevisionProvenance",
                   "TaskRevisionView",
                   "TestArgView",
-                  "TestCaseView",
                   "TestExpectView",
+                  "TestRunScenarioView",
                   "TestRunView",
-                  "TestScenarioView",
-                  "TestStepView",
                   "TestingStateView",
                   "TestingVariant",
                   "TimelineEvent",
@@ -12008,214 +10615,6 @@
                     ]
                   },
                   {
-                    "Signature": "RejectArtifactOnBranchWithComments(projectID: ProjectID, expectedVersion: Version, branch: string, kind: ArtifactKind, notes: string, round: int64, comments: []ReviewComment, replies: []ReviewReply, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "branch",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "notes",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "int64",
-                        "Fields": [
-                          {
-                            "Name": "round",
-                            "Type": "int64",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "[]ReviewComment",
-                        "Fields": [
-                          {
-                            "Name": "comments",
-                            "Type": "[]ReviewComment",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "[]ReviewReply",
-                        "Fields": [
-                          {
-                            "Name": "replies",
-                            "Type": "[]ReviewReply",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "WithdrawArtifactOnBranch(projectID: ProjectID, expectedVersion: Version, branch: string, kind: ArtifactKind, notes: string, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "branch",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "notes",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
                     "Signature": "ReconcileBranchFromMain(projectID: ProjectID, expectedVersion: Version, branch: string, kinds: []ArtifactKind, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
@@ -12256,105 +10655,6 @@
                           {
                             "Name": "kinds",
                             "Type": "[]ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "SetReviewCommentStatusOnBranch(projectID: ProjectID, expectedVersion: Version, branch: string, kind: ArtifactKind, commentID: string, status: string, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "branch",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "commentID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "status",
-                            "Type": "string",
                             "Note": ""
                           }
                         ]
@@ -13356,362 +11656,6 @@
                         ]
                       }
                     ]
-                  },
-                  {
-                    "Signature": "RecordActivityArchApproved(projectID: ProjectID, expectedVersion: Version, activityID: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordActivityMerged(projectID: ProjectID, expectedVersion: Version, activityID: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordActivityStarted(projectID: ProjectID, expectedVersion: Version, activityID: string, typ: ActivityType, variant: TestingVariant, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ActivityType",
-                        "Fields": [
-                          {
-                            "Name": "typ",
-                            "Type": "ActivityType",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "TestingVariant",
-                        "Fields": [
-                          {
-                            "Name": "variant",
-                            "Type": "TestingVariant",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordActivityCompleted(projectID: ProjectID, expectedVersion: Version, activityID: string, cred: RepoCredential, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "activityID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
                   }
                 ],
                 "DataContracts": [
@@ -13749,11 +11693,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "InFlightPipelines",
-                            "Type": "[]PipelineRef",
-                            "Note": ""
-                          },
-                          {
                             "Name": "Reason",
                             "Type": "string",
                             "Note": ""
@@ -13770,11 +11709,6 @@
                       {
                         "Name": "PausePlan",
                         "Fields": [
-                          {
-                            "Name": "PipelinesToCancel",
-                            "Type": "[]PipelineRef",
-                            "Note": ""
-                          },
                           {
                             "Name": "RecordPaused",
                             "Type": "bool",
@@ -14011,7 +11945,6 @@
                   "OperatedAppID",
                   "PausePlan",
                   "PauseRequestContext",
-                  "PipelineRef",
                   "ProjectID",
                   "SLATier",
                   "SLOStatus",
@@ -14034,64 +11967,9 @@
                 "Status": "",
                 "Inbound": null,
                 "Outbound": null,
-                "Ops": [
-                  {
-                    "Signature": "listTools() → error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [],
-                    "Outputs": [
-                      {
-                        "Name": "error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "invokeTool() → error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [],
-                    "Outputs": [
-                      {
-                        "Name": "error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "readProjectState() → error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [],
-                    "Outputs": [
-                      {
-                        "Name": "error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ],
+                "Ops": null,
                 "DataContracts": null,
-                "ErrorModel": "Operations fail with error — the typed Client fault.",
+                "ErrorModel": "",
                 "Idempotency": "",
                 "Revisions": null
               },
@@ -14676,55 +12554,6 @@
                     ]
                   },
                   {
-                    "Signature": "WirePaymentConfig(deployedAppID: uuid.UUID, binding: GatewayBinding, idempotencyKey: fwra.IdempotencyKey) → fwra.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "uuid.UUID",
-                        "Fields": [
-                          {
-                            "Name": "deployedAppID",
-                            "Type": "uuid.UUID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "GatewayBinding",
-                        "Fields": [
-                          {
-                            "Name": "ConnectedAccountID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.IdempotencyKey",
-                        "Fields": [
-                          {
-                            "Name": "idempotencyKey",
-                            "Type": "fwra.IdempotencyKey",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
                     "Signature": "Withdraw(appID: uuid.UUID, idempotencyKey: fwra.IdempotencyKey) → fwra.Error",
                     "Stereotype": "",
                     "Note": "",
@@ -14768,7 +12597,6 @@
                   "AttributionWindow",
                   "ComputeAttribution",
                   "ComputeUnits",
-                  "GatewayBinding",
                   "ModelKeyHealth",
                   "OIDCSpec",
                   "PostgresSpec",
@@ -16150,65 +13978,6 @@
                     ]
                   },
                   {
-                    "Signature": "CommitArtifact(projectID: ProjectID, expectedVersion: Version, kind: ArtifactKind) → (Version, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ProjectID",
-                        "Fields": [
-                          {
-                            "Name": "projectID",
-                            "Type": "ProjectID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "expectedVersion",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "ArtifactKind",
-                        "Fields": [
-                          {
-                            "Name": "kind",
-                            "Type": "ArtifactKind",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Version",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Version",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
                     "Signature": "CreateProject(projectID: ProjectID, owner: OwnerScope, name: string) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
@@ -16356,6 +14125,208 @@
                           {
                             "Name": "projectID",
                             "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "Version",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "RecordOperatorPaused(projectID: ProjectID, expectedVersion: Version, reason: string, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "Version",
+                        "Fields": [
+                          {
+                            "Name": "expectedVersion",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "reason",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.IdempotencyKey",
+                        "Fields": [
+                          {
+                            "Name": "idempotencyKey",
+                            "Type": "fwra.IdempotencyKey",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "Version",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "RecordOperatorResumed(projectID: ProjectID, expectedVersion: Version, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "Version",
+                        "Fields": [
+                          {
+                            "Name": "expectedVersion",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.IdempotencyKey",
+                        "Fields": [
+                          {
+                            "Name": "idempotencyKey",
+                            "Type": "fwra.IdempotencyKey",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "Version",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "RecordReviewPolicy(projectID: ProjectID, expectedVersion: Version, policy: ReviewPolicy, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "Version",
+                        "Fields": [
+                          {
+                            "Name": "expectedVersion",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ReviewPolicy",
+                        "Fields": [
+                          {
+                            "Name": "gatedPhasesByType",
+                            "Type": "object",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "preset",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.IdempotencyKey",
+                        "Fields": [
+                          {
+                            "Name": "idempotencyKey",
+                            "Type": "fwra.IdempotencyKey",
                             "Note": ""
                           }
                         ]
@@ -16576,7 +14547,7 @@
                   "Phase",
                   "PhaseArtifacts",
                   "PlanningAssumptions",
-                  "ProducedArtifact",
+                  "Probe",
                   "Profile",
                   "ProfilePhase",
                   "ProjectCatalogRef",
@@ -16599,17 +14570,24 @@
                   "RiskRow",
                   "SRSRecord",
                   "ScalingPolicy",
+                  "ScenarioBinding",
                   "ScenarioKind",
+                  "ScenarioResult",
                   "ScheduleKind",
                   "ScrubbedRequirements",
                   "SdpOptionRow",
                   "SdpReview",
                   "SettlementTerms",
+                  "SkipReason",
                   "SoftwareSystemInstance",
                   "Solution",
                   "StandardCheck",
+                  "StepBinding",
                   "System",
+                  "TestArg",
+                  "TestExpect",
                   "TestPlanRecord",
+                  "TestRun",
                   "TestingVariant",
                   "TraceCall",
                   "Trigger",
@@ -16624,204 +14602,6 @@
                   "Volatility",
                   "WorkerMix",
                   "WorkerRateSpec"
-                ],
-                "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.",
-                "Idempotency": "",
-                "Revisions": null
-              },
-              "revenueLedgerAccess": {
-                "Component": "billingStateAccess",
-                "Layer": "ResourceAccess",
-                "Stereotype": "revenueLedgerAccess contract",
-                "Volatility": "",
-                "Status": "",
-                "Inbound": null,
-                "Outbound": null,
-                "Ops": [
-                  {
-                    "Signature": "RecordInboundRevenue(entry: RevenueEntry) → (EntryRef, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "RevenueEntry",
-                        "Fields": [
-                          {
-                            "Name": "CustomerID",
-                            "Type": "uuid.UUID",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "CycleID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Kind",
-                            "Type": "RevenueKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Amount",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "GatewayEventID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "OccurredAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "EntryRef",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "EntryRef",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "RecordReversal(reversal: ReversalEntry) → (EntryRef, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "ReversalEntry",
-                        "Fields": [
-                          {
-                            "Name": "CustomerID",
-                            "Type": "uuid.UUID",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "CycleID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "Amount",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "GatewayEventID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ReversesGatewayEventID",
-                            "Type": "string",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "OccurredAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "EntryRef",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "EntryRef",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "ReadRange(customerID: uuid.UUID, cycleID: string) → ([]RevenueEntry, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "uuid.UUID",
-                        "Fields": [
-                          {
-                            "Name": "customerID",
-                            "Type": "uuid.UUID",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "string",
-                        "Fields": [
-                          {
-                            "Name": "cycleID",
-                            "Type": "string",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "[]RevenueEntry",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "[]RevenueEntry",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ],
-                "DataContracts": [
-                  "EntryRef",
-                  "Money",
-                  "RevenueEntry",
-                  "RevenueKind",
-                  "ReversalEntry"
                 ],
                 "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.",
                 "Idempotency": "",
@@ -17022,42 +14802,6 @@
                         ]
                       }
                     ]
-                  },
-                  {
-                    "Signature": "verifyWebhookSignature() → error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [],
-                    "Outputs": [
-                      {
-                        "Name": "error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "obtainServiceIdentity() → error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [],
-                    "Outputs": [
-                      {
-                        "Name": "error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
                   }
                 ],
                 "DataContracts": null,
@@ -17193,50 +14937,6 @@
                     ]
                   },
                   {
-                    "Signature": "ConfigureBranchProtection(repo: RepoRef, cred: RepoCredential) → fwra.Error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "RepoRef",
-                        "Fields": [
-                          {
-                            "Name": "repo",
-                            "Type": "RepoRef",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "RepoCredential",
-                        "Fields": [
-                          {
-                            "Name": "Bytes",
-                            "Type": "[]byte",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "ExpiresAt",
-                            "Type": "time.Time",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
                     "Signature": "GetInstallationToken(repo: RepoRef) → (RepoCredential, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
@@ -17338,45 +15038,6 @@
                           {
                             "Name": "Mergeable",
                             "Type": "bool",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "InstallAuthorizeApp(account: AccountRef) → (Installation, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "AccountRef",
-                        "Fields": [
-                          {
-                            "Name": "account",
-                            "Type": "AccountRef",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "Installation",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "Installation",
                             "Note": ""
                           }
                         ]
@@ -17740,7 +15401,6 @@
                   "BranchRef",
                   "CheckState",
                   "CommitRef",
-                  "Installation",
                   "ManagedFile",
                   "MergeResult",
                   "ProjectID",
@@ -17853,45 +15513,6 @@
                         ]
                       }
                     ]
-                  },
-                  {
-                    "Signature": "RecordFinalUsage(events: []UsageEvent) → ([]EntryRef, fwra.Error)",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [
-                      {
-                        "Name": "[]UsageEvent",
-                        "Fields": [
-                          {
-                            "Name": "events",
-                            "Type": "[]UsageEvent",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ],
-                    "Outputs": [
-                      {
-                        "Name": "[]EntryRef",
-                        "Fields": [
-                          {
-                            "Name": "result",
-                            "Type": "[]EntryRef",
-                            "Note": ""
-                          }
-                        ]
-                      },
-                      {
-                        "Name": "fwra.Error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "fwra.Error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
                   }
                 ],
                 "DataContracts": [
@@ -17914,100 +15535,9 @@
                 "Status": "",
                 "Inbound": null,
                 "Outbound": null,
-                "Ops": [
-                  {
-                    "Signature": "driveDesignPhase() → error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [],
-                    "Outputs": [
-                      {
-                        "Name": "error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "superviseConstruction() → error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [],
-                    "Outputs": [
-                      {
-                        "Name": "error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "operateDeliveredSystem() → error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [],
-                    "Outputs": [
-                      {
-                        "Name": "error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "managePaymentLifecycle() → error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [],
-                    "Outputs": [
-                      {
-                        "Name": "error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "Signature": "readOperatedSystemView() → error",
-                    "Stereotype": "",
-                    "Note": "",
-                    "Inputs": [],
-                    "Outputs": [
-                      {
-                        "Name": "error",
-                        "Fields": [
-                          {
-                            "Name": "fault",
-                            "Type": "error",
-                            "Note": ""
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ],
+                "Ops": null,
                 "DataContracts": null,
-                "ErrorModel": "Operations fail with error — the typed Client fault.",
+                "ErrorModel": "",
                 "Idempotency": "",
                 "Revisions": null
               }

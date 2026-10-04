@@ -14,7 +14,6 @@ type FakeArtifactAccess struct {
 	GetTestRunIndexFn            func(rc fwra.Context, run artifact.TestRunRef) (artifact.TestRunIndex, error)
 	ReadTestRunFileFn            func(rc fwra.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error)
 	RetrieveConstructionOutputFn func(rc fwra.Context, contentAddress string) (artifact.ConstructionOutput, error)
-	RetrieveOutputTreeFn         func(rc fwra.Context, contentAddress string) (artifact.OutputTree, error)
 	StoreConstructionOutputFn    func(rc fwra.Context, content artifact.ConstructionOutput) (string, error)
 }
 
@@ -37,13 +36,6 @@ func (f *FakeArtifactAccess) RetrieveConstructionOutput(rc fwra.Context, content
 		panic("FakeArtifactAccess.RetrieveConstructionOutputFn not set")
 	}
 	return f.RetrieveConstructionOutputFn(rc, contentAddress)
-}
-
-func (f *FakeArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress string) (artifact.OutputTree, error) {
-	if f.RetrieveOutputTreeFn == nil {
-		panic("FakeArtifactAccess.RetrieveOutputTreeFn not set")
-	}
-	return f.RetrieveOutputTreeFn(rc, contentAddress)
 }
 
 func (f *FakeArtifactAccess) StoreConstructionOutput(rc fwra.Context, content artifact.ConstructionOutput) (string, error) {

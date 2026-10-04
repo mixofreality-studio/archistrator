@@ -14,8 +14,6 @@ package billing
 //   A3  CloseBillingCycle rejects empty customerId              → ContractMisuse
 //   A4  CloseBillingCycle rejects empty cycleId                 → ContractMisuse
 //   A5  RunShortfallSweep rejects empty tickId                     → ContractMisuse
-//   A6  RecordInboundRevenue rejects empty customerId/cycleId/gatewayEventId → ContractMisuse
-//   A7  RecordRevenueReversal rejects empty customerId/cycleId/gatewayEventId → ContractMisuse
 //   A8  Workflow-id derivation tokens are the §6.1 shapes
 //   A9  RoutingDirective String() coverage
 //   A10 gatewayIdempotencyKey is settle:{customerId}:{cycleId}
@@ -34,15 +32,11 @@ package billing
 //   D3  NoAction: net == 0 routes NOTHING + records settleCycle(NoAction)
 //   D4  exact money: the charge amount is the EXACT positive magnitude of the signed net
 //   D5  not registered/gateway-bound → FailedPrecondition; nothing routed
-//   D6  inbound-revenue signals drained before close are appended (idempotent on event id)
 //
 // E. CloseCycleWorkflow charge-failure branch (OQ-4, workflow_test.go):
 //   E1  decline → Retry → re-charge succeeds; not escalated
 //   E2  decline → Escalate → settleCycle(Escalated=true); CloseCycleResult.Escalated true
 //   E3  decline → Delay → not escalated, no further charge (left for the sweep)
-//
-// F. RecomputeCycle / chargeback saga (workflow_test.go):
-//   F1  chargebackReceived → RecomputeNet → resettleCycle → route delta
 //
 // G. ShortfallSweepWorkflow (workflow_test.go):
 //   G1  delinquent customers → one queued applyDelinquencyPolicy signal per customer
@@ -138,50 +132,6 @@ func Test_Close_EmptyCycleID(t *testing.T) {
 func Test_Sweep_EmptyTickID(t *testing.T) {
 	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RunShortfallSweep(testCtx(), "")
-	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
-		t.Fatalf("want ContractMisuse, got %s", got)
-	}
-}
-
-// ---- A6: RecordInboundRevenue -----------------------------------------------
-
-func Test_RecordInbound_EmptyCustomerID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
-	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CycleID: "c1", GatewayEventID: "g1"})
-	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
-		t.Fatalf("want ContractMisuse, got %s", got)
-	}
-}
-
-func Test_RecordInbound_EmptyCycleID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
-	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CustomerID: uuid.New(), GatewayEventID: "g1"})
-	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
-		t.Fatalf("want ContractMisuse, got %s", got)
-	}
-}
-
-func Test_RecordInbound_EmptyGatewayEventID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
-	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CustomerID: uuid.New(), CycleID: "c1"})
-	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
-		t.Fatalf("want ContractMisuse, got %s", got)
-	}
-}
-
-// ---- A7: RecordRevenueReversal ----------------------------------------------
-
-func Test_RecordReversal_EmptyGatewayEventID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
-	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{CustomerID: uuid.New(), CycleID: "c1"})
-	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
-		t.Fatalf("want ContractMisuse, got %s", got)
-	}
-}
-
-func Test_RecordReversal_EmptyCustomerID(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
-	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{CycleID: "c1", GatewayEventID: "g1"})
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -343,10 +293,6 @@ func (u *fakeUsage) RecordComputeUsage(_ fwra.Context, _ []usage.UsageEvent) ([]
 	return nil, nil
 }
 
-func (u *fakeUsage) RecordFinalUsage(_ fwra.Context, _ []usage.UsageEvent) ([]usage.EntryRef, error) {
-	return nil, nil
-}
-
 var _ usage.UsageAccess = (*fakeUsage)(nil)
 
 // fakeGateway records money moves; declineCharge makes ChargeCustomer fail terminally
@@ -426,16 +372,13 @@ func (d *fakeMessageBus) RegisterSchedule(_ fwra.Context, scheduleID messagebus.
 
 var _ messagebus.MessageBus = (*fakeMessageBus)(nil)
 
-// fakeBillingEngine returns a scripted BillingResult for compute + recompute.
+// fakeBillingEngine returns a scripted BillingResult for compute.
 // Satisfies the published billingengine.BillingEngine contract directly (no seam).
 type fakeBillingEngine struct {
-	computeResult   billingengine.BillingResult
-	recomputeResult billingengine.BillingResult
-	computeN        int
-	recomputeN      int
-	// computeRevenue / recomputeRevenue are the revenue snapshots the workflow handed in.
-	computeRevenue   []billingengine.CycleRevenue
-	recomputeRevenue []billingengine.CycleRevenue
+	computeResult billingengine.BillingResult
+	computeN      int
+	// computeRevenue is the revenue snapshots the workflow handed in.
+	computeRevenue []billingengine.CycleRevenue
 }
 
 func (e *fakeBillingEngine) ComputeNet(_ fweng.Context, revenue billingengine.CycleRevenue, _ billingengine.CycleUsage, _ billingengine.BillingTerms) (billingengine.BillingResult, error) {
@@ -446,12 +389,6 @@ func (e *fakeBillingEngine) ComputeNet(_ fweng.Context, revenue billingengine.Cy
 
 func (e *fakeBillingEngine) ProjectCommitTimeComputeCost(_ fweng.Context, _ billingengine.ProjectOption) (billingengine.Projection, error) {
 	return billingengine.Projection{}, nil
-}
-
-func (e *fakeBillingEngine) RecomputeNet(_ fweng.Context, in billingengine.ReBillingInput) (billingengine.BillingResult, error) {
-	e.recomputeN++
-	e.recomputeRevenue = append(e.recomputeRevenue, in.Revenue)
-	return e.recomputeResult, nil
 }
 
 var _ billingengine.BillingEngine = (*fakeBillingEngine)(nil)
@@ -558,8 +495,6 @@ func registerSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, f *fak
 func boundBilling(id uuid.UUID, version billingstate.Version) billingstate.Billing {
 	return billingstate.Billing{ID: id, Version: version, Registered: true, GatewayBound: true}
 }
-
-func usd(minor int64) Money { return Money{MinorUnits: minor, Currency: "USD"} }
 
 // engineUSD builds the published billingengine.Money the fakeBillingEngine scripts its
 // results with (distinct named type from the façade's own Money, same shape).
@@ -760,41 +695,6 @@ func Test_Close_NotBound_FailedPrecondition(t *testing.T) {
 	}
 }
 
-// D6: inbound-revenue signals delivered before close are drained and DROPPED — the
-// charge-only model keeps no revenue ledger (revenueLedgerAccess, a permanent no-op, was
-// deleted in dct Plan 4 Task 3) — so the revenue the net is computed over is the zero
-// snapshot whatever arrived, and the close still settles exactly once.
-func Test_Close_DrainsInboundRevenueSignals(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	deps, f := baseDeps()
-	cid := uuid.New()
-	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(100), RoutingDirective: billingengine.RoutingNoAction}
-	wf := newWorkflows(deps)
-	registerClose(env, wf, f)
-
-	// Deliver an inbound-revenue signal at start (drained before close).
-	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(signalInboundRevenueReceived, GatewayRevenueEvent{
-			GatewayEventID: "g1", CustomerID: cid, CycleID: "cycle-1", Amount: usd(100),
-		})
-	}, 0)
-
-	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("workflow error: %v", err)
-	}
-	if len(f.state.settled) != 1 {
-		t.Fatalf("the close must still settle exactly once, got %v", f.state.settled)
-	}
-	if len(f.engine.computeRevenue) != 1 || f.engine.computeRevenue[0] != (billingengine.CycleRevenue{}) {
-		t.Fatalf("the inbound revenue must not enter the net: ComputeNet saw %+v", f.engine.computeRevenue)
-	}
-}
-
 // ============================ E. charge-failure branch (OQ-4) ===============
 
 // E1: a decline → Retry → re-charge succeeds; the cycle is NOT escalated.
@@ -891,49 +791,6 @@ func Test_Close_ChargeDecline_Delay_NoEscalation(t *testing.T) {
 }
 
 // ============================ F. chargeback recompute saga ==================
-
-// F1: a chargebackReceived signal runs the forward-only recompute: RecomputeNet (over the
-// zero revenue snapshot — no reversal fact is recorded, there is no revenue ledger under
-// charge-only) → resettleCycle → route the delta.
-func Test_Close_Chargeback_ForwardOnlyRecompute(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	deps, f := baseDeps()
-	cid := uuid.New()
-	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(5000), RoutingDirective: billingengine.RoutingNoAction}
-	// After the reversal, the corrected net is a charge of 1500 (delta to claw back).
-	f.engine.recomputeResult = billingengine.BillingResult{SignedNet: engineUSD(-1500), RoutingDirective: billingengine.RoutingCharge}
-	wf := newWorkflows(deps)
-	registerClose(env, wf, f)
-
-	// Deliver a chargeback after the initial settle (drained by awaitChargeback).
-	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(signalChargebackReceived, GatewayReversalEvent{
-			GatewayEventID: "cb1", CustomerID: cid, CycleID: "cycle-1", Amount: usd(-6500),
-		})
-	}, 0)
-
-	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("workflow error: %v", err)
-	}
-	if f.engine.recomputeN != 1 {
-		t.Fatalf("want one RecomputeNet, got %d", f.engine.recomputeN)
-	}
-	if f.engine.recomputeRevenue[0] != (billingengine.CycleRevenue{}) {
-		t.Fatalf("the recompute must run over the zero revenue snapshot, got %+v", f.engine.recomputeRevenue[0])
-	}
-	if len(f.state.resettled) != 1 {
-		t.Fatalf("want one resettleCycle correction, got %v", f.state.resettled)
-	}
-	// The delta is a charge of the exact magnitude of -1500.
-	if len(f.gateway.charges) != 1 || f.gateway.charges[0].MinorUnits != 1500 {
-		t.Fatalf("want one delta charge of 1500, got %v", f.gateway.charges)
-	}
-}
 
 // ============================ G. ShortfallSweepWorkflow =====================
 
@@ -1081,39 +938,3 @@ func Test_Close_SettleConflict_ReReadReApply_ConvergesToOne(t *testing.T) {
 
 // silence unused-import guard for time in case all delayed callbacks are removed.
 var _ = time.Millisecond
-
-// Test_RecordRevenue_RequiresCurrency — Money.currency is schema-required, and
-// required is presence-only: a money value with no currency is not a money value
-// (2026-08-13 contract-strictness audit).
-func Test_RecordRevenue_RequiresCurrency(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
-	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{
-		CustomerID: uuid.New(), CycleID: "cycle-1", GatewayEventID: "evt-1",
-		Amount: Money{MinorUnits: 100, Currency: ""},
-	})
-	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
-		t.Fatalf("want ContractMisuse for a currency-less amount, got %s", got)
-	}
-	rerr := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{
-		CustomerID: uuid.New(), CycleID: "cycle-1", GatewayEventID: "evt-2",
-		Amount: Money{MinorUnits: 100, Currency: "   "},
-	})
-	if got := asBillingError(t, rerr).Kind; got != fwmgr.ContractMisuse {
-		t.Fatalf("want ContractMisuse for a currency-less reversal amount, got %s", got)
-	}
-}
-
-// Test_RecordRevenueReversal_RejectsEmptyBackLink — the reverses-link is optional
-// (nil = reverses no single event), but a pointer to "" is a third state,
-// indistinguishable downstream from absent.
-func Test_RecordRevenueReversal_RejectsEmptyBackLink(t *testing.T) {
-	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
-	blank := "  "
-	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{
-		CustomerID: uuid.New(), CycleID: "cycle-1", GatewayEventID: "evt-3",
-		Amount: Money{MinorUnits: 100, Currency: "usd"}, ReversesGatewayEventID: &blank,
-	})
-	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
-		t.Fatalf("want ContractMisuse for a present-but-empty reverses link, got %s", got)
-	}
-}

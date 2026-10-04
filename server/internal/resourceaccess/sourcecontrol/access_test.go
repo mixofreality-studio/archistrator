@@ -46,9 +46,6 @@ package sourcecontrol
 //         malformed RepoRef → ContractMisuse on use
 //
 //   LIFECYCLE — ISourceControlLifecycle (contract #1):
-//     U9  InstallAuthorizeApp happy: discovers the installation; App-JWT Bearer
-//     U10 InstallAuthorizeApp NOT-INSTALLED: account absent → NotFound
-//     U11 InstallAuthorizeApp Auth: 401 on the App call → fwra.Auth (terminal)
 //     U14 GetInstallationToken happy: mints; RepoCredential{Bytes,ExpiresAt}
 //     U15 GetInstallationToken CACHING: 2nd call within validity served from cache
 //     U16 GetInstallationToken RE-MINT past safety margin
@@ -85,7 +82,7 @@ package sourcecontrol
 //
 //   VALUE SEMANTICS:
 //     U28 CheckState String; ReviewVerdict→event mapping via PostReview;
-//         RepoCredential/Installation/Refs IsZero; CommitRef IsZero.
+//         RepoCredential/Refs IsZero; CommitRef IsZero.
 
 import (
 	"bytes"
@@ -271,51 +268,8 @@ func TestU8_RefValueSemantics(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U9–U17  Lifecycle (install + token)
+// U14–U17  Lifecycle (token)
 // ---------------------------------------------------------------------------
-
-func TestU9_InstallAuthorizeAppHappy(t *testing.T) {
-	fake := gh.Start()
-	defer fake.Close()
-	seedInstallation(fake, testAccount)
-	a := newAccess(t, fake)
-
-	inst, err := a.InstallAuthorizeApp(rc(context.Background()), testAccount)
-	if err != nil {
-		t.Fatalf("InstallAuthorizeApp: %v", err)
-	}
-	if InstallationIsZero(inst) {
-		t.Fatalf("expected a non-zero Installation")
-	}
-	req := findRequest(t, fake, "GET", "/app/installations")
-	if !strings.HasPrefix(req.Auth, "Bearer ") {
-		t.Fatalf("discovery should use an App-JWT Bearer; got %q", req.Auth)
-	}
-}
-
-func TestU10_InstallAuthorizeAppNotInstalled(t *testing.T) {
-	fake := gh.Start()
-	defer fake.Close()
-	fake.On("GET", "/app/installations", gh.JSON(200, []map[string]any{
-		{"id": 7, "account": map[string]any{"login": "someone-else"}},
-	}))
-	a := newAccess(t, fake)
-	_, err := a.InstallAuthorizeApp(rc(context.Background()), testAccount)
-	requireKind(t, err, fwra.NotFound)
-}
-
-func TestU11_InstallAuthorizeAppAuth(t *testing.T) {
-	fake := gh.Start()
-	defer fake.Close()
-	fake.On("GET", "/app/installations", gh.Response{Status: 401, Body: `{"message":"bad jwt"}`})
-	a := newAccess(t, fake)
-	_, err := a.InstallAuthorizeApp(rc(context.Background()), testAccount)
-	requireKind(t, err, fwra.Auth)
-	var raErr *fwra.Error
-	if errors.As(err, &raErr) && raErr.Retryable {
-		t.Fatalf("Auth must be terminal (non-retryable)")
-	}
-}
 
 func TestU14_GetInstallationTokenHappy(t *testing.T) {
 	fake := gh.Start()
@@ -763,7 +717,7 @@ func TestU40_CommitManagedFilesGuards(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U18–U27  PR rail
+// U18–U26  PR rail
 // ---------------------------------------------------------------------------
 
 func railFixture(t *testing.T) (*gh.FakeGitHub, SourceControlAccess, RepoRef, RepoCredential) {
@@ -966,20 +920,6 @@ func TestU26_MergePullRequestNotMergeable(t *testing.T) {
 	requireKind(t, err, fwra.Conflict)
 }
 
-func TestU27_ConfigureBranchProtection(t *testing.T) {
-	fake, a, repo, cred := railFixture(t)
-	defer fake.Close()
-	fake.On("PUT", "/repos/acme/my-project/branches/main/protection", gh.JSON(200, map[string]any{"url": "x"}))
-
-	if err := a.ConfigureBranchProtection(rc(context.Background()), repo, cred); err != nil {
-		t.Fatalf("ConfigureBranchProtection: %v", err)
-	}
-	req := findRequest(t, fake, "PUT", "/repos/acme/my-project/branches/main/protection")
-	if !strings.Contains(req.Body, stpAppSlug) {
-		t.Fatalf("branch protection should restrict/bypass the App slug; got %q", req.Body)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // U28  Value semantics
 // ---------------------------------------------------------------------------
@@ -990,9 +930,6 @@ func TestU28_ValueSemantics(t *testing.T) {
 	}
 	if !RepoCredentialIsZero(RepoCredential{}) {
 		t.Fatalf("empty credential should be zero")
-	}
-	if !InstallationIsZero(Installation("")) {
-		t.Fatalf("empty installation should be zero")
 	}
 	if !PullRequestRefIsZero(PullRequestRef("")) || !BranchRefIsZero(BranchRef("")) {
 		t.Fatalf("empty refs should be zero")
@@ -2059,16 +1996,10 @@ func (railWithoutSlug) AdoptProjectRepo(fwra.Context, RepoAdoptionSpec) (RepoRef
 func (railWithoutSlug) CommitManagedFiles(fwra.Context, RepoRef, []ManagedFile, RepoCredential) (CommitRef, error) {
 	panic("unused")
 }
-func (railWithoutSlug) ConfigureBranchProtection(fwra.Context, RepoRef, RepoCredential) error {
-	panic("unused")
-}
 func (railWithoutSlug) GetInstallationToken(fwra.Context, RepoRef) (RepoCredential, error) {
 	panic("unused")
 }
 func (railWithoutSlug) GetPullRequestStatus(fwra.Context, RepoRef, PullRequestRef, RepoCredential) (PullRequestStatus, error) {
-	panic("unused")
-}
-func (railWithoutSlug) InstallAuthorizeApp(fwra.Context, AccountRef) (Installation, error) {
 	panic("unused")
 }
 func (railWithoutSlug) MergePullRequest(fwra.Context, RepoRef, PullRequestRef, RepoCredential) (MergeResult, error) {
@@ -2182,8 +2113,8 @@ func TestSyncManagedScaffoldMessageNamesGenerations(t *testing.T) {
 //        no second merge commit
 //   GL6  conflict → fwra.Conflict, main untouched, branch survives (nothing pushed)
 //   GL7  birth ops: AdoptProjectRepo → deterministic local RepoRef; CommitManagedFiles →
-//        sentinel; ConfigureBranchProtection / SyncManagedScaffold no-op; InstallAuthorizeApp
-//        → ContractMisuse; GetInstallationToken → non-zero dummy cred
+//        sentinel; PostReview / SyncManagedScaffold no-op; GetInstallationToken → non-zero
+//        dummy cred
 //   GL8  GitLocalRepoRefForProject round-trips through RepoRefOwnerRepo
 
 // ---------------------------------------------------------------------------
@@ -2540,21 +2471,13 @@ func TestGitLocal_BirthOpsAndCredential(t *testing.T) {
 		t.Fatal("CommitManagedFiles returned a zero CommitRef, want a sentinel")
 	}
 
-	// ConfigureBranchProtection / PostReview / SyncManagedScaffold → no-op success.
-	if err := a.ConfigureBranchProtection(glCtx(), glRepo(), glCred()); err != nil {
-		t.Fatalf("ConfigureBranchProtection: %v", err)
-	}
+	// PostReview / SyncManagedScaffold → no-op success.
 	if err := a.PostReview(glCtx(), glRepo(), PullRequestRefFromString("local#b"), ReviewSubmission{Verdict: ReviewApprove}, glCred()); err != nil {
 		t.Fatalf("PostReview: %v", err)
 	}
 	drift, err := a.SyncManagedScaffold(glCtx(), glRepo(), glCred())
 	if err != nil || drift {
 		t.Fatalf("SyncManagedScaffold = (%v, %v), want (false, nil)", drift, err)
-	}
-
-	// InstallAuthorizeApp → unreachable on the local profile.
-	if _, err := a.InstallAuthorizeApp(glCtx(), "acct"); glKind(err) != fwra.ContractMisuse {
-		t.Fatalf("InstallAuthorizeApp: kind = %v, want ContractMisuse", glKind(err))
 	}
 }
 

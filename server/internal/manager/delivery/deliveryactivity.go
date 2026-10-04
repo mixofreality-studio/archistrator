@@ -3525,13 +3525,11 @@ func (wf *csWorkflows) openActivityRow(ctx workflow.Context, in deliveryActivity
 		return err
 	}
 	state.walk.cred, state.walk.gitOn = cred, gitOn
-	switch {
-	case state.executionLedger:
+	// The pre-ledger arm (DefaultVersion of changeExecutionLedger) stamped a git row's
+	// "started" instead; it was reachable only by replaying a history recorded before the
+	// ledger existed, and none exists, so it was deleted in dct4 with its RA verb.
+	if state.executionLedger {
 		if err := wf.openActivity(ctx, csIn, state, cred, &state.walk.headVersion); err != nil {
-			return err
-		}
-	case gitOn:
-		if err := wf.recordActivityStarted(ctx, csIn, cred, &state.walk.headVersion); err != nil {
 			return err
 		}
 	}
@@ -3636,7 +3634,7 @@ func (wf *csWorkflows) finalizeWalk(
 	// above this line writes to the ACTIVITY BRANCH or to the activity's own row, and both
 	// are already serialised — the row by its CAS, the branch by being this activity's
 	// alone. Everything below writes MAIN: runWalkMerge's merge, finalizeActivity's
-	// mergeAndRecord, and commitDesignArtifacts' N slot commits. So the lease brackets
+	// mergeGated, and commitDesignArtifacts' N slot commits. So the lease brackets
 	// exactly the main-writing tail and nothing else, and a walk that never reaches its
 	// tail never asks for one.
 	//
@@ -3923,7 +3921,7 @@ func (wf *csWorkflows) signalActivityFinished(
 // commits on main and takes no branch, so the model has to BE on main first — and the model is
 // staged on the activity branch. The retired session merged its branch and then committed, in
 // that order, for exactly this reason. The child's merges are both inside finalizeWalk
-// (runWalkMerge for the rail-dormant profile, finalizeActivity's mergeAndRecord for the PR
+// (runWalkMerge for the rail-dormant profile, finalizeActivity's mergeGated for the PR
 // rail), so the earliest honest commit point is after them. A per-gate commit is not available
 // at all: one activity holds FOUR kinds and one branch, so committing mission when its gate
 // passes would mean four merges of one branch.
@@ -4612,18 +4610,18 @@ func (wf *csWorkflows) readPRStatus(ctx workflow.Context, gf *gitForward) (csPul
 	return st, nil
 }
 
-// relayArchApprovalAndRecord relays the architecture +1 (PostReview Approve) to the PR
-// and records the audit-worthy ArchApproved fact (D-PA-GIT §5). Called once the
-// activity's review has passed (the architect's in-app sign-off). A dormant slice is a
-// no-op.
+// relayArchApproval relays the architecture +1 (PostReview Approve) to the PR. Called
+// once the activity's review has passed (the architect's in-app sign-off). A dormant
+// slice is a no-op. The approval itself is recorded on the review ledger (the decided
+// round), which is the authoritative record; the git row's ArchApproved mirror was
+// deleted in dct4 because nothing read it.
 //
 // This is a GATE-DECISION-TIME rail call: the human it waits for may have been away for
 // hours, so it re-mints an expired credential before it speaks to the rail (F-QA2-44).
-func (wf *csWorkflows) relayArchApprovalAndRecord(
+func (wf *csWorkflows) relayArchApproval(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
-	headVersion *projectstate.Version,
 ) error {
 	if !gf.enabled {
 		return nil
@@ -4633,27 +4631,17 @@ func (wf *csWorkflows) relayArchApprovalAndRecord(
 	if err != nil {
 		return err
 	}
-	if err := wf.railWithAuthRetry(ctx, func() error {
+	return wf.railWithAuthRetry(ctx, func() error {
 		return wf.Acts.RailPostReview(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef),
 			sourcecontrol.ReviewSubmission{Verdict: sourcecontrol.ReviewApprove, Body: archApprovalBody(in.ActivityID)},
 			cred.toRail())
-	}); err != nil {
-		return err
-	}
-
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityArchApproved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), gf.cred.toProjectState())
 	})
-	if err != nil {
-		return err
-	}
-	*headVersion = v
-	return nil
 }
 
-// mergeAndRecord PERFORMS the gated merge (the interventionEngine gate already
-// cleared in workflow code) and, on a Merged result, records the terminal git fact
-// (D-PA-GIT §5). A dormant slice is a no-op.
+// mergeGated PERFORMS the gated merge (the interventionEngine gate already cleared in
+// workflow code). A dormant slice is a no-op. Whether the activity is integrated is
+// earned on the execution ledger (the commit and the recorded exit), so a completed
+// merge records nothing further: the git row's Merged mirror was deleted in dct4.
 //
 // THE TWO PRECONDITIONS ARE THE GUARD, and neither survived the co-author files'
 // deletion. `RailMergePullRequest` was called bare, over a PR whose CI rollup this code
@@ -4676,7 +4664,7 @@ func (wf *csWorkflows) relayArchApprovalAndRecord(
 // the screen says what the rail said) and returned as a NAMED terminal the operator can
 // act on. Re-opening the activity is the documented repair (see commitDesignArtifacts),
 // and it is the right one — nothing this workflow can do makes a build go green.
-func (wf *csWorkflows) mergeAndRecord(
+func (wf *csWorkflows) mergeGated(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
@@ -4710,18 +4698,10 @@ func (wf *csWorkflows) mergeAndRecord(
 		return temporal.NewNonRetryableApplicationError(
 			"gated merge did not complete (PR not mergeable)", "MergeNotCompleted", nil)
 	}
-
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityMerged(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), gf.cred.toProjectState())
-	})
-	if err != nil {
-		return err
-	}
-	*headVersion = v
 	return nil
 }
 
-// guardMergePreconditions is mergeAndRecord's two refusals, and it returns nil ONLY when the
+// guardMergePreconditions is mergeGated's two refusals, and it returns nil ONLY when the
 // PR may actually be merged. Split out from the merge body so each half reads as the one
 // question it asks.
 func (wf *csWorkflows) guardMergePreconditions(
@@ -4843,41 +4823,6 @@ func (wf *csWorkflows) reconcileDivergedBranch(
 	// deliberately — feeding a branch-scoped version into a main-scoped CAS is the exact
 	// mistake applyRecoveringOnBranch's own comment warns about.
 	_ = headVersion
-	return nil
-}
-
-// recordActivityStarted marks the activity Running in the per-activity construction
-// head-state at the TOP of the spine (Task 3), BEFORE any dispatch. This is what
-// flips the activity out of NotStarted so the pump's eligibility selection
-// (nextEligibleActivity over proj.ActivityExecution) does not re-dispatch it on a
-// concurrent/redundant tick. Cred-threaded like the four git head-state records; a
-// dormant slice (git unwired) is a no-op (the live Postgres composition has no
-// per-activity construction head-state, so the gate degrades to the child-workflow-id
-// idempotency the pump already relies on). It mints a credential ONCE for the
-// started+completed pair via the supplied gitForward.cred when the branch lifecycle
-// has already minted one, else mints its own.
-//
-// It also stamps the activity's classified (Type, Variant) onto the head-state row —
-// the RA seeds its Phases slice from that pair, so an unstamped row seeded the 5-phase
-// SERVICE set for every activity and made earned value disagree with the profile the
-// workflow walks.
-func (wf *csWorkflows) recordActivityStarted(
-	ctx workflow.Context,
-	in constructActivityInput,
-	cred railCredEnvelope,
-	headVersion *projectstate.Version,
-) error {
-	if wf.GitStatus == nil {
-		return nil
-	}
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityStarted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
-			in.Activity.Type, in.Activity.Variant, cred.toProjectState())
-	})
-	if err != nil {
-		return err
-	}
-	*headVersion = v
 	return nil
 }
 
@@ -5137,12 +5082,12 @@ func (wf *csWorkflows) finalizeActivity(
 	deferExit bool,
 ) error {
 	// --- Step 5a: relay the architecture +1 and record it (git-forward). ---
-	if err := wf.relayArchApprovalAndRecord(ctx, in, gf, headVersion); err != nil {
+	if err := wf.relayArchApproval(ctx, in, gf); err != nil {
 		return err
 	}
 
 	// --- Step 6a: perform the gated merge and record it (git-forward). ---
-	if err := wf.mergeAndRecord(ctx, in, gf, preserveKinds, headVersion); err != nil {
+	if err := wf.mergeGated(ctx, in, gf, preserveKinds, headVersion); err != nil {
 		return err
 	}
 

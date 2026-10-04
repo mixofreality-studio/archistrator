@@ -25,7 +25,7 @@ type withdrawInput struct {
 
 // WithdrawWorkflow drives ncuc3 (operationsManager.md §6.3):
 //  1. WithdrawRuntimeActivity (operatedRuntimeAccess.withdraw; NotFound ⇒ success).
-//  2. RecordFinalUsageActivity (usageAccess.recordFinalUsage).
+//  2. readComputeAttribution + usageAccess.recordComputeUsage (the final capture).
 //  3. WithdrawHeadStateActivity (operatedSystemStateAccess.withdrawSystem).
 //
 // Idempotent on the id; an already-withdrawn app collapses to a no-op success
@@ -52,7 +52,7 @@ func (wf *workflows) WithdrawWorkflow(ctx workflow.Context, in withdrawInput) (W
 	}
 
 	// Capture the final usage before the runtime is pruned. A best-effort final read of
-	// compute attribution drives the recordFinalUsage append (dedup-id idempotent).
+	// compute attribution drives the final recordComputeUsage append (dedup-id idempotent).
 	attribution, aerr := wf.readComputeAttribution(ctx, in.OperatedAppID)
 	if aerr != nil {
 		return WithdrawResult{}, aerr
@@ -77,9 +77,12 @@ func (wf *workflows) withdrawRuntime(ctx workflow.Context, appID operatedAppID) 
 	return wf.Acts.OperatedRuntimeWithdraw(ctx, appID)
 }
 
-// recordFinalUsage invokes usageAccess.recordFinalUsage (append; dedup-id idempotent).
+// recordFinalUsage is the withdraw's FINAL usage capture: the last attribution window
+// before the runtime is pruned, appended through the same usageAccess.recordComputeUsage
+// verb every reconcile tick uses (append; dedup-id idempotent). "Final" is the business
+// moment this workflow step chooses, not a distinct ResourceAccess verb.
 func (wf *workflows) recordFinalUsage(ctx workflow.Context, appID operatedAppID, attribution operatedruntime.ComputeAttribution) error {
-	_, err := wf.Acts.UsageRecordFinalUsage(ctx, []usage.UsageEvent{wf.usageEvent(ctx, appID, attribution)})
+	_, err := wf.Acts.UsageRecordComputeUsage(ctx, []usage.UsageEvent{wf.usageEvent(ctx, appID, attribution)})
 	return err
 }
 

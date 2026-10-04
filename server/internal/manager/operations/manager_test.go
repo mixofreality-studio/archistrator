@@ -557,10 +557,6 @@ func (r *fakeRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID, _ oper
 	return r.attribution, nil
 }
 
-func (r *fakeRuntime) WirePaymentConfig(_ fwra.Context, _ uuid.UUID, _ operatedruntime.GatewayBinding, _ fwra.IdempotencyKey) error {
-	return nil
-}
-
 var _ operatedruntime.OperatedRuntimeAccess = (*fakeRuntime)(nil)
 
 // fakeUsage records appends + serves a scripted range. Satisfies usage.UsageAccess.
@@ -569,20 +565,12 @@ type fakeUsage struct {
 
 	rangeEvents []usage.UsageEvent
 	computeN    int
-	finalN      int
 }
 
 func (u *fakeUsage) RecordComputeUsage(_ fwra.Context, events []usage.UsageEvent) ([]usage.EntryRef, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.computeN += len(events)
-	return nil, nil
-}
-
-func (u *fakeUsage) RecordFinalUsage(_ fwra.Context, events []usage.UsageEvent) ([]usage.EntryRef, error) {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	u.finalN += len(events)
 	return nil, nil
 }
 
@@ -610,10 +598,6 @@ func (a *fakeArtifacts) RetrieveConstructionOutput(_ fwra.Context, _ string) (ar
 	defer a.mu.Unlock()
 	a.retrieveN++
 	return artifact.ConstructionOutput{Bytes: []byte(fakeBundleManifestJSON), MIMEType: "application/json"}, nil
-}
-
-func (a *fakeArtifacts) RetrieveOutputTree(_ fwra.Context, _ string) (artifact.OutputTree, error) {
-	return artifact.OutputTree{}, nil
 }
 
 func (a *fakeArtifacts) StoreConstructionOutput(_ fwra.Context, _ artifact.ConstructionOutput) (string, error) {
@@ -738,7 +722,6 @@ func registerActs(env *testsuite.TestWorkflowEnvironment, os *fakeOperatedState,
 	reg(acts.OperatedRuntimeGetSloStatus, "operatedRuntimeAccess.getSloStatus")
 	reg(acts.OperatedRuntimeReadComputeAttribution, "operatedRuntimeAccess.readComputeAttribution")
 	reg(acts.UsageRecordComputeUsage, "usageAccess.recordComputeUsage")
-	reg(acts.UsageRecordFinalUsage, "usageAccess.recordFinalUsage")
 	reg(acts.UsageReadRange, "usageAccess.readRange")
 	reg(acts.ArtifactRetrieveConstructionOutput, "artifactAccess.retrieveConstructionOutput")
 }
@@ -1057,8 +1040,9 @@ func Test_Withdraw_HappyPath(t *testing.T) {
 	if len(rt.withdraws) != 1 {
 		t.Fatalf("want one runtime withdraw, got %d", len(rt.withdraws))
 	}
-	if us.finalN != 1 {
-		t.Fatalf("want one recordFinalUsage, got %d", us.finalN)
+	// The final capture rides the one usage write verb (recordComputeUsage) since dct4.
+	if us.computeN != 1 {
+		t.Fatalf("want one final recordComputeUsage, got %d", us.computeN)
 	}
 	if len(os.withdrawn) != 1 {
 		t.Fatalf("want one head-state withdraw, got %d", len(os.withdrawn))
@@ -1155,8 +1139,8 @@ func Test_CostProjection_ReturnsProjection_NoMutation(t *testing.T) {
 	if len(os.published) != 0 || len(os.statusChges) != 0 || len(os.withdrawn) != 0 || len(os.delinquency) != 0 {
 		t.Fatalf("cost projection must not mutate head-state; %+v", os)
 	}
-	if us.computeN != 0 || us.finalN != 0 {
-		t.Fatalf("cost projection must not append usage; compute=%d final=%d", us.computeN, us.finalN)
+	if us.computeN != 0 {
+		t.Fatalf("cost projection must not append usage; compute=%d", us.computeN)
 	}
 	if len(rt.publishes) != 0 || len(rt.withdraws) != 0 {
 		t.Fatalf("cost projection must not write runtime; publishes=%d withdraws=%d", len(rt.publishes), len(rt.withdraws))
@@ -1237,8 +1221,8 @@ func viewAssertNoMutation(t *testing.T, os *fakeOperatedState, rt *fakeRuntime, 
 	if len(os.published) != 0 || len(os.statusChges) != 0 || len(os.withdrawn) != 0 || len(os.delinquency) != 0 {
 		t.Fatalf("view must not write head-state; %+v", os)
 	}
-	if us.computeN != 0 || us.finalN != 0 {
-		t.Fatalf("view must not append usage; compute=%d final=%d", us.computeN, us.finalN)
+	if us.computeN != 0 {
+		t.Fatalf("view must not append usage; compute=%d", us.computeN)
 	}
 	if len(rt.publishes) != 0 || len(rt.withdraws) != 0 {
 		t.Fatalf("view must not write runtime; publishes=%d withdraws=%d", len(rt.publishes), len(rt.withdraws))

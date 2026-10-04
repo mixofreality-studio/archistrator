@@ -134,12 +134,6 @@ func (i genInvokers) OperatedRuntimeReadComputeAttribution(ctx workflow.Context,
 	return out, err
 }
 
-// OperatedRuntimeWirePaymentConfig invokes activity "operatedRuntimeAccess.wirePaymentConfig".
-func (i genInvokers) OperatedRuntimeWirePaymentConfig(ctx workflow.Context, deployedAppID uuid.UUID, binding operatedruntime.GatewayBinding) error {
-	err := workflow.ExecuteActivity(i.options(ctx, "operatedRuntimeAccess.wirePaymentConfig"), "operatedRuntimeAccess.wirePaymentConfig", deployedAppID, binding).Get(ctx, nil)
-	return err
-}
-
 // OperatedRuntimeWithdraw invokes activity "operatedRuntimeAccess.withdraw".
 func (i genInvokers) OperatedRuntimeWithdraw(ctx workflow.Context, appID uuid.UUID) error {
 	err := workflow.ExecuteActivity(i.options(ctx, "operatedRuntimeAccess.withdraw"), "operatedRuntimeAccess.withdraw", appID).Get(ctx, nil)
@@ -157,13 +151,6 @@ func (i genInvokers) UsageReadRange(ctx workflow.Context, query usage.UsageRange
 func (i genInvokers) UsageRecordComputeUsage(ctx workflow.Context, events []usage.UsageEvent) ([]usage.EntryRef, error) {
 	var out []usage.EntryRef
 	err := workflow.ExecuteActivity(i.options(ctx, "usageAccess.recordComputeUsage"), "usageAccess.recordComputeUsage", events).Get(ctx, &out)
-	return out, err
-}
-
-// UsageRecordFinalUsage invokes activity "usageAccess.recordFinalUsage".
-func (i genInvokers) UsageRecordFinalUsage(ctx workflow.Context, events []usage.UsageEvent) ([]usage.EntryRef, error) {
-	var out []usage.EntryRef
-	err := workflow.ExecuteActivity(i.options(ctx, "usageAccess.recordFinalUsage"), "usageAccess.recordFinalUsage", events).Get(ctx, &out)
 	return out, err
 }
 
@@ -185,13 +172,6 @@ func (i genInvokers) ArtifactReadTestRunFile(ctx workflow.Context, run artifact.
 func (i genInvokers) ArtifactRetrieveConstructionOutput(ctx workflow.Context, contentAddress string) (artifact.ConstructionOutput, error) {
 	var out artifact.ConstructionOutput
 	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.retrieveConstructionOutput"), "artifactAccess.retrieveConstructionOutput", contentAddress).Get(ctx, &out)
-	return out, err
-}
-
-// ArtifactRetrieveOutputTree invokes activity "artifactAccess.retrieveOutputTree".
-func (i genInvokers) ArtifactRetrieveOutputTree(ctx workflow.Context, contentAddress string) (artifact.OutputTree, error) {
-	var out artifact.OutputTree
-	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.retrieveOutputTree"), "artifactAccess.retrieveOutputTree", contentAddress).Get(ctx, &out)
 	return out, err
 }
 
@@ -225,13 +205,6 @@ func (i genInvokers) ProjectStateAcknowledgeStaleBasis(ctx workflow.Context, pro
 func (i genInvokers) ProjectStateAdvancePhase(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
 	var out projectstate.Version
 	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.advancePhase"), "projectStateAccess.advancePhase", projectID, expectedVersion).Get(ctx, &out)
-	return out, err
-}
-
-// ProjectStateCommitArtifact invokes activity "projectStateAccess.commitArtifact".
-func (i genInvokers) ProjectStateCommitArtifact(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.commitArtifact"), "projectStateAccess.commitArtifact", projectID, expectedVersion, kind).Get(ctx, &out)
 	return out, err
 }
 

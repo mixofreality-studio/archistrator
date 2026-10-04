@@ -136,9 +136,9 @@ func stageAndCommitMission(ctx context.Context, t *testing.T, state ProjectState
 		t.Fatalf("StageArtifactForReviewOnBranch: %v", err)
 	}
 	// Commit the mission (architect approved at the review gate).
-	v3, err := state.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "wf:commit-mission"}, id, v2, KindMission)
+	v3, err := session.CommitArtifactWithProvenance(fwra.Context{Context: ctx, IdempotencyKey: "wf:commit-mission"}, id, v2, KindMission, "", "")
 	if err != nil {
-		t.Fatalf("CommitArtifact: %v", err)
+		t.Fatalf("CommitArtifactWithProvenance: %v", err)
 	}
 	return v3
 }
@@ -1161,11 +1161,9 @@ func TestArtifactKindIsPhase1(t *testing.T) {
 // C2 FOLD (code-health-phase-a): the branch/ledger/reconcile/stale-ack verbs are now
 // REQUIRED members of the generated ProjectStateAccess contract, so every
 // ProjectStateAccess implementation — including test doubles — must implement all of
-// them; the wrapper simply forwards. stubProjectState is that full implementation.
-// CommitArtifactWithProvenance is the ONE exception (never folded — see the C2 fold
-// note on designSessionAccess in projectstateaccess.go); provenanceStub additionally
-// implements it, proving the wrapper's ONE remaining capability check still works both
-// ways.
+// them; the wrapper simply forwards. stubProjectState is that full implementation,
+// CommitArtifactWithProvenance included (a required member of designSessionBase since
+// dct4 deleted the provenance-less CommitArtifact fallback).
 
 // stubProjectState implements ProjectStateAccess in full. Every call is recorded so a
 // test can assert exactly which base method the wrapper invoked. stagedModel captures
@@ -1185,9 +1183,9 @@ func (s *stubProjectState) AdvancePhase(_ fwra.Context, _ ProjectID, _ Version) 
 	return 0, nil
 }
 
-func (s *stubProjectState) CommitArtifact(_ fwra.Context, _ ProjectID, _ Version, _ ArtifactKind) (Version, error) {
-	s.calls = append(s.calls, "CommitArtifact")
-	return 10, nil
+func (s *stubProjectState) CommitArtifactWithProvenance(_ fwra.Context, _ ProjectID, _ Version, _ ArtifactKind, _, _ string) (Version, error) {
+	s.calls = append(s.calls, "CommitArtifactWithProvenance")
+	return 40, nil
 }
 
 func (s *stubProjectState) CreateProject(_ fwra.Context, _ ProjectID, _ OwnerScope, _ string) (Version, error) {
@@ -1238,21 +1236,6 @@ func (s *stubProjectState) StageArtifactForReviewOnBranch(_ fwra.Context, _ Proj
 	return 20, nil
 }
 
-func (s *stubProjectState) WithdrawArtifactOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ fwra.IdempotencyKey) (Version, error) {
-	s.calls = append(s.calls, "WithdrawArtifactOnBranch")
-	return 22, nil
-}
-
-func (s *stubProjectState) RejectArtifactOnBranchWithComments(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ int64, _ []ReviewComment, _ []ReviewReply, _ fwra.IdempotencyKey) (Version, error) {
-	s.calls = append(s.calls, "RejectArtifactOnBranchWithComments")
-	return 30, nil
-}
-
-func (s *stubProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (Version, error) {
-	s.calls = append(s.calls, "SetReviewCommentStatusOnBranch")
-	return 31, nil
-}
-
 func (s *stubProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ int64, _ []ReviewComment, _ []ReviewReply, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "SeedReviewCommentsOnBranch")
 	return 32, nil
@@ -1270,20 +1253,6 @@ func (s *stubProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ ProjectID, _ 
 }
 
 var _ ProjectStateAccess = (*stubProjectState)(nil)
-
-// provenanceStub additionally implements CommitArtifactWithProvenance — the ONE
-// verb that stayed a genuinely optional capability post-C2 (it was never folded into
-// the generated ProjectStateAccess contract; see designsession.go).
-type provenanceStub struct {
-	stubProjectState
-}
-
-func (s *provenanceStub) CommitArtifactWithProvenance(_ fwra.Context, _ ProjectID, _ Version, _ ArtifactKind, _, _ string) (Version, error) {
-	s.calls = append(s.calls, "CommitArtifactWithProvenance")
-	return 40, nil
-}
-
-var _ provenanceCommitter = (*provenanceStub)(nil)
 
 func assertCalls(t *testing.T, calls []string, want string) {
 	t.Helper()
@@ -1363,21 +1332,8 @@ func TestDesignSessionAccess_StageArtifactForReviewOnBranch_DecodeFailureNoStore
 
 // ---- CommitArtifactWithProvenance ---------------------------------------------
 
-func TestDesignSessionAccess_CommitArtifactWithProvenance_BaseFallback(t *testing.T) {
-	base := &stubProjectState{}
-	s := NewDesignSessionAccess(base)
-	v, err := s.CommitArtifactWithProvenance(fwra.Context{Context: context.Background()}, "proj-1", 1, KindMission, "approver", "drafter")
-	if err != nil {
-		t.Fatalf("CommitArtifactWithProvenance: %v", err)
-	}
-	assertCalls(t, base.calls, "CommitArtifact")
-	if v != 10 {
-		t.Fatalf("Version = %d, want 10", v)
-	}
-}
-
-func TestDesignSessionAccess_CommitArtifactWithProvenance_Primary(t *testing.T) {
-	full := &provenanceStub{}
+func TestDesignSessionAccess_CommitArtifactWithProvenance_DelegatesToBase(t *testing.T) {
+	full := &stubProjectState{}
 	s := NewDesignSessionAccess(full)
 	v, err := s.CommitArtifactWithProvenance(fwra.Context{Context: context.Background()}, "proj-1", 1, KindMission, "approver", "drafter")
 	if err != nil {
@@ -1386,36 +1342,6 @@ func TestDesignSessionAccess_CommitArtifactWithProvenance_Primary(t *testing.T) 
 	assertCalls(t, full.calls, "CommitArtifactWithProvenance")
 	if v != 40 {
 		t.Fatalf("Version = %d, want 40", v)
-	}
-}
-
-// ---- RejectArtifactOnBranchWithComments ---------------------------------------
-
-func TestDesignSessionAccess_RejectArtifactOnBranchWithComments_DelegatesToBase(t *testing.T) {
-	base := &stubProjectState{}
-	s := NewDesignSessionAccess(base)
-	v, err := s.RejectArtifactOnBranchWithComments(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, "notes", 0, nil, nil, "idem-1")
-	if err != nil {
-		t.Fatalf("RejectArtifactOnBranchWithComments: %v", err)
-	}
-	assertCalls(t, base.calls, "RejectArtifactOnBranchWithComments")
-	if v != 30 {
-		t.Fatalf("Version = %d, want 30", v)
-	}
-}
-
-// ---- WithdrawArtifactOnBranch --------------------------------------------------
-
-func TestDesignSessionAccess_WithdrawArtifactOnBranch_DelegatesToBase(t *testing.T) {
-	base := &stubProjectState{}
-	s := NewDesignSessionAccess(base)
-	v, err := s.WithdrawArtifactOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, "notes", "idem-1")
-	if err != nil {
-		t.Fatalf("WithdrawArtifactOnBranch: %v", err)
-	}
-	assertCalls(t, base.calls, "WithdrawArtifactOnBranch")
-	if v != 22 {
-		t.Fatalf("Version = %d, want 22", v)
 	}
 }
 
@@ -1441,21 +1367,6 @@ func TestDesignSessionAccess_ReconcileBranchFromMain_DelegatesToBase(t *testing.
 	if !slices.Equal(base.reconcileKinds, want) {
 		t.Fatalf("the base was handed preserve set %v, want exactly %v — the facade must "+
 			"forward the whole set, never narrow it", base.reconcileKinds, want)
-	}
-}
-
-// ---- SetReviewCommentStatusOnBranch ---------------------------------------------
-
-func TestDesignSessionAccess_SetReviewCommentStatusOnBranch_DelegatesToBase(t *testing.T) {
-	base := &stubProjectState{}
-	s := NewDesignSessionAccess(base)
-	v, err := s.SetReviewCommentStatusOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, "c1", "waived", "idem-1")
-	if err != nil {
-		t.Fatalf("SetReviewCommentStatusOnBranch: %v", err)
-	}
-	assertCalls(t, base.calls, "SetReviewCommentStatusOnBranch")
-	if v != 31 {
-		t.Fatalf("Version = %d, want 31", v)
 	}
 }
 
@@ -2034,7 +1945,7 @@ func TestRecordActivityBranchOpened_BirthsRow(t *testing.T) {
 	if g.CICheck != CICheckPending {
 		t.Fatalf("CICheck = %v, want Pending on birth", g.CICheck)
 	}
-	if g.Merged || g.ArchApproved || g.IsRevert {
+	if g.IsRevert {
 		t.Fatalf("expected fresh row flags false: %+v", g)
 	}
 	if !g.UpdatedAt.Equal(now) {
@@ -2110,36 +2021,6 @@ func TestRecordActivityCIObserved_Transitions(t *testing.T) {
 	}
 }
 
-// TestRecordActivityArchApprovedAndMerged — the two terminal-ish facts flip their
-// flags and leave the rest intact.
-func TestRecordActivityArchApprovedAndMerged(t *testing.T) {
-	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
-	store, id, v, cred, ctx := newActivityStore(t, now)
-
-	v, err := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, v, "C-MST", "b", "ref", "pr-1", "", false, cred, "wf:branch")
-	if err != nil {
-		t.Fatalf("branch: %v", err)
-	}
-	v, err = store.RecordActivityArchApproved(fwra.Context{Context: ctx}, id, v, "C-MST", cred, "wf:approve")
-	if err != nil {
-		t.Fatalf("arch approve: %v", err)
-	}
-	if g := readActivity(ctx, t, store, id, cred, "C-MST"); !g.ArchApproved || g.Merged {
-		t.Fatalf("after approve: %+v, want ArchApproved=true Merged=false", g)
-	}
-	_, err = store.RecordActivityMerged(fwra.Context{Context: ctx}, id, v, "C-MST", cred, "wf:merge")
-	if err != nil {
-		t.Fatalf("merge: %v", err)
-	}
-	g := readActivity(ctx, t, store, id, cred, "C-MST")
-	if !g.Merged || !g.ArchApproved {
-		t.Fatalf("after merge: %+v, want both flags true", g)
-	}
-	if g.PullRequestRef != "pr-1" {
-		t.Fatalf("merge disturbed PR ref: %+v", g)
-	}
-}
-
 // TestRecordActivity_IdempotentReRecord — a retry re-passing the SAME idempotencyKey
 // (even with a now-stale expectedVersion) returns the prior Version via the dedup
 // ledger with NO second state commit (no double-apply).
@@ -2189,7 +2070,7 @@ func TestRecordActivity_ContractMisuseEmptyActivityID(t *testing.T) {
 // not exist is NotFound (modeRequireExisting; the project row exists by Phase 3).
 func TestRecordActivity_RequireExistingProject(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
-	_, err := store.RecordActivityMerged(fwra.Context{Context: ctx}, ProjectID(uuid.NewString()), 0, "C-MST", cred, "wf:k")
+	_, err := store.RecordActivityCIObserved(fwra.Context{Context: ctx}, ProjectID(uuid.NewString()), 0, "C-MST", CICheckSuccess, cred, "wf:k")
 	if k := kindOf(t, err); k != fwra.NotFound {
 		t.Fatalf("Record* on absent project kind = %v, want NotFound", k)
 	}
@@ -2305,47 +2186,6 @@ func keysOfGitActivity(m map[string]ActivityGitStatus) []string {
 // Review-ledger GitStore verb tests (review-ledger feature). They exercise the durable
 // comment ledger over the real local-git substrate, mirroring the branch-aware Reject tests.
 
-func TestGitStore_RejectWithComments_AppendsOpenLedger(t *testing.T) {
-	store, cred, ctx := newLocalGitStore(t)
-	id := ProjectID(uuid.NewString())
-	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
-	if err != nil {
-		t.Fatalf("StageArtifactForReview: %v", err)
-	}
-	comments := []ReviewComment{
-		{Anchor: "$.vision", AnchorText: "v", Text: "sharpen the vision", AuthorRole: "architect"},
-		{Anchor: "", Text: "a free-form note", AuthorRole: "architect"},
-	}
-	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "please revise", 1, comments, nil, cred, "wf:reject"); err != nil {
-		t.Fatalf("RejectArtifactOnBranchWithComments: %v", err)
-	}
-	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
-	if err != nil {
-		t.Fatalf("ReadProject: %v", err)
-	}
-	if proj.Mission.Status != ReviewRejected {
-		t.Fatalf("mission status = %v, want Rejected", proj.Mission.Status)
-	}
-	thread := proj.Mission.ReviewThread
-	if len(thread) != 2 {
-		t.Fatalf("thread len = %d, want 2", len(thread))
-	}
-	if thread[0].ID != "r1c1" || thread[1].ID != "r1c2" {
-		t.Fatalf("minted ids = %q,%q want r1c1,r1c2", thread[0].ID, thread[1].ID)
-	}
-	for i, c := range thread {
-		if c.Status != ReviewCommentOpen {
-			t.Errorf("comment %d status = %q, want open", i, c.Status)
-		}
-	}
-	if thread[0].AnchorText != "v" || thread[0].Text != "sharpen the vision" {
-		t.Errorf("comment 0 fields not persisted: %+v", thread[0])
-	}
-}
-
 // TestGitStore_SeedReviewComments_AppendsOpenNoStatusChange proves the F38 amendment seed:
 // it appends OPEN ledger entries WITHOUT flipping the slot status (unlike reject), so an
 // amendment session starts with the reopening feedback as tracked open comments while the
@@ -2381,96 +2221,6 @@ func TestGitStore_SeedReviewComments_AppendsOpenNoStatusChange(t *testing.T) {
 	}
 }
 
-func TestGitStore_RejectWithComments_IdempotentOnSameKey(t *testing.T) {
-	store, cred, ctx := newLocalGitStore(t)
-	id := ProjectID(uuid.NewString())
-	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
-	if err != nil {
-		t.Fatalf("StageArtifactForReview: %v", err)
-	}
-	comments := []ReviewComment{{Anchor: "$.a", Text: "one", AuthorRole: "architect"}}
-	// Same idempotency key twice (a Temporal activity retry): the second collapses to the
-	// committed version and MUST NOT duplicate the ledger entry (review-ledger §5).
-	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, nil, cred, "wf:reject")
-	if err != nil {
-		t.Fatalf("first reject: %v", err)
-	}
-	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, nil, cred, "wf:reject"); err != nil {
-		t.Fatalf("retry reject (same key): %v", err)
-	}
-	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
-	if err != nil {
-		t.Fatalf("ReadProject: %v", err)
-	}
-	if proj.Version != v3 {
-		t.Fatalf("retry bumped version to %d, want the committed %d (idempotent no-op)", proj.Version, v3)
-	}
-	if len(proj.Mission.ReviewThread) != 1 {
-		t.Fatalf("ledger duplicated on retry: len = %d, want 1", len(proj.Mission.ReviewThread))
-	}
-}
-
-func TestGitStore_SetReviewCommentStatus_ResolveAndReopen(t *testing.T) {
-	store, cred, ctx := newLocalGitStore(t)
-	id := ProjectID(uuid.NewString())
-	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
-	if err != nil {
-		t.Fatalf("StageArtifactForReview: %v", err)
-	}
-	comments := []ReviewComment{{Anchor: "$.a", Text: "one", AuthorRole: "architect"}}
-	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, nil, cred, "wf:reject")
-	if err != nil {
-		t.Fatalf("reject: %v", err)
-	}
-	// resolve the open comment.
-	v4, err := store.SetReviewCommentStatusOnBranch(ctx, id, v3, "", KindMission, "r1c1", ReviewCommentResolved, cred, "wf:resolve")
-	if err != nil {
-		t.Fatalf("resolve: %v", err)
-	}
-	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
-	if err != nil {
-		t.Fatalf("ReadProject: %v", err)
-	}
-	if proj.Mission.ReviewThread[0].Status != ReviewCommentResolved {
-		t.Fatalf("status after resolve = %q, want resolved", proj.Mission.ReviewThread[0].Status)
-	}
-	// resolved->open is the legal reopen; it must set the sticky Reopened bit.
-	if _, err := store.SetReviewCommentStatusOnBranch(ctx, id, v4, "", KindMission, "r1c1", ReviewCommentOpen, cred, "wf:reopen"); err != nil {
-		t.Fatalf("reopen: %v", err)
-	}
-	proj, err = store.ReadProject(fwra.Context{Context: ctx}, id, cred)
-	if err != nil {
-		t.Fatalf("ReadProject: %v", err)
-	}
-	if proj.Mission.ReviewThread[0].Status != ReviewCommentOpen {
-		t.Fatalf("status after reopen = %q, want open", proj.Mission.ReviewThread[0].Status)
-	}
-	if !proj.Mission.ReviewThread[0].Reopened {
-		t.Fatal("reopen must set the sticky Reopened bit")
-	}
-}
-
-func TestGitStore_SetReviewCommentStatus_UnknownIDNotFound(t *testing.T) {
-	store, cred, ctx := newLocalGitStore(t)
-	id := ProjectID(uuid.NewString())
-	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", &MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
-	if err != nil {
-		t.Fatalf("StageArtifactForReview: %v", err)
-	}
-	if _, err := store.SetReviewCommentStatusOnBranch(ctx, id, v2, "", KindMission, "nope", ReviewCommentResolved, cred, "wf:resolve"); kindOf(t, err) != fwra.NotFound {
-		t.Fatalf("unknown id kind = %v, want NotFound", kindOf(t, err))
-	}
-}
-
 // TestGitStore_ReviewThread_SurvivesRestage proves the ledger is DURABLE across a re-stage
 // (unlike the critique carrier, which a stage clears): the open comment persists, and the
 // normalize-on-stage keeps it open while its response is empty (review-ledger §3).
@@ -2484,9 +2234,9 @@ func TestGitStore_ReviewThread_SurvivesRestage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
-	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, []ReviewComment{{Anchor: "$.a", Text: "one"}}, nil, cred, "wf:reject")
+	v3, err := store.SeedReviewCommentsOnBranch(ctx, id, v2, "", KindMission, 1, []ReviewComment{{Anchor: "$.a", Text: "one"}}, nil, cred, "wf:seed")
 	if err != nil {
-		t.Fatalf("reject: %v", err)
+		t.Fatalf("seed: %v", err)
 	}
 	// Re-stage a fresh draft (the redraft) — the thread must persist (not be cleared).
 	if _, err := store.StageArtifactForReviewOnBranch(ctx, id, v3, "", &MissionStatement{Vision: "v2", Mission: "m2"}, cred, "wf:restage"); err != nil {
@@ -2517,7 +2267,7 @@ func TestGitStore_AcknowledgeStaleBasis(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stage %s: %v", tag, err)
 		}
-		v3, err := store.CommitArtifact(ctx, id, v2, kind, cred, fwra.IdempotencyKey("wf:commit:"+tag))
+		v3, err := store.CommitArtifactWithProvenance(ctx, id, v2, kind, "", "", cred, fwra.IdempotencyKey("wf:commit:"+tag))
 		if err != nil {
 			t.Fatalf("commit %s: %v", tag, err)
 		}
@@ -3110,7 +2860,7 @@ func TestGitStore_CommitArtifact_RevisionsAndStaleBasis(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stage %s: %v", tag, err)
 		}
-		v3, err := store.CommitArtifact(ctx, id, v2, kind, cred, fwra.IdempotencyKey("wf:commit:"+tag))
+		v3, err := store.CommitArtifactWithProvenance(ctx, id, v2, kind, "", "", cred, fwra.IdempotencyKey("wf:commit:"+tag))
 		if err != nil {
 			t.Fatalf("commit %s: %v", tag, err)
 		}
@@ -3173,7 +2923,7 @@ func TestGitStore_StageCommitRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
-	v3, err := store.CommitArtifact(ctx, id, v2, KindMission, cred, "wf:commit")
+	v3, err := store.CommitArtifactWithProvenance(ctx, id, v2, KindMission, "", "", cred, "wf:commit")
 	if err != nil {
 		t.Fatalf("CommitArtifact: %v", err)
 	}
@@ -3190,38 +2940,6 @@ func TestGitStore_StageCommitRoundTrip(t *testing.T) {
 	gotMission, ok := proj.Mission.Model.(*MissionStatement)
 	if !ok || gotMission.Vision != "v" || gotMission.Mission != "m" {
 		t.Fatalf("mission model round-trip failed: %+v", proj.Mission.Model)
-	}
-}
-
-// TestGitStore_RejectArtifactOnBranchWithComments_EmptyBranchIsMain proves the surviving
-// branch-aware Reject verb (I-DESIGN-DISPATCH §2a) behaves EXACTLY as a main-path reject
-// when branch=="": it records the Rejected status + notes over the staged slot on main.
-// This is the documented empty-branch equivalence the non-git / dormant-rail callers rely
-// on (pin migrated from the retired RejectArtifactOnBranch — same assertion).
-func TestGitStore_RejectArtifactOnBranchWithComments_EmptyBranchIsMain(t *testing.T) {
-	store, cred, ctx := newLocalGitStore(t)
-	id := ProjectID(uuid.NewString())
-	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	mission := &MissionStatement{Vision: "v", Mission: "m"}
-	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", mission, cred, "wf:stage")
-	if err != nil {
-		t.Fatalf("StageArtifactForReview: %v", err)
-	}
-	const notes = "rework the vision"
-	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, notes, 0, nil, nil, cred, "wf:reject"); err != nil {
-		t.Fatalf("RejectArtifactOnBranchWithComments(branch=\"\"): %v", err)
-	}
-	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
-	if err != nil {
-		t.Fatalf("ReadProject: %v", err)
-	}
-	if proj.Mission.Status != ReviewRejected {
-		t.Fatalf("mission status = %v, want Rejected", proj.Mission.Status)
-	}
-	if proj.Mission.Notes != notes {
-		t.Fatalf("mission notes = %q, want %q", proj.Mission.Notes, notes)
 	}
 }
 
@@ -3315,7 +3033,7 @@ func seedCommittedOnMain(ctx context.Context, t *testing.T, store *GitStore, id 
 			fwra.IdempotencyKey(fmt.Sprintf("wf:%s-stage-%d", tag, i))); err != nil {
 			t.Fatalf("stage %v on main: %v", m.Kind(), err)
 		}
-		if v, err = store.CommitArtifact(ctx, id, v, m.Kind(), cred,
+		if v, err = store.CommitArtifactWithProvenance(ctx, id, v, m.Kind(), "", "", cred,
 			fwra.IdempotencyKey(fmt.Sprintf("wf:%s-commit-%d", tag, i))); err != nil {
 			t.Fatalf("commit %v on main: %v", m.Kind(), err)
 		}
@@ -3481,74 +3199,6 @@ func Test_ReconcileBranchFromMain_EmptySetAdoptsMainEntirely(t *testing.T) {
 	}
 }
 
-// TestGitStore_RejectArtifactOnBranchWithComments_UnpopulatedSlotIsMisuse proves rejecting
-// a slot that was never staged is a ContractMisuse — the RA-level guard whose main-path
-// triggering (in the PR rail, where the draft lives on the session branch and main's slot
-// is empty) was the QA F28 crash. The Manager avoids it by rejecting ON the session
-// branch (where the model IS staged); this test pins the guard the fix routes around
-// (migrated from the retired RejectArtifactOnBranch — same ContractMisuse assertion).
-func TestGitStore_RejectArtifactOnBranchWithComments_UnpopulatedSlotIsMisuse(t *testing.T) {
-	store, cred, ctx := newLocalGitStore(t)
-	id := ProjectID(uuid.NewString())
-	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	// No stage — the Mission slot is unpopulated on main.
-	_, err := store.RejectArtifactOnBranchWithComments(ctx, id, 1, "", KindMission, "notes", 0, nil, nil, cred, "wf:reject")
-	if k := kindOf(t, err); k != fwra.ContractMisuse {
-		t.Fatalf("reject of an unpopulated slot kind = %v, want ContractMisuse", k)
-	}
-}
-
-// TestGitStore_WithdrawArtifactOnBranch_EmptyBranchIsMain proves the new branch-aware
-// Withdraw verb (I-DESIGN-DISPATCH §2a) behaves EXACTLY as WithdrawArtifact when
-// branch=="": it records the Withdrawn status + notes over the staged slot on main. This
-// is the documented empty-branch equivalence the non-git / dormant-rail callers rely on.
-func TestGitStore_WithdrawArtifactOnBranch_EmptyBranchIsMain(t *testing.T) {
-	store, cred, ctx := newLocalGitStore(t)
-	id := ProjectID(uuid.NewString())
-	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	mission := &MissionStatement{Vision: "v", Mission: "m"}
-	v2, err := store.StageArtifactForReviewOnBranch(ctx, id, 1, "", mission, cred, "wf:stage")
-	if err != nil {
-		t.Fatalf("StageArtifactForReview: %v", err)
-	}
-	const notes = "abandon this draft"
-	if _, err := store.WithdrawArtifactOnBranch(ctx, id, v2, "", KindMission, notes, cred, "wf:withdraw"); err != nil {
-		t.Fatalf("WithdrawArtifactOnBranch(branch=\"\"): %v", err)
-	}
-	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
-	if err != nil {
-		t.Fatalf("ReadProject: %v", err)
-	}
-	if proj.Mission.Status != ReviewWithdrawn {
-		t.Fatalf("mission status = %v, want Withdrawn", proj.Mission.Status)
-	}
-	if proj.Mission.Notes != notes {
-		t.Fatalf("mission notes = %q, want %q", proj.Mission.Notes, notes)
-	}
-}
-
-// TestGitStore_WithdrawArtifactOnBranch_UnpopulatedSlotIsMisuse proves withdrawing a slot
-// that was never staged is a ContractMisuse — the RA-level guard whose main-path
-// triggering (in the PR rail, where the draft lives on the session branch and main's slot
-// is empty) was the QA F30 crash. The Manager avoids it by withdrawing ON the session
-// branch (where the model IS staged); this test pins the guard the fix routes around.
-func TestGitStore_WithdrawArtifactOnBranch_UnpopulatedSlotIsMisuse(t *testing.T) {
-	store, cred, ctx := newLocalGitStore(t)
-	id := ProjectID(uuid.NewString())
-	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	// No stage — the Mission slot is unpopulated on main.
-	_, err := store.WithdrawArtifactOnBranch(ctx, id, 1, "", KindMission, "notes", cred, "wf:withdraw")
-	if k := kindOf(t, err); k != fwra.ContractMisuse {
-		t.Fatalf("withdraw of an unpopulated slot kind = %v, want ContractMisuse", k)
-	}
-}
-
 // TestGitStore_VersionGuardConflict — a write at a stale expectedVersion (without
 // a matching dedup key) surfaces fwra.Conflict.
 func TestGitStore_VersionGuardConflict(t *testing.T) {
@@ -3626,7 +3276,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	// Writer A — reconcile tick: CommitArtifact(mission) at base.
 	go func() {
 		defer wg.Done()
-		v, e := store.CommitArtifact(ctx, id, base, KindMission, cred, "wf:reconcile-commit")
+		v, e := store.CommitArtifactWithProvenance(ctx, id, base, KindMission, "", "", cred, "wf:reconcile-commit")
 		results <- casRaceOutcome{"A-commit", v, e}
 	}()
 	// Writer B — operator pause: RecordOperatorPaused at the SAME base.
@@ -3655,7 +3305,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	var retried Version
 	switch loser.who {
 	case "A-commit":
-		retried, err = store.CommitArtifact(ctx, id, cur.Version, KindMission, cred, "wf:reconcile-commit")
+		retried, err = store.CommitArtifactWithProvenance(ctx, id, cur.Version, KindMission, "", "", cred, "wf:reconcile-commit")
 	case "B-pause":
 		retried, err = store.recordOperatorPaused(fwra.Context{Context: ctx}, id, cur.Version, "operator pause", cred, "wf:operator-pause")
 	}
@@ -3704,7 +3354,7 @@ func assertWinnerKeyDedupsNoDoubleApply(ctx context.Context, t *testing.T, store
 	var dedupV Version
 	switch winner.who {
 	case "A-commit":
-		dedupV, err = store.CommitArtifact(ctx, id, 0 /* deliberately stale */, KindMission, cred, winnerKey)
+		dedupV, err = store.CommitArtifactWithProvenance(ctx, id, 0 /* deliberately stale */, KindMission, "", "", cred, winnerKey)
 	case "B-pause":
 		dedupV, err = store.recordOperatorPaused(fwra.Context{Context: ctx}, id, 0 /* stale */, "operator pause", cred, winnerKey)
 	}
@@ -3778,7 +3428,7 @@ func TestGitStore_ExternalActionDraftIsReadBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StageArtifactForReview (human-gate over read-back draft): %v", err)
 	}
-	if _, err := store.CommitArtifact(ctx, id, v8, KindMission, cred, "wf:human-gate-commit"); err != nil {
+	if _, err := store.CommitArtifactWithProvenance(ctx, id, v8, KindMission, "", "", cred, "wf:human-gate-commit"); err != nil {
 		t.Fatalf("CommitArtifact (human-gate approve): %v", err)
 	}
 	after, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
@@ -4062,95 +3712,6 @@ func constructionKeys(p Project) []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-// TestRecordActivityStarted_BirthsRow — RecordActivityStarted births the row with
-// Phase=Running and a non-nil StartedAt; CompletedAt must be nil.
-func TestRecordActivityStarted_BirthsRow(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:started"))
-	if err != nil {
-		t.Fatalf("RecordActivityStarted: %v", err)
-	}
-	if v2 != v+1 {
-		t.Fatalf("version = %d, want %d", v2, v+1)
-	}
-	s := readConstruction(t, store, id, cred, "X001")
-	if s.ActivityID != "X001" {
-		t.Fatalf("ActivityID = %q, want X001", s.ActivityID)
-	}
-	if coarsePhaseOf(s) != ActivityConstructionRunning {
-		t.Fatalf("Phase = %v, want Running", coarsePhaseOf(s))
-	}
-	if s.StartedAt == nil {
-		t.Fatal("StartedAt must be set after RecordActivityStarted")
-	}
-	if s.CompletedAt != nil {
-		t.Fatalf("CompletedAt must be nil after started, got %v", s.CompletedAt)
-	}
-}
-
-// TestRecordActivityCompleted_AdvancesToDone — after a Started, RecordActivityCompleted
-// flips Phase to Done and sets CompletedAt.
-func TestRecordActivityCompleted_AdvancesToDone(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:started-done"))
-	if err != nil {
-		t.Fatalf("RecordActivityStarted: %v", err)
-	}
-	v3, err := store.RecordActivityCompleted(fwra.Context{Context: ctx}, id, v2, "X001", cred, fwra.IdempotencyKey("wf:completed"))
-	if err != nil {
-		t.Fatalf("RecordActivityCompleted: %v", err)
-	}
-	if v3 != v2+1 {
-		t.Fatalf("version = %d, want %d", v3, v2+1)
-	}
-	s := readConstruction(t, store, id, cred, "X001")
-	if coarsePhaseOf(s) != ActivityConstructionDone {
-		t.Fatalf("Phase = %v, want Done", coarsePhaseOf(s))
-	}
-	if s.CompletedAt == nil {
-		t.Fatal("CompletedAt must be set after RecordActivityCompleted")
-	}
-	if s.StartedAt == nil {
-		t.Fatal("StartedAt must still be set after CompletedAt")
-	}
-}
-
-// TestRecordActivityStarted_Idempotent — retrying the same key with a stale version
-// returns the prior Version via the dedup ledger, no double-apply.
-func TestRecordActivityStarted_Idempotent(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:started-idem"))
-	if err != nil {
-		t.Fatalf("RecordActivityStarted: %v", err)
-	}
-	before, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
-	if err != nil {
-		t.Fatalf("ReadProject: %v", err)
-	}
-
-	// Retry with the SAME key but stale expectedVersion=0; dedup must win.
-	v2again, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, 0, "X001", ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:started-idem"))
-	if err != nil {
-		t.Fatalf("idempotent retry should succeed via ledger, got: %v", err)
-	}
-	if v2again != v2 {
-		t.Fatalf("idempotent retry version = %d, want original %d", v2again, v2)
-	}
-	after, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
-	if err != nil {
-		t.Fatalf("ReadProject: %v", err)
-	}
-	if after.Version != before.Version {
-		t.Fatalf("retry produced a NEW state commit %d → %d (DOUBLE APPLY)", before.Version, after.Version)
-	}
 }
 
 // TestActivityConstruction_RoundTrip — EncodeProjectJSON → DecodeProjectJSON
@@ -6482,9 +6043,9 @@ func TestInternalCatalog_RepresentativeRAAndEngine(t *testing.T) {
 	assertParseable(t, pr.OutputSchema)
 
 	// ResourceAccess with a payload result → schema carries the reachable $defs.
-	rt, ok := InternalToolByName("artifactRetrieveOutputTree")
+	rt, ok := InternalToolByName("artifactRetrieveConstructionOutput")
 	if !ok {
-		t.Fatal("expected a generated tool for artifactAccess.RetrieveOutputTree")
+		t.Fatal("expected a generated tool for artifactAccess.RetrieveConstructionOutput")
 	}
 	if !assertParseableHasDefs(t, rt.OutputSchema) {
 		t.Fatal("a payload result schema must inline its reachable $defs to be self-contained")
@@ -6492,16 +6053,16 @@ func TestInternalCatalog_RepresentativeRAAndEngine(t *testing.T) {
 }
 
 // TestInternalCatalog_AgentHiddenRawOpsAbsentFromExposable proves the merge-
-// authority raw ops (e.g. CommitArtifact) are GENERATED (present in the full
-// catalog, flagged AgentHidden) but ABSENT from the agent-exposable set — the
+// authority raw ops (e.g. CommitArtifactWithProvenance) are GENERATED (present in the
+// full catalog, flagged AgentHidden) but ABSENT from the agent-exposable set — the
 // composed verbs / server rail replace them.
 func TestInternalCatalog_AgentHiddenRawOpsAbsentFromExposable(t *testing.T) {
-	commit, ok := InternalToolByName("projectStateCommitArtifact")
+	commit, ok := InternalToolByName("designSessionCommitArtifactWithProvenance")
 	if !ok {
-		t.Fatal("CommitArtifact must still be GENERATED into the full catalog")
+		t.Fatal("CommitArtifactWithProvenance must still be GENERATED into the full catalog")
 	}
 	if !commit.AgentHidden {
-		t.Fatal("raw CommitArtifact must be AgentHidden — merge authority stays with the server rail")
+		t.Fatal("raw CommitArtifactWithProvenance must be AgentHidden — merge authority stays with the server rail")
 	}
 	for _, tl := range AgentExposableTools() {
 		if tl.Component == "projectStateAccess" && !tl.ReadOnly {
@@ -6567,9 +6128,6 @@ func TestActivityConstructionStatus_SeededFacets_RoundTrip(t *testing.T) {
 	in := ActivityExecution{
 		ActivityID: "C-CW",
 		Type:       ActivityTypeFrontend,
-		Produced: []ProducedArtifact{
-			{Kind: "service-contract", Title: "webClient — service contract", Source: "implementation/contracts/webClient.md", Produced: true, Note: "frozen App-B contract"},
-		},
 	}
 	b, err := json.Marshal(in)
 	if err != nil {
@@ -6579,7 +6137,7 @@ func TestActivityConstructionStatus_SeededFacets_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if out.Type != ActivityTypeFrontend || len(out.Produced) != 1 || out.Produced[0].Source != "implementation/contracts/webClient.md" {
+	if out.Type != ActivityTypeFrontend {
 		t.Fatalf("round-trip lost facets: %+v", out)
 	}
 }
@@ -6862,8 +6420,10 @@ func TestPhaseCompletion_JSONRoundTrip(t *testing.T) {
 func TestLegacyActivityConstructionRow_CarriesAPreRenameEntryForward(t *testing.T) {
 	// A row written before stage 3's wire break: the five derived members and no head
 	// facts but the coarse roll-up. LegacyActivityConstructionRow is the one typed reader
-	// they still have, and it carries forward what the new shape can hold — the type, the
-	// produced artifacts, and, crucially, the TERMINALITY the roll-up asserted.
+	// they still have, and it carries forward what the new shape can hold — the type and,
+	// crucially, the TERMINALITY the roll-up asserted. (A legacy "produced" list still
+	// decodes — unknown members are ignored — but nothing carries it: the produced list
+	// was deleted in dct4.)
 	raw := `{"activityID":"C-CW","phase":2,"kind":1,"type":1,"buildStatus":2,"phases":[{"phase":"requirements","weight":40,"completed":true}],"currentPhase":"integration","produced":[{"Kind":"service-contract","Title":"webClient","Source":"implementation/contracts/webClient.md","Produced":true}]}`
 	var legacy LegacyActivityConstructionRow
 	if err := json.Unmarshal([]byte(raw), &legacy); err != nil {
@@ -6879,9 +6439,6 @@ func TestLegacyActivityConstructionRow_CarriesAPreRenameEntryForward(t *testing.
 	}
 	if got.Type != ActivityTypeFrontend {
 		t.Errorf("Type = %v, want Frontend", got.Type)
-	}
-	if len(got.Produced) != 1 {
-		t.Errorf("Produced must carry forward, got %+v", got.Produced)
 	}
 	// A stored Done with no completion stamp of its own still reads as exited, or the
 	// pump would re-dispatch every finished activity the instant this decoder ran.
@@ -7264,39 +6821,6 @@ func TestDeriveBuildStatus(t *testing.T) {
 	}
 	if s, _ := DeriveBuildStatus(CorpusPresence{}); s != BuildInConstruction {
 		t.Errorf("no corpus should default in-construction")
-	}
-}
-
-func TestDeriveProduced(t *testing.T) {
-	got := DeriveProduced(CorpusPresence{HasLog: true, HasContract: true, ContractFile: "implementation/contracts/webClient.md"}, "webClient", ActivityTypeService)
-	if len(got) != 2 {
-		t.Fatalf("want 2 artifacts (contract+code) got %d", len(got))
-	}
-	if got[0].Kind != "service-contract" || got[0].Source != "implementation/contracts/webClient.md" || !got[0].Produced {
-		t.Errorf("contract artifact wrong: %+v", got[0])
-	}
-	if got[1].Kind != "code" || !got[1].Produced {
-		t.Errorf("code artifact wrong: %+v", got[1])
-	}
-}
-
-func TestDeriveProduced_Frontend(t *testing.T) {
-	got := DeriveProduced(CorpusPresence{HasLog: true}, "SystemDesignScreen", ActivityTypeFrontend)
-	if len(got) != 2 {
-		t.Fatalf("want 2 artifacts (ui-design+ui-code) got %d: %+v", len(got), got)
-	}
-	if got[0].Kind != "ui-design" || !got[0].Produced {
-		t.Errorf("ui-design artifact wrong: %+v", got[0])
-	}
-	if got[1].Kind != "ui-code" || !got[1].Produced {
-		t.Errorf("ui-code artifact wrong: %+v", got[1])
-	}
-}
-
-func TestDeriveProduced_Deployment(t *testing.T) {
-	got := DeriveProduced(CorpusPresence{HasLog: true}, "R-DEP", ActivityTypeDeployment)
-	if len(got) != 1 || got[0].Kind != "deployment" || !got[0].Produced {
-		t.Fatalf("want 1 deployment artifact got %+v", got)
 	}
 }
 
@@ -8390,16 +7914,8 @@ var legacyUpperCamelPersistedTags = map[string]bool{
 	"ActivityGitStatus.CRLabel:CRLabel":               true,
 	"ActivityGitStatus.PullRequestRef:PullRequestRef": true,
 	"ActivityGitStatus.CICheck:CICheck":               true,
-	"ActivityGitStatus.Merged:Merged":                 true,
-	"ActivityGitStatus.ArchApproved:ArchApproved":     true,
 	"ActivityGitStatus.IsRevert:IsRevert":             true,
 	"ActivityGitStatus.UpdatedAt:UpdatedAt":           true,
-	// ProducedArtifact (activityConstruction produced[]) — generated.
-	"ProducedArtifact.Kind:Kind":         true,
-	"ProducedArtifact.Title:Title":       true,
-	"ProducedArtifact.Source:Source":     true,
-	"ProducedArtifact.Produced:Produced": true,
-	"ProducedArtifact.Note:Note":         true,
 	// ConstructionProgress (projectDoc.constructionProgress) — generated.
 	"ConstructionProgress.Week:Week":                     true,
 	"ConstructionProgress.TotalWeeks:TotalWeeks":         true,
@@ -9137,12 +8653,13 @@ func TestPumpWroteRow_IsTheStartStamp(t *testing.T) {
 		})
 	}
 
-	store, id, v, cred := newConstructionStore(t)
-	if _, err := store.RecordActivityStarted(fwra.Context{Context: context.Background()}, id, v, "X001", ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:pump-wrote")); err != nil {
-		t.Fatalf("RecordActivityStarted: %v", err)
+	a, store, id, v, cred := newExecutionStore(t)
+	if _, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "X001", ActivityTypeService, 0,
+		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("wf:pump-wrote")); err != nil {
+		t.Fatalf("OpenActivity: %v", err)
 	}
 	if s := readConstruction(t, store, id, cred, "X001"); !PumpWroteRow(s) {
-		t.Errorf("the row RecordActivityStarted writes (%+v) must satisfy PumpWroteRow", s)
+		t.Errorf("the row OpenActivity writes (%+v) must satisfy PumpWroteRow", s)
 	}
 }
 
@@ -11135,51 +10652,6 @@ func TestStageTaskOutput_StagesTheModelAndNamesWhereItLanded(t *testing.T) {
 	}
 }
 
-// TestCommitActivityArtifacts_AppendsProducedOnce — the commit half of the family is
-// append-only and idempotent on what it names, like every other verb here.
-func TestCommitActivityArtifacts_AppendsProducedOnce(t *testing.T) {
-	a, store, id, v, cred := newExecutionStore(t)
-	v = openTestActivity(t, a, id, v, cred)
-
-	in := CommitArtifactsInput{TaskID: TaskConstruction, Commit: "abc123", ApprovedBy: "system-architect", DraftedBy: "junior-developer",
-		Artifacts: []ProducedArtifact{{Kind: "code", Title: "orders", Source: "server/internal/x", Produced: true}}}
-	var err error
-	if v, err = a.CommitActivityArtifacts(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("k21")); err != nil {
-		t.Fatalf("CommitActivityArtifacts: %v", err)
-	}
-	if _, err = a.CommitActivityArtifacts(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("k22")); err != nil {
-		t.Fatalf("CommitActivityArtifacts (re-issue): %v", err)
-	}
-	row := readConstruction(t, store, id, cred, "C-X")
-	if len(row.Produced) != 1 {
-		t.Fatalf("one artifact, appended once; got %d: %+v", len(row.Produced), row.Produced)
-	}
-	if row.Produced[0].Note == "" {
-		t.Fatal("the commit's provenance must be recorded on what it committed")
-	}
-}
-
-// TestAcknowledgeStaleBasis_IsScopedToAnActivity — the activity-scoped form is not a
-// rename of the project-scoped one: it refuses an activity it has no row for, which is
-// exactly what "scoped to an activity" has to mean if it means anything. The slot
-// transition itself is the project-scoped verb's, reused verbatim and already covered by
-// its own tests, so what is asserted here is the scoping and the guards.
-func TestAcknowledgeStaleBasis_IsScopedToAnActivity(t *testing.T) {
-	a, _, id, v, cred := newExecutionStore(t)
-	v = openTestActivity(t, a, id, v, cred)
-
-	if _, err := a.AcknowledgeStaleBasis(execRC(), id, v, NoActivityVersionExpectation, "C-NOPE", KindMission, "unaffected", cred, fwra.IdempotencyKey("k25")); err == nil ||
-		kindOfErr(err) != fwra.NotFound {
-		t.Fatalf("an activity with no row must be NotFound; got %v", err)
-	}
-	// The slot guard still fires underneath: mission is not committed here, so the
-	// acknowledgement has nothing to clear and says so rather than writing.
-	if _, err := a.AcknowledgeStaleBasis(execRC(), id, v, NoActivityVersionExpectation, "C-X", KindMission, "unaffected", cred, fwra.IdempotencyKey("k26")); err == nil ||
-		kindOfErr(err) != fwra.ContractMisuse {
-		t.Fatalf("acknowledging a slot that is not committed must be ContractMisuse; got %v", err)
-	}
-}
-
 // TestActivityExecutionVerbs_RefuseEmptyIdentifiers — `required` in the contract schema
 // dialect is PRESENCE-only, so non-emptiness lives here, in the implementation
 // (2026-08-13 contract-strictness ruling). Every verb guards its own ids.
@@ -11240,20 +10712,12 @@ func TestActivityExecutionVerbs_RefuseEmptyIdentifiers(t *testing.T) {
 			_, err := a.DecideReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", "r", RoundPassed, "", cred, k)
 			return err
 		}},
-		{"CommitActivityArtifacts/taskID", func() error {
-			_, err := a.CommitActivityArtifacts(execRC(), id, v, NoActivityVersionExpectation, "C-X", CommitArtifactsInput{ApprovedBy: "a", DraftedBy: "d"}, cred, k)
-			return err
-		}},
 		{"RecordActivityOutcome/activityID", func() error {
 			_, err := a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "", ActivityOutcomeCompleted, FailureReasonUnknown, "", cred, k)
 			return err
 		}},
 		{"RecordOperatorNote/noteID", func() error {
 			_, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", OperatorNoteInput{Kind: NoteRetry, Text: "t"}, "", cred, k)
-			return err
-		}},
-		{"AcknowledgeStaleBasis/note", func() error {
-			_, err := a.AcknowledgeStaleBasis(execRC(), id, v, NoActivityVersionExpectation, "C-X", KindMission, "  ", cred, k)
 			return err
 		}},
 		{"ReadActivityExecution/activityID", func() error {
@@ -11648,8 +11112,10 @@ func TestActivityExecution_LegacyRowDecodesAndTheCodecLosesNothing(t *testing.T)
 	if err != nil {
 		t.Fatalf("CodecCarriesEveryMember: %v", err)
 	}
-	// The DERIVED members are the only permitted losses, and they are named, not a count.
-	want := []string{"C-X.buildStatus", "C-X.currentPhase", "C-X.kind", "C-X.phase", "C-X.phases"}
+	// The DERIVED members are the only permitted losses, and they are named, not a count —
+	// plus "produced", the produced-artifact list dct4 deleted with its only writer
+	// (CommitActivityArtifacts): a legacy row still carries it, and nothing reads it.
+	want := []string{"C-X.buildStatus", "C-X.currentPhase", "C-X.kind", "C-X.phase", "C-X.phases", "C-X.produced"}
 	if !slices.Equal(lost, want) {
 		t.Fatalf("codec losses:\n got %v\nwant %v", lost, want)
 	}
@@ -11768,51 +11234,29 @@ func TestWithActivityVersion_RefusesAStaleExpectationAndStampsTheCounter(t *test
 // DIFFERENT activities never contend at all (the project-level CAS alone would have made
 // them).
 //
-// BOTH shapes of guarded verb are driven, because the facet has two and only one of them
-// would be caught by testing the other. A STAMPING verb runs inside withActivityVersion
-// and advances the row's counter; AcknowledgeStaleBasis calls the same check explicitly
-// and then writes the SLOT, so it honours the expectation while advancing nothing — and a
-// guard that is only checked and never stamped is exactly the guard a refactor deletes
-// without a single test noticing.
+// The facet's one shape of guarded verb is driven: a STAMPING verb runs inside
+// withActivityVersion and advances the row's counter. (The other shape — checked, never
+// stamped — went with the activity-scoped AcknowledgeStaleBasis, deleted in dct4.)
 func TestActivityExecutionRefusesAStaleActivityVersion(t *testing.T) {
 	cases := []struct {
 		name string
-		// seed prepares whatever the verb needs beyond an opened activity and returns the
-		// project version to write from.
-		seed func(t *testing.T, store *GitStore, id ProjectID, v Version, cred RepoCredential) Version
 		// apply runs the verb ONCE with the per-activity version its caller is holding.
 		apply func(a ActivityExecutionAccess, id ProjectID, v Version, held int64, cred RepoCredential, key string) (Version, error)
-		// stamps is whether an APPLIED transition advances the row's own counter.
-		stamps bool
 	}{
 		{
 			name: "RecordAttemptOutcome",
-			seed: func(_ *testing.T, _ *GitStore, _ ProjectID, v Version, _ RepoCredential) Version { return v },
 			apply: func(a ActivityExecutionAccess, id ProjectID, v Version, held int64, cred RepoCredential, key string) (Version, error) {
 				return a.RecordAttemptOutcome(execRC(), id, v, held, "C-X", TaskAttemptInput{
 					AttemptID: key, TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
 				}, cred, fwra.IdempotencyKey(key))
 			},
-			stamps: true,
-		},
-		{
-			// The slot the acknowledgement clears has to be committed AND stale for the
-			// transition to write anything, or "a fresh expectation applies" would be
-			// indistinguishable from the slot guard refusing underneath it.
-			name: "AcknowledgeStaleBasis",
-			seed: seedStaleGlossary,
-			apply: func(a ActivityExecutionAccess, id ProjectID, v Version, held int64, cred RepoCredential, key string) (Version, error) {
-				return a.AcknowledgeStaleBasis(execRC(), id, v, held, "C-X", KindGlossary, "no term changes", cred, fwra.IdempotencyKey(key))
-			},
-			stamps: false,
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			a, store, id, v, cred := newExecutionStore(t)
+			a, _, id, v, cred := newExecutionStore(t)
 			v = openTestActivity(t, a, id, v, cred)
-			v = c.seed(t, store, id, v, cred)
 			held := verbRowVersion(t, a, id, "C-X")
 
 			v, err := c.apply(a, id, v, held, cred, "k-fresh")
@@ -11820,21 +11264,13 @@ func TestActivityExecutionRefusesAStaleActivityVersion(t *testing.T) {
 				t.Fatalf("a fresh expectation must apply: %v", err)
 			}
 			after := verbRowVersion(t, a, id, "C-X")
-			switch {
-			case c.stamps && after != held+1:
+			if after != held+1 {
 				t.Fatalf("an applied transition advances the counter: version = %d, want %d", after, held+1)
-			case !c.stamps && after != held:
-				t.Fatalf("this verb writes the slot, not the row: version = %d, want %d", after, held)
 			}
 
-			// A STAMPING verb has left `held` one behind — the value a second child would
-			// still be holding. A non-stamping one has not moved the row at all, so the
-			// stale number has to be fabricated to say the same thing: "I read this
-			// somewhere this write is not going."
+			// The applied write has left `held` one behind — the value a second child would
+			// still be holding.
 			stale := held
-			if !c.stamps {
-				stale = held + 1
-			}
 			if _, err = c.apply(a, id, v, stale, cred, "k-stale"); err == nil {
 				t.Fatal("a stale per-activity version must be refused")
 			}
@@ -11849,32 +11285,6 @@ func TestActivityExecutionRefusesAStaleActivityVersion(t *testing.T) {
 			}
 		})
 	}
-}
-
-// seedStaleGlossary commits Mission then Glossary and AMENDS Mission, which is what makes
-// the committed Glossary stale — the only state in which an acknowledgement has anything
-// to clear. Returns the project version after the amend.
-func seedStaleGlossary(t *testing.T, store *GitStore, id ProjectID, v Version, cred RepoCredential) Version {
-	t.Helper()
-	ctx := context.Background()
-	stageCommit := func(v Version, kind ArtifactKind, model ArtifactModel, tag string) Version {
-		staged, err := store.StageArtifactForReviewOnBranch(ctx, id, v, "", model, cred, fwra.IdempotencyKey("wf:stage:"+tag))
-		if err != nil {
-			t.Fatalf("stage %s: %v", tag, err)
-		}
-		committed, err := store.CommitArtifact(ctx, id, staged, kind, cred, fwra.IdempotencyKey("wf:commit:"+tag))
-		if err != nil {
-			t.Fatalf("commit %s: %v", tag, err)
-		}
-		return committed
-	}
-	v = stageCommit(v, KindMission, &MissionStatement{Vision: "v1", Mission: "m1"}, "mission1")
-	v = stageCommit(v, KindGlossary, &Glossary{}, "glossary1")
-	v = stageCommit(v, KindMission, &MissionStatement{Vision: "v2", Mission: "m2"}, "mission2")
-	if !readProject(t, store, id, cred).Glossary.StaleBasis {
-		t.Fatal("precondition: the Glossary must be stale after the Mission amend")
-	}
-	return v
 }
 
 // TestActivityExecutionAcceptsTheUnreadPosture is the other half of the rule.
@@ -11905,12 +11315,10 @@ func TestActivityExecutionAcceptsTheUnreadPosture(t *testing.T) {
 }
 
 // TestEveryMutatingVerbOnARowStampsItsVersion pins ActivityExecution.Version's own claim:
-// EVERY transition on a row advances it. It loops BOTH rails — gitActivityStatusAccess's
-// verbs (which write through upsertActivityExecution) and activityExecutionAccess's (which
-// write through withActivityVersion) — because both write these rows, and a counter only
-// one rail stamped would stand still across a real write and tell a reader nothing
-// happened. (constructionTransitionAccess's verbs were the third writer until dct Plan 4
-// Task 3 deleted that facet.)
+// EVERY transition on a row advances it. activityExecutionAccess (withActivityVersion) is
+// the ONE writer of these rows now: constructionTransitionAccess's verbs were a second
+// until dct Plan 4 Task 3 deleted that facet, and gitActivityStatusAccess's started /
+// completed verbs (upsertActivityExecution) a third until Task 4 deleted them.
 //
 // A test that claims "every" and checks one verb is worse than no test: it reports the
 // property as held while nine writers quietly do not hold it. Each case runs against its
@@ -11924,15 +11332,7 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 		// apply runs ONE mutating verb against an already-opened row.
 		apply func(t *testing.T, a ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential)
 	}{
-		// ---- gitActivityStatusAccess's verbs (upsertActivityExecution) ----
-		{"RecordActivityStarted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(store.RecordActivityStarted(execRC(), id, v, activity, ActivityTypeService, 0, cred, "k-as")).must(t)
-		}},
-		{"RecordActivityCompleted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(store.RecordActivityCompleted(execRC(), id, v, activity, cred, "k-ac")).must(t)
-		}},
-
-		// ---- activityExecutionAccess's own (withActivityVersion) ----
+		// ---- activityExecutionAccess (withActivityVersion) ----
 		{"RecordAttemptOutcome", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			verbDone(a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, activity, TaskAttemptInput{
 				AttemptID: AttemptID(activity, TaskSRS, 1), TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
@@ -11970,12 +11370,6 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 				t.Fatalf("DecideReviewRound: version = %d, want %d", got, before+1)
 			}
 		}},
-		{"CommitActivityArtifacts", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(a.CommitActivityArtifacts(execRC(), id, v, NoActivityVersionExpectation, activity, CommitArtifactsInput{
-				TaskID: TaskCodeReview, ApprovedBy: "system-architect", DraftedBy: "junior-developer",
-				Artifacts: []ProducedArtifact{{Kind: "code", Title: "T", Source: "s"}},
-			}, cred, "k-commit")).must(t)
-		}},
 		{"RecordActivityOutcome", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			verbDone(a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, activity, ActivityOutcomeCompleted, FailureReasonUnknown, "", cred, "k-outcome")).must(t)
 		}},
@@ -11992,17 +11386,9 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 				t.Fatalf("the delivery stamp: version = %d, want %d", got, before+1)
 			}
 		}},
-		{"AcknowledgeStaleBasis", func(_ *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			// The activity-scoped slot transition: it guards on the row existing but writes
-			// the SLOT, so it stamps no row version. It is one of TWO such verbs on the
-			// facet — StageTaskOutput is the other, staging a task's output on the branch
-			// through stageArtifactForReviewOnBranch and returning a StagedRef rather than
-			// a Version, so it has no row transition to stamp and no place in this loop.
-			// Named here rather than omitted, so both exceptions are recorded decisions,
-			// and this one's error is deliberately unread — the slot it targets may not be
-			// committed.
-			_, _ = a.AcknowledgeStaleBasis(execRC(), id, v, NoActivityVersionExpectation, activity, KindSystem, "seen", cred, "k-ack")
-		}},
+		// (StageTaskOutput is the one mutating verb on the facet that is NOT here: it stages
+		// a task's output on the branch through stageArtifactForReviewOnBranch and returns a
+		// StagedRef rather than a Version, so it has no row transition to stamp.)
 	}
 
 	for _, c := range cases {
@@ -12015,12 +11401,6 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 			}
 			c.apply(t, a, store, id, v, cred)
 			after := readConstruction(t, store, id, cred, activity).Version
-			if c.name == "AcknowledgeStaleBasis" {
-				if after != opened.Version {
-					t.Fatalf("AcknowledgeStaleBasis writes the slot, not the row: version = %d, want %d", after, opened.Version)
-				}
-				return
-			}
 			if after <= opened.Version {
 				t.Fatalf("%s left the per-activity version at %d: every transition on the row advances it", c.name, after)
 			}

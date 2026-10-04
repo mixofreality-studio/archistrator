@@ -2496,8 +2496,6 @@ func (m *deliveryManager) gitRowsToContract(projectID ProjectID, rows map[string
 			PrNumber:       int64(prNumber),
 			PrURL:          prURL,
 			CICheck:        CICheckState(int(g.CICheck)),
-			ArchApproved:   g.ArchApproved,
-			Merged:         g.Merged,
 			CRLabel:        g.CRLabel,
 			IsRevert:       g.IsRevert,
 			UpdatedAt:      g.UpdatedAt,
@@ -2701,7 +2699,6 @@ func constructionRowsToContract(
 			StartedAt:     r.StartedAt,
 			CompletedAt:   r.CompletedAt,
 			BuildStatus:   buildStatus,
-			Produced:      producedToContract(r.Produced),
 			FailureReason: FailureReason(int(r.FailureReason)),
 			FailureDetail: r.FailureDetail,
 			Attempts:      attemptsToContract(r.Attempts),
@@ -3006,18 +3003,6 @@ func attemptsToContract(attempts []projectstate.TaskAttempt) []TaskAttempt {
 				Basis:       strPtrOrNil(a.Provenance.Basis),
 			},
 		})
-	}
-	return out
-}
-
-// producedToContract maps the produced-artifact cards.
-func producedToContract(produced []projectstate.ProducedArtifact) []ProducedArtifact {
-	if len(produced) == 0 {
-		return nil
-	}
-	out := make([]ProducedArtifact, 0, len(produced))
-	for _, p := range produced {
-		out = append(out, ProducedArtifact{Kind: p.Kind, Title: p.Title, Source: p.Source, Produced: p.Produced, Note: p.Note})
 	}
 	return out
 }
@@ -3655,10 +3640,9 @@ func railActivityOptions() workflow.ActivityOptions {
 // reviewledger.go holds the durable review-ledger seam for the systemDesign Manager
 // (review-ledger feature, founder-ratified 2026-07-05): the projectstate.ReviewComment
 // ↔ ReviewCommentView projection the sessionState Query surfaces, the open-comment gate
-// the approve precondition reads, and the SetReviewCommentStatus branch mutation. The
-// ledger STORAGE + transition rules live in projectstate (reviewthread.go); the branch
-// mutation itself is the GENERATED designSessionAccess.setReviewCommentStatusOnBranch /
-// seedReviewCommentsOnBranch invoker (B10) — this file is only the Manager-side wiring
+// the approve precondition reads. The ledger STORAGE + transition rules live in
+// projectstate (reviewthread.go); the seed mutation itself is the GENERATED
+// designSessionAccess.seedReviewCommentsOnBranch invoker (B10) — this file is only the Manager-side wiring
 // (the wire-view projections, the reject/seed comment shaping, and the workflow-side
 // apply/reload helpers).
 
@@ -4517,11 +4501,11 @@ func (w pdAnswerEpisodeWatch) answerRecord(obs agenticjob.PipelineObservation, t
 // (review-ledger feature, founder-ratified 2026-07-05) — the structural twin of the
 // systemDesign Manager's reviewledger.go. Ledger STORAGE + transition rules live in
 // projectstate (reviewthread.go); this is the Manager-side wiring: the ReviewComment ↔
-// ReviewCommentView projection and the open-comment gate. The SetReviewCommentStatus /
-// SeedReviewComments branch-mutation Activities MIGRATED (B9) onto the generated
-// designSessionAccess.setReviewCommentStatusOnBranch / seedReviewCommentsOnBranch
-// invokers (invokers.gen.go, reached via wf.Acts) — the ledger-extension fallback those
-// custom bodies ran now lives inside the RA (projectstate/designsession.go).
+// ReviewCommentView projection and the open-comment gate. The SeedReviewComments
+// branch-mutation Activity MIGRATED (B9) onto the generated
+// designSessionAccess.seedReviewCommentsOnBranch invoker (invokers.gen.go, reached via
+// wf.Acts); a construction task's comment status lives on its review round
+// (activityExecutionAccess.setReviewCommentStatus).
 
 // ---------------------------------------------------------------------------
 // Shared Temporal identity constants (projectDesignManager.md §6.1/§6.2/§6.5).
@@ -8909,7 +8893,6 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 	presets := map[string]workflow.ActivityOptions{
 		"agenticJobAccess.submitAgenticJob":        submitPipelineActivityOptions(),
 		"agenticJobAccess.observeAgenticJob":       observePipelineActivityOptions(),
-		"agenticJobAccess.cancelAgenticJob":        observePipelineActivityOptions(),
 		"sourceControlAccess.getInstallationToken": mintCredActivityOptions(),
 		"sourceControlAccess.openBranch":           railActivityOptions(),
 		"sourceControlAccess.openPullRequest":      railActivityOptions(),
@@ -8958,12 +8941,11 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		// so for a name only the design hooks answered, the DESIGN answer was the merged answer.
 		// These are the two such names the surviving child still reaches — the Phase-1 seal's
 		// advance and the design slot commit — measured by grepping the generated invoker call
-		// sites after the deletion. The design hooks' other keys
-		// (rejectArtifactOnBranchWithComments,
-		// withdrawArtifactOnBranch, setReviewCommentStatusOnBranch, seedReviewCommentsOnBranch,
+		// sites after the deletion. The design hooks' other keys (seedReviewCommentsOnBranch,
 		// activityExecutionAccess.setReviewCommentStatus) had their ONLY workflow-side callers in
 		// the retired co-author files, so an entry for them here would be a preset for a call
-		// that cannot happen.
+		// that cannot happen. (rejectArtifactOnBranchWithComments, withdrawArtifactOnBranch and
+		// setReviewCommentStatusOnBranch went further: their verbs were deleted in dct4.)
 		//
 		// reconcileBranchFromMain LEFT THAT LIST in the final fix wave: restoring the F80c
 		// diverged-branch reconcile onto the child's merge guard gave it a workflow caller again
@@ -8984,13 +8966,8 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		"designSessionAccess.reconcileBranchFromMain":        mutateActivityOptions(),
 		"gitActivityStatusAccess.recordActivityBranchOpened": recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityCIObserved":   recordActivityOptions(),
-		"gitActivityStatusAccess.recordActivityArchApproved": recordActivityOptions(),
-		"gitActivityStatusAccess.recordActivityMerged":       recordActivityOptions(),
-		"gitActivityStatusAccess.recordActivityStarted":      recordActivityOptions(),
-		// (gitActivityStatusAccess.recordActivityCompleted has no preset: its only workflow
-		// caller was the pre-ledger exit arm, which went with constructionTransitionAccess in
-		// dct Plan 4 Task 3. The ledger's RecordActivityOutcome stamps the CompletedAt the pump
-		// reads.)
+		// (The git-status started/completed/archApproved/merged verbs were deleted in dct4:
+		// the ledger's OpenActivity / RecordActivityOutcome / review round carry those facts.)
 		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
 		// business one (see appendEpisodeActivityOptions).
 		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),

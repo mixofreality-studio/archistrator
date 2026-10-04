@@ -14,8 +14,6 @@ import (
 type FakeBillingManager struct {
 	CloseBillingCycleFn         func(rc fwm.Context, customerID uuid.UUID, cycleID string) (billing.CloseCycleResult, error)
 	OnboardPaymentIntegrationFn func(rc fwm.Context, deployedAppID uuid.UUID) (billing.BillingRef, error)
-	RecordInboundRevenueFn      func(rc fwm.Context, event billing.GatewayRevenueEvent) error
-	RecordRevenueReversalFn     func(rc fwm.Context, event billing.GatewayReversalEvent) error
 	RegisterCustomerFn          func(rc fwm.Context, customerID uuid.UUID) (billing.BillingRef, error)
 	RunShortfallSweepFn         func(rc fwm.Context, tickID string) (billing.ShortfallSweepResult, error)
 }
@@ -32,20 +30,6 @@ func (f *FakeBillingManager) OnboardPaymentIntegration(rc fwm.Context, deployedA
 		panic("FakeBillingManager.OnboardPaymentIntegrationFn not set")
 	}
 	return f.OnboardPaymentIntegrationFn(rc, deployedAppID)
-}
-
-func (f *FakeBillingManager) RecordInboundRevenue(rc fwm.Context, event billing.GatewayRevenueEvent) error {
-	if f.RecordInboundRevenueFn == nil {
-		panic("FakeBillingManager.RecordInboundRevenueFn not set")
-	}
-	return f.RecordInboundRevenueFn(rc, event)
-}
-
-func (f *FakeBillingManager) RecordRevenueReversal(rc fwm.Context, event billing.GatewayReversalEvent) error {
-	if f.RecordRevenueReversalFn == nil {
-		panic("FakeBillingManager.RecordRevenueReversalFn not set")
-	}
-	return f.RecordRevenueReversalFn(rc, event)
 }
 
 func (f *FakeBillingManager) RegisterCustomer(rc fwm.Context, customerID uuid.UUID) (billing.BillingRef, error) {

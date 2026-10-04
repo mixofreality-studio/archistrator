@@ -83,12 +83,12 @@ func TestExecuteRawTool_UnavailableInSubstrate(t *testing.T) {
 // TestExecuteRawTool_AgentHiddenRefused proves a hidden op never executes even if it
 // somehow reaches the rail.
 func TestExecuteRawTool_AgentHiddenRefused(t *testing.T) {
-	tool, ok := projectstate.InternalToolByName("projectStateCommitArtifact")
+	tool, ok := projectstate.InternalToolByName("designSessionCommitArtifactWithProvenance")
 	if !ok {
-		t.Fatal("projectStateCommitArtifact not in catalog")
+		t.Fatal("designSessionCommitArtifactWithProvenance not in catalog")
 	}
 	if !tool.AgentHidden {
-		t.Fatal("fixture precondition: projectStateCommitArtifact must be agent-hidden")
+		t.Fatal("fixture precondition: designSessionCommitArtifactWithProvenance must be agent-hidden")
 	}
 	_, err := executeRawTool(context.Background(), nil, tool, nil)
 	if err == nil || !strings.Contains(err.Error(), "agent-hidden") {

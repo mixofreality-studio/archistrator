@@ -311,15 +311,6 @@ func (s *GitStore) ReconcileBranchFromMain(ctx context.Context, projectID Projec
 	})
 }
 
-// CommitArtifact flips a reviewed slot to Committed on main, without PM-P2-4
-// provenance (the provenance-carrying variant is CommitArtifactWithProvenance).
-func (s *GitStore) CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	// commitTransition (F38) flips to Committed AND bumps Revisions + clears this slot's
-	// StaleBasis + flags downstream committed slots stale — all in one atomic commit on main.
-	// nil prov: this plain path records no PM-P2-4 provenance.
-	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, nil))
-}
-
 // CommitArtifactWithProvenance is the provenance-recording Commit (PM-P2-4): the SAME atomic
 // commit-on-main as CommitArtifact, plus it stamps a Provenance record onto the committed
 // slot — committedAt server-resolved from the store clock (RA code, time.Now() is fine),
@@ -331,21 +322,6 @@ func (s *GitStore) CommitArtifactWithProvenance(ctx context.Context, projectID P
 		DraftedBy:   draftedBy,
 	}
 	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, prov))
-}
-
-// WithdrawArtifactOnBranch is the branch-aware Withdraw the design Managers use during the
-// AwaitingReview window (I-DESIGN-DISPATCH §2a) — the symmetric counterpart of
-// RejectArtifactOnBranch. The Withdrawn status flip + notes ride over the SESSION BRANCH
-// the draft was staged on, where the staged model exists and the session-branch version
-// matches (main trails and carries no staged model until an approved draft merges). An
-// EMPTY branch behaves EXACTLY as WithdrawArtifact (the default/main) — zero perturbation
-// to every existing caller.
-func (s *GitStore) WithdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.withdrawArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
-}
-
-func (s *GitStore) withdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutationOnBranch(ctx, "WithdrawArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, statusTransition("WithdrawArtifact", kind, ReviewWithdrawn, notes))
 }
 
 // ---------------------------------------------------------------------------
@@ -422,63 +398,6 @@ func acknowledgeStaleBasisTransition(kind ArtifactKind, note string) func(p *Pro
 // staleAckAuthorRole is the reviewer role stamped on a staleAck audit entry. At the design
 // review gate the reviewer who acknowledges staleness is the architect.
 const staleAckAuthorRole = "architect"
-
-// RejectArtifactOnBranchWithComments is the review-ledger extension of RejectArtifactOnBranch:
-// it records the architect's Reject AND appends the reviewer's comments to the slot's durable
-// ReviewThread in ONE atomic commit (review-ledger §2). Folding the status flip and the
-// ledger append into a single mutation makes the reject crash-safe (no partial state) and
-// idempotent under Temporal retry (the deterministic per-(round,index) ids dedup — see
-// appendReviewComments). Each comment supplies Anchor / AnchorText / Text / AuthorRole; the
-// id / round / open status are server-minted here. branch=="" behaves exactly as the main-path
-// reject (the dormant-rail fallback), still appending the comments.
-//
-// replies carries the other half of the SAME submitted batch: utterances answering threads
-// that already exist on this slot (design §3.7). The reviewer's "still vague" belongs INSIDE
-// the thread it was written against, not in a brand-new one, so the two halves land in the
-// one atomic commit — see ApplyReviewBatch, which owns both appends.
-func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
-		if err := statusTransition("RejectArtifact", kind, ReviewRejected, notes)(p); err != nil {
-			return err
-		}
-		slot, ok := slotPtr(p, kind)
-		if !ok {
-			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.RejectArtifact: unknown kind %s", kind))
-		}
-		updated, err := ApplyReviewBatch(slot.ReviewThread, round, comments, replies)
-		if err != nil {
-			return err
-		}
-		slot.ReviewThread = updated
-		return nil
-	})
-}
-
-// SetReviewCommentStatusOnBranch applies a HUMAN status transition (open->waived to dismiss,
-// addressed->open to reopen) to a single ledger entry on the session branch during the
-// AwaitingReview window (review-ledger §4). The transition legality + reopen-clears-response
-// rule live in applyReviewCommentStatus (reviewthread.go). branch=="" behaves exactly as the
-// main path. An unknown id surfaces NotFound; an illegal transition surfaces ContractMisuse.
-func (s *GitStore) SetReviewCommentStatusOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if !validReviewCommentStatus(status) {
-		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: unknown status %q", status))
-	}
-	return s.applyMutationOnBranch(ctx, "SetReviewCommentStatus", projectID, expectedVersion, branch, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		slot, ok := slotPtr(p, kind)
-		if !ok {
-			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: unknown kind %s", kind))
-		}
-		if slot.Status == ReviewNone || slot.Model == nil {
-			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: slot %s is unpopulated", kind))
-		}
-		updated, err := applyReviewCommentStatus(slot.ReviewThread, commentID, status)
-		if err != nil {
-			return err
-		}
-		slot.ReviewThread = updated
-		return nil
-	})
-}
 
 // SetOperatingModel records the project-level WHO-OPERATES choice (founder ruling
 // 2026-07-05). Like SetResearchInput it is a Method-INPUT head-state write, NOT a
@@ -1782,19 +1701,9 @@ func (a *projectStateGitAdapter) catalogCredential(ctx context.Context) (RepoCre
 	return a.minter.CatalogCredential(ctx)
 }
 
-func (a *projectStateGitAdapter) CommitArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.CommitArtifact(ctx, projectID, expectedVersion, kind, cred, rc.IdempotencyKey)
-}
-
-// Compile-time proof the git adapter also serves the commit-provenance capability
-// (PM-P2-4): the design Managers record committedAt/approvedBy/draftedBy atomically with
-// the commit.
-var _ provenanceCommitter = (*projectStateGitAdapter)(nil)
+// Compile-time proof the git adapter serves every verb the design-session facet forwards
+// to, commit provenance (PM-P2-4) included.
+var _ designSessionBase = (*projectStateGitAdapter)(nil)
 
 // CommitArtifactWithProvenance is the provenance-recording Commit (PM-P2-4): the cred is
 // minted just-in-time, exactly like the no-cred CommitArtifact, and the acting/rail identity
@@ -1881,32 +1790,6 @@ func (a *projectStateGitAdapter) StageArtifactForReviewOnBranch(rc fwra.Context,
 	return a.store.StageArtifactForReviewOnBranch(ctx, projectID, expectedVersion, branch, model, cred, idempotencyKey)
 }
 
-// WithdrawArtifactOnBranch is the branch-aware Withdraw (I-DESIGN-DISPATCH §2a): an empty
-// branch behaves exactly as WithdrawArtifact (main); a non-empty branch lands the Withdrawn
-// status flip + notes on the session branch the draft was staged on. The cred is minted
-// just-in-time.
-func (a *projectStateGitAdapter) WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.WithdrawArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
-}
-
-// RejectArtifactOnBranchWithComments is the review-ledger Reject: it lands the Rejected
-// status flip + notes AND appends the reviewer's comments to the slot's durable ReviewThread
-// in one atomic commit on the session branch (empty branch ⇒ main). The cred is minted
-// just-in-time.
-func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.RejectArtifactOnBranchWithComments(ctx, projectID, expectedVersion, branch, kind, notes, round, comments, replies, cred, idempotencyKey)
-}
-
 // SeedReviewCommentsOnBranch is the F38 amendment ledger-seed (append open comments, no
 // status change). The cred is minted just-in-time, exactly like the other ledger verbs.
 func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
@@ -1916,17 +1799,6 @@ func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(rc fwra.Context, pro
 		return 0, err
 	}
 	return a.store.SeedReviewCommentsOnBranch(ctx, projectID, expectedVersion, branch, kind, round, comments, replies, cred, idempotencyKey)
-}
-
-// SetReviewCommentStatusOnBranch applies a human status transition to one ledger entry on
-// the session branch (empty branch ⇒ main). The cred is minted just-in-time.
-func (a *projectStateGitAdapter) SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.SetReviewCommentStatusOnBranch(ctx, projectID, expectedVersion, branch, kind, commentID, status, cred, idempotencyKey)
 }
 
 // RecordOperatorPaused records the operator-paused head-state transition: OperatorPaused
@@ -2938,10 +2810,7 @@ func LocalRepoCredential() RepoCredential { return RepoCredential{Bytes: []byte(
 //
 // The branch/ledger/reconcile/stale-ack verbs are REQUIRED members of the generated
 // ProjectStateAccess contract (project.json), so every method below is a direct
-// forward — no capability assert, no fallback. CommitArtifactWithProvenance is the
-// one exception: it is not a session/branch verb (commit-time provenance stamping
-// is a git-substrate concern), so it keeps a narrow capability check against the
-// unexported provenanceCommitter interface below.
+// forward — no capability assert, no fallback, CommitArtifactWithProvenance included.
 type designSessionAccess struct {
 	base designSessionBase
 }
@@ -2957,27 +2826,17 @@ type designSessionBase interface {
 	ProjectStateAccess
 	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (Project, error)
 	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string) (Version, error)
 	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 var _ DesignSessionAccess = (*designSessionAccess)(nil)
 
-// provenanceCommitter is the ONE remaining optional capability designSessionAccess
-// checks for: CommitArtifactWithProvenance was never folded into the generated
-// ProjectStateAccess contract (see the C2 fold note on designSessionAccess above), so a
-// base that doesn't stamp provenance is a legitimate (if currently unexercised in
-// production) case, and the plain CommitArtifact fallback stays meaningful.
-type provenanceCommitter interface {
-	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string) (Version, error)
-}
-
-// NewDesignSessionAccess wraps base. Every folded verb forwards straight to base (the
-// generated ProjectStateAccess contract now requires all of them); CommitArtifactWithProvenance
-// alone still checks base's optional provenanceCommitter capability.
+// NewDesignSessionAccess wraps base. Every folded verb forwards straight to base,
+// CommitArtifactWithProvenance included: the provenance-less CommitArtifact fallback was
+// deleted in dct4 (every production base stamps provenance, so the fallback was
+// unreachable), which makes provenance stamping a REQUIRED member of designSessionBase.
 func NewDesignSessionAccess(base ProjectStateAccess) DesignSessionAccess {
 	// The design-session facet REQUIRES a base that also implements the on-branch verbs
 	// (see designSessionBase). Every production ProjectStateAccess is a *GitStore adapter
@@ -3042,29 +2901,9 @@ func (s *designSessionAccess) StageArtifactForReviewOnBranch(rc fwra.Context, pr
 }
 
 // CommitArtifactWithProvenance records commit provenance (committedAt/approvedBy/
-// draftedBy) atomically with the commit when base implements the optional
-// provenanceCommitter capability; otherwise falls back to the plain commit (absent
-// provenance is allowed). This is the ONE folded verb that stayed a genuine capability
-// check post-C2 (see the designSessionAccess doc comment above) — CommitArtifactWithProvenance
-// was never added to the generated ProjectStateAccess contract.
+// draftedBy) atomically with the commit. Absent provenance is allowed (empty strings).
 func (s *designSessionAccess) CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string) (Version, error) {
-	if pc, ok := s.base.(provenanceCommitter); ok {
-		return pc.CommitArtifactWithProvenance(rc, projectID, expectedVersion, kind, approvedBy, draftedBy)
-	}
-	return s.base.CommitArtifact(rc, projectID, expectedVersion, kind)
-}
-
-// RejectArtifactOnBranchWithComments forwards straight to base: it lands the Rejected
-// status flip + notes AND appends the reviewer's comments to the slot's durable
-// ReviewThread in one atomic commit.
-func (s *designSessionAccess) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.RejectArtifactOnBranchWithComments(rc, projectID, expectedVersion, branch, kind, notes, round, comments, replies, idempotencyKey)
-}
-
-// WithdrawArtifactOnBranch forwards straight to base (branch=="" withdraws on the
-// default/main).
-func (s *designSessionAccess) WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.WithdrawArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, idempotencyKey)
+	return s.base.CommitArtifactWithProvenance(rc, projectID, expectedVersion, kind, approvedBy, draftedBy)
 }
 
 // ReconcileBranchFromMain overlays main's every slot except the preserved ones onto the
@@ -3082,12 +2921,6 @@ func (s *designSessionAccess) WithdrawArtifactOnBranch(rc fwra.Context, projectI
 // case (Test_ReconcileBranchFromMain_EmptySetAdoptsMainEntirely pins it).
 func (s *designSessionAccess) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.base.ReconcileBranchFromMain(rc, projectID, expectedVersion, branch, kinds, idempotencyKey)
-}
-
-// SetReviewCommentStatusOnBranch applies a human review-ledger transition (waive/
-// reopen) on the session branch. Forwards straight to base.
-func (s *designSessionAccess) SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.SetReviewCommentStatusOnBranch(rc, projectID, expectedVersion, branch, kind, commentID, status, idempotencyKey)
 }
 
 // SeedReviewCommentsOnBranch appends the F38 amendment reopening feedback as OPEN
@@ -3657,33 +3490,6 @@ func (s *GitStore) RecordActivityCIObserved(rc fwra.Context, projectID ProjectID
 	})
 }
 
-// RecordActivityArchApproved marks the architect's PR approval on the
-// activity's git-status row.
-func (s *GitStore) RecordActivityArchApproved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityArchApproved: empty activityID")
-	}
-	return s.applyMutation(rc.Context, "RecordActivityArchApproved", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		s.upsertActivity(p, activityID, func(g *ActivityGitStatus) {
-			g.ArchApproved = true
-		})
-		return nil
-	})
-}
-
-// RecordActivityMerged marks the activity's PR as merged on its git-status row.
-func (s *GitStore) RecordActivityMerged(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityMerged: empty activityID")
-	}
-	return s.applyMutation(rc.Context, "RecordActivityMerged", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		s.upsertActivity(p, activityID, func(g *ActivityGitStatus) {
-			g.Merged = true
-		})
-		return nil
-	})
-}
-
 // gitactivityconstruction.go holds the per-activity construction status Record* verbs.
 // They mirror the gitactivity.go pattern exactly: modeRequireExisting, optimistic-version
 // CAS via applyMutation, idempotency dedup via the in-repo ledger, and partial map-key
@@ -3722,58 +3528,6 @@ func upsertActivityExecution(p *Project, activityID string, mutate func(s *Activ
 	mutate(&s)
 	s.Version++
 	p.ActivityExecution[activityID] = s
-}
-
-// RecordActivityStarted records that activityID's construction agent has been dispatched
-// (Phase → Running, StartedAt server-resolved). Uses modeRequireExisting (project row
-// exists by Phase 3, same as gitactivity.go verbs).
-//
-// typ/variant are the pair the DISPATCHER classified (ClassifyActivity) and is about to
-// walk. Stamping them here is load-bearing, not decorative: the row's type selects the
-// lifecycle profile every read-time derivation resolves against (ResolveConstructionRow),
-// so leaving Type at its zero value reads the 5-phase SERVICE profile for every live
-// activity — including correctly-dispatched testing ones — and earned value silently
-// diverges from the lifecycle the workflow actually walks.
-func (s *GitStore) RecordActivityStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, typ ActivityType, variant TestingVariant, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityStarted: empty activityID")
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordActivityStarted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			cs.Type = typ
-			cs.Variant = variant
-			// StartedAt is the whole of "this row is running": with the coarse roll-up
-			// derived, an open activity is one with a start stamp and no terminal, and
-			// PumpWroteRow asks exactly that question. Write-once for the same reason the
-			// exit stamp is — a re-dispatch must not re-date the run it resumes.
-			if cs.StartedAt == nil {
-				t := now
-				cs.StartedAt = &t
-			}
-		})
-		return nil
-	})
-}
-
-// RecordActivityCompleted records that activityID's construction agent has finished
-// (CompletedAt server-resolved, write-once). Uses modeRequireExisting.
-//
-// The build status it used to advance to Integrated is DERIVED now: a completed activity
-// is integrated iff every lifecycle phase's gate passed, which CoarseBuildStatusFor reads
-// off the ledger. That is what adds the activity to the SPA's done-set and unblocks its
-// dependents, and it can no longer claim integration over a lifecycle that did not finish.
-func (s *GitStore) RecordActivityCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityCompleted: empty activityID")
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordActivityCompleted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			stampExit(cs, now)
-		})
-		return nil
-	})
 }
 
 // gitactivitystatus.go holds the per-activity git-forward head-state types
@@ -7448,8 +7202,6 @@ type ActivityExecution struct {
 	// OperatorNote — no roster, no verdicts, no subject, no round number. omitempty keeps
 	// a row without rounds byte-identical to one written before rounds existed.
 	Reviews []ReviewRound `json:"reviews,omitempty"`
-	// Produced is the list of artifacts this activity produced (contracts/code).
-	Produced []ProducedArtifact `json:"produced,omitempty"`
 	// OperatorNotes is the APPEND-ONLY list of notes an operator recorded against this
 	// activity (RecordOperatorNote), in recorded order. NARROWED in stage 3: the new
 	// verbs no longer WRITE a NoteSendBack — a send-back is a ReviewRound now, and a note
@@ -7488,7 +7240,6 @@ type LegacyActivityConstructionRow struct {
 	CompletedAt   *time.Time          `json:"completedAt,omitempty"`
 	Kind          ActivityKind        `json:"kind,omitempty"`
 	BuildStatus   ActivityBuildStatus `json:"buildStatus,omitempty"`
-	Produced      []ProducedArtifact  `json:"produced,omitempty"`
 	FailureReason FailureReason       `json:"failureReason,omitempty"`
 	FailureDetail string              `json:"failureDetail,omitempty"`
 	OperatorNotes []OperatorNote      `json:"operatorNotes,omitempty"`
@@ -7549,7 +7300,6 @@ func (r LegacyActivityConstructionRow) toActivityExecution() ActivityExecution {
 		FailureDetail: r.FailureDetail,
 		Attempts:      r.Attempts,
 		Reviews:       r.Reviews,
-		Produced:      r.Produced,
 		OperatorNotes: r.OperatorNotes,
 		Version:       r.Version,
 	}
@@ -8347,10 +8097,11 @@ func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, Testin
 		"activity %s: workerClass %q with coding=%v matches no classification rule", id, workerClass, coding)
 }
 
-// ClassifyType is the VIEW-MODEL classification lens over ClassifyActivity. It adds the
-// one signal a read-time view has and a dispatch does not: hasServiceContract, a
-// backward-looking corpus observation that an activity DID build a component, which
-// wins over every rule below it.
+// ClassifyType is the VIEW-MODEL classification lens over ClassifyActivity. It adds one
+// signal a dispatch does not have: hasServiceContract, a backward-looking observation that
+// an activity DID build a component, which wins over every rule below it. Only the
+// backfill-attempts migration has such an observation (a legacy row's ContractRef); a
+// live execution row does not, so ResolveConstructionRow passes false.
 //
 // It is STRICT. It used to be lenient — an unclassifiable activity fell back to
 // Deployment so that the row would still render. That fallback silently mistyped 60 of
@@ -8376,23 +8127,6 @@ func ClassifyType(id, workerClass string, coding, hasServiceContract bool) (Acti
 		return ActivityTypeService, false
 	}
 	return typ, true
-}
-
-// rowHasServiceContract reports whether a construction row carries a frozen
-// "service-contract" Produced entry: backward-looking evidence that the activity built
-// a component, which ClassifyType lets win over every id/workerClass rule.
-//
-// DEFENSIVE, NOT A LIVE PATH. No production writer puts a "service-contract" Produced
-// entry on a row today: DeriveProduced, the one function that builds such entries, has
-// no non-test caller. The check stays so that the day a writer does record one, the row
-// reads as Service instead of being re-guessed from its id.
-func rowHasServiceContract(r ActivityExecution) bool {
-	for _, a := range r.Produced {
-		if a.Kind == "service-contract" {
-			return true
-		}
-	}
-	return false
 }
 
 // ResolveConstructionRow resolves everything a reader of ONE stored construction row
@@ -8422,7 +8156,10 @@ func ResolveConstructionRow(
 	if id == "" {
 		id = r.ActivityID
 	}
-	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
+	// hasServiceContract is false: an execution row carries no produced-artifact record
+	// (the list and its only writer, CommitActivityArtifacts, were deleted in dct4), so a
+	// row is typed by the committed plan's item alone.
+	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, false)
 	if !classified {
 		return typ, variant, nil, false
 	}
@@ -8811,95 +8548,6 @@ func DeriveBuildStatus(p CorpusPresence) (ActivityBuildStatus, bool) {
 	default:
 		return BuildInConstruction, false
 	}
-}
-
-// DeriveProduced builds the produced-artifact list from corpus evidence, KIND-SPECIFIC
-// by the activity type. A frozen contract is emitted for any component that produced
-// one (a Client exposes one too). The built work-product then differs by type — this is
-// the fix for the "generic code stub" that made frontend/deployment activities render a
-// thin, wrong Artifacts-tab experience:
-//
-//   - Frontend    → a ui-design CONCEPT artifact + a ui-code artifact whose Source
-//     carries the SPA preview ROUTE (a "/project/..." path). The
-//     Artifacts-tab frontend renderer frames that route as a live
-//     same-origin iframe. Source is backfilled with the real route per
-//     surface (seed leaves it empty; the renderer degrades gracefully).
-//   - Deployment  → a single deployment artifact (the applied provisioning change).
-//   - everything  → the generic built-component "code" artifact (unchanged).
-func DeriveProduced(p CorpusPresence, componentName string, typ ActivityType) []ProducedArtifact {
-	var out []ProducedArtifact
-	if p.HasContract {
-		out = append(out, ProducedArtifact{
-			Kind:     "service-contract",
-			Title:    componentName + " — service contract",
-			Source:   p.ContractFile,
-			Produced: true,
-			Note:     "Frozen App-B service contract.",
-		})
-	}
-	if !p.HasLog {
-		return out
-	}
-	switch typ {
-	case ActivityTypeFrontend:
-		out = append(out,
-			ProducedArtifact{
-				Kind:     "ui-design",
-				Title:    componentName + " — UI design concept",
-				Source:   "implementation/log",
-				Produced: true,
-				Note:     "UI-design concept: personas, screens, layout, and flows for this surface.",
-			},
-			ProducedArtifact{
-				Kind:     "ui-code",
-				Title:    componentName + " — built UI",
-				Source:   "", // backfilled with the SPA preview route, e.g. /project/archistrator/design/system
-				Produced: true,
-				Note:     "SPA surface built against the approved design; preview at the route in Source.",
-			},
-		)
-	case ActivityTypeUIDesign:
-		// A UI-design activity stops at the CONCEPT — the ui-code stub belongs to the
-		// Frontend activities that realize it, so emitting one here would advertise a
-		// built surface that this activity never produced.
-		out = append(out, ProducedArtifact{
-			Kind:     "ui-design",
-			Title:    componentName + " — UI design concept",
-			Source:   "implementation/log",
-			Produced: true,
-			Note:     "UI-design concept: personas, screens, layout, and flows for this surface.",
-		})
-	case ActivityTypeDeployment:
-		out = append(out, ProducedArtifact{
-			Kind:     "deployment",
-			Title:    componentName + " — deployment change",
-			Source:   "implementation/log",
-			Produced: true,
-			Note:     "Provisioning/deployment change applied and verified against the target environment.",
-		})
-	case ActivityTypeService, ActivityTypeTesting, ActivityTypeDocumentation, ActivityTypeIntegration:
-		out = append(out, ProducedArtifact{
-			Kind:     "code",
-			Title:    componentName + " — built component",
-			Source:   "implementation/log",
-			Produced: true,
-			Note:     "Construction output recorded in the implementation log.",
-		})
-	case ActivityTypeRequirements, ActivityTypeArchitecture, ActivityTypeProjectDesign:
-		// A design activity's product is a committed artifact SLOT, not a file the
-		// corpus can observe, so it contributes no ProducedArtifact from corpus
-		// evidence. Empty ON PURPOSE: exhaustive wants the arm, and inventing a
-		// produced artifact here would fabricate one.
-	default:
-		out = append(out, ProducedArtifact{
-			Kind:     "code",
-			Title:    componentName + " — built component",
-			Source:   "implementation/log",
-			Produced: true,
-			Note:     "Construction output recorded in the implementation log.",
-		})
-	}
-	return out
 }
 
 // CommandFor returns the .claude slash-command name for a (type, variant, phase) cell:
@@ -10441,59 +10089,6 @@ func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID P
 	})
 }
 
-// CommitActivityArtifacts records what the activity produced, once. Re-issuing the
-// same commit appends nothing: an artifact is identified by what it is and where it
-// came from, so the produced list converges under retry exactly as the ledgers do.
-//
-// The commit's provenance (which task, which commit, who drafted and who approved) is
-// written onto each artifact it committed, because an artifact whose provenance lives
-// somewhere else is an artifact whose provenance gets lost.
-func (a *activityExecutionAccess) CommitActivityArtifacts(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, artifacts CommitArtifactsInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	switch {
-	case artifacts.TaskID == "":
-		return 0, execMisuse("CommitActivityArtifacts", "empty taskId")
-	case artifacts.ApprovedBy == "":
-		return 0, execMisuse("CommitActivityArtifacts", "empty approvedBy")
-	case artifacts.DraftedBy == "":
-		return 0, execMisuse("CommitActivityArtifacts", "empty draftedBy")
-	}
-	return a.onActivity(rc, "CommitActivityArtifacts", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
-		for _, in := range artifacts.Artifacts {
-			if producedArtifactPresent(cs.Produced, in) {
-				continue
-			}
-			held := in
-			held.Produced = true
-			if held.Note == "" {
-				held.Note = commitProvenanceNote(artifacts)
-			}
-			cs.Produced = append(cs.Produced, held)
-		}
-		return nil
-	})
-}
-
-// commitProvenanceNote renders the sentence a later reader needs to trace an artifact
-// back to the commit and the pair of people behind it.
-func commitProvenanceNote(in CommitArtifactsInput) string {
-	at := in.Commit
-	if at == "" {
-		at = "(no commit ref)"
-	}
-	return fmt.Sprintf("committed at %s from task %s by %s, approved by %s", at, in.TaskID, in.DraftedBy, in.ApprovedBy)
-}
-
-// producedArtifactPresent identifies an artifact by what it is and where it came
-// from — never by the note, which the store writes.
-func producedArtifactPresent(held []ProducedArtifact, in ProducedArtifact) bool {
-	for _, h := range held {
-		if h.Kind == in.Kind && h.Title == in.Title && h.Source == in.Source {
-			return true
-		}
-	}
-	return false
-}
-
 // RecordActivityOutcome is the fold of the two retired terminals: the ordinary exit
 // and the failure. A non-zero reason IS the failure arm — the closed FailureReason
 // vocabulary is what lets the console explain why an activity is no longer pending
@@ -10733,31 +10328,6 @@ func reopenTerminalRow(cs *ActivityExecution, activityID string) error {
 	}
 	return fwra.New(fwra.Conflict, fmt.Sprintf(
 		"projectstate.RecordOperatorNote: activity %s has no coarse phase a requeue can reason about", activityID))
-}
-
-// AcknowledgeStaleBasis is the activity-scoped form: the same slot transition the
-// project-scoped verb runs, refused for an activity this store has no row for. That
-// refusal is the whole difference — without it this would be a rename, not a scoping.
-func (a *activityExecutionAccess) AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, kind ArtifactKind, note string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if strings.TrimSpace(note) == "" {
-		return 0, execMisuse("AcknowledgeStaleBasis", "blank note — an acknowledgement with no reason is not an audit entry")
-	}
-	if activityID == "" {
-		return 0, execMisuse("AcknowledgeStaleBasis", "empty activityID")
-	}
-	return a.store.applyMutation(rc.Context, "AcknowledgeStaleBasis", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		if _, ok := p.ActivityExecution[activityID]; !ok {
-			return fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.AcknowledgeStaleBasis: no activity row for %s — open the activity first", activityID))
-		}
-		// CHECKED, NOT STAMPED. The transition below writes the SLOT, so the row's counter
-		// does not advance and this verb is not a competitor for it; the expectation is
-		// still honoured, because a caller acknowledging a stale basis against a row that
-		// has moved under it is asserting about an activity it has not seen.
-		if err := guardActivityVersion("AcknowledgeStaleBasis", p, activityID, expectedActivityVersion); err != nil {
-			return err
-		}
-		return acknowledgeStaleBasisTransition(kind, note)(p)
-	})
 }
 
 // ReadActivityExecution is the NARROW read: one activity's WHOLE execution record —

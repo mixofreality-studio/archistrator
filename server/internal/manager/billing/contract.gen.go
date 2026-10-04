@@ -13,7 +13,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 	"go.temporal.io/sdk/client"
-	"time"
 )
 
 type BillingRef struct {
@@ -25,28 +24,6 @@ type CloseCycleResult struct {
 	CycleID    string           `json:"cycleId"`
 	Routed     RoutingDirective `json:"routed"`
 	Escalated  bool             `json:"escalated"`
-}
-
-type GatewayRevenueEvent struct {
-	GatewayEventID string    `json:"gatewayEventId"`
-	CustomerID     uuid.UUID `json:"customerId"`
-	CycleID        string    `json:"cycleId"`
-	Amount         Money     `json:"amount"`
-	OccurredAt     time.Time `json:"occurredAt"`
-}
-
-type GatewayReversalEvent struct {
-	GatewayEventID         string    `json:"gatewayEventId"`
-	CustomerID             uuid.UUID `json:"customerId"`
-	CycleID                string    `json:"cycleId"`
-	Amount                 Money     `json:"amount"`
-	ReversesGatewayEventID *string   `json:"reversesGatewayEventId,omitempty"`
-	OccurredAt             time.Time `json:"occurredAt"`
-}
-
-type Money struct {
-	MinorUnits int64  `json:"minorUnits"`
-	Currency   string `json:"currency"`
 }
 
 type RoutingDirective int
@@ -64,8 +41,6 @@ type ShortfallSweepResult struct {
 type BillingManager interface {
 	CloseBillingCycle(rc fwm.Context, customerID uuid.UUID, cycleID string) (CloseCycleResult, error)
 	OnboardPaymentIntegration(rc fwm.Context, deployedAppID uuid.UUID) (BillingRef, error)
-	RecordInboundRevenue(rc fwm.Context, event GatewayRevenueEvent) error
-	RecordRevenueReversal(rc fwm.Context, event GatewayReversalEvent) error
 	RegisterCustomer(rc fwm.Context, customerID uuid.UUID) (BillingRef, error)
 	RunShortfallSweep(rc fwm.Context, tickID string) (ShortfallSweepResult, error)
 }

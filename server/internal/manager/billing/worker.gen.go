@@ -46,5 +46,4 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.MessageBusRegisterSchedule, activity.RegisterOptions{Name: "messageBus.registerSchedule"})
 	w.RegisterActivityWithOptions(acts.UsageReadRange, activity.RegisterOptions{Name: "usageAccess.readRange"})
 	w.RegisterActivityWithOptions(acts.UsageRecordComputeUsage, activity.RegisterOptions{Name: "usageAccess.recordComputeUsage"})
-	w.RegisterActivityWithOptions(acts.UsageRecordFinalUsage, activity.RegisterOptions{Name: "usageAccess.recordFinalUsage"})
 }

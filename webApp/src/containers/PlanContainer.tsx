@@ -299,19 +299,13 @@ export function PlanContainer({
   const emptyCounts = useMemo(() => {
     const statuses =
       networkModel !== undefined
-        ? computeActivityStatuses(
-            networkModel,
-            (id) => gitFor(project, id),
-            undefined,
-            'not-started',
-            (id) => rows?.[id]
-          )
+        ? computeActivityStatuses(networkModel, undefined, 'not-started', (id) => rows?.[id])
         : new Map<string, never>();
     return emptyStateCounts(statuses, {
       inFlight: inFlightIds,
       waiting: waitingActivityIds(rows),
     });
-  }, [networkModel, project, rows, inFlightIds]);
+  }, [networkModel, rows, inFlightIds]);
 
   // The toolbar's module store, kept so "Clear filters" is a real reset rather
   // than a no-op. The plan mounts NO toolbar (ConstructionShell, which owned

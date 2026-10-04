@@ -27,7 +27,7 @@ import (
 //     EntryRef, ONE row, no public Duplicate error) — C-UA #1,
 //   - mixed and in-batch duplicates deduped per-row,
 //   - append-only enforced AT THE STORE (trigger rejects UPDATE/DELETE),
-//   - append-order replay across both write verbs (one unified log) — C-UA #3,
+//   - append-order replay across successive batches (one unified log) — C-UA #3,
 //   - the frozen UsageRangeQuery scopes (whole period vs one operated app),
 //   - the 2026-06-09 repurpose delta (construction-token fact, NULL operated
 //     app) round-tripping,
@@ -100,10 +100,11 @@ func tokenEvent(customer usage.CustomerID, cycle usage.CycleID, runtimeEventID s
 	return event(customer, uuid.Nil, cycle, runtimeEventID, "construction-token", amount)
 }
 
-// TestRecordThenReadRange_AppendOrder: facts recorded by BOTH write verbs land
+// TestRecordThenReadRange_AppendOrder: facts recorded in successive batches land
 // in one unified log and replay in append order with seam-set Ref/RecordedAt.
-// Covers C-UA #3's "a recordFinalUsage batch appended later still appears in a
-// re-read range".
+// Covers C-UA #3's "a final usage batch appended later (the withdraw's capture,
+// through the same recordComputeUsage verb since dct4) still appears in a re-read
+// range".
 func TestRecordThenReadRange_AppendOrder(t *testing.T) {
 	store, _, ctx := newStore(t)
 	customer := uuid.New()
@@ -122,11 +123,11 @@ func TestRecordThenReadRange_AppendOrder(t *testing.T) {
 		t.Fatalf("expected 2 non-empty refs, got %v", refs1)
 	}
 
-	refs2, err := store.RecordFinalUsage(rc(ctx), []usage.UsageEvent{
+	refs2, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{
 		event(customer, app, cycle, "ev-final-1", "egress-byte", 4096),
 	})
 	if err != nil {
-		t.Fatalf("RecordFinalUsage: %v", err)
+		t.Fatalf("RecordComputeUsage (final batch): %v", err)
 	}
 	if len(refs2) != 1 || refs2[0] == "" {
 		t.Fatalf("expected 1 non-empty ref, got %v", refs2)
@@ -195,15 +196,6 @@ func TestDuplicateReplay_SameRefNoSecondRow(t *testing.T) {
 	}
 	if refs2[0] != refs1[0] {
 		t.Fatalf("replay must return the prior ref: %s != %s", refs2[0], refs1[0])
-	}
-
-	// Replay via the other verb (one unified log, same UNIQUE constraint).
-	refs3, err := store.RecordFinalUsage(rc(ctx), []usage.UsageEvent{ev})
-	if err != nil {
-		t.Fatalf("cross-verb replay must be idempotent success, got: %v", err)
-	}
-	if refs3[0] != refs1[0] {
-		t.Fatalf("cross-verb replay must return the prior ref: %s != %s", refs3[0], refs1[0])
 	}
 
 	if n := rowCount(ctx, t, pool, "ev-dup"); n != 1 {
@@ -386,8 +378,6 @@ func TestContractMisuse(t *testing.T) {
 	}
 	for _, tc := range bad {
 		_, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{tc.ev})
-		assertKind(t, err, fwra.ContractMisuse)
-		_, err = store.RecordFinalUsage(rc(ctx), []usage.UsageEvent{tc.ev})
 		assertKind(t, err, fwra.ContractMisuse)
 	}
 

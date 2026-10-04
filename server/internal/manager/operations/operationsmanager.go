@@ -1303,7 +1303,6 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"operatedRuntimeAccess.readComputeAttribution":        runtimeReadOpts,
 		"artifactAccess.retrieveConstructionOutput":           artifactReadOpts,
 		"usageAccess.recordComputeUsage":                      usageOpts,
-		"usageAccess.recordFinalUsage":                        usageOpts,
 		"usageAccess.readRange":                               usageOpts,
 	}
 	return func(name string) (workflow.ActivityOptions, bool) {

@@ -274,18 +274,14 @@ func TestDecideOnSettlementFailure(t *testing.T) {
 func TestApplyPausePolicy(t *testing.T) {
 	e := NewInterventionEngine()
 
-	t.Run("launch cancels all in-flight, records, notifies operator", func(t *testing.T) {
+	t.Run("launch records, notifies operator", func(t *testing.T) {
 		plan, err := e.ApplyPausePolicy(fweng.Context{}, PauseRequestContext{
-			ProjectID:         "p1",
-			InFlightPipelines: []PipelineRef{"pipe-a", "pipe-b"},
-			Reason:            "operator requested",
-			Policy:            launchPolicy(),
+			ProjectID: "p1",
+			Reason:    "operator requested",
+			Policy:    launchPolicy(),
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(plan.PipelinesToCancel) != 2 {
-			t.Fatalf("pipelines to cancel = %v, want 2", plan.PipelinesToCancel)
 		}
 		if !plan.RecordPaused {
 			t.Fatalf("RecordPaused = false, want true")
@@ -295,7 +291,7 @@ func TestApplyPausePolicy(t *testing.T) {
 		}
 	})
 
-	t.Run("tiered no in-flight yields empty-but-valid no-op plan", func(t *testing.T) {
+	t.Run("tiered paid records and notifies the operator only", func(t *testing.T) {
 		plan, err := e.ApplyPausePolicy(fweng.Context{}, PauseRequestContext{
 			ProjectID: "p1",
 			Policy:    tieredPolicy(0, 0, SLATierPaid),
@@ -303,19 +299,18 @@ func TestApplyPausePolicy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(plan.PipelinesToCancel) != 0 {
-			t.Fatalf("pipelines to cancel = %v, want none", plan.PipelinesToCancel)
-		}
 		if !plan.RecordPaused {
-			t.Fatalf("RecordPaused = false, want true (a pause is still recorded)")
+			t.Fatalf("RecordPaused = false, want true (a pause is always recorded)")
+		}
+		if len(plan.NotifyTargets) != 1 || plan.NotifyTargets[0] != NotifyOperator {
+			t.Fatalf("notify targets = %v, want [operator]", plan.NotifyTargets)
 		}
 	})
 
 	t.Run("enterprise tier also notifies architect", func(t *testing.T) {
 		plan, err := e.ApplyPausePolicy(fweng.Context{}, PauseRequestContext{
-			ProjectID:         "p1",
-			InFlightPipelines: []PipelineRef{"pipe-a"},
-			Policy:            tieredPolicy(0, 0, SLATierEnterprise),
+			ProjectID: "p1",
+			Policy:    tieredPolicy(0, 0, SLATierEnterprise),
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -346,7 +341,7 @@ func TestDeterminism(t *testing.T) {
 	variance := ConstructionVariance{ProjectID: "p1", ActivityID: "a1", Kind: WorkerMiss, AttemptCount: 5, Severity: SeverityLow, Policy: tieredPolicy(3, 5, SLATierEnterprise)}
 	change := HealthChange{OperatedAppID: "app1", FromHealth: HealthHealthy, ToHealth: HealthDegraded, SLOStatus: SLOOutOfBudget, Policy: tieredPolicy(3, 5, SLATierPaid)}
 	failure := SettlementFailure{CustomerID: "c1", CycleID: "cyc1", Kind: ChargeDeclined, AttemptCount: 4, ShortfallAge: 3, Policy: tieredPolicy(3, 5, SLATierFree)}
-	pause := PauseRequestContext{ProjectID: "p1", InFlightPipelines: []PipelineRef{"pipe-a"}, Policy: tieredPolicy(3, 5, SLATierEnterprise)}
+	pause := PauseRequestContext{ProjectID: "p1", Policy: tieredPolicy(3, 5, SLATierEnterprise)}
 
 	v0, err := e.DecideOnVariance(fweng.Context{}, variance)
 	if err != nil {
@@ -412,13 +407,8 @@ func pausePlanEqual(a, b PausePlan) bool {
 	if a.RecordPaused != b.RecordPaused || a.ResumeHint != b.ResumeHint {
 		return false
 	}
-	if len(a.PipelinesToCancel) != len(b.PipelinesToCancel) || len(a.NotifyTargets) != len(b.NotifyTargets) {
+	if len(a.NotifyTargets) != len(b.NotifyTargets) {
 		return false
-	}
-	for i := range a.PipelinesToCancel {
-		if a.PipelinesToCancel[i] != b.PipelinesToCancel[i] {
-			return false
-		}
 	}
 	for i := range a.NotifyTargets {
 		if a.NotifyTargets[i] != b.NotifyTargets[i] {

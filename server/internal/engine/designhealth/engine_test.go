@@ -60,10 +60,10 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// DH-CONTRACT-OPCOUNT-MAX goes SILENT at stage 4a. It fires only ABOVE 12 ops, and the
 	// two contracts that carried it — systemDesignManager (16) and constructionManager (13)
 	// — dissolved into the 12-op deliveryManager. Measured on the committed state after the
-	// collapse, the largest surviving contract is 12 (activityExecutionAccess, and since dct
-	// Plan 4 Task 3 projectStateAccess, which took the three project-scoped records of the
-	// deleted constructionTransitionAccess — both exactly at the limit), so nothing is left
-	// to fire on. This is the FIRST time the repo has had no
+	// collapse, the largest surviving contract is at most 12 (projectStateAccess took the
+	// three project-scoped records of the deleted constructionTransitionAccess in dct Plan 4
+	// Task 3; Task 4's A5 deletions then took it and activityExecutionAccess below the
+	// limit), so nothing is left to fire on. This is the FIRST time the repo has had no
 	// Manager contract past App-C's ceiling.
 	assertAbsent(t, got, RuleContractOpMax)
 	// Objective-coverage advisory: ERA-DEPENDENT. While any objective is referenced
@@ -103,10 +103,11 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// facets are deleted. That is WRONG and re-checking it is why the pin stays.
 	// Deleting constructionTransitionAccess (dct Plan 4 Task 3) killed the
 	// RecordOperatorNote duplicate but NOT the AcknowledgeStaleBasis one —
-	// projectStateAccess publishes that verb too. The pin stays until one of those two
-	// verbs goes. (The rule itself stays proven by its
-	// negative fixture.)
-	assertPresent(t, got, RuleContractDeadOp, methodcheck.SeverityWarning)
+	// projectStateAccess publishes that verb too. The pin stayed until one of those two
+	// verbs went — and dct Plan 4 Task 4 deleted the activity-scoped twin (no Manager
+	// ever called it), so the committed state now carries NO cross-facet duplicate and
+	// the rule must stay silent. (The rule itself stays proven by its negative fixture.)
+	assertAbsent(t, got, RuleContractDeadOp)
 	// No dangling volatility trace, no unarchitected core use case.
 	assertAbsent(t, got, RuleVolTrace)
 	assertAbsent(t, got, RuleCovUCDynamic)

@@ -13,7 +13,7 @@ import { NO_SURFACES_LABEL, noSurfacesSentence } from './frontendSurfacesCopy.ts
 /**
  * FrontendArtifactView — the renderer for FRONTEND (U-SPA*) activities.
  *
- * Renders two kind-specific produced artifacts (see server DeriveProduced):
+ * Renders two kind-specific built-surface records:
  *   - `ui-design` — the UI-design CONCEPT, its `note` shown as structured prose
  *     (personas / screens / layout / flows). Multiple paragraphs supported.
  *   - `ui-code`   — the built UI. Its `source` carries the SPA ROUTE (a
@@ -163,8 +163,12 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
   );
 }
 
-export function FrontendArtifactView({ vm, t }: ArtifactRendererProps): ReactNode {
-  return <FrontendSurfaces componentId={undefined} produced={vm.row.produced ?? []} t={t} />;
+// NO SERVER RECORD CARRIES A SURFACE (dct4): the construction row's `produced` list had
+// no production writer and was deleted, so the pane shows the §5.5 empty state until a
+// surface record lands. The sections below stay — they are the review aid that record
+// will feed (earmarked in docs/bugs/2026-10-03-dct-coverage-baseline.md's successor).
+export function FrontendArtifactView({ t }: ArtifactRendererProps): ReactNode {
+  return <FrontendSurfaces componentId={undefined} produced={[]} t={t} />;
 }
 
 /**

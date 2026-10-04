@@ -14,8 +14,9 @@ package agenticjob
 // THE LOAD-BEARING LAYER RULE is unchanged from the frozen contract: this RA's
 // PUBLIC surface (agenticjob.go) carries ZERO GitHub-Actions lexemes
 // (workflow_dispatch, workflow_run, run id, ref, owner/repo) and imports NO
-// Temporal. The three atomic, infrastructure-opaque business verbs — submit /
-// observe / cancel one construction pipeline — are unchanged. ALL GitHub-Actions
+// Temporal. The two atomic, infrastructure-opaque business verbs — submit /
+// observe one construction pipeline — are unchanged (cancel was deleted in dct4: no
+// pause ever cancelled a running job). ALL GitHub-Actions
 // vocabulary is confined to (a) the ghActionsClient seam below + its concrete
 // realisation in actions_http_client.go, and (b) the github satellite
 // (framework-go-infrastructure-github/actions.go). A GitHub-Actions type never
@@ -25,7 +26,6 @@ package agenticjob
 //   - submit  → resolve-then-workflow_dispatch (with the idempotency-token input),
 //               then resolve the canonical run.
 //   - observe → list/get the run, map status+conclusion → PipelineObservation.
-//   - cancel  → cancel the canonical run (already-terminal/absent == success).
 //
 // THE IDEMPOTENCY CONVERGENCE (the hard design point — the GitHub-Actions analog of
 // Argo's "reject duplicate Workflow name"): GitHub's workflow_dispatch has NO
@@ -139,7 +139,7 @@ func (t ghTarget) isZero() bool {
 // Each verb takes a ghTarget: the per-call repo + workflow-file the call addresses.
 // A ZERO ghTarget means the seam's configured default (the construction repo +
 // aiarch-construct.yml). This is what lets the DESIGN caller retarget the dispatch /
-// observe / cancel at the per-project repo without changing the FROZEN public surface
+// observe at the per-project repo without changing the FROZEN public surface
 // (the override rides on the additive PipelineSpec.TargetRepo + the handle encoding).
 type ghActionsClient interface {
 	// listRunsByName returns every run whose display name == runName (the
@@ -396,27 +396,6 @@ func (a *access) ObserveAgenticJob(rc fwra.Context, handle PipelineHandle) (Pipe
 	return observationFrom(handle, run), nil
 }
 
-// CancelAgenticJob requests cancellation of the canonical run. Cancelling
-// an already-terminal / already-cancelled / unknown run is a no-op SUCCESS — the
-// desired post-condition ("no further steps will start") already holds, which makes
-// cancel safe to retry against the operator-pause race
-// (agenticJobAccess.md §2.3). The seam maps GitHub's 409/404 to success.
-func (a *access) CancelAgenticJob(rc fwra.Context, handle PipelineHandle) error {
-	ctx := rc.Context
-	runID, tgt, err := a.runIDFromHandle(handle)
-	if err != nil {
-		// A malformed handle is a caller pre-condition violation, not a cancel no-op.
-		return err
-	}
-	if err := a.client.cancelRun(ctx, tgt, runID); err != nil {
-		if isNotFound(err) {
-			return nil // already gone == cancelled (idempotent-on-intent success)
-		}
-		return err
-	}
-	return nil
-}
-
 // ---------------------------------------------------------------------------
 // Deterministic dedup token + handle
 // ---------------------------------------------------------------------------
@@ -607,9 +586,6 @@ func neutralDiagnostic(conclusion string) string {
 // ---------------------------------------------------------------------------
 // Error helpers
 // ---------------------------------------------------------------------------
-
-// isNotFound reports whether err is (or wraps) an *fwra.Error of kind fwra.NotFound.
-func isNotFound(err error) bool { return fwraKindIs(err, fwra.NotFound) }
 
 // isTransient reports whether err is (or wraps) an *fwra.Error of kind
 // fwra.Transient.
@@ -944,8 +920,8 @@ func RepoTargetIsZero(t RepoTarget) bool { return t.Owner == "" && t.Name == "" 
 // Actions (the 2026-06-09 pivot; the C-CP-R rework swapped the runtime from Argo
 // Workflows on Kubernetes to GitHub Actions), yet its PUBLIC surface carries ZERO
 // GitHub-Actions lexemes (workflow_dispatch, workflow_run, run id, ref, owner/repo)
-// and imports NO Temporal. Three atomic, infrastructure-opaque business verbs —
-// submit / observe / cancel one construction pipeline at a time. The GitHub-Actions
+// and imports NO Temporal. Two atomic, infrastructure-opaque business verbs —
+// submit / observe one construction pipeline at a time. The GitHub-Actions
 // vocabulary is confined to actions.go (the seam + status mapping + idempotency
 // convergence) and actions_http_client.go (the concrete seam over the github
 // satellite behind it), and to the github satellite itself.
@@ -1024,10 +1000,6 @@ func (dryRunPipeline) ObserveAgenticJob(_ fwra.Context, handle PipelineHandle) (
 	return PipelineObservation{Handle: handle, Phase: PhaseSucceeded}, nil
 }
 
-func (dryRunPipeline) CancelAgenticJob(_ fwra.Context, _ PipelineHandle) error {
-	return nil
-}
-
 // localexec.go is the LOCAL-EXECUTOR realisation of the AgenticJobAccess
 // port (local-first-init-funnel Task 6, docs/superpowers/plans/2026-07-19-local-
 // first-init-funnel.md) — the THIRD construction-dispatch arm alongside the
@@ -1097,7 +1069,7 @@ func (dryRunPipeline) CancelAgenticJob(_ fwra.Context, _ PipelineHandle) error {
 // repo). PhaseSucceeded requires a clean claude exit AND the activity branch ref
 // having ADVANCED (rev-parse before/after) AND the worktree removed — a clean exit
 // that committed nothing is a FAILURE, not a fake success. The worktree is removed
-// (`git worktree remove --force`) on completion and cancel paths alike, and the
+// (`git worktree remove --force`) on every completion path, and the
 // constructor runs `git worktree prune` once at startup to clear stale metadata a
 // crashed prior process left. This is a FOUNDER-ACCEPTED isolation tradeoff — speed
 // (no full clone per dispatch) over clone isolation: the agent's git subprocesses
@@ -1119,7 +1091,7 @@ func (dryRunPipeline) CancelAgenticJob(_ fwra.Context, _ PipelineHandle) error {
 // the cloud PR rail has.
 //
 // NO FAKE SUCCESS STATES: every PipelinePhase this realisation reports is derived
-// from an ACTUAL subprocess outcome (exit code, timeout, explicit cancel) or an
+// from an ACTUAL subprocess outcome (exit code, timeout) or an
 // actual observed git ref movement — there is no code path that reports Succeeded
 // without a clean claude exit AND the activity branch ref having genuinely advanced
 // in the shared repo (verified via rev-parse before/after) AND the worktree removed.
@@ -1152,7 +1124,6 @@ const (
 	localRunRunning localRunStatus = iota
 	localRunSucceeded
 	localRunFailed
-	localRunCancelled
 )
 
 // localRun is one tracked construction dispatch: an in-memory process record (per
@@ -1178,7 +1149,6 @@ type localRun struct {
 	mu         sync.Mutex
 	status     localRunStatus
 	diagnostic string
-	cancel     context.CancelFunc // cancels the claude subprocess's bounded run context
 
 	// traceTruncated records that this run's per-episode trace file is
 	// INCOMPLETE — a write to it failed part-way through (see traceSink), so the
@@ -1192,8 +1162,7 @@ type localRun struct {
 	traceTruncationReason string
 
 	// episode is the summary mined from this run's trace, published by
-	// awaitCompletion at the SAME moment it records the terminal status (and by
-	// the cancel short-circuit, which records nothing else). It is therefore nil
+	// awaitCompletion at the SAME moment it records the terminal status. It is therefore nil
 	// on every non-terminal observation by construction — a half-read stream is
 	// never reported. Written once, then treated as immutable: ObserveAgenticJob
 	// hands out a deep-enough copy.
@@ -1755,10 +1724,6 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 		runCancel()
 		return fwra.Wrap(fwra.Infrastructure, err, "localexec: failed to start claude subprocess")
 	}
-
-	run.mu.Lock()
-	run.cancel = runCancel
-	run.mu.Unlock()
 
 	// Ownership of parentDir (the worktree) / mcpConfigDir / the trace file passes
 	// to awaitCompletion.
@@ -2707,12 +2672,9 @@ func (a *localExecAccess) orphanedTraceEpisode(token string) *EpisodeSummary {
 // awaitCompletion blocks on the claude subprocess, verifies its commits advanced
 // the activity branch ref in the SHARED repo (worktree commits land there
 // directly — no push; partial progress on a failed run is already durable),
-// removes the worktree (completion AND cancel paths alike — the SIGTERM'd cancel
-// path flows through here too, since cmd.Wait returns either way), cleans up the
-// temp dirs, then records the terminal outcome. If CancelAgenticJob
-// already recorded localRunCancelled before this observes completion, that
-// outcome wins (Wait()'s own error, expected after a SIGTERM, is not allowed to
-// overwrite an explicit cancel with "Failed").
+// removes the worktree, cleans up the temp dirs, then records the terminal outcome.
+// (An archistrator-initiated cancel no longer exists: CancelAgenticJob was deleted in
+// dct4 — no pause ever cancelled a running job.)
 //
 // On EVERY failing outcome it also surfaces what claude actually said — the
 // bounded detail onto the diagnostic, the full output onto a durable log dir —
@@ -2756,31 +2718,14 @@ func (a *localExecAccess) awaitCompletion(
 	_ = os.RemoveAll(parentDir)
 	_ = os.RemoveAll(mcpConfigDir)
 
-	// An explicit cancel already recorded the terminal outcome: short-circuit
-	// BEFORE the diagnostic/durable-log work below, because a cancelled run's
-	// non-zero Wait() is expected operator intent, not a fault worth an enriched
-	// diagnostic or a log artifact. Re-checked under the final lock (a cancel
-	// landing DURING the window below must still win) — this peek only avoids
-	// doing the work, it is not the authority on the outcome.
-	//
-	// The TRACE-INTEGRITY marker is recorded in this same acquisition and BEFORE
-	// the short-circuit: whether the captured artifact is complete is a fact about
-	// the trace, true no matter how the run itself ended, and a cancelled run's
-	// partial trace is read by exactly the same consumers.
+	// The TRACE-INTEGRITY marker: whether the captured artifact is complete is a fact
+	// about the trace, true no matter how the run itself ended.
 	run.mu.Lock()
 	if traceTruncation != nil {
 		run.traceTruncated = true
 		run.traceTruncationReason = traceTruncation.Error()
 	}
-	alreadyCancelled := run.status == localRunCancelled
 	run.mu.Unlock()
-	if alreadyCancelled {
-		// The cancel path skips the diagnostic/durable-log work, but it does NOT
-		// skip the episode: a cancelled run spent real tokens and did real work
-		// before the SIGTERM, and that is exactly what must still be accounted for.
-		publishEpisode(run, cancelledEpisode(episode))
-		return
-	}
 
 	timedOut := waitErr != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded)
 	status, diagnostic, stderrShown := localRunOutcome(waitErr, revErr, removeErr, timedOut, beforeSHA, afterSHA, stderr.String())
@@ -2812,28 +2757,10 @@ func (a *localExecAccess) awaitCompletion(
 	}
 
 	run.mu.Lock()
-	if run.status == localRunCancelled {
-		run.mu.Unlock()
-		// A cancel landed DURING the window above and owns the outcome — including
-		// the episode's, on the same reasoning as the short-circuit.
-		publishEpisode(run, cancelledEpisode(episode))
-		return
-	}
 	run.status = status
 	run.diagnostic = diagnostic
 	run.episode = episode
 	run.mu.Unlock()
-}
-
-// publishEpisode records the mined summary on the run record, where
-// ObserveAgenticJob republishes it on the terminal observation. It is written in
-// the same breath as the terminal status, so no observation can see one without
-// the other. Only awaitCompletion's own goroutine ever calls it, exactly once
-// per run.
-func publishEpisode(run *localRun, episode *EpisodeSummary) {
-	run.mu.Lock()
-	defer run.mu.Unlock()
-	run.episode = episode
 }
 
 // copyEpisodeSummary returns an independent copy of a summary for handing across
@@ -2850,18 +2777,6 @@ func copyEpisodeSummary(src *EpisodeSummary) *EpisodeSummary {
 	out.ToolCallCounts = maps.Clone(src.ToolCallCounts)
 	out.SubagentSpans = slices.Clone(src.SubagentSpans)
 	return &out
-}
-
-// cancelledEpisode stamps the operator's verdict onto a mined summary. The
-// stream of a cancelled run is necessarily partial (usually terminating with no
-// result event at all, i.e. a gap), so the parsed outcome is OVERRIDDEN: the
-// cancel is the authoritative account of how the episode ended. Everything else
-// the stream did say — tokens spent, tools called — is kept.
-func cancelledEpisode(episode *EpisodeSummary) *EpisodeSummary {
-	if episode != nil {
-		episode.Outcome = EpisodeCancelled
-	}
-	return episode
 }
 
 // localRunOutcome maps one finished claude invocation onto its terminal run
@@ -2961,36 +2876,6 @@ func (a *localExecAccess) ObserveAgenticJob(_ fwra.Context, handle PipelineHandl
 	return obs, nil
 }
 
-// CancelAgenticJob requests cancellation of a running local dispatch.
-// Cancelling an unknown/already-terminal run is a no-op SUCCESS (idempotent-on-
-// intent, same contract as actions.go's CancelAgenticJob).
-func (a *localExecAccess) CancelAgenticJob(_ fwra.Context, handle PipelineHandle) error {
-	token, ok := localTokenFromHandle(handle)
-	if !ok {
-		return fwra.New(fwra.ContractMisuse, "agenticjob(localexec): malformed PipelineHandle")
-	}
-	a.mu.Lock()
-	run, ok := a.runs[token]
-	a.mu.Unlock()
-	if !ok {
-		return nil
-	}
-
-	run.mu.Lock()
-	if run.status != localRunRunning {
-		run.mu.Unlock()
-		return nil
-	}
-	run.status = localRunCancelled
-	cancel := run.cancel
-	run.mu.Unlock()
-
-	if cancel != nil {
-		cancel() // triggers cmd.Cancel (SIGTERM), bounded by cmd.WaitDelay
-	}
-	return nil
-}
-
 // localPhase maps the in-memory run status onto the port's PipelinePhase.
 func localPhase(s localRunStatus) PipelinePhase {
 	switch s {
@@ -3000,8 +2885,6 @@ func localPhase(s localRunStatus) PipelinePhase {
 		return PhaseSucceeded
 	case localRunFailed:
 		return PhaseFailed
-	case localRunCancelled:
-		return PhaseCancelled
 	default:
 		return PhasePending
 	}
@@ -3881,9 +3764,6 @@ func (a *localExecAccess) submitMergeJob(rc fwra.Context, activityID string) (Pi
 
 	run.mu.Lock()
 	defer run.mu.Unlock()
-	if run.status == localRunCancelled {
-		return handle, nil
-	}
 	if ok {
 		run.status = localRunSucceeded
 	} else {

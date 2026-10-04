@@ -25,8 +25,6 @@ const (
 
 type CommitRef string
 
-type Installation string
-
 type ManagedFile struct {
 	Path    string `json:"Path"`
 	Content []byte `json:"Content"`
@@ -86,10 +84,8 @@ const (
 type SourceControlAccess interface {
 	AdoptProjectRepo(rc fwra.Context, spec RepoAdoptionSpec) (RepoRef, error)
 	CommitManagedFiles(rc fwra.Context, repo RepoRef, files []ManagedFile, cred RepoCredential) (CommitRef, error)
-	ConfigureBranchProtection(rc fwra.Context, repo RepoRef, cred RepoCredential) error
 	GetInstallationToken(rc fwra.Context, repo RepoRef) (RepoCredential, error)
 	GetPullRequestStatus(rc fwra.Context, repo RepoRef, pr PullRequestRef, cred RepoCredential) (PullRequestStatus, error)
-	InstallAuthorizeApp(rc fwra.Context, account AccountRef) (Installation, error)
 	MergePullRequest(rc fwra.Context, repo RepoRef, pr PullRequestRef, cred RepoCredential) (MergeResult, error)
 	OpenBranch(rc fwra.Context, repo RepoRef, branch BranchName, cred RepoCredential) (BranchRef, error)
 	OpenPullRequest(rc fwra.Context, repo RepoRef, spec PullRequestSpec, cred RepoCredential) (PullRequestRef, error)

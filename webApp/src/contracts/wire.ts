@@ -78,7 +78,6 @@ import type {
   OverrideKind,
   PhaseDecision,
   PhaseRow,
-  ProducedArtifactRow,
   ProjectArtifactKind,
   ProjectPhase,
   ProjectState,
@@ -382,16 +381,10 @@ function mapGitRow(w: Schemas['DeliveryActivityGitStatus']): GitRow {
     ...(w.PrNumber > 0 ? { prNumber: w.PrNumber } : {}),
     ...(w.PrURL.length > 0 ? { prUrl: w.PrURL } : {}),
     ciStatus: ciStatusFromOrdinal(w.CICheck),
-    architectureApproved: w.ArchApproved,
-    merged: w.Merged,
     ...(w.CRLabel.length > 0 ? { crLabel: w.CRLabel } : {}),
     ...(w.IsRevert ? { isRevert: w.IsRevert } : {}),
     updatedAt: w.UpdatedAt,
   };
-}
-
-function mapProducedArtifact(w: Schemas['DeliveryProducedArtifact']): ProducedArtifactRow {
-  return { kind: w.Kind, title: w.Title, source: w.Source, produced: w.Produced, note: w.Note };
 }
 
 /**
@@ -545,7 +538,6 @@ export function mapConstructionRow(
     ...(variant !== undefined ? { variant } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(currentLifecyclePhase !== undefined ? { currentLifecyclePhase } : {}),
-    ...(w.Produced !== null ? { produced: w.Produced.map(mapProducedArtifact) } : {}),
     ...(carriesFailure ? { failureReason } : {}),
     ...(carriesFailure && w.FailureDetail.length > 0 ? { failureDetail: w.FailureDetail } : {}),
     phases: (w.Phases ?? []).map(mapPhaseCompletion),

@@ -105,13 +105,6 @@ func (i genInvokers) UsageRecordComputeUsage(ctx workflow.Context, events []usag
 	return out, err
 }
 
-// UsageRecordFinalUsage invokes activity "usageAccess.recordFinalUsage".
-func (i genInvokers) UsageRecordFinalUsage(ctx workflow.Context, events []usage.UsageEvent) ([]usage.EntryRef, error) {
-	var out []usage.EntryRef
-	err := workflow.ExecuteActivity(i.options(ctx, "usageAccess.recordFinalUsage"), "usageAccess.recordFinalUsage", events).Get(ctx, &out)
-	return out, err
-}
-
 // MerchantGatewayChargeCustomer invokes activity "merchantGatewayAccess.chargeCustomer".
 func (i genInvokers) MerchantGatewayChargeCustomer(ctx workflow.Context, key fwra.IdempotencyKey, customerID uuid.UUID, amount merchantgateway.Money, idempotencyKey string) error {
 	err := workflow.ExecuteActivity(i.options(ctx, "merchantGatewayAccess.chargeCustomer"), "merchantGatewayAccess.chargeCustomer", key, customerID, amount, idempotencyKey).Get(ctx, nil)

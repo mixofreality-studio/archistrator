@@ -54,9 +54,7 @@ import (
 //     GetSloStatus and ReadComputeAttribution are DELIBERATELY inert (spec D7, see their
 //     own doc comments) — not stubs awaiting a backend, but permanent-until-a-real-backend-
 //     lands behaviour: an SLO/cost backend needs infrastructure (Prometheus, per-app SLO
-//     definitions, a defensible attribution formula) that does not exist yet. WirePaymentConfig
-//     still has no backend (N-DEP follow-up) and returns an EXPLICIT fwra.Unknown naming
-//     that follow-up and the dry-run escape hatch — NOT a silent generated stub.
+//     definitions, a defensible attribution formula) that does not exist yet.
 //
 // The package imports NO Temporal (layer rule): the idempotency key arrives as an
 // ordinary parameter on each write.
@@ -132,10 +130,6 @@ func (dryRunOperatedRuntime) Withdraw(_ fwra.Context, _ uuid.UUID, _ fwra.Idempo
 	return nil
 }
 
-func (dryRunOperatedRuntime) WirePaymentConfig(_ fwra.Context, _ uuid.UUID, _ GatewayBinding, _ fwra.IdempotencyKey) error {
-	return nil
-}
-
 // GetApplicationHealth reports a deterministic Healthy — a freshly published dry-run app
 // "converges" instantly.
 func (dryRunOperatedRuntime) GetApplicationHealth(_ fwra.Context, _ uuid.UUID) (RuntimeStatus, error) {
@@ -178,28 +172,12 @@ func (dryRunOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID,
 // the real GitOps repository (below); GetApplicationHealth reads the Argo Application CR
 // live (Task 9, see the "Health reads" section below). GetSloStatus and
 // ReadComputeAttribution are deliberately inert (spec D7 — see their own doc comments),
-// not awaiting a backend. WirePaymentConfig still has no backend, so it returns an
-// explicit, diagnosable fwra.Unknown (fail-fast, non-retryable — preserving the wire
-// behaviour the operationsManager façade maps to a 503) naming the N-DEP follow-up and the
-// dry-run escape hatch.
+// not awaiting a backend.
 type realOperatedRuntime struct {
 	config RuntimeConfig
 }
 
 var _ OperatedRuntimeAccess = realOperatedRuntime{}
-
-// notImplemented is the shared, explicit real-profile diagnostic. It names the missing
-// backend, the follow-up, and the dry-run escape hatch, and flags an unset GitOps target
-// when that is the proximate misconfiguration.
-func (r realOperatedRuntime) notImplemented(verb string) error {
-	msg := "operatedruntime real profile: " + verb +
-		" requires the GitOps/kubernetes backend, which is not yet implemented (follow-up N-DEP, pairs with the Argo deployment work); " +
-		"set ARCHISTRATOR_OPERATIONS_DRYRUN=true for the deterministic local profile"
-	if r.config.GitOpsRepoURL == "" {
-		msg += " (note: ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL is also unset)"
-	}
-	return fwra.New(fwra.Unknown, msg)
-}
 
 // PublishDesiredState renders d and commits it to the GitOps repo (see the GitOps commit
 // path section below). Content-idempotent: republishing identical desired state produces
@@ -280,10 +258,6 @@ func (r realOperatedRuntime) Withdraw(_ fwra.Context, appID uuid.UUID, idempoten
 		appName := resolved.AppName
 		return gitOpsWithdraw(appName)(workdir)
 	})
-}
-
-func (r realOperatedRuntime) WirePaymentConfig(_ fwra.Context, _ uuid.UUID, _ GatewayBinding, _ fwra.IdempotencyKey) error {
-	return r.notImplemented("wirePaymentConfig")
 }
 
 // GetApplicationHealth reads the Argo Application CR that governs appID's deployment (see

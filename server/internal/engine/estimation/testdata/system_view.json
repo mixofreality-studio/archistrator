@@ -407,10 +407,6 @@
       "to": "security"
     },
     {
-      "from": "scheduler-client",
-      "to": "security"
-    },
-    {
       "from": "operations-manager",
       "to": "logging"
     },

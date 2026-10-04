@@ -45,8 +45,6 @@ type ActivityGitStatus struct {
 	BranchRef      string       `json:"BranchRef"`
 	PullRequestRef string       `json:"PullRequestRef"`
 	CICheck        CICheckState `json:"CICheck"`
-	ArchApproved   bool         `json:"ArchApproved"`
-	Merged         bool         `json:"Merged"`
 	CRLabel        string       `json:"CRLabel"`
 	IsRevert       bool         `json:"IsRevert"`
 	UpdatedAt      time.Time    `json:"UpdatedAt"`
@@ -215,14 +213,6 @@ const (
 	ClassCore    Classification = 0
 	ClassNonCore Classification = 1
 )
-
-type CommitArtifactsInput struct {
-	TaskID     MethodTask         `json:"taskId"`
-	Commit     string             `json:"commit"`
-	Artifacts  []ProducedArtifact `json:"artifacts,omitempty"`
-	ApprovedBy string             `json:"approvedBy"`
-	DraftedBy  string             `json:"draftedBy"`
-}
 
 type Component struct {
 	ID                       string        `json:"id"`
@@ -626,14 +616,6 @@ type Probe struct {
 	Operation string     `json:"operation"`
 	Inputs    []TestArg  `json:"inputs"`
 	Expect    TestExpect `json:"expect"`
-}
-
-type ProducedArtifact struct {
-	Kind     string `json:"Kind"`
-	Title    string `json:"Title"`
-	Source   string `json:"Source"`
-	Produced bool   `json:"Produced"`
-	Note     string `json:"Note"`
 }
 
 type Profile struct {
@@ -1110,10 +1092,8 @@ type ActivityExecutionAccess interface {
 	AppendReviewVerdict(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, verdict ReviewVerdict, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatus(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	DecideReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, outcome ReviewRoundOutcome, decidedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	CommitActivityArtifacts(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, artifacts CommitArtifactsInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordActivityOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, outcome ActivityOutcome, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, kind ArtifactKind, note string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReadActivityExecution(rc fwra.Context, projectID ProjectID, activityID string) (ActivityExecution, error)
 }
 
@@ -1122,10 +1102,7 @@ type DesignSessionAccess interface {
 	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (ProjectEnvelope, error)
 	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ModelEnvelope, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy string, draftedBy string) (Version, error)
-	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
@@ -1133,17 +1110,12 @@ type DesignSessionAccess interface {
 type GitActivityStatusAccess interface {
 	RecordActivityBranchOpened(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, branch string, branchRef string, prRef string, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordActivityCIObserved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityArchApproved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityMerged(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, typ ActivityType, variant TestingVariant, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 // ProjectStateAccess is the generated service-contract interface for this component.
 type ProjectStateAccess interface {
 	AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	AdvancePhase(rc fwra.Context, projectID ProjectID, expectedVersion Version) (Version, error)
-	CommitArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind) (Version, error)
 	CreateProject(rc fwra.Context, projectID ProjectID, owner OwnerScope, name string) (Version, error)
 	ListProjects(rc fwra.Context, owner OwnerScope) ([]ProjectSummary, error)
 	ReadProject(rc fwra.Context, projectID ProjectID) (Project, error)

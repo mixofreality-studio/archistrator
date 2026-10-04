@@ -32,12 +32,8 @@ void test("an activity gated on a milestone is eligible once the milestone's own
     milestones: [{ id: 'M3', name: 'Gate 3', public: true, dependsOn: ['A-01', 'A-02'] }],
   };
 
-  const statuses = computeActivityStatuses(
-    network,
-    (id) => ({ merged: id === 'A-01' || id === 'A-02' }),
-    undefined,
-    'not-started'
-  );
+  const done = integratedRows('A-01', 'A-02');
+  const statuses = computeActivityStatuses(network, undefined, 'not-started', (id) => done[id]);
 
   assert.equal(statuses.get('X-01'), 'eligible');
   // The milestone id itself is not a constructable activity — it must not show up
@@ -56,12 +52,8 @@ void test("an activity gated on a milestone stays blocked while any of the miles
     milestones: [{ id: 'M3', name: 'Gate 3', public: true, dependsOn: ['A-01', 'A-02'] }],
   };
 
-  const statuses = computeActivityStatuses(
-    network,
-    (id) => ({ merged: id === 'A-01' }),
-    undefined,
-    'not-started'
-  );
+  const done = integratedRows('A-01');
+  const statuses = computeActivityStatuses(network, undefined, 'not-started', (id) => done[id]);
 
   assert.equal(statuses.get('X-01'), 'blocked');
 });
@@ -77,12 +69,7 @@ void test('a milestone dependency cycle resolves to not-satisfied without infini
     ],
   };
 
-  const statuses = computeActivityStatuses(
-    network,
-    () => ({ merged: false }),
-    undefined,
-    'not-started'
-  );
+  const statuses = computeActivityStatuses(network, undefined, 'not-started');
 
   assert.equal(statuses.get('X-01'), 'blocked');
 });
@@ -94,12 +81,7 @@ void test('a milestone with no dependsOn (the project-start gate) is satisfied',
     milestones: [{ id: 'M0', name: 'Start', public: true, dependsOn: null }],
   };
 
-  const statuses = computeActivityStatuses(
-    network,
-    () => ({ merged: false }),
-    undefined,
-    'not-started'
-  );
+  const statuses = computeActivityStatuses(network, undefined, 'not-started');
 
   assert.equal(statuses.get('X-01'), 'eligible');
 });
@@ -122,7 +104,6 @@ function wireRow(over: Partial<WireConstructionStatus>): WireConstructionStatus 
     Kind: 0,
     Phase: 0,
     Phases: null,
-    Produced: null,
     Type: 0,
     classified: true,
     // The default fixture is a classified row the server DID resolve completions for;
@@ -134,6 +115,19 @@ function wireRow(over: Partial<WireConstructionStatus>): WireConstructionStatus 
     layerBand: '',
     ...over,
   };
+}
+
+// integratedRows builds the construction rows the status derivation reads as
+// integrated (BuildStatus 2 = BuildIntegrated, with build evidence) — the SINGLE source
+// of "integrated" since dct4 deleted the git row's Merged fallback.
+function integratedRows(...ids: string[]): Record<string, ReturnType<typeof mapConstructionRow>> {
+  const out: Record<string, ReturnType<typeof mapConstructionRow>> = {};
+  for (const id of ids) {
+    out[id] = mapConstructionRow(
+      wireRow({ ActivityID: id, hasBuildEvidence: true, BuildStatus: 2 })
+    );
+  }
+  return out;
 }
 
 // `recorded` is the server's one explicit "a stored row backs this" signal. A
@@ -484,19 +478,14 @@ void test('a classified row with no evidence falls through to network-derived re
     milestones: [],
   };
   const rows: Record<string, ReturnType<typeof mapConstructionRow>> = {
+    ...integratedRows('A-01'),
     'B-01': mapConstructionRow(wireRow({ ActivityID: 'B-01', hasBuildEvidence: false })),
     'C-01': mapConstructionRow(wireRow({ ActivityID: 'C-01', hasBuildEvidence: false })),
   };
 
-  const statuses = computeActivityStatuses(
-    network,
-    (id) => ({ merged: id === 'A-01' }),
-    undefined,
-    'not-started',
-    (id) => rows[id]
-  );
+  const statuses = computeActivityStatuses(network, undefined, 'not-started', (id) => rows[id]);
 
-  // A-01 is merged ⇒ integrated; B-01's only predecessor is done ⇒ eligible;
+  // A-01's row is integrated; B-01's only predecessor is done ⇒ eligible;
   // C-01 waits on the un-done B-01 ⇒ blocked. None of the three reads
   // 'in-construction'.
   assert.equal(statuses.get('B-01'), 'eligible');
@@ -516,13 +505,7 @@ void test('an unclassified row still short-circuits network-derived readiness', 
     'B-01': mapConstructionRow(wireRow({ ActivityID: 'B-01', classified: false })),
   };
 
-  const statuses = computeActivityStatuses(
-    network,
-    () => ({ merged: false }),
-    undefined,
-    'not-started',
-    (id) => rows[id]
-  );
+  const statuses = computeActivityStatuses(network, undefined, 'not-started', (id) => rows[id]);
 
   assert.equal(statuses.get('B-01'), 'unclassified');
 });
@@ -540,13 +523,7 @@ void test('a classified row with evidence still overrides network-derived readin
     ),
   };
 
-  const statuses = computeActivityStatuses(
-    network,
-    () => ({ merged: false }),
-    undefined,
-    'not-started',
-    (id) => rows[id]
-  );
+  const statuses = computeActivityStatuses(network, undefined, 'not-started', (id) => rows[id]);
 
   assert.equal(statuses.get('B-01'), 'in-review');
 });

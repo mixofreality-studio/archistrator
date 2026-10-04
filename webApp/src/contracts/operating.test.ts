@@ -75,7 +75,6 @@ function doneIntegratedRow(id: string): Schemas['DeliveryActivityConstructionSta
     Kind: 0,
     Phase: 2,
     Phases: null,
-    Produced: null,
     Type: 0,
     classified: true,
     hasBuildEvidence: true,

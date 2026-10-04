@@ -120,7 +120,6 @@ function readers(observedOnly: boolean): {
   const byNode = new Map(tree.map((n) => [n.nodeId, n.activityId]));
   const statuses = computeActivityStatuses(
     NETWORK,
-    () => undefined,
     undefined,
     'not-started',
     (id) => viewRows?.[id]

@@ -51,7 +51,6 @@ type ActivityConstructionStatus struct {
 	StartedAt        *time.Time                `json:"startedAt,omitempty"`
 	CompletedAt      *time.Time                `json:"completedAt,omitempty"`
 	BuildStatus      ActivityBuildStatus       `json:"BuildStatus"`
-	Produced         []ProducedArtifact        `json:"Produced"`
 	FailureReason    FailureReason             `json:"FailureReason"`
 	FailureDetail    string                    `json:"FailureDetail"`
 	Attempts         []TaskAttempt             `json:"attempts,omitempty"`
@@ -73,8 +72,6 @@ type ActivityGitStatus struct {
 	PrNumber       int64        `json:"PrNumber"`
 	PrURL          string       `json:"PrURL"`
 	CICheck        CICheckState `json:"CICheck"`
-	ArchApproved   bool         `json:"ArchApproved"`
-	Merged         bool         `json:"Merged"`
 	CRLabel        string       `json:"CRLabel"`
 	IsRevert       bool         `json:"IsRevert"`
 	UpdatedAt      time.Time    `json:"UpdatedAt"`
@@ -584,14 +581,6 @@ type ProbeView struct {
 	Operation string         `json:"operation"`
 	Inputs    []TestArgView  `json:"inputs"`
 	Expect    TestExpectView `json:"expect"`
-}
-
-type ProducedArtifact struct {
-	Kind     string `json:"Kind"`
-	Title    string `json:"Title"`
-	Source   string `json:"Source"`
-	Produced bool   `json:"Produced"`
-	Note     string `json:"Note"`
 }
 
 type ProjectID string

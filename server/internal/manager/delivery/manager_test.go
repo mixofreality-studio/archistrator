@@ -290,10 +290,6 @@ func (f *renderFakeProjectState) StageArtifactForReview(fwra.Context, projectsta
 	panic("renderFakeProjectState.StageArtifactForReview must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) CommitArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind) (projectstate.Version, error) {
-	panic("renderFakeProjectState.CommitArtifact must not be called by these façade-precondition tests")
-}
-
 func (f *renderFakeProjectState) RejectArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string) (projectstate.Version, error) {
 	panic("renderFakeProjectState.RejectArtifact must not be called by these façade-precondition tests")
 }
@@ -333,18 +329,6 @@ func (f *renderFakeProjectState) StageArtifactForReviewOnBranch(fwra.Context, pr
 
 func (f *renderFakeProjectState) RejectArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
 	panic("renderFakeProjectState.RejectArtifactOnBranch must not be called by these façade-precondition tests")
-}
-
-func (f *renderFakeProjectState) WithdrawArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
-	panic("renderFakeProjectState.WithdrawArtifactOnBranch must not be called by these façade-precondition tests")
-}
-
-func (f *renderFakeProjectState) RejectArtifactOnBranchWithComments(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
-	panic("renderFakeProjectState.RejectArtifactOnBranchWithComments must not be called by these façade-precondition tests")
-}
-
-func (f *renderFakeProjectState) SetReviewCommentStatusOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, string, fwra.IdempotencyKey) (projectstate.Version, error) {
-	panic("renderFakeProjectState.SetReviewCommentStatusOnBranch must not be called by these façade-precondition tests")
 }
 
 func (f *renderFakeProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -413,7 +397,6 @@ type fakeProjectState struct {
 	notFound bool                 // when true ReadProject returns fwra.NotFound
 
 	staged    []projectstate.ArtifactModel
-	committed []projectstate.ArtifactKind
 	rejected  []rejectCall
 	withdrawn []projectstate.ArtifactKind
 	advanced  int
@@ -448,15 +431,6 @@ func (f *fakeProjectState) ReadProject(_ fwra.Context, _ projectstate.ProjectID)
 	return f.project, nil
 }
 
-// committedCount reports how many artifacts have committed so far, under fakeProjectState's
-// OWN mutex — branchAwareFakeProjectState carries a second mutex that shadows this one by
-// embedding depth, so a caller reaching through the embedding must not lock "f.mu".
-func (f *fakeProjectState) committedCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.committed)
-}
-
 func (f *fakeProjectState) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -475,13 +449,6 @@ func (f *fakeProjectState) StageArtifactForReview(_ fwra.Context, _ projectstate
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.staged = append(f.staged, model)
-	return f.bump(), nil
-}
-
-func (f *fakeProjectState) CommitArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.committed = append(f.committed, kind)
 	return f.bump(), nil
 }
 
@@ -577,22 +544,6 @@ func (f *fakeProjectState) StageArtifactForReviewOnBranch(rc fwra.Context, proje
 
 func (f *fakeProjectState) RejectArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return f.RejectArtifact(rc, projectID, expectedVersion, kind, notes)
-}
-
-func (f *fakeProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.WithdrawArtifact(rc, projectID, expectedVersion, kind, notes)
-}
-
-func (f *fakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	// The base fake carries no durable ledger — mirrors the old comment-dropping
-	// fallback (comments are accepted but not recorded).
-	return f.RejectArtifact(rc, projectID, expectedVersion, kind, notes)
-}
-
-func (f *fakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.bump(), nil
 }
 
 func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -773,11 +724,6 @@ func (p *fakePipeline) nextEpisode() *agenticjob.EpisodeSummary {
 		i = len(p.episodes) - 1
 	}
 	return p.episodes[i]
-}
-
-// CancelAgenticJob satisfies the contract; the design draft path never cancels.
-func (p *fakePipeline) CancelAgenticJob(_ fwra.Context, _ agenticjob.PipelineHandle) error {
-	return nil
 }
 
 // neutralToRAPhase maps this Manager's neutral scripted phase onto the RA phase the
@@ -1128,19 +1074,11 @@ func (fakeActivityExecution) StageTaskOutput(fwra.Context, projectstate.ProjectI
 	return projectstate.StagedRef{}, nil
 }
 
-func (fakeActivityExecution) CommitActivityArtifacts(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.CommitArtifactsInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-
 func (fakeActivityExecution) RecordActivityOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.ActivityOutcome, projectstate.FailureReason, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 
 func (fakeActivityExecution) RecordOperatorNote(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.OperatorNoteInput, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-
-func (fakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.ArtifactKind, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 
@@ -1282,12 +1220,6 @@ func (p *recordingPipeline) SubmitAgenticJob(rc fwra.Context, spec agenticjob.Pi
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 func (p *recordingPipeline) ObserveAgenticJob(fwra.Context, agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
 	return agenticjob.PipelineObservation{}, nil
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-func (p *recordingPipeline) CancelAgenticJob(fwra.Context, agenticjob.PipelineHandle) error {
-	return nil
 }
 
 func sdQuestions() []projectstate.ReviewComment {
@@ -1478,20 +1410,18 @@ func Test_AskArtifactQuestions_Phase2_SeedsOnMain(t *testing.T) {
 }
 
 // Classification is derived from the Phase-2 activity-list metadata (worker class
-// + coding) plus contract presence — NOT the id prefix alone (the N-* namespace
+// + coding) — NOT the id prefix alone (the N-* namespace
 // conflates testing, infra, deployment, and documentation).
 func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 	rows := map[string]projectstate.ActivityExecution{
-		"N-PERF":           {ActivityID: "N-PERF"},                                                                      // software-tester, noncoding → testing:perf
-		"N-SC":             {ActivityID: "N-SC", Produced: []projectstate.ProducedArtifact{{Kind: "service-contract"}}}, // built a contract → service
-		"N-CI":             {ActivityID: "N-CI"},                                                                        // senior-developer, noncoding → deployment
-		"N-ADR":            {ActivityID: "N-ADR"},                                                                       // system-architect, noncoding → documentation
-		"C-BE":             {ActivityID: "C-BE"},                                                                        // junior-developer, coding → service
-		"U-SPA-web-client": {ActivityID: "U-SPA-web-client"},                                                            // U-SPA prefix → frontend
+		"N-PERF":           {ActivityID: "N-PERF"},           // software-tester, noncoding → testing:perf
+		"N-CI":             {ActivityID: "N-CI"},             // senior-developer, noncoding → deployment
+		"N-ADR":            {ActivityID: "N-ADR"},            // system-architect, noncoding → documentation
+		"C-BE":             {ActivityID: "C-BE"},             // junior-developer, coding → service
+		"U-SPA-web-client": {ActivityID: "U-SPA-web-client"}, // U-SPA prefix → frontend
 	}
 	meta := map[string]projectstate.ActivityItem{
 		"N-PERF":           {Name: "N-PERF", WorkerClass: "software-tester", Coding: false},
-		"N-SC":             {Name: "N-SC", WorkerClass: "senior-developer", Coding: false},
 		"N-CI":             {Name: "N-CI", WorkerClass: "senior-developer", Coding: false},
 		"N-ADR":            {Name: "N-ADR", WorkerClass: "system-architect", Coding: false},
 		"C-BE":             {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
@@ -1505,7 +1435,6 @@ func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 		wantVar  *TestingVariant // present on a testing row only
 	}{
 		{"N-PERF", ActivityType(int(projectstate.ActivityTypeTesting)), &perf},
-		{"N-SC", ActivityType(int(projectstate.ActivityTypeService)), nil},
 		{"N-CI", ActivityType(int(projectstate.ActivityTypeDeployment)), nil},
 		{"N-ADR", ActivityType(int(projectstate.ActivityTypeDocumentation)), nil},
 		{"C-BE", ActivityType(int(projectstate.ActivityTypeService)), nil},
@@ -1668,9 +1597,6 @@ func (f *fakeProjectStateAccess) RecordReviewPolicy(_ fwra.Context, _ projectsta
 func (f *fakeProjectStateAccess) AdvancePhase(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version) (projectstate.Version, error) {
 	return 0, nil
 }
-func (f *fakeProjectStateAccess) CommitArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind) (projectstate.Version, error) {
-	return 0, nil
-}
 func (f *fakeProjectStateAccess) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
 	return 0, nil
 }
@@ -1700,15 +1626,6 @@ func (f *fakeProjectStateAccess) StageArtifactForReviewOnBranch(_ fwra.Context, 
 	return 0, nil
 }
 func (f *fakeProjectStateAccess) RejectArtifactOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-func (f *fakeProjectStateAccess) WithdrawArtifactOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-func (f *fakeProjectStateAccess) RejectArtifactOnBranchWithComments(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-func (f *fakeProjectStateAccess) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 func (f *fakeProjectStateAccess) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -1791,14 +1708,8 @@ func (f *fakeSourceControl) CommitManagedFiles(rc fwra.Context, _ sourcecontrol.
 
 // --- inert stubs: the remaining published verbs the façade never calls -------
 
-func (f *fakeSourceControl) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
-	return nil
-}
 func (f *fakeSourceControl) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
 	return sourcecontrol.PullRequestStatus{}, nil
-}
-func (f *fakeSourceControl) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
-	return "", nil
 }
 func (f *fakeSourceControl) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
 	return sourcecontrol.MergeResult{}, nil
@@ -2154,14 +2065,6 @@ func (r *scriptedRail) AdoptProjectRepo(_ fwra.Context, _ sourcecontrol.RepoAdop
 	return sourcecontrol.RepoRef(""), nil
 }
 
-func (r *scriptedRail) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
-	return nil
-}
-
-func (r *scriptedRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
-	return sourcecontrol.Installation(""), nil
-}
-
 // SyncManagedScaffold mirrors the REAL production sourceControlAccess impl
 // ((*access).SyncManagedScaffold, github.go) — it delegates to the free-function
 // composition helper rather than stubbing directly. B10 rewires the generated
@@ -2239,19 +2142,9 @@ func (f *seqProjectState) StageArtifactForReviewOnBranch(rc fwra.Context, projec
 	return f.StageArtifactForReview(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, model)
 }
 
-func (f *seqProjectState) CommitArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
-	f.log.add("commit", "")
-	return f.fakeProjectState.CommitArtifact(rc, projectID, expectedVersion, kind)
-}
-
 func (f *seqProjectState) RejectArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.log.add("rejectBranch", branch)
 	return f.RejectArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
-}
-
-func (f *seqProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.log.add("withdrawBranch", branch)
-	return f.WithdrawArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
 type railCall struct {
@@ -2381,14 +2274,6 @@ func (r *fakeRail) AdoptProjectRepo(_ fwra.Context, _ sourcecontrol.RepoAdoption
 	return sourcecontrol.RepoRef(""), nil
 }
 
-func (r *fakeRail) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
-	return nil
-}
-
-func (r *fakeRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
-	return sourcecontrol.Installation(""), nil
-}
-
 // SyncManagedScaffold mirrors the REAL production sourceControlAccess impl
 // ((*access).SyncManagedScaffold, github.go) — it delegates to the free-function
 // composition helper rather than stubbing directly. B10 rewires the generated
@@ -2411,11 +2296,10 @@ var _ sourcecontrol.SourceControlAccess = (*fakeRail)(nil)
 // assert the session-branch routing.
 type branchAwareFakeProjectState struct {
 	*fakeProjectState
-	mu               sync.Mutex
-	readBranches     []string
-	stageBranches    []string
-	rejectBranches   []string
-	withdrawBranches []string
+	mu             sync.Mutex
+	readBranches   []string
+	stageBranches  []string
+	rejectBranches []string
 	// failRejectOnBranch, when true, makes RejectArtifactOnBranch fault terminally
 	// (a ContractMisuse) — used to exercise the QA F28 crash-containment recovery gate.
 	failRejectOnBranch bool
@@ -2424,10 +2308,6 @@ type branchAwareFakeProjectState struct {
 	// exact error). Armed by the F30 review-gate withdraw test AND the never-staged
 	// failed-gate withdraw test, so any regression to a blind main write crashes loudly.
 	failWithdrawOnMain bool
-	// failWithdrawOnBranchRemaining injects N terminal faults into the BRANCH-path
-	// WithdrawArtifactOnBranch (then succeeds) — exercises the 2026-07-16 anti-wedge rule:
-	// a fault while RECORDING a withdraw must land back at the gate, never kill the workflow.
-	failWithdrawOnBranchRemaining int
 	// failReadBackDecode, when true, makes the branch READ-BACK fault as a TERMINAL decode of
 	// committed state (a ContractMisuse carrying the closed-enum wire-name diagnostic) — the
 	// QA F36 scenario: the drafting agent committed free prose into the "trigger" closed enum,
@@ -2516,18 +2396,6 @@ func (f *branchAwareFakeProjectState) RejectArtifactOnBranch(rc fwra.Context, pr
 	return f.fakeProjectState.RejectArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
-// RejectArtifactOnBranchWithComments routes to THIS type's own RejectArtifactOnBranch
-// (comments dropped) — branchAwareFakeProjectState models a branch-aware-but-NOT-ledger
-// substrate (the old middle rung of the 3-way Ledger→BranchAware→base fallback). It must
-// be defined directly here (not left to Go's embedding promotion of
-// *fakeProjectState.RejectArtifactOnBranchWithComments) because a promoted method's
-// internal f.RejectArtifact call resolves against the EMBEDDED type, not this outer one —
-// it would silently skip the branch-routing override below and record no rejectBranches
-// entry (Go has no virtual dispatch through embedding).
-func (f *branchAwareFakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
-}
-
 // RejectArtifact (MAIN path) models the PRODUCTION PR-rail reality that caused QA F28: in
 // the rail flow the draft is staged ONLY on the session branch, so main's slot is
 // unpopulated and a main-path reject is a ContractMisuse ("stage a model first"), exactly
@@ -2536,30 +2404,6 @@ func (f *branchAwareFakeProjectState) RejectArtifactOnBranchWithComments(rc fwra
 // regression test fails loudly.
 func (f *branchAwareFakeProjectState) RejectArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
 	return 0, fwra.New(fwra.ContractMisuse, "projectstate.RejectArtifact: slot "+kind.String()+" is unpopulated (stage a model first)")
-}
-
-// WithdrawArtifactOnBranch records the Withdraw on the SESSION BRANCH — the correct PR-rail
-// substrate, where the draft was staged and the branch version matches. It delegates to
-// the embedded fake's bookkeeping (withdrawn), then records the branch so the test asserts
-// the withdraw rode the session branch (non-empty), not main. NOTE: the main-path
-// WithdrawArtifact is intentionally NOT shadowed to fail — the FAILED-gate withdraw
-// legitimately rides main (branch==""), so a blanket-failing shadow would break the
-// not-green recovery test. The F30 regression guard is the withdrawBranches assertion (a
-// regression to main leaves it empty).
-func (f *branchAwareFakeProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	f.withdrawBranches = append(f.withdrawBranches, branch)
-	fail := f.failWithdrawOnBranchRemaining > 0
-	if fail {
-		f.failWithdrawOnBranchRemaining--
-	}
-	f.mu.Unlock()
-	if fail {
-		// A terminal (non-retryable) write fault while recording the Withdraw — the
-		// 2026-07-16 anti-wedge scenario the recovery path must contain.
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.WithdrawArtifact: simulated terminal write fault")
-	}
-	return f.fakeProjectState.WithdrawArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
 // WithdrawArtifact (MAIN path) is the base behavior UNLESS failWithdrawOnMain is armed, in
@@ -2651,14 +2495,6 @@ func (f *f29BranchFake) RejectArtifactOnBranch(_ fwra.Context, _ projectstate.Pr
 	return f.branchVer, nil
 }
 
-func (f *f29BranchFake) WithdrawArtifactOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	// Terminal in the F29 tests; leave branchVer untouched so the stage-convergence
-	// assertion stays about the stage, not this withdraw.
-	return f.branchVer, nil
-}
-
 // amendmentIndexFor — the pre-field fix rule. A COMMITTED slot yields an amendment index of
 // max(1, Revisions): a slot committed BEFORE the Revisions field existed reads Revisions=0
 // yet is still an amendment (index 1). Non-committed slots are the normal path (0).
@@ -2702,10 +2538,6 @@ type ledgerFakeProjectState struct {
 	// read, so the workflow's in-memory state.reviewThread carries threads a queued reply can
 	// legitimately name.
 	existingThread []projectstate.ReviewComment
-	// statusApplied / statusAtCommits record each SetReviewCommentStatus apply and how many
-	// commits had landed when it fired — the drain-order evidence for the approve burst.
-	statusApplied   []string
-	statusAtCommits []int
 }
 
 // ReadProjectOnBranch stamps existingThread onto the SystemDesign slot so loadReviewThread
@@ -2744,16 +2576,6 @@ func (f *ledgerFakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ pr
 	if f.pipe != nil {
 		f.seededAtSubmits = append(f.seededAtSubmits, f.pipe.submitCount())
 	}
-	return expectedVersion, nil
-}
-
-func (f *ledgerFakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
-}
-
-func (f *ledgerFakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, commentID string, status string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.statusApplied = append(f.statusApplied, commentID+"="+status)
-	f.statusAtCommits = append(f.statusAtCommits, f.committedCount())
 	return expectedVersion, nil
 }
 
@@ -2854,10 +2676,6 @@ func (f *setResearchFakeState) StageArtifactForReview(fwra.Context, projectstate
 	panic("setResearchFakeState.StageArtifactForReview must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) CommitArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind) (projectstate.Version, error) {
-	panic("setResearchFakeState.CommitArtifact must not be called by SetResearchInput")
-}
-
 func (f *setResearchFakeState) RejectArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string) (projectstate.Version, error) {
 	panic("setResearchFakeState.RejectArtifact must not be called by SetResearchInput")
 }
@@ -2891,18 +2709,6 @@ func (f *setResearchFakeState) StageArtifactForReviewOnBranch(fwra.Context, proj
 
 func (f *setResearchFakeState) RejectArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
 	panic("setResearchFakeState.RejectArtifactOnBranch must not be called by SetResearchInput")
-}
-
-func (f *setResearchFakeState) WithdrawArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
-	panic("setResearchFakeState.WithdrawArtifactOnBranch must not be called by SetResearchInput")
-}
-
-func (f *setResearchFakeState) RejectArtifactOnBranchWithComments(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
-	panic("setResearchFakeState.RejectArtifactOnBranchWithComments must not be called by SetResearchInput")
-}
-
-func (f *setResearchFakeState) SetReviewCommentStatusOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, string, fwra.IdempotencyKey) (projectstate.Version, error) {
-	panic("setResearchFakeState.SetReviewCommentStatusOnBranch must not be called by SetResearchInput")
 }
 
 func (f *setResearchFakeState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -3388,10 +3194,6 @@ func (w *watchPipeline) ObserveAgenticJob(fwra.Context, agenticjob.PipelineHandl
 	}
 	return w.script[i], nil
 }
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-func (w *watchPipeline) CancelAgenticJob(fwra.Context, agenticjob.PipelineHandle) error { return nil }
 
 var _ agenticjob.AgenticJobAccess = (*watchPipeline)(nil)
 
@@ -4624,28 +4426,6 @@ func (f *roundLedgerFake) RecordReviewPolicy(_ fwra.Context, _ projectstate.Proj
 	return 0, nil
 }
 
-func (f *roundLedgerFake) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	v, err := f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
-	if err != nil {
-		return 0, err
-	}
-	f.fakeProjectState.mu.Lock()
-	defer f.fakeProjectState.mu.Unlock()
-	var applyErr error
-	f.mutateSlotLocked(kind, func(s *projectstate.ArtifactSlot) {
-		thread, aerr := projectstate.ApplyReviewBatch(s.ReviewThread, round, comments, replies)
-		if aerr != nil {
-			applyErr = aerr
-			return
-		}
-		s.ReviewThread = thread
-	})
-	if applyErr != nil {
-		return 0, applyErr
-	}
-	return v, nil
-}
-
 // Test_WorkerManifest_ThreadsEveryDependency is the gate task 5 had to add on the
 // construction rail after finding activityExecutionAccess's activities REGISTERED
 // (worker.gen.go takes them from the struct's fields) against a field WorkerManifest never
@@ -4835,7 +4615,6 @@ type pdFakeProjectState struct {
 	notFound bool
 
 	staged    []projectstate.ArtifactModel
-	committed []projectstate.ArtifactKind
 	rejected  []rejectCall
 	withdrawn []projectstate.ArtifactKind
 	advanced  int
@@ -4874,13 +4653,6 @@ func (f *pdFakeProjectState) StageArtifactForReview(_ fwra.Context, _ projectsta
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.staged = append(f.staged, model)
-	return f.bump(), nil
-}
-
-func (f *pdFakeProjectState) CommitArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.committed = append(f.committed, kind)
 	return f.bump(), nil
 }
 
@@ -4943,22 +4715,6 @@ func (f *pdFakeProjectState) StageArtifactForReviewOnBranch(rc fwra.Context, pro
 
 func (f *pdFakeProjectState) RejectArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return f.RejectArtifact(rc, projectID, expectedVersion, kind, notes)
-}
-
-func (f *pdFakeProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.WithdrawArtifact(rc, projectID, expectedVersion, kind, notes)
-}
-
-func (f *pdFakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	// The base fake carries no durable ledger — mirrors the old comment-dropping
-	// fallback (comments are accepted but not recorded).
-	return f.RejectArtifact(rc, projectID, expectedVersion, kind, notes)
-}
-
-func (f *pdFakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.bump(), nil
 }
 
 func (f *pdFakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -5102,11 +4858,6 @@ func (p *pdFakePipeline) nextEpisode() *agenticjob.EpisodeSummary {
 		i = len(p.episodes) - 1
 	}
 	return p.episodes[i]
-}
-
-// CancelAgenticJob satisfies the contract; the Phase-2 draft path never cancels.
-func (p *pdFakePipeline) CancelAgenticJob(_ fwra.Context, _ agenticjob.PipelineHandle) error {
-	return nil
 }
 
 // pdNeutralToRAPhase maps this Manager's neutral scripted phase onto the RA phase the
@@ -5339,19 +5090,11 @@ func (pdFakeActivityExecution) StageTaskOutput(fwra.Context, projectstate.Projec
 	return projectstate.StagedRef{}, nil
 }
 
-func (pdFakeActivityExecution) CommitActivityArtifacts(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.CommitArtifactsInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-
 func (pdFakeActivityExecution) RecordActivityOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.ActivityOutcome, projectstate.FailureReason, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 
 func (pdFakeActivityExecution) RecordOperatorNote(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.OperatorNoteInput, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-
-func (pdFakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.ArtifactKind, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 
@@ -5540,14 +5283,6 @@ func (r *pdScriptedRail) AdoptProjectRepo(_ fwra.Context, _ sourcecontrol.RepoAd
 	return sourcecontrol.RepoRef(""), nil
 }
 
-func (r *pdScriptedRail) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
-	return nil
-}
-
-func (r *pdScriptedRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
-	return sourcecontrol.Installation(""), nil
-}
-
 // SyncManagedScaffold mirrors the REAL production sourceControlAccess impl
 // ((*access).SyncManagedScaffold, github.go) — it delegates to the free-function
 // composition helper rather than stubbing directly. B9 rewires the generated
@@ -5618,19 +5353,9 @@ func (f *pdSeqProjectState) StageArtifactForReviewOnBranch(rc fwra.Context, proj
 	return f.StageArtifactForReview(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, model)
 }
 
-func (f *pdSeqProjectState) CommitArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
-	f.log.add("commit", "")
-	return f.pdFakeProjectState.CommitArtifact(rc, projectID, expectedVersion, kind)
-}
-
 func (f *pdSeqProjectState) RejectArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.log.add("rejectBranch", branch)
 	return f.RejectArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
-}
-
-func (f *pdSeqProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.log.add("withdrawBranch", branch)
-	return f.WithdrawArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
 // branchAwareRejectFake models the PRODUCTION PR-rail reality that caused QA F28 for the
@@ -5640,9 +5365,8 @@ func (f *pdSeqProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID 
 // fails loudly, so a regression to rejecting on main crashes the workflow and the test.
 type branchAwareRejectFake struct {
 	*pdFakeProjectState
-	mu               sync.Mutex
-	rejectBranches   []string
-	withdrawBranches []string
+	mu             sync.Mutex
+	rejectBranches []string
 	// failRejectOnBranch makes RejectArtifactOnBranch fault terminally (ContractMisuse) —
 	// exercises the crash-containment recovery gate.
 	failRejectOnBranch bool
@@ -5688,32 +5412,11 @@ func (f *branchAwareRejectFake) RejectArtifactOnBranch(rc fwra.Context, projectI
 	return f.pdFakeProjectState.RejectArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
-// RejectArtifactOnBranchWithComments routes to THIS type's own RejectArtifactOnBranch
-// (comments dropped) — branchAwareRejectFake models a branch-aware-but-NOT-ledger
-// substrate (the old middle rung of the 3-way Ledger→BranchAware→base fallback). Defined
-// directly here (not left to embedding promotion of *pdFakeProjectState's version) because a
-// promoted method's internal f.RejectArtifact call resolves against the EMBEDDED type, not
-// this outer one — Go has no virtual dispatch through embedding.
-func (f *branchAwareRejectFake) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
-}
-
 // RejectArtifact (MAIN path) models the PR-rail reality: main's slot is unpopulated, so a
 // main-path reject is a ContractMisuse. Shadows the embedded fake so a regression to
 // rejecting on main crashes the workflow and this test fails loudly.
 func (f *branchAwareRejectFake) RejectArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
 	return 0, fwra.New(fwra.ContractMisuse, "projectstate.RejectArtifact: slot "+kind.String()+" is unpopulated (stage a model first)")
-}
-
-// WithdrawArtifactOnBranch records the Withdraw on the SESSION BRANCH and delegates to the
-// embedded fake's bookkeeping (withdrawn). The main-path WithdrawArtifact is intentionally
-// NOT shadowed to fail (the FAILED-gate withdraw legitimately rides main); the F30
-// regression guard is the withdrawBranches assertion.
-func (f *branchAwareRejectFake) WithdrawArtifactOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	f.withdrawBranches = append(f.withdrawBranches, branch)
-	f.mu.Unlock()
-	return f.pdFakeProjectState.WithdrawArtifact(fwra.Context{Context: rc.Context, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
 // WithdrawArtifact (MAIN path) is the base behavior UNLESS failWithdrawOnMain is armed, in
@@ -5802,13 +5505,6 @@ func (f *pdF29BranchFake) RejectArtifactOnBranch(_ fwra.Context, _ projectstate.
 	return f.branchVer, nil
 }
 
-func (f *pdF29BranchFake) WithdrawArtifactOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	// Terminal in the F29 tests; leave branchVer untouched.
-	return f.branchVer, nil
-}
-
 // amendmentIndexFor — the pre-field fix rule (Phase-2 twin). A COMMITTED slot yields
 // max(1, Revisions): a slot committed BEFORE the Revisions field existed reads Revisions=0
 // yet is still an amendment (index 1). Non-committed slots are the normal path (0).
@@ -5884,29 +5580,6 @@ func (f *ledgerThreadFake) ReadProjectOnBranch(rc fwra.Context, projectID projec
 	}
 	proj.PlanningAssumptions = slot
 	return proj, nil
-}
-
-func (f *ledgerThreadFake) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.tmu.Lock()
-	for i, c := range comments {
-		f.thread = append(f.thread, projectstate.ReviewComment{
-			ID: fmt.Sprintf("r%dc%d", round, i+1), Anchor: c.Anchor, AnchorText: c.AnchorText,
-			Text: c.Text, AuthorRole: c.AuthorRole, Round: round, Status: projectstate.ReviewCommentOpen,
-		})
-	}
-	f.tmu.Unlock()
-	return f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
-}
-
-func (f *ledgerThreadFake) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, commentID string, status string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.tmu.Lock()
-	for i := range f.thread {
-		if f.thread[i].ID == commentID {
-			f.thread[i].Status = status
-		}
-	}
-	f.tmu.Unlock()
-	return f.bump(), nil
 }
 
 func (f *ledgerThreadFake) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -9308,14 +8981,6 @@ func (r *stubRail) CommitManagedFiles(_ fwra.Context, _ sourcecontrol.RepoRef, _
 	return sourcecontrol.CommitRef(""), nil
 }
 
-func (r *stubRail) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
-	return nil
-}
-
-func (r *stubRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
-	return sourcecontrol.Installation(""), nil
-}
-
 func (r *stubRail) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -9403,58 +9068,6 @@ func (s *stubGitStatus) RecordActivityCIObserved(_ fwra.Context, _ projectstate.
 	return s.apply(key, activityID, func(g *projectstate.ActivityGitStatus) { g.CICheck = ci })
 }
 
-func (s *stubGitStatus) RecordActivityArchApproved(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	return s.apply(key, activityID, func(g *projectstate.ActivityGitStatus) { g.ArchApproved = true })
-}
-
-func (s *stubGitStatus) RecordActivityMerged(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	return s.apply(key, activityID, func(g *projectstate.ActivityGitStatus) { g.Merged = true })
-}
-
-func (s *stubGitStatus) RecordActivityStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "empty activityID")
-	}
-	if v, ok := s.dedup[key]; ok {
-		return v, nil
-	}
-	s.applies++
-	c := s.cons[activityID]
-	c.ActivityID = activityID
-	if c.StartedAt == nil {
-		c.StartedAt = &testExitAt
-	}
-	c.Type = typ
-	c.Variant = variant
-	s.cons[activityID] = c
-	s.version++
-	s.dedup[key] = s.version
-	return s.version, nil
-}
-
-func (s *stubGitStatus) RecordActivityCompleted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "empty activityID")
-	}
-	if v, ok := s.dedup[key]; ok {
-		return v, nil
-	}
-	s.applies++
-	c := s.cons[activityID]
-	c.ActivityID = activityID
-	if c.CompletedAt == nil {
-		c.CompletedAt = &testExitAt
-	}
-	s.cons[activityID] = c
-	s.version++
-	s.dedup[key] = s.version
-	return s.version, nil
-}
-
 func (s *stubGitStatus) row(activityID string) (projectstate.ActivityGitStatus, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -9534,7 +9147,8 @@ func gitLifecycleAssertRailDriven(t *testing.T, rail *stubRail) {
 }
 
 // gitLifecycleAssertHeadStateRow asserts the recorded ActivityGit[C-MST] row mirrors
-// the full lifecycle (branch/PR handles, CR label, CI success, arch +1, merged).
+// the rail (branch/PR handles, CR label, CI success). The arch +1 and the merge are
+// asserted on the rail itself; the git row's ArchApproved/Merged mirror was deleted in dct4.
 func gitLifecycleAssertHeadStateRow(t *testing.T, git *stubGitStatus) {
 	t.Helper()
 	g, ok := git.row("C-MST")
@@ -9549,12 +9163,6 @@ func gitLifecycleAssertHeadStateRow(t *testing.T, git *stubGitStatus) {
 	}
 	if g.CICheck != projectstate.CICheckSuccess {
 		t.Fatalf("CICheck = %v, want Success", g.CICheck)
-	}
-	if !g.ArchApproved {
-		t.Fatalf("ArchApproved not recorded: %+v", g)
-	}
-	if !g.Merged {
-		t.Fatalf("Merged not recorded: %+v", g)
 	}
 }
 
@@ -10984,32 +10592,6 @@ func (f *csFakeProjectState) RecordActivityCIObserved(_ fwra.Context, _ projects
 	return f.bump(), nil
 }
 
-func (f *csFakeProjectState) RecordActivityArchApproved(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.bump(), nil
-}
-
-func (f *csFakeProjectState) RecordActivityMerged(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.bump(), nil
-}
-
-func (f *csFakeProjectState) RecordActivityStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.ActivityType, _ projectstate.TestingVariant, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.stampRow(activityID)
-	return f.bump(), nil
-}
-
-func (f *csFakeProjectState) RecordActivityCompleted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.stampRow(activityID)
-	return f.bump(), nil
-}
-
 var _ projectstate.GitActivityStatusAccess = (*csFakeProjectState)(nil)
 
 // csFakeActivityExecution is the in-memory activityExecutionAccess the workflow tests write
@@ -11048,31 +10630,6 @@ func (f *csFakeProjectState) execution(activityID string) projectstate.ActivityE
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.project.ActivityExecution[activityID]
-}
-
-// stampRow mirrors the production store's per-activity counter for a gitActivityStatusAccess
-// verb. Those verbs write the row through upsertActivityExecution, so each applied
-// transition advances Version by exactly one, the same as activityExecutionAccess's own
-// verbs — and the double has to stamp it too, or a workflow test would never see the drift
-// a run's copy of the row version takes when such a write lands between two ledger ones.
-//
-// EVERY such verb that stamps in production calls it — the two in
-// TestEveryMutatingVerbOnARowStampsItsVersion's first block: RecordActivityStarted and
-// RecordActivityCompleted. (constructionTransitionAccess's seven stamping verbs went with
-// that facet, dct Plan 4 Task 3.)
-//
-// It stamps an EXISTING row and never births one. A run reaches these verbs with a row
-// only after OpenActivity birthed it (step 0 of the spine), and birthing a bare row here
-// would hand every ledger-OFF test an activity row its run never opened — a row with no
-// pin, no StartedAt and no ledger, which the coarse-phase derivations would then read.
-// Callers hold the lock.
-func (f *csFakeProjectState) stampRow(activityID string) {
-	row, ok := f.project.ActivityExecution[activityID]
-	if !ok {
-		return
-	}
-	row.Version++
-	f.project.ActivityExecution[activityID] = row
 }
 
 // applyExecution is the shared shape of every mutating verb on the double: the
@@ -11551,14 +11108,6 @@ func legalCommentTransition(from, to string) bool {
 	return false
 }
 
-func (csFakeActivityExecution) CommitActivityArtifacts(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.CommitArtifactsInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-
-func (csFakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.ArtifactKind, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-
 // A REQUEUE NOTE RE-ARMS A TERMINAL ROW, and the double mirrors the store's refusal (stage 4b1
 // Task 12, fix round 1): a double that re-armed anything it was handed would make the whole
 // re-open path pass while production refused it, and one that re-armed NOTHING would make the
@@ -11873,18 +11422,6 @@ func (fakeFullProjectState) RejectArtifactOnBranch(fwra.Context, projectstate.Pr
 	return 0, nil
 }
 
-func (fakeFullProjectState) WithdrawArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-
-func (fakeFullProjectState) RejectArtifactOnBranchWithComments(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-
-func (fakeFullProjectState) SetReviewCommentStatusOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, string, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-
 func (fakeFullProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
@@ -11925,10 +11462,10 @@ func (f fakeFullProjectState) AdvancePhase(fwra.Context, projectstate.ProjectID,
 	return f.bump(), nil
 }
 
-// CommitArtifact RECORDS: it is what designSessionAccess.CommitArtifactWithProvenance
-// falls back to for a base with no provenance capability, so it is the verb M0's approve
-// reaches and the one the commit-then-advance ORDER is asserted on.
-func (f fakeFullProjectState) CommitArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+// CommitArtifactWithProvenance RECORDS: designSessionAccess.CommitArtifactWithProvenance
+// forwards to it, so it is the verb M0's approve reaches and the one the
+// commit-then-advance ORDER is asserted on.
+func (f fakeFullProjectState) CommitArtifactWithProvenance(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _, _ string) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.commitFailKinds[kind] {
@@ -12007,11 +11544,9 @@ type csFakePipeline struct {
 	phase     PipelinePhase // terminal phase to serve
 	diag      string
 	submitted []agenticjob.PipelineSpec
-	cancelled []agenticjob.PipelineHandle
 	polls     int
 
-	// order, when set, receives "cancel" on every cancel — a call-order log shared
-	// with the other fakes (callLog).
+	// order, when set, is a call-order log shared with the other fakes (callLog).
 	order *callLog
 
 	// episode, when set, rides EVERY observation — the local executor's mined
@@ -12178,14 +11713,6 @@ func (p *csFakePipeline) runningBudget(task string) int {
 	return p.runningPolls
 }
 
-func (p *csFakePipeline) CancelAgenticJob(_ fwra.Context, handle agenticjob.PipelineHandle) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.cancelled = append(p.cancelled, handle)
-	p.order.add("cancel")
-	return nil
-}
-
 var _ agenticjob.AgenticJobAccess = (*csFakePipeline)(nil)
 
 // fakeIntervention returns scripted directives/plans. Satisfies the PUBLISHED
@@ -12287,7 +11814,6 @@ func registerGenPipeline(env *testsuite.TestWorkflowEnvironment, ps *csFakeProje
 	acts := &genActivities{Pipeline: venueOver(ps, pipe), Artifact: venueArtifact(ps)}
 	env.RegisterActivityWithOptions(acts.PipelineSubmitAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.submitAgenticJob"})
 	env.RegisterActivityWithOptions(acts.PipelineObserveAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.observeAgenticJob"})
-	env.RegisterActivityWithOptions(acts.PipelineCancelAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.cancelAgenticJob"})
 	env.RegisterActivityWithOptions(acts.ArtifactGetTestRunIndex, activity.RegisterOptions{Name: "artifactAccess.getTestRunIndex"})
 }
 
@@ -12352,10 +11878,6 @@ func (v *venueDouble) ObserveAgenticJob(rc fwra.Context, handle agenticjob.Pipel
 		v.ps.recordVenueRun(string(spec.ActivityID), spec.DispatchInputs["component_id"], string(handle))
 	}
 	return obs, nil
-}
-
-func (v *venueDouble) CancelAgenticJob(rc fwra.Context, handle agenticjob.PipelineHandle) error {
-	return v.inner.CancelAgenticJob(rc, handle)
 }
 
 var _ agenticjob.AgenticJobAccess = (*venueDouble)(nil)
@@ -12501,10 +12023,6 @@ func registerGenGitStatus(env *testsuite.TestWorkflowEnvironment, gs projectstat
 	acts := &genActivities{GitStatus: gs}
 	env.RegisterActivityWithOptions(acts.GitStatusRecordActivityBranchOpened, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityBranchOpened"})
 	env.RegisterActivityWithOptions(acts.GitStatusRecordActivityCIObserved, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityCIObserved"})
-	env.RegisterActivityWithOptions(acts.GitStatusRecordActivityArchApproved, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityArchApproved"})
-	env.RegisterActivityWithOptions(acts.GitStatusRecordActivityMerged, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityMerged"})
-	env.RegisterActivityWithOptions(acts.GitStatusRecordActivityStarted, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityStarted"})
-	env.RegisterActivityWithOptions(acts.GitStatusRecordActivityCompleted, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityCompleted"})
 }
 
 // registerGenDesignSessionRead registers the GENERATED designSessionAccess
@@ -12668,7 +12186,7 @@ func runPauseBranchRigPayload(busErr error, setup func(*testsuite.TestWorkflowEn
 	bus := &recordingSignalBus{err: busErr, order: order}
 	wf := csNewWorkflows(wfDeps{
 		Review:       &fakeReview{},
-		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{RecordPaused: true}},
 	})
 	registerSupervisionWithBus(env, wf, ps, pipe, bus)
 	if setup != nil {
@@ -12719,11 +12237,10 @@ func sampleActivity() constructionActivity {
 
 // flippablePipeline serves `first` on the first terminal observation, then `rest`.
 type flippablePipeline struct {
-	mu        sync.Mutex
-	first     PipelinePhase
-	rest      PipelinePhase
-	submits   int
-	cancelled []agenticjob.PipelineHandle
+	mu      sync.Mutex
+	first   PipelinePhase
+	rest    PipelinePhase
+	submits int
 }
 
 func (p *flippablePipeline) SubmitAgenticJob(_ fwra.Context, _ agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
@@ -12740,13 +12257,6 @@ func (p *flippablePipeline) ObserveAgenticJob(_ fwra.Context, _ agenticjob.Pipel
 		return agenticjob.PipelineObservation{Phase: contractPipelinePhase(p.first), Diagnostic: "boom"}, nil
 	}
 	return agenticjob.PipelineObservation{Phase: contractPipelinePhase(p.rest)}, nil
-}
-
-func (p *flippablePipeline) CancelAgenticJob(_ fwra.Context, handle agenticjob.PipelineHandle) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.cancelled = append(p.cancelled, handle)
-	return nil
 }
 
 var _ agenticjob.AgenticJobAccess = (*flippablePipeline)(nil)
@@ -12905,7 +12415,7 @@ func Test_Supervision_ARelayedPauseIsNotDropped(t *testing.T) {
 			if r.err != nil {
 				t.Fatalf("supervision error: %v", r.err)
 			}
-			if got := r.order.String(); got != "record→relay→cancel" {
+			if got := r.order.String(); got != "record→relay" {
 				t.Fatalf("the pause branch must run in full, got %q", got)
 			}
 			if len(r.ps.paused) != 1 || r.ps.paused[0] != tc.wantReason {
@@ -12916,40 +12426,41 @@ func Test_Supervision_ARelayedPauseIsNotDropped(t *testing.T) {
 }
 
 // M1 / I2 test 8 (version gate "pause-relays-to-pump", DefaultVersion branch). A
-// pre-change supervision execution keeps main's sequence EXACTLY: cancel, then record,
-// and no relay.
-func Test_Pause_RelayGate_DefaultVersion_CancelThenRecord_NoRelay(t *testing.T) {
+// pre-change supervision execution keeps main's sequence: record, and no relay. (Main's
+// sequence was cancel-then-record, but the cancel scheduled no command — the plan's cancel
+// list was always empty — so dct4 deleted it without changing a recorded history.)
+func Test_Pause_RelayGate_DefaultVersion_RecordsWithNoRelay(t *testing.T) {
 	r := runPauseBranchRig(nil, func(env *testsuite.TestWorkflowEnvironment) {
 		env.OnGetVersion("pause-relays-to-pump", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
 	})
 	if r.err != nil {
 		t.Fatalf("supervision error: %v", r.err)
 	}
-	if got := r.order.String(); got != "cancel→record" {
-		t.Fatalf("a pre-change execution must run main's cancel→record with no relay, got %q", got)
+	if got := r.order.String(); got != "record" {
+		t.Fatalf("a pre-change execution must record with no relay, got %q", got)
 	}
 	if len(r.bus.targets) != 0 {
 		t.Fatalf("a pre-change execution must not relay, got %v", r.bus.targets)
 	}
 }
 
-// I2 test 1 (architect ruling, 2026-09-12): RECORD → RELAY → CANCEL. The pause is
-// durable in head-state BEFORE it is relayed, so a pump the sweep (re)starts inside the
-// relay window reads it at its recorded-pause gate. One call-order log is shared across
-// the fake state (record), bus (relay) and pipeline (cancel).
+// I2 test 1 (architect ruling, 2026-09-12): RECORD → RELAY. The pause is durable in
+// head-state BEFORE it is relayed, so a pump the sweep (re)starts inside the relay window
+// reads it at its recorded-pause gate. One call-order log is shared across the fake state
+// (record) and bus (relay). (The trailing CANCEL went in dct4: it never cancelled anything.)
 func Test_Pause_RecordsBeforeRelayingToPump(t *testing.T) {
 	r := runPauseBranchRig(nil, nil)
 	if r.err != nil {
 		t.Fatalf("supervision error: %v", r.err)
 	}
-	if got := r.order.String(); got != "record→relay→cancel" {
-		t.Fatalf("want record→relay→cancel, got %q", got)
+	if got := r.order.String(); got != "record→relay" {
+		t.Fatalf("want record→relay, got %q", got)
 	}
 }
 
 // I2 test 2 (also fix-round M3). Only NotFound (no pump running) is tolerated: any other
 // relay failure FAILS the pause branch loudly. The pause was recorded FIRST, so it STAYS
-// recorded (the sweep keeps honouring it), and the pipelines are not cancelled.
+// recorded (the sweep keeps honouring it).
 // ContractMisuse is used because it is non-retryable under the default Activity options
 // (a Transient error would retry indefinitely).
 func Test_Pause_RelayFailsAfterRecord_PausedStaysRecorded_WorkflowFails(t *testing.T) {
@@ -12961,7 +12472,7 @@ func Test_Pause_RelayFailsAfterRecord_PausedStaysRecorded_WorkflowFails(t *testi
 		t.Fatalf("the pause was recorded before the relay and must stay recorded, got %v", r.ps.paused)
 	}
 	if got := r.order.String(); got != "record→relay" {
-		t.Fatalf("want record→relay and no cancel after the failed relay, got %q", got)
+		t.Fatalf("want record→relay, got %q", got)
 	}
 }
 
@@ -12978,7 +12489,7 @@ func Test_Pause_RelaysPauseToProjectPump(t *testing.T) {
 	bus := &recordingSignalBus{}
 	wf := csNewWorkflows(wfDeps{
 		Review:       &fakeReview{},
-		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{RecordPaused: true}},
 	})
 	registerSupervisionWithBus(env, wf, ps, pipe, bus)
 
@@ -13002,14 +12513,14 @@ func Test_Pause_RelaysPauseToProjectPump(t *testing.T) {
 		t.Fatalf("relayed payload must decode to the operator's pause, got %+v (err %v)", sig, err)
 	}
 	// The rest of the pause branch still runs.
-	if len(pipe.cancelled) != 1 || len(ps.paused) != 1 {
-		t.Fatalf("want the pipeline cancel + recordOperatorPaused as before, got cancels=%d paused=%v", len(pipe.cancelled), ps.paused)
+	if len(ps.paused) != 1 {
+		t.Fatalf("want recordOperatorPaused as before, got paused=%v", ps.paused)
 	}
 }
 
 // No pump running (never started, or already closed quiet) is the normal case for a
 // project paused between cascades: messageBus reports the target NotFound, and the
-// pause branch must tolerate it and still cancel + record the pause.
+// pause branch must tolerate it and still record the pause.
 func Test_Pause_NoRunningPump_NotFoundTolerated(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -13020,7 +12531,7 @@ func Test_Pause_NoRunningPump_NotFoundTolerated(t *testing.T) {
 	bus := &recordingSignalBus{err: fwra.New(fwra.NotFound, "messagebus: no execution with that id")}
 	wf := csNewWorkflows(wfDeps{
 		Review:       &fakeReview{},
-		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{RecordPaused: true}},
 	})
 	registerSupervisionWithBus(env, wf, ps, pipe, bus)
 
@@ -13036,16 +12547,15 @@ func Test_Pause_NoRunningPump_NotFoundTolerated(t *testing.T) {
 	if len(bus.targets) != 1 {
 		t.Fatalf("want the relay attempted once, got %d", len(bus.targets))
 	}
-	if len(pipe.cancelled) != 1 || len(ps.paused) != 1 || ps.paused[0] != "operator halt" {
-		t.Fatalf("want the pipeline cancel + recordOperatorPaused(operator halt), got cancels=%d paused=%v", len(pipe.cancelled), ps.paused)
+	if len(ps.paused) != 1 || ps.paused[0] != "operator halt" {
+		t.Fatalf("want recordOperatorPaused(operator halt), got paused=%v", ps.paused)
 	}
 }
 
-// The operator-pause branch: applyPausePolicy returns a plan naming a pipeline to
-// cancel + RecordPaused; the Manager EXECUTES the pipeline cancel + recordOperatorPaused.
-// (The LLM worker-cancel abandon step is retired under agentic-everywhere; the in-flight
-// dispatch is the GH-Actions pipeline, cancelled via the pause plan's PipelinesToCancel.)
-func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
+// The operator-pause branch: applyPausePolicy returns a plan asking for RecordPaused; the
+// Manager EXECUTES recordOperatorPaused and cancels NOTHING — the activity already running
+// finishes (the agentic-job cancel verb and the plan's cancel list were deleted in dct4).
+func Test_Pause_AppliesPolicy_RecordsPaused_CancelsNothing(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -13054,7 +12564,7 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	pipe := &csFakePipeline{}
 	wf := csNewWorkflows(wfDeps{
 		Review:       &fakeReview{},
-		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{RecordPaused: true}},
 	})
 	registerSupervision(env, wf, ps, pipe)
 
@@ -13067,8 +12577,8 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("supervision error: %v", err)
 	}
-	if len(pipe.cancelled) != 1 {
-		t.Fatalf("want one pipeline cancel from the pause plan, got %d", len(pipe.cancelled))
+	if len(pipe.submitted) != 0 {
+		t.Fatalf("a pause dispatches nothing, got %d submit(s)", len(pipe.submitted))
 	}
 	if len(ps.paused) != 1 || ps.paused[0] != "operator halt" {
 		t.Fatalf("want one recordOperatorPaused(operator halt), got %v", ps.paused)
@@ -13986,10 +13496,6 @@ func (p *failOncePipeline) ObserveAgenticJob(_ fwra.Context, _ agenticjob.Pipeli
 	return agenticjob.PipelineObservation{Phase: agenticjob.PhaseSucceeded}, nil
 }
 
-func (p *failOncePipeline) CancelAgenticJob(_ fwra.Context, _ agenticjob.PipelineHandle) error {
-	return nil
-}
-
 var _ agenticjob.AgenticJobAccess = (*failOncePipeline)(nil)
 
 // envSignalClient is a Temporal client whose SignalWorkflow delivers into a
@@ -14038,10 +13544,6 @@ func (p *mergeConflictPipeline) ObserveAgenticJob(_ fwra.Context, handle agentic
 		}, nil
 	}
 	return agenticjob.PipelineObservation{Phase: agenticjob.PhaseSucceeded}, nil
-}
-
-func (p *mergeConflictPipeline) CancelAgenticJob(_ fwra.Context, _ agenticjob.PipelineHandle) error {
-	return nil
 }
 
 var _ agenticjob.AgenticJobAccess = (*mergeConflictPipeline)(nil)
@@ -20782,8 +20284,6 @@ func (p *designJobPipeline) ObserveAgenticJob(_ fwra.Context, handle agenticjob.
 	return agenticjob.PipelineObservation{Phase: agenticjob.PhaseSucceeded}, nil
 }
 
-func (*designJobPipeline) CancelAgenticJob(fwra.Context, agenticjob.PipelineHandle) error { return nil }
-
 // setDesignSlotModel / setDesignSlotCritique are the WRITE side of designSlotForKind, which
 // this package has only ever needed to read. They cover the five kinds the two design
 // lifecycles produce and Fatalf-free-ignore the rest, because a case naming a sixth would
@@ -24043,16 +23543,7 @@ func (f *fakeDesignSession) CommitArtifactWithProvenance(_ fwra.Context, _ proje
 func (f *fakeDesignSession) ReadProjectOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ string) (projectstate.ProjectEnvelope, error) {
 	return projectstate.ProjectEnvelope{}, nil
 }
-func (f *fakeDesignSession) RejectArtifactOnBranchWithComments(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-func (f *fakeDesignSession) WithdrawArtifactOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
 func (f *fakeDesignSession) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
-}
-func (f *fakeDesignSession) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 func (f *fakeDesignSession) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -24402,9 +23893,9 @@ func TestGetProject_ComputeEarnedValueAtRead(t *testing.T) {
 	p.ActivityList = projectstate.ArtifactSlot{
 		Status: projectstate.ReviewCommitted,
 		Model: &projectstate.ActivityList{Activities: []projectstate.ActivityItem{
-			{Name: "A", EffortDays: 5, WorkerClass: "dev"},
-			{Name: "B", EffortDays: 5, WorkerClass: "dev"},
-			{Name: "C", EffortDays: 10, WorkerClass: "dev"},
+			{Name: "A", EffortDays: 5, WorkerClass: "junior-developer", Coding: true},
+			{Name: "B", EffortDays: 5, WorkerClass: "junior-developer", Coding: true},
+			{Name: "C", EffortDays: 10, WorkerClass: "junior-developer", Coding: true},
 		}},
 	}
 	p.Network = projectstate.ArtifactSlot{
@@ -24416,15 +23907,14 @@ func TestGetProject_ComputeEarnedValueAtRead(t *testing.T) {
 	}
 	// The integrated set is read through classifiedRowView + CoarseBuildStatusFor, the
 	// same derivation the row view uses, so an "integrated" fixture must (a) be
-	// classifiable at all — a frozen service contract does that — and (b) carry the
-	// completed set for its PROFILE's phases. A stored flag over an empty or partial
-	// phase slice derives to in-construction, and the curve would then contradict the
-	// status beside it.
-	contract := []projectstate.ProducedArtifact{{Kind: "service-contract"}}
+	// classifiable at all — a coding junior-developer item types as a service — and (b)
+	// carry the completed set for its PROFILE's phases. A stored flag over an empty or
+	// partial phase slice derives to in-construction, and the curve would then contradict
+	// the status beside it.
 	p.ActivityExecution = map[string]projectstate.ActivityExecution{
-		"A": {ActivityID: "A", Produced: contract, Attempts: allServiceLedger()},
-		"B": {ActivityID: "B", Produced: contract, Attempts: allServiceLedger()},
-		"C": {ActivityID: "C", Produced: contract, Attempts: openLedger()},
+		"A": {ActivityID: "A", Attempts: allServiceLedger()},
+		"B": {ActivityID: "B", Attempts: allServiceLedger()},
+		"C": {ActivityID: "C", Attempts: openLedger()},
 	}
 	p.ConstructionProgress = &projectstate.ConstructionProgress{Week: 2, TotalWeeks: 4, HandOffModel: "senior", SupervisionCap: 3}
 
@@ -25514,8 +25004,8 @@ func Test_GitForward_Dormant_WhenUnwired(t *testing.T) {
 }
 
 // workflowGitForwardOrder asserts the rail+record order at the workflow level by
-// checking that, on a successful lifecycle, the head-state row ends in the terminal
-// (merged) state — i.e. every step ran and recorded in sequence without a gap.
+// checking that, on a successful lifecycle, the head-state row ends mirroring the rail
+// (branch + green CI) — i.e. every record step ran in sequence without a gap.
 func Test_GitForward_RecordsConvergeMonotonically(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -25534,12 +25024,13 @@ func Test_GitForward_RecordsConvergeMonotonically(t *testing.T) {
 		t.Fatalf("workflow error: %v", err)
 	}
 	g, _ := git.row("C-MONO")
-	if g.BranchName == "" || g.CICheck != projectstate.CICheckSuccess || !g.ArchApproved || !g.Merged {
+	if g.BranchName == "" || g.CICheck != projectstate.CICheckSuccess {
 		t.Fatalf("lifecycle did not converge through all record steps: %+v", g)
 	}
-	// At least 4 distinct applies (branch, ci, approve, merge) landed.
-	if git.applies < 4 {
-		t.Fatalf("want >=4 record applies across the lifecycle, got %d", git.applies)
+	// At least 2 distinct applies (branch, ci) landed — the approve and merge are rail
+	// calls with no git-row mirror since dct4.
+	if git.applies < 2 {
+		t.Fatalf("want >=2 record applies across the lifecycle, got %d", git.applies)
 	}
 }
 
@@ -28668,10 +28159,10 @@ func pumpGuardCensusSupervision() []pumpGuard {
 		{"G-V1", "projectsupervision.go:40-44", "the sessionState Query handler is registered BEFORE the blocking Receive",
 			"a project-scope GetSessionState fails for every unpaused project",
 			"Test_Supervision_SessionStateIsQueryableWhileItWaitsForThePause"},
-		{"G-V2", "projectsupervision.go:92", "the pause-relays-to-pump fence: Default keeps cancel-then-record with no relay",
+		{"G-V2", "projectsupervision.go:92", "the pause-relays-to-pump fence: Default keeps the record with no relay",
 			"non-determinism on a supervision run already inside the branch at deploy",
-			"Test_Pause_RelayGate_DefaultVersion_CancelThenRecord_NoRelay"},
-		{"G-V3", "projectsupervision.go:102-110", "RECORD then RELAY then CANCEL, in that order",
+			"Test_Pause_RelayGate_DefaultVersion_RecordsWithNoRelay"},
+		{"G-V3", "projectsupervision.go:102-110", "RECORD then RELAY, in that order",
 			"a pump started inside the relay window dispatches through an operator halt",
 			"Test_Pause_RecordsBeforeRelayingToPump"},
 		{"G-V4", "projectsupervision.go:102-110", "each step's error arm aborts the rest, and the pause STAYS recorded",
@@ -30001,10 +29492,8 @@ func Test_Pause_APlanThatDoesNotRecord_WritesNoPause(t *testing.T) {
 	pipe := &csFakePipeline{}
 	bus := &recordingSignalBus{}
 	wf := csNewWorkflows(wfDeps{
-		Review: &fakeReview{},
-		Intervention: &fakeIntervention{plan: intervention.PausePlan{
-			PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: false,
-		}},
+		Review:       &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{RecordPaused: false}},
 	})
 	registerSupervisionWithBus(env, wf, ps, pipe, bus)
 
@@ -30020,8 +29509,8 @@ func Test_Pause_APlanThatDoesNotRecord_WritesNoPause(t *testing.T) {
 	if len(ps.paused) != 0 {
 		t.Fatalf("G-V6: a plan that does not ask for the record must write none, got %v", ps.paused)
 	}
-	if len(bus.targets) != 1 || len(pipe.cancelled) != 1 {
-		t.Fatalf("G-V6: the rest of the branch still runs; got %d relay(s), %d cancel(s)", len(bus.targets), len(pipe.cancelled))
+	if len(bus.targets) != 1 {
+		t.Fatalf("G-V6: the rest of the branch still runs; got %d relay(s)", len(bus.targets))
 	}
 }
 
@@ -30736,7 +30225,7 @@ func Test_DeliveryActivity_TheMergeTailReportsTheOutcomeItReached(t *testing.T) 
 	}{
 		{"a clean tail is the only completion", false, nil, projectstate.ActivityOutcomeCompleted},
 		{"a give-up is not a completion", true, nil, projectstate.ActivityOutcomeUnknown},
-		{"a broken tail is not a completion", false, errors.New("mergeAndRecord failed"), projectstate.ActivityOutcomeUnknown},
+		{"a broken tail is not a completion", false, errors.New("mergeGated failed"), projectstate.ActivityOutcomeUnknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := mainWriteTailOutcome(tc.exited, tc.err); got != tc.want {
@@ -31543,10 +31032,6 @@ func (v *gitVenueDouble) ObserveAgenticJob(rc fwra.Context, handle agenticjob.Pi
 	return obs, nil
 }
 
-func (v *gitVenueDouble) CancelAgenticJob(rc fwra.Context, handle agenticjob.PipelineHandle) error {
-	return v.inner.CancelAgenticJob(rc, handle)
-}
-
 func (v *gitVenueDouble) recordRun(spec agenticjob.PipelineSpec, runID string) {
 	if err := v.publishRun(spec, runID); err != nil {
 		v.t.Errorf("git venue: record-test-run for %s: %v", spec.ActivityID, err)
@@ -31699,16 +31184,12 @@ func registerDeliveryActivityOverGitWithPipeline(
 		"activityExecutionAccess.setReviewCommentStatus":     acts.ActivityExecutionSetReviewCommentStatus,
 		"activityExecutionAccess.recordOperatorNote":         acts.ActivityExecutionRecordOperatorNote,
 		"activityExecutionAccess.recordActivityOutcome":      acts.ActivityExecutionRecordActivityOutcome,
-		"gitActivityStatusAccess.recordActivityStarted":      acts.GitStatusRecordActivityStarted,
-		"gitActivityStatusAccess.recordActivityCompleted":    acts.GitStatusRecordActivityCompleted,
 		"gitActivityStatusAccess.recordActivityBranchOpened": acts.GitStatusRecordActivityBranchOpened,
 		"gitActivityStatusAccess.recordActivityCIObserved":   acts.GitStatusRecordActivityCIObserved,
-		"gitActivityStatusAccess.recordActivityMerged":       acts.GitStatusRecordActivityMerged,
 		"sourceControlAccess.openBranch":                     acts.RailOpenBranch,
 		"sourceControlAccess.getInstallationToken":           acts.RailGetInstallationToken,
 		"agenticJobAccess.submitAgenticJob":                  acts.PipelineSubmitAgenticJob,
 		"agenticJobAccess.observeAgenticJob":                 acts.PipelineObserveAgenticJob,
-		"agenticJobAccess.cancelAgenticJob":                  acts.PipelineCancelAgenticJob,
 		"episodeAccess.appendEpisode":                        acts.EpisodesAppendEpisode,
 		"messageBus.deliverSignal":                           acts.MessageBusDeliverSignal,
 		"artifactAccess.getTestRunIndex":                     acts.ArtifactGetTestRunIndex,

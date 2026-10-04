@@ -259,7 +259,7 @@ func TestMigrate_TheRealStateKeepsEveryRowAndEveryAttempt(t *testing.T) {
 		if !reflect.DeepEqual(was.Attempts, now.Attempts) {
 			t.Fatalf("row %s: the attempt ledger changed", id)
 		}
-		if !reflect.DeepEqual(was.OperatorNotes, now.OperatorNotes) || was.Produced != nil && !reflect.DeepEqual(was.Produced, now.Produced) {
+		if !reflect.DeepEqual(was.OperatorNotes, now.OperatorNotes) {
 			t.Fatalf("row %s: a carried member changed", id)
 		}
 	}

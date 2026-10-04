@@ -20,8 +20,7 @@ import (
 
 // ===========================================================================
 // CloseCycleWorkflow — op 2.3 entry (UC6 cycle-close; Schedule-triggered). The worked
-// example. Stays alive to await the inbound/reversal/chargeback Signals that target its
-// id (§6.3); a chargeback runs the forward-only recompute saga.
+// example.
 // ===========================================================================
 
 // CloseInput is the start payload for CloseCycleWorkflow.
@@ -31,21 +30,13 @@ type closeInput struct {
 }
 
 // CloseCycleWorkflow drives UC6 cycle-close (billingManager.md §6.3):
-//  1. (drain any inbound-revenue signals already enqueued — consumed and dropped: the
-//     charge-only model keeps no revenue ledger, so revenue never enters the net).
-//  2. ReadBillingActivity → terms + expectedVersion.
-//  3. ReadUsageRangeActivity → the usage value snapshot (revenue is the zero snapshot).
-//  4. billingengine.BillingEngine.ComputeNet (direct, by value) → {signedNet, routingDirective}.
-//  5. execute the directive: Payout / Charge (on failure decide→execute) / NoAction.
-//  6. SettleCycleActivity (head-state; Conflict loop).
-//  7. await chargebackReceived → forward-only RecomputeCycle saga (§6.3).
+//  1. ReadBillingActivity → terms + expectedVersion.
+//  2. ReadUsageRangeActivity → the usage value snapshot (revenue is the zero snapshot).
+//  3. billingengine.BillingEngine.ComputeNet (direct, by value) → {signedNet, routingDirective}.
+//  4. execute the directive: Charge (on failure decide→execute) / NoAction.
+//  5. SettleCycleActivity (head-state; Conflict loop).
 func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (CloseCycleResult, error) {
 	logger := workflow.GetLogger(ctx)
-
-	// Drain any inbound-revenue signals delivered before/at close (signal-with-start
-	// may have started this workflow). They are consumed and dropped (§2.5 under the
-	// charge-only model).
-	drainInboundRevenue(ctx)
 
 	billing, err := wf.readBilling(ctx, in.CustomerID)
 	if err != nil {
@@ -91,12 +82,6 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	logger.Info("cycle settled", "customerId", in.CustomerID.String(), "cycleId", in.CycleID,
 		"directive", routingDirectiveName(RoutingDirective(result.RoutingDirective)), "escalated", escalated)
 
-	// Await a chargeback for this cycle (forward-only recompute saga). The wait is the
-	// Manager's own in-workflow primitive (awaitSignal — category A). A short selector
-	// keeps the close bounded for the test/scheduled path; a chargeback re-derives the
-	// recompute. The await is non-blocking when no chargeback arrives within the cycle.
-	wf.awaitChargeback(ctx, in.CustomerID, in.CycleID, result)
-
 	return CloseCycleResult{
 		CustomerID: in.CustomerID,
 		CycleID:    in.CycleID,
@@ -118,7 +103,7 @@ func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycle
 	switch result.RoutingDirective {
 	case billingengine.RoutingCharge:
 		// Charge the positive magnitude of the negative shortfall net.
-		chargeAmount := Money{MinorUnits: -result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency}
+		chargeAmount := merchantgateway.Money{MinorUnits: -result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency}
 		cerr := wf.chargeCustomer(ctx, customerID, cycleID, chargeAmount)
 		if cerr == nil {
 			return false, nil
@@ -178,90 +163,11 @@ func (wf *workflows) handleChargeFailure(ctx workflow.Context, customerID custom
 	}
 }
 
-// drainInboundRevenue consumes any inbound-revenue signals already enqueued on the cycle
-// workflow (non-blocking) and drops them. Under the charge-only model the platform never
-// shares in end-user revenue (billingManager.md §3.0, R-013), so there is nothing to
-// record: the ledger these facts were once appended to was a permanent no-op and was
-// deleted with revenueLedgerAccess (dct Plan 4 Task 3).
-func drainInboundRevenue(ctx workflow.Context) {
-	ch := workflow.GetSignalChannel(ctx, signalInboundRevenueReceived)
-	for {
-		var event GatewayRevenueEvent
-		if !ch.ReceiveAsync(&event) {
-			return
-		}
-	}
-}
-
 // chargeOnlyRevenue is the cycle's revenue snapshot under the charge-only model: zero,
 // in no currency, from no events — exactly what folding the retired no-op ledger's empty
 // range produced. The net is the hosting-cost charge alone.
 func chargeOnlyRevenue() billingengine.CycleRevenue {
 	return billingengine.CycleRevenue{}
-}
-
-// awaitChargeback waits (bounded by the cycle window) for a chargebackReceived signal
-// and, on arrival, runs the forward-only recompute saga (§6.3). The wait is the
-// Manager's own in-workflow primitive (awaitSignal — category A). It returns once a
-// chargeback is handled or the cycle window elapses with none.
-func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID, cycleID cycleID, prior billingengine.BillingResult) {
-	ch := workflow.GetSignalChannel(ctx, signalChargebackReceived)
-	var event GatewayReversalEvent
-	if !ch.ReceiveAsync(&event) {
-		// No chargeback pending — the close completes; a later chargeback re-derives a
-		// fresh close workflow via signal-with-start (§6.2).
-		return
-	}
-	// The chargeback's own amount enters nothing — there is no revenue ledger to reverse
-	// under charge-only — so its arrival is the whole of what it contributes: the trigger.
-	if err := wf.recomputeCycle(ctx, customerID, cycleID, prior); err != nil {
-		workflow.GetLogger(ctx).Error("chargeback recompute failed", "customerId", customerID.String(), "cycleId", cycleID, "err", err.Error())
-	}
-}
-
-// recomputeCycle runs the forward-only chargeback recompute saga (billingManager.md
-// §6.3 RecomputeCycleWorkflow body):
-//  1. (no reversal fact is recorded — there is no revenue ledger under charge-only).
-//  2. re-fold the usage.
-//  3. billingengine.BillingEngine.RecomputeNet (direct, by value) → corrected net + DELTA directive.
-//  4. ResettleCycleActivity (head-state correction; Conflict loop).
-//  5. route the DELTA charge/payout via the gateway. No rollback (forward-only).
-func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, prior billingengine.BillingResult) error {
-	usage, uerr := wf.foldUsage(ctx, customerID, cycleID)
-	if uerr != nil {
-		return uerr
-	}
-
-	billing, serr := wf.readBilling(ctx, customerID)
-	if serr != nil {
-		return serr
-	}
-
-	// Recompute the corrected net + DELTA directive — DIRECT, by value, in-workflow,
-	// through the published contract.
-	corrected, cerr := wf.Billing.RecomputeNet(fweng.Context{Context: context.Background()},
-		billingengine.ReBillingInput{
-			Revenue:      chargeOnlyRevenue(),
-			Usage:        usage,
-			Terms:        termsToEngine(billing.Terms),
-			PriorSettled: prior,
-		})
-	if cerr != nil {
-		return fwmgr.MapError(cerr)
-	}
-
-	// Record the correction (head-state in place; Conflict loop).
-	correction := billingstate.BillingOutcome{
-		Net:       billingstate.Money{MinorUnits: corrected.SignedNet.MinorUnits, Currency: corrected.SignedNet.Currency},
-		Directive: routingDirectiveToState(corrected.RoutingDirective),
-	}
-	if _, rserr := wf.resettleCycle(ctx, customerID, billing.Version, cycleID, correction); rserr != nil {
-		return rserr
-	}
-
-	// Route the DELTA forward (no rollback).
-	_, routeErr := wf.routeNet(ctx, customerID, cycleID, corrected, 0)
-	return routeErr
 }
 
 // foldUsage invokes usageAccess.readRange (whole cycle; OperatedAppID nil) and folds the
@@ -286,21 +192,14 @@ func (wf *workflows) foldUsage(ctx workflow.Context, customerID customerID, cycl
 // chargeCustomer invokes merchantGatewayAccess.chargeCustomer (caller-keyed
 // settle:{customerId}:{cycleId}). A terminal decline (RA Auth) surfaces to the
 // decideOnBillingFailure branch (OQ-4).
-func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, amount Money) error {
+func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, amount merchantgateway.Money) error {
 	key := gatewayIdempotencyKey(customerID, cycleID)
-	return wf.Acts.MerchantGatewayChargeCustomer(ctx, fwra.IdempotencyKey(key), customerID,
-		merchantgateway.Money{MinorUnits: amount.MinorUnits, Currency: amount.Currency}, key)
+	return wf.Acts.MerchantGatewayChargeCustomer(ctx, fwra.IdempotencyKey(key), customerID, amount, key)
 }
 
 func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, seed billingstate.Version, cycleID cycleID, outcome billingstate.BillingOutcome) (billingstate.Version, error) {
 	return wf.applyRecovering(ctx, customerID, seed, func(expected billingstate.Version) (billingstate.Version, error) {
 		return wf.Acts.BillingStateSettleCycle(ctx, customerID, expected, string(cycleID), outcome)
-	})
-}
-
-func (wf *workflows) resettleCycle(ctx workflow.Context, customerID customerID, seed billingstate.Version, cycleID cycleID, correction billingstate.BillingOutcome) (billingstate.Version, error) {
-	return wf.applyRecovering(ctx, customerID, seed, func(expected billingstate.Version) (billingstate.Version, error) {
-		return wf.Acts.BillingStateResettleCycle(ctx, customerID, expected, string(cycleID), correction)
 	})
 }
 
@@ -327,31 +226,6 @@ func isGatewayDecline(err error) bool {
 // surfaces (RA Auth — the gateway declined). On it the close workflow runs the
 // intervention.InterventionEngine decide→execute branch (OQ-4).
 var gatewayDeclineErrType = fwmgr.RAErrType(fwra.Auth)
-
-// This file documents the two webhook-fed Signals the CloseCycleWorkflow handles
-// (billingManager.md §6.1/§6.2). Both are durable point-to-point Signals targeting
-// the affected cycle's workflow id {customerId}:{cycleId}:close; signal-with-start
-// starts the cycle workflow when it is not yet running (§6.2).
-//
-//   - inboundRevenueReceived (op 2.5): drained and dropped by
-//     CloseCycleWorkflow.drainInboundRevenue — the charge-only model keeps no revenue
-//     ledger (revenueLedgerAccess, a permanent no-op, was deleted in dct Plan 4 Task 3).
-//   - chargebackReceived (op 2.6): the cycle workflow recomputes the net forward-only,
-//     records the correction, and routes the delta. Handled by
-//     CloseCycleWorkflow.awaitChargeback → recomputeCycle.
-//
-// The signal PAYLOADS are the façade input types GatewayRevenueEvent /
-// GatewayReversalEvent (contract.go) — the verified webhook body. awaitSignal (the wait on these channels)
-// is the Manager's OWN in-workflow primitive (D-DA category A), NOT a contract op.
-
-// Signal names (billingManager.md §6.1/§6.2). The two webhook-fed revenue facts are
-// delivered as durable Signals to the affected cycle's workflow.
-const (
-	// SignalInboundRevenueReceived backs RecordInboundRevenue (op 2.5).
-	signalInboundRevenueReceived = "inboundRevenueReceived"
-	// SignalChargebackReceived backs RecordRevenueReversal (op 2.6).
-	signalChargebackReceived = "chargebackReceived"
-)
 
 // This file holds the FREE FUNCTIONS that carry behavior over the contract value
 // types. The generated contract surface (contract.gen.go) is PURE DATA — enums and

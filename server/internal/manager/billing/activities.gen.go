@@ -94,13 +94,6 @@ func (a *genActivities) UsageRecordComputeUsage(ctx context.Context, events []us
 	return v, fwmanager.MapError(err)
 }
 
-// UsageRecordFinalUsage wraps usageAccess.recordFinalUsage.
-// Registered as "usageAccess.recordFinalUsage".
-func (a *genActivities) UsageRecordFinalUsage(ctx context.Context, events []usage.UsageEvent) ([]usage.EntryRef, error) {
-	v, err := a.Usage.RecordFinalUsage(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, events)
-	return v, fwmanager.MapError(err)
-}
-
 // MerchantGatewayChargeCustomer wraps merchantGatewayAccess.chargeCustomer.
 // Registered as "merchantGatewayAccess.chargeCustomer".
 func (a *genActivities) MerchantGatewayChargeCustomer(ctx context.Context, key fwra.IdempotencyKey, customerID uuid.UUID, amount merchantgateway.Money, idempotencyKey string) error {

@@ -223,7 +223,7 @@ func strategyFor(policy InterventionPolicy) (interventionStrategy, error) {
 //
 // volatilities.md line 45: "Early on, every variance escalates to a single
 // operator." Every trouble escalates to a human; no retry budget, no self-heal,
-// no takeover. The pause plan cancels everything in flight and notifies the
+// no takeover. The pause plan records the pause and notifies the
 // operator.
 type escalateEverythingStrategy struct{}
 
@@ -239,11 +239,10 @@ func (escalateEverythingStrategy) decideOnSettlementFailure(SettlementFailure) S
 	return SettlementEscalate
 }
 
-func (escalateEverythingStrategy) applyPausePolicy(ctx PauseRequestContext) PausePlan {
+func (escalateEverythingStrategy) applyPausePolicy(PauseRequestContext) PausePlan {
 	return PausePlan{
-		PipelinesToCancel: append([]PipelineRef(nil), ctx.InFlightPipelines...),
-		RecordPaused:      true,
-		NotifyTargets:     []NotifyTarget{NotifyOperator},
+		RecordPaused:  true,
+		NotifyTargets: []NotifyTarget{NotifyOperator},
 	}
 }
 
@@ -320,19 +319,15 @@ func (s tieredStrategy) decideOnSettlementFailure(f SettlementFailure) Settlemen
 	return SettlementEscalate
 }
 
-func (s tieredStrategy) applyPausePolicy(ctx PauseRequestContext) PausePlan {
-	// No in-flight work ⇒ an empty-but-valid no-op plan (still record the pause).
-	if len(ctx.InFlightPipelines) == 0 {
-		return PausePlan{RecordPaused: true}
-	}
-	// Enterprise tier notifies the architect as well as the operator.
+// applyPausePolicy records the pause and names who is told. A pause stops the pump
+// from starting another activity; it cancels nothing in flight (the activity already
+// running finishes) — the cancel list and the in-flight input it was computed from were
+// deleted in dct4, never having carried a pipeline. The enterprise tier notifies the
+// architect as well as the operator.
+func (s tieredStrategy) applyPausePolicy(PauseRequestContext) PausePlan {
 	targets := []NotifyTarget{NotifyOperator}
 	if s.policy.SLATier == SLATierEnterprise {
 		targets = append(targets, NotifyArchitect)
 	}
-	return PausePlan{
-		PipelinesToCancel: append([]PipelineRef(nil), ctx.InFlightPipelines...),
-		RecordPaused:      true,
-		NotifyTargets:     targets,
-	}
+	return PausePlan{RecordPaused: true, NotifyTargets: targets}
 }

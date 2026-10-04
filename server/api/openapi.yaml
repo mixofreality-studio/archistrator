@@ -54,12 +54,6 @@ components:
                     type:
                         - "null"
                         - array
-                Produced:
-                    items:
-                        $ref: '#/components/schemas/DeliveryProducedArtifact'
-                    type:
-                        - "null"
-                        - array
                 Type:
                     $ref: '#/components/schemas/DeliveryActivityType'
                 Variant:
@@ -117,7 +111,6 @@ components:
                 - Phases
                 - CurrentPhase
                 - BuildStatus
-                - Produced
                 - FailureReason
                 - FailureDetail
                 - classified
@@ -131,8 +124,6 @@ components:
             properties:
                 ActivityID:
                     type: string
-                ArchApproved:
-                    type: boolean
                 BranchName:
                     type: string
                 BranchRef:
@@ -142,8 +133,6 @@ components:
                 CRLabel:
                     type: string
                 IsRevert:
-                    type: boolean
-                Merged:
                     type: boolean
                 PrNumber:
                     type: integer
@@ -164,8 +153,6 @@ components:
                 - PrNumber
                 - PrURL
                 - CICheck
-                - ArchApproved
-                - Merged
                 - CRLabel
                 - IsRevert
                 - UpdatedAt
@@ -1445,26 +1432,6 @@ components:
                 - operation
                 - inputs
                 - expect
-            type: object
-        DeliveryProducedArtifact:
-            additionalProperties: false
-            properties:
-                Kind:
-                    type: string
-                Note:
-                    type: string
-                Produced:
-                    type: boolean
-                Source:
-                    type: string
-                Title:
-                    type: string
-            required:
-                - Kind
-                - Title
-                - Source
-                - Produced
-                - Note
             type: object
         DeliveryProjectID:
             type: string

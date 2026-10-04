@@ -126,13 +126,6 @@ func (a *genActivities) OperatedRuntimeReadComputeAttribution(ctx context.Contex
 	return v, fwmanager.MapError(err)
 }
 
-// OperatedRuntimeWirePaymentConfig wraps operatedRuntimeAccess.wirePaymentConfig.
-// Registered as "operatedRuntimeAccess.wirePaymentConfig".
-func (a *genActivities) OperatedRuntimeWirePaymentConfig(ctx context.Context, deployedAppID uuid.UUID, binding operatedruntime.GatewayBinding) error {
-	err := a.OperatedRuntime.WirePaymentConfig(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, deployedAppID, binding, genActivityIdempotencyKey(ctx))
-	return fwmanager.MapError(err)
-}
-
 // OperatedRuntimeWithdraw wraps operatedRuntimeAccess.withdraw.
 // Registered as "operatedRuntimeAccess.withdraw".
 func (a *genActivities) OperatedRuntimeWithdraw(ctx context.Context, appID uuid.UUID) error {
@@ -154,13 +147,6 @@ func (a *genActivities) UsageRecordComputeUsage(ctx context.Context, events []us
 	return v, fwmanager.MapError(err)
 }
 
-// UsageRecordFinalUsage wraps usageAccess.recordFinalUsage.
-// Registered as "usageAccess.recordFinalUsage".
-func (a *genActivities) UsageRecordFinalUsage(ctx context.Context, events []usage.UsageEvent) ([]usage.EntryRef, error) {
-	v, err := a.Usage.RecordFinalUsage(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, events)
-	return v, fwmanager.MapError(err)
-}
-
 // ArtifactGetTestRunIndex wraps artifactAccess.getTestRunIndex.
 // Registered as "artifactAccess.getTestRunIndex".
 func (a *genActivities) ArtifactGetTestRunIndex(ctx context.Context, run artifact.TestRunRef) (artifact.TestRunIndex, error) {
@@ -179,13 +165,6 @@ func (a *genActivities) ArtifactReadTestRunFile(ctx context.Context, run artifac
 // Registered as "artifactAccess.retrieveConstructionOutput".
 func (a *genActivities) ArtifactRetrieveConstructionOutput(ctx context.Context, contentAddress string) (artifact.ConstructionOutput, error) {
 	v, err := a.Artifact.RetrieveConstructionOutput(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, contentAddress)
-	return v, fwmanager.MapError(err)
-}
-
-// ArtifactRetrieveOutputTree wraps artifactAccess.retrieveOutputTree.
-// Registered as "artifactAccess.retrieveOutputTree".
-func (a *genActivities) ArtifactRetrieveOutputTree(ctx context.Context, contentAddress string) (artifact.OutputTree, error) {
-	v, err := a.Artifact.RetrieveOutputTree(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, contentAddress)
 	return v, fwmanager.MapError(err)
 }
 
@@ -221,13 +200,6 @@ func (a *genActivities) ProjectStateAcknowledgeStaleBasis(ctx context.Context, p
 // Registered as "projectStateAccess.advancePhase".
 func (a *genActivities) ProjectStateAdvancePhase(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
 	v, err := a.ProjectState.AdvancePhase(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion)
-	return v, fwmanager.MapError(err)
-}
-
-// ProjectStateCommitArtifact wraps projectStateAccess.commitArtifact.
-// Registered as "projectStateAccess.commitArtifact".
-func (a *genActivities) ProjectStateCommitArtifact(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
-	v, err := a.ProjectState.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, kind)
 	return v, fwmanager.MapError(err)
 }
 

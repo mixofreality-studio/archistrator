@@ -176,46 +176,6 @@ func TestComputeNet(t *testing.T) {
 	}
 }
 
-func TestRecomputeNet(t *testing.T) {
-	e := NewBillingEngine()
-
-	// A chargeback reversal halved the gross from 100000 to 50000. The corrected
-	// net is computed fresh from the reversal-adjusted revenue; the Manager computes
-	// the delta vs PriorSettled (not the Engine's job).
-	prior, err := e.ComputeNet(fweng.Context{}, CycleRevenue{GrossInbound: usd(100000)}, CycleUsage{ComputeUnitSeconds: 100}, launchTerms())
-	if err != nil {
-		t.Fatalf("seeding prior billing: %v", err)
-	}
-
-	got, err := e.RecomputeNet(fweng.Context{}, ReBillingInput{
-		Revenue:      CycleRevenue{GrossInbound: usd(50000)},
-		Usage:        CycleUsage{ComputeUnitSeconds: 100},
-		Terms:        launchTerms(),
-		PriorSettled: prior,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// gross 50000, compute 100*1*1.20 = 120. net = 50000-120 = 49880 (> 0)
-	// — charge-only routes a positive net to NoAction (no payout).
-	want := BillingResult{
-		SignedNet:          usd(49880),
-		RoutingDirective:   RoutingNoAction,
-		ComputeCostApplied: usd(120),
-	}
-	if got != want {
-		t.Fatalf("recomputed result = %+v, want %+v", got, want)
-	}
-
-	// RecomputeNet honours the same money-safety guard.
-	_, err = e.RecomputeNet(fweng.Context{}, ReBillingInput{
-		Revenue: CycleRevenue{GrossInbound: usd(50000)},
-		Terms:   BillingTerms{ComputeCost: ComputeCostUnknown},
-	})
-	assertEngineErr(t, err, fweng.InvalidInput, "unknown terms")
-}
-
 // TestDeterminism asserts that identical inputs yield identical outputs across
 // repeated invocations (the Engine reads no clock/RNG/state).
 func TestDeterminism(t *testing.T) {

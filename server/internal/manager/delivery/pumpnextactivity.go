@@ -57,7 +57,7 @@ import (
 //
 // WHAT THE PUMP DOES NOT DO: the merge. The child's merge tail is three things — a
 // variance loop with a HUMAN hold (runWalkMerge), a credential re-mint with merge
-// preconditions (mergeAndRecord) and N slot commits (commitDesignArtifacts) — and
+// preconditions (mergeGated) and N slot commits (commitDesignArtifacts) — and
 // moving them up would put a gate, an escalation inbox and a gate ledger in the
 // pump. That is the god-workflow arriving by the back door, one wave after seven
 // workflows were deleted to avoid exactly that.

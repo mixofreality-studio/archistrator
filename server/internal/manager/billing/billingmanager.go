@@ -9,22 +9,19 @@
 // primitives (Workflow / Signal), it registers the per-customer
 // closeBillingCycle:<customerId> Schedule (at onboarding) and the hourly
 // shortfallSweep Schedule (at startup), defines one Activity per ResourceAccess
-// call, owns the Signal handlers (inboundRevenueReceived / chargebackReceived) and
-// the in-workflow primitives (awaitSignal — category A — and the saga
-// compensation), and derives the idempotency keys passed down to each billing
+// call, owns the in-workflow primitives, and derives the idempotency keys passed down to each billing
 // head-state RA write. Temporal lives ONLY in this component; the downstream
 // Engines (billingEngine, interventionEngine — pure, in-workflow, by value) and
 // ResourceAccess ports (billingStateAccess, usageAccess, merchantGatewayAccess,
 // operatedRuntimeAccess) and the messageBus Utility import no
 // Temporal.
 //
-// The SIX frozen public ops (billingManager.md §2):
+// The FOUR public ops (billingManager.md §2; the two webhook-fed revenue Signals were
+// deleted in dct4 — charge-only keeps no revenue, and nothing produced them):
 //   - OnboardPaymentIntegration — Workflow (entry; operator-initiated UC5 onboard)
 //   - RegisterCustomer          — Workflow (entry; ncuc1 open the aggregate)
 //   - CloseBillingCycle      — Workflow (entry; Schedule-triggered cycle close)
 //   - RunShortfallSweep         — Workflow (entry; Schedule-triggered delinquency sweep)
-//   - RecordInboundRevenue      — Signal (webhook-fed inbound revenue fact)
-//   - RecordRevenueReversal     — Signal (webhook-fed chargeback reversal fact)
 //
 // File layout (mirrors internal/manager/operations):
 //   - contract.go            : the public façade types (§3) + the façade error model (§3.1)
@@ -41,12 +38,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	enumspb "go.temporal.io/api/enums/v1"
-	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
@@ -80,14 +75,12 @@ import (
 var _ BillingManager = (*billingManager)(nil)
 
 // billingManager is the billingManager façade — the concrete implementation of the
-// GENERATED BillingManager interface (contract.gen.go). It exposes the six public
+// GENERATED BillingManager interface (contract.gen.go). It exposes the four public
 // use-case ops (billingManager.md §2) and OWNS Temporal. The Temporal-backed ops:
 //   - OnboardPaymentIntegration — Workflow (entry; StartWorkflow, id {customerId}:onboard)
 //   - RegisterCustomer          — Workflow (entry; StartWorkflow, id {customerId}:register)
 //   - CloseBillingCycle      — Workflow (entry; StartWorkflow, id {customerId}:{cycleId}:close)
 //   - RunShortfallSweep         — Workflow (entry; StartWorkflow, id :all:shortfallSweep:{tickId})
-//   - RecordInboundRevenue      — Signal (SignalWithStart inboundRevenueReceived → close id)
-//   - RecordRevenueReversal     — Signal (SignalWithStart chargebackReceived → close id)
 //
 // The façade methods use only the Temporal client; the pre-condition checks (non-empty
 // ids) are enforced here before any Temporal call (billingManager.md §2/§3.1). It ALSO
@@ -196,10 +189,10 @@ func (m *billingManager) RegisterCustomer(rc fwmgr.Context, customerID customerI
 }
 
 // CloseBillingCycle — op 2.3. Temporal Workflow (entry; scheduler-triggered via the
-// per-customer closeBillingCycle:<customerId> Schedule; id {customerId}:{cycleId}:close
-// — the continuity token chargeback Signals target). Reads revenue + usage → computes
-// the signed net + routing directive in-workflow by value → executes the directive
-// (payout/charge/skip; on charge failure decides+executes {Retry|Escalate|Delay}) →
+// per-customer closeBillingCycle:<customerId> Schedule; id {customerId}:{cycleId}:close).
+// Reads usage → computes the signed net + routing directive in-workflow by value →
+// executes the directive (charge/skip; on charge failure decides+executes
+// {Retry|Escalate|Delay}) →
 // records the outcome. Idempotent on the id (a redundant firing collapses to the
 // running close). SYNC from the scheduler's POV.
 func (m *billingManager) CloseBillingCycle(rc fwmgr.Context, customerID customerID, cycleID cycleID) (CloseCycleResult, error) {
@@ -259,83 +252,6 @@ func (m *billingManager) RunShortfallSweep(rc fwmgr.Context, tickID string) (Sho
 	return result, nil
 }
 
-// RecordInboundRevenue — op 2.5. Temporal Signal (inboundRevenueReceived, to the
-// affected cycle's workflow id {customerId}:{cycleId}:close; signal-with-start when the
-// cycle workflow is not yet running). The targeted cycle workflow consumes the fact
-// and records nothing: under the charge-only model the platform keeps no revenue
-// ledger (the permanent no-op revenueLedgerAccess was deleted, dct Plan 4 Task 3), so
-// end-user revenue never enters the net. SYNC from the Client's POV: returns once the signal is durably enqueued. Signature verified
-// upstream — this façade does not re-verify.
-func (m *billingManager) RecordInboundRevenue(rc fwmgr.Context, event GatewayRevenueEvent) error {
-	ctx := rc.Context
-	if event.CustomerID == uuid.Nil {
-		return newError(fwmgr.ContractMisuse, "empty customerId")
-	}
-	if event.CycleID == "" {
-		return newError(fwmgr.ContractMisuse, "empty cycleId")
-	}
-	if event.GatewayEventID == "" {
-		return newError(fwmgr.ContractMisuse, "empty gatewayEventId")
-	}
-	if strings.TrimSpace(event.Amount.Currency) == "" {
-		return newError(fwmgr.ContractMisuse, "empty amount currency — a money value with no currency is not a money value")
-	}
-
-	wfID := closeWorkflowID(event.CustomerID, event.CycleID)
-	opts := client.StartWorkflowOptions{
-		ID:                       wfID,
-		TaskQueue:                TaskQueue,
-		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-	}
-	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, signalInboundRevenueReceived, event,
-		opts, executionKindClose, closeInput{CustomerID: event.CustomerID, CycleID: event.CycleID})
-	if err != nil {
-		return mapSignalError(err)
-	}
-	return nil
-}
-
-// RecordRevenueReversal — op 2.6. Temporal Signal (chargebackReceived, to the affected
-// cycle's workflow id {customerId}:{cycleId}:close; signal-with-start → the cycle
-// workflow re-derives the forward-only recompute when the original close has
-// completed). The cycle workflow recomputes the net forward-only, records the
-// correction, and routes the delta (it records no reversal fact: there is no revenue
-// ledger under the charge-only model). Compensation is forward-only; no rollback. SYNC.
-func (m *billingManager) RecordRevenueReversal(rc fwmgr.Context, event GatewayReversalEvent) error {
-	ctx := rc.Context
-	if event.CustomerID == uuid.Nil {
-		return newError(fwmgr.ContractMisuse, "empty customerId")
-	}
-	if event.CycleID == "" {
-		return newError(fwmgr.ContractMisuse, "empty cycleId")
-	}
-	if event.GatewayEventID == "" {
-		return newError(fwmgr.ContractMisuse, "empty gatewayEventId")
-	}
-	if strings.TrimSpace(event.Amount.Currency) == "" {
-		return newError(fwmgr.ContractMisuse, "empty amount currency — a money value with no currency is not a money value")
-	}
-	// The back-link is OPTIONAL (nil = a chargeback that reverses no single event),
-	// but a pointer to "" is a third state, indistinguishable downstream from absent.
-	// Reject a link that points nowhere.
-	if event.ReversesGatewayEventID != nil && strings.TrimSpace(*event.ReversesGatewayEventID) == "" {
-		return newError(fwmgr.ContractMisuse, "reversesGatewayEventId is present but empty — omit it entirely when the chargeback reverses no single event")
-	}
-
-	wfID := closeWorkflowID(event.CustomerID, event.CycleID)
-	opts := client.StartWorkflowOptions{
-		ID:                       wfID,
-		TaskQueue:                TaskQueue,
-		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-	}
-	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, signalChargebackReceived, event,
-		opts, executionKindClose, closeInput{CustomerID: event.CustomerID, CycleID: event.CycleID})
-	if err != nil {
-		return mapSignalError(err)
-	}
-	return nil
-}
-
 // --- workflow id derivation (continuity tokens; billingManager.md §6.1) ----
 
 // onboardWorkflowID derives the onboarding workflow id. The contract names it
@@ -351,8 +267,8 @@ func registerWorkflowID(customerID customerID) string {
 	return fmt.Sprintf("%s:register", customerID)
 }
 
-// closeWorkflowID derives {customerId}:{cycleId}:close — the continuity token the
-// inbound/reversal/chargeback Signals target (§6.1).
+// closeWorkflowID derives {customerId}:{cycleId}:close — the cycle close's idempotency
+// token (a redundant scheduled firing collapses onto it).
 func closeWorkflowID(customerID customerID, cycleID cycleID) string {
 	return fmt.Sprintf("%s:%s:close", customerID, cycleID)
 }
@@ -369,27 +285,6 @@ func mapStartError(err error) error {
 	// A "workflow already started" race under UseExisting policy is benign; any other
 	// error is treated as an infrastructure fault at the transport layer.
 	return newError(fwmgr.Infrastructure, err.Error())
-}
-
-func mapSignalError(err error) error {
-	if isNotFound(err) {
-		return newError(fwmgr.NotFound, err.Error())
-	}
-	return newError(fwmgr.Infrastructure, err.Error())
-}
-
-// isNotFound reports whether the Temporal error indicates the addressed execution does
-// not exist — typed as *serviceerror.NotFound, the canonical "no such workflow" error
-// the SDK returns (mirrors the systemdesign matcher).
-//
-// QA 2026-07-19 (poll-404 wizard reset): the old substring match ("not found")
-// classified *serviceerror.NamespaceNotFound — the server talking to a
-// wrong/foreign Temporal backend — as the authoritative execution NotFound,
-// which clients trust and act on destructively. Only the typed
-// execution-NotFound may claim absence; everything else stays Infrastructure.
-func isNotFound(err error) bool {
-	var notFound *serviceerror.NotFound
-	return errors.As(err, &notFound)
 }
 
 // ---------------------------------------------------------------------------
@@ -417,19 +312,6 @@ type cycleID = string
 // NOT the billing aggregate key. op 2.1 resolves it to a CustomerID
 // (billingManager.md §3.0 / §2.1).
 type deployedAppID = uuid.UUID
-
-// ---------------------------------------------------------------------------
-// Money — exact integer minor units + currency. NEVER a float (billingManager.md
-// §3 / billingEngine §3). Signed: positive == payout to
-// the customer, negative == shortfall charge. This Manager moves money via
-// merchantGatewayAccess by VALUE; the math is the Engine's, never re-derived here.
-// ---------------------------------------------------------------------------
-
-// Money is a signed amount in minor units (cents) plus an ISO-4217 currency. The
-// shared money value type the Engine produces and this Manager routes.
-
-// signed; e.g. 1299 == 12.99; reversals carry a negative value
-// ISO-4217, e.g. "USD"
 
 // ---------------------------------------------------------------------------
 // RoutingDirective — the façade's OWN copy of which way the signed net routed
@@ -476,34 +358,10 @@ type deployedAppID = uuid.UUID
 // SignalledCustomers may be empty — a quiet sweep is a normal outcome.
 
 // ---------------------------------------------------------------------------
-// Webhook payload inputs (billingManager.md §3). These façade input types carry
-// the (upstream-signature-verified) webhook body. Nothing persists them: the revenue
-// ledger they were appended to was a permanent no-op under the charge-only model and
-// was deleted with revenueLedgerAccess (dct Plan 4 Task 3).
-// ---------------------------------------------------------------------------
-
-// GatewayRevenueEvent is the verified inbound-revenue webhook body (op 2.5). The
-// gateway event id was the retired ledger append's dedup token.
-
-// globally-unique dedup token
-
-// signed minor units + currency (inbound: positive)
-// gateway-supplied
-
-// GatewayReversalEvent is the verified chargeback/reversal webhook body (op 2.6). The
-// chargeback's own gateway event id is the dedup token; ReversesGatewayEventID is an
-// optional back-link to the inbound entry it reverses.
-
-// the chargeback's own dedup token
-
-// negative minor units + currency
-
-// ---------------------------------------------------------------------------
 // Façade error model (billingManager.md §3.1).
 // CALLER/PROGRAMMER errors at the façade boundary — distinct from the workflow's own
 // failure handling (Temporal RetryPolicy + the interventionEngine decide→execute
-// alternative paths + the forward-only chargeback compensation inside the workflow
-// body). Kinds used: ContractMisuse, FailedPrecondition, NotFound, Unauthorized,
+// alternative paths inside the workflow body). Kinds used: ContractMisuse, FailedPrecondition, NotFound, Unauthorized,
 // Infrastructure.
 // ---------------------------------------------------------------------------
 
@@ -524,9 +382,7 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // billingengine.BillingEngine, intervention.InterventionEngine —
 // is reached directly through the generated typed invokers/Activities and their
 // published contracts (workflow.go); no Manager-local seam or data mirror remains for
-// any of them (see the per-collaborator notes below). The in-workflow awaitSignal
-// primitive (the inbound/reversal/chargeback waits) is the Manager's OWN workflow code
-// (D-DA category A), NOT a bus verb.
+// any of them (see the per-collaborator notes below).
 
 // ===========================================================================
 // billingStateAccess — the billing/customer head-state RA. Each WRITE carries
@@ -547,7 +403,7 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // workflow builds usage.UsageRangeQuery directly and sums the returned events. The
 // former consumer-seam interface + its usageEventSeam/computeUnitsSeam/usageRangeQuerySeam
 // mirrors are retired (nothing else spoke them). The append-writes
-// (recordComputeUsage / recordFinalUsage) belong to operationsManager, NOT billing.
+// (recordComputeUsage) belong to operationsManager, NOT billing.
 // ===========================================================================
 
 // ===========================================================================
@@ -565,9 +421,7 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // category-B control-plane verbs this Manager calls: deliverSignal (the one queued
 // cross-Manager applyDelinquencyPolicy edge) + registerSchedule (×2). Consumed via a
 // narrow seam interface so the composition root adapts the concrete *messagebus.
-// Runtime (whose RegisterSchedule / DeliverSignal signatures differ). awaitSignal (the
-// inbound/reversal/chargeback waits) is the Manager's OWN workflow code (D-DA category
-// A), NOT a bus verb.
+// Runtime (whose RegisterSchedule / DeliverSignal signatures differ).
 // ===========================================================================
 
 // MessageBus is the Manager's consumer view for the STARTUP Schedule
@@ -659,8 +513,8 @@ func (a messageBusAdapter) RegisterSchedule(ctx context.Context, spec scheduleSp
 
 // This file holds the Workflows struct (the Manager's downstream dependency set), the
 // four workflow bodies (the encapsulated BillingWorkflow volatility — billingManager.md
-// §6.3), the workflow-level Conflict re-read→re-apply loop (§6.5), the forward-only
-// chargeback recompute saga, and the RA-boundary fold helpers.
+// §6.3), the workflow-level Conflict re-read→re-apply loop (§6.5), and the RA-boundary
+// fold helpers.
 //
 // How the two dependency kinds are reached differs by determinism class:
 //   - The two Engines (billingengine.BillingEngine / intervention.InterventionEngine —
@@ -749,8 +603,7 @@ const (
 	executionKindOnboard = "billingOnboardPayment"
 	// executionKindRegister is the ncuc1 customer-registration workflow.
 	executionKindRegister = "billingRegisterCustomer"
-	// executionKindClose is the UC6 cycle-close workflow (also hosts the inbound/
-	// chargeback Signals and the forward-only recompute saga).
+	// executionKindClose is the UC6 cycle-close workflow.
 	executionKindClose = "billingCloseCycle"
 	// executionKindShortfallSweep is the ncuc5 shortfall-sweep workflow.
 	executionKindShortfallSweep = "billingShortfallSweep"

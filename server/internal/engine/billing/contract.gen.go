@@ -55,13 +55,6 @@ type Projection struct {
 	ComputeMarkupPercent float64         `json:"ComputeMarkupPercent"`
 }
 
-type ReBillingInput struct {
-	Revenue      CycleRevenue  `json:"Revenue"`
-	Usage        CycleUsage    `json:"Usage"`
-	Terms        BillingTerms  `json:"Terms"`
-	PriorSettled BillingResult `json:"PriorSettled"`
-}
-
 type RoutingDirective int
 
 const (
@@ -82,7 +75,6 @@ const (
 type BillingEngine interface {
 	ComputeNet(rc fweng.Context, revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (BillingResult, error)
 	ProjectCommitTimeComputeCost(rc fweng.Context, option ProjectOption) (Projection, error)
-	RecomputeNet(rc fweng.Context, affectedCycle ReBillingInput) (BillingResult, error)
 }
 
 // BillingEngineImpl is the generated concrete BillingEngine. Engines are pure (no

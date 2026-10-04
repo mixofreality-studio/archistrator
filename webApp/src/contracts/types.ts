@@ -598,8 +598,6 @@ export interface GitRow {
   prNumber?: number;
   prUrl?: string;
   ciStatus: CiStatus;
-  architectureApproved: boolean;
-  merged: boolean;
   crLabel?: string;
   isRevert?: boolean;
   updatedAt: string;
@@ -611,6 +609,12 @@ export type GitRows = Record<string, GitRow>;
 // Construction head-state (rides the project read, keyed by ActivityID).
 // ---------------------------------------------------------------------------
 
+/**
+ * A built-surface record the FrontendArtifactView renders (`ui-design` concept /
+ * `ui-code` route). No server record carries one since dct4 deleted the construction
+ * row's `produced` list (it never had a production writer); the type stays with the
+ * renderer that consumes it.
+ */
 export interface ProducedArtifactRow {
   kind: string;
   title: string;
@@ -726,7 +730,6 @@ export interface ConstructionRow {
    * has no basis to report a current phase for a row it could not classify.
    */
   currentLifecyclePhase?: string;
-  produced?: ProducedArtifactRow[];
   /**
    * Why the activity terminally failed. Present only on a `failed` row — every
    * non-failed row carries the zero-value `unknown` reason on the wire, which
@@ -762,7 +765,7 @@ export interface ConstructionRow {
   recorded: boolean;
   /**
    * When the construction pump dispatched this activity (server: StartedAt, written
-   * by RecordActivityStarted) and when it finished it (CompletedAt). Absent when the
+   * by OpenActivity) and when it finished it (CompletedAt). Absent when the
    * pump never wrote them — every backfilled row, every planned-no-record row, and
    * any row outside the git profile, which records no start. Between the two, a
    * per-activity workflow can exist, which is where the TASKS lens probes for a

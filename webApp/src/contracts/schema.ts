@@ -330,7 +330,6 @@ export interface components {
       /** @description The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum's zero, not a reported phase. Read it only when both flags are true. */
       Phase: components['schemas']['DeliveryActivityConstructionPhase'];
       Phases: null | components['schemas']['DeliveryPhaseCompletion'][];
-      Produced: null | components['schemas']['DeliveryProducedArtifact'][];
       Type: components['schemas']['DeliveryActivityType'];
       /** @description The testing variant of a testing activity; absent on every other row (the zero value is no variant, and ordinals 0 and 3 are retired). */
       Variant?: components['schemas']['DeliveryTestingVariant'];
@@ -354,13 +353,11 @@ export interface components {
     };
     DeliveryActivityGitStatus: {
       ActivityID: string;
-      ArchApproved: boolean;
       BranchName: string;
       BranchRef: string;
       CICheck: components['schemas']['DeliveryCICheckState'];
       CRLabel: string;
       IsRevert: boolean;
-      Merged: boolean;
       PrNumber: number;
       PrURL: string;
       PullRequestRef: string;
@@ -792,13 +789,6 @@ export interface components {
       for: string;
       inputs: null | components['schemas']['DeliveryTestArgView'][];
       operation: string;
-    };
-    DeliveryProducedArtifact: {
-      Kind: string;
-      Note: string;
-      Produced: boolean;
-      Source: string;
-      Title: string;
     };
     DeliveryProjectID: string;
     /** @enum {string} */
