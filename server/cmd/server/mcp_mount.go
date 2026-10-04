@@ -1,5 +1,5 @@
 // MCP transport mount. This file is the composition-root glue that exposes the
-// two web-wired managers over the Model Context Protocol, mirroring the REST
+// three web-wired managers over the Model Context Protocol, mirroring the REST
 // wiring in main.go (web.NewServer): it constructs ONE mcp.Server, registers
 // every generated per-manager tool Handler against the SAME manager instances
 // the REST Handlers use, and returns the SDK's streamable-HTTP transport wrapped
@@ -17,9 +17,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	billingmcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/billing"
 	deliverymcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/delivery"
 	operationsmcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 
@@ -27,16 +29,18 @@ import (
 )
 
 // newMCPServer builds the single MCP server carrying every generated tool. Tool
-// names are manager-namespaced (delivery*/operations*), so registering both
-// Handlers on one server never collides. webAppOrigin/assetVersion configure the
-// ui://archistrator/shell.html resource (mcp_apps.go) registered alongside the
-// two generated tool Handlers.
+// names are manager-namespaced (billing*/delivery*/operations*), so registering
+// every Handler on one server never collides. webAppOrigin/assetVersion configure
+// the ui://archistrator/shell.html resource (mcp_apps.go) registered alongside the
+// three generated tool Handlers.
 func newMCPServer(
+	bil billing.BillingManager,
 	del delivery.DeliveryManager,
 	ops operations.OperationsManager,
 	webAppOrigin, assetVersion string,
 ) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "archistrator-server", Version: "1.0.0"}, nil)
+	(&billingmcp.Handler{Manager: bil}).Register(srv)
 	(&deliverymcp.Handler{Manager: del}).Register(srv)
 	(&operationsmcp.Handler{Manager: ops}).Register(srv)
 	registerShellResource(srv, webAppOrigin, assetVersion)
@@ -75,11 +79,12 @@ func devCORS(enabled bool, next http.Handler) http.Handler {
 func newMCPHandler(
 	dev web.DevConfig,
 	validator security.Validator,
+	bil billing.BillingManager,
 	del delivery.DeliveryManager,
 	ops operations.OperationsManager,
 	webAppOrigin, assetVersion string,
 ) http.Handler {
-	srv := newMCPServer(del, ops, webAppOrigin, assetVersion)
+	srv := newMCPServer(bil, del, ops, webAppOrigin, assetVersion)
 	transport := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	return devCORS(dev.Enabled, web.AuthMiddleware(dev, validator)(transport))
 }

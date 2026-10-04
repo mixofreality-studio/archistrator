@@ -4,7 +4,7 @@
  * enum schema).
  *
  * Derivation rule (per enum, independently):
- *   1. Strip the schema's manager-namespace prefix (Delivery / Operations) to get
+ *   1. Strip the schema's manager-namespace prefix (Billing / Delivery / Operations) to get
  *      the enum's local Go type name (e.g. `DeliveryArtifactKind` ->
  *      `ArtifactKind`). Stage 4a collapsed the three design/construction
  *      namespaces into one, `Delivery`, which is also why DEDUPE_GROUPS is empty:
@@ -31,7 +31,7 @@
  */
 import yaml from 'js-yaml';
 
-const MANAGER_PREFIXES = ['Delivery', 'Operations'];
+const MANAGER_PREFIXES = ['Billing', 'Delivery', 'Operations'];
 
 /** Logical output name for each OAS schema name (post manager-prefix strip),
  * chosen to match the existing hand type name in src/contracts/types.ts where
@@ -94,6 +94,8 @@ const OUTPUT_NAMES = {
   DeliveryEpisodeOutcome: 'EpisodeOutcome',
   // operator notes on a construction row (plan B1.1); new/unwired, no hand table yet.
   DeliveryOperatorNoteKind: 'OperatorNoteKind',
+  // billingManager's one client-exposed op, GetBillingCycle (view-a-billing-cycle).
+  BillingRoutingDirective: 'RoutingDirective',
 };
 
 /** Groups of OAS schema names known (verified by one-off comparison against
@@ -181,6 +183,9 @@ const UNVERIFIED_MECHANICAL = new Set([
   // stage 4b3: the delinquency directive. No hand table has ever named it — the field it
   // replaced was a bool — so the mechanical derivation is the only table there is.
   'DelinquencyAction',
+  // billingManager.GetBillingCycle's routed outcome (NoAction | Charge; ordinal 1, the
+  // retired payout arm, is tombstoned). New with the billing view; no hand table.
+  'RoutingDirective',
 ]);
 
 function splitWords(name) {
@@ -251,6 +256,24 @@ function emitOrdinalTable(SNAKE, e) {
     `// Sparse wire values (${e.values.join(', ')}): indexed by VALUE, with holes.\n` +
     `export const ${name}: readonly (${e.outputName}GoVarname | undefined)[] = [${cells.join(', ')}];\n`
   );
+}
+
+/**
+ * The ordinal → app-string table, indexed by the WIRE VALUE like the varname table
+ * (emitOrdinalTable): a dense enum aliases the app-string array, a sparse one —
+ * `RoutingDirective` is `[0, 2]` — gets a literal with `undefined` holes.
+ */
+function emitOrdinalToApp(SNAKE, e, appStrings) {
+  const name = `${SNAKE}_ORDINAL_TO_APP`;
+  if (e.values.every((v, i) => v === i)) {
+    return `export const ${name}: readonly ${e.outputName}[] = ${SNAKE}_APP_STRINGS;\n`;
+  }
+  const byValue = new Map(e.values.map((v, i) => [v, appStrings[i]]));
+  const cells = Array.from({ length: Math.max(...e.values) + 1 }, (_, v) => {
+    const app = byValue.get(v);
+    return app === undefined ? 'undefined' : `'${app}'`;
+  });
+  return `export const ${name}: readonly (${e.outputName} | undefined)[] = [${cells.join(', ')}];\n`;
 }
 
 function emitConstArray(name, values, quote = "'") {
@@ -389,10 +412,9 @@ function emitBlock(e) {
   }
   out.push(emitConstArray(`${SNAKE}_APP_STRINGS`, appStrings));
   out.push(`export type ${e.outputName} = (typeof ${SNAKE}_APP_STRINGS)[number];\n`);
-  out.push(
-    `export const ${SNAKE}_ORDINAL_TO_APP: readonly ${e.outputName}[] = ${SNAKE}_APP_STRINGS;\n`
-  );
-  const entries = appStrings.map((s, i) => `  ${s}: ${i},`).join('\n');
+  out.push(emitOrdinalToApp(SNAKE, e, appStrings));
+  // Keyed by the WIRE VALUE: a sparse enum's i-th app string is value e.values[i].
+  const entries = appStrings.map((s, i) => `  ${s}: ${e.values[i]},`).join('\n');
   out.push(
     `export const ${SNAKE}_APP_TO_ORDINAL: Readonly<Record<${e.outputName}, number>> = {\n${entries}\n};`
   );

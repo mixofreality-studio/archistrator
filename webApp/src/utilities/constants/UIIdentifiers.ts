@@ -552,6 +552,12 @@ export const UI_IDENTIFIERS = {
     ROOT: 'billing-screen',
     PENDING_STATE: 'billing-pending',
     HOME_LINK: 'billing-home-link',
+    CYCLE_LOOKUP: 'billing-cycle-lookup',
+    CUSTOMER_ID_INPUT: 'billing-customer-id',
+    CYCLE_ID_INPUT: 'billing-cycle-id',
+    CYCLE_LOOKUP_SUBMIT: 'billing-cycle-lookup-submit',
+    CYCLE_RESULT: 'billing-cycle-result',
+    CYCLE_OUTCOME: 'billing-cycle-outcome',
   },
   Team: {
     ROOT: 'team-screen',

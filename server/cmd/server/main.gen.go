@@ -3,7 +3,7 @@
 package main
 
 // Web-exposed managers are DRIVER-CONFIGURED (Config.WebExposedManagers),
-// NOT derived from System relationships: deliveryManager, operationsManager.
+// NOT derived from System relationships: billingManager, deliveryManager, operationsManager.
 
 import (
 	"context"
@@ -22,6 +22,7 @@ import (
 	security "github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	telemetry "github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/telemetry"
 	web "github.com/mixofreality-studio/archistrator/server/internal/client/web"
+	billingweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/billing"
 	deliveryweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/delivery"
 	operationsweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
@@ -60,6 +61,7 @@ const serviceName = "archistrator-server"
 // WebManagers is the typed bundle of web-exposed managers the composition
 // root threads through the logging wrap and into the transports.
 type WebManagers struct {
+	BillingManager    managerbilling.BillingManager
 	DeliveryManager   delivery.DeliveryManager
 	OperationsManager operations.OperationsManager
 }
@@ -602,12 +604,14 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	dev := hooks.DevConfig(cfg)
 
 	webManagers := WebManagers{
+		BillingManager:    billingManager,
 		DeliveryManager:   deliveryManager,
 		OperationsManager: operationsManager,
 	}
 	webManagers = hooks.WrapManagers(webManagers)
 
 	genServer := web.NewServer(dev, validator,
+		&billingweb.Handler{Manager: webManagers.BillingManager, Security: sec},
 		&deliveryweb.Handler{Manager: webManagers.DeliveryManager, Security: sec},
 		&operationsweb.Handler{Manager: webManagers.OperationsManager, Security: sec},
 	)

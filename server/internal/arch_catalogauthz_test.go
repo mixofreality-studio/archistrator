@@ -79,7 +79,10 @@ const hooksPath = "../cmd/server/hooks.go"
 //   - operations/reconcile-operated-state — the platform-wide reconcile sweep. It takes
 //     no parameters at all: there is no resource to name, in the path or the body, so
 //     the catalog decision is the whole question. NOT guarded, and nothing to guard.
+//   - billing — NONE. Its one exposed op, get-billing-cycle, names its customer in the
+//     path, so it is authorized against {customer, id}, never the catalog.
 var catalogScopedGolden = map[string][]string{
+	"billing":    {},
 	"delivery":   {"query-project-view", "start-project"},
 	"operations": {"reconcile-operated-state"},
 }

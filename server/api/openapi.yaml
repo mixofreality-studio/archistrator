@@ -1,5 +1,53 @@
 components:
     schemas:
+        BillingBillingCycleView:
+            additionalProperties: false
+            properties:
+                closed:
+                    description: The period has been closed and its outcome recorded.
+                    type: boolean
+                customerId:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-name: CustomerID
+                    x-go-type: uuid.UUID
+                cycleId:
+                    type: string
+                    x-go-name: CycleID
+                escalated:
+                    description: 'The charge failed and was escalated: the customer is persistently delinquent and the cycle''s invoice unpaid.'
+                    type: boolean
+                routed:
+                    $ref: '#/components/schemas/BillingRoutingDirective'
+            required:
+                - customerId
+                - cycleId
+                - closed
+                - routed
+                - escalated
+            type: object
+        BillingErrorResponse:
+            additionalProperties: false
+            properties:
+                code:
+                    type: string
+                error:
+                    type: string
+            required:
+                - error
+                - code
+            type: object
+        BillingRoutingDirective:
+            description: 'Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned — never reuse.'
+            enum:
+                - 0
+                - 2
+            type: integer
+            x-enum-varnames:
+                - RoutingDirectiveNoAction
+                - RoutingDirectiveCharge
+            x-go-base: int
         DeliveryActivityBuildStatus:
             enum:
                 - 0
@@ -4597,6 +4645,74 @@ info:
     version: 1.0.0
 openapi: 3.1.0
 paths:
+    /api/v1/billing/get-billing-cycle/{customerID}:
+        get:
+            operationId: GetBillingCycle
+            parameters:
+                - in: path
+                  name: customerID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+                - in: query
+                  name: cycleID
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingBillingCycleView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
     /api/v1/delivery/acknowledge-stale-basis/{projectID}/{activityID}:
         post:
             operationId: AcknowledgeStaleBasis

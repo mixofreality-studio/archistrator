@@ -32,6 +32,11 @@ import type { App } from '@modelcontextprotocol/ext-apps';
 import { ApiError, bodyUnlessError, throwUnlessOk, type WireError } from '../contracts/errors.ts';
 
 export const OP_BINDINGS = {
+  billingGetBillingCycle: {
+    method: 'GET',
+    path: '/api/v1/billing/get-billing-cycle/{customerID}',
+    tool: 'billingGetBillingCycle',
+  },
   compositionGetCapabilities: {
     method: 'GET',
     path: '/api/v1/capabilities',

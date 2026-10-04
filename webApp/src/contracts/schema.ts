@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+  '/api/v1/billing/get-billing-cycle/{customerID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetBillingCycle'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/delivery/acknowledge-stale-basis/{projectID}/{activityID}': {
     parameters: {
       query?: never;
@@ -312,6 +328,25 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    BillingBillingCycleView: {
+      /** @description The period has been closed and its outcome recorded. */
+      closed: boolean;
+      /** Format: uuid */
+      customerId: string;
+      cycleId: string;
+      /** @description The charge failed and was escalated: the customer is persistently delinquent and the cycle's invoice unpaid. */
+      escalated: boolean;
+      routed: components['schemas']['BillingRoutingDirective'];
+    };
+    BillingErrorResponse: {
+      code: string;
+      error: string;
+    };
+    /**
+     * @description Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned — never reuse.
+     * @enum {integer}
+     */
+    BillingRoutingDirective: 0 | 2;
     /** @enum {integer} */
     DeliveryActivityBuildStatus: 0 | 1 | 2 | 3;
     /**
@@ -1855,6 +1890,93 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  GetBillingCycle: {
+    parameters: {
+      query: {
+        cycleID: string;
+      };
+      header?: never;
+      path: {
+        customerID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingBillingCycleView'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+    };
+  };
   AcknowledgeStaleBasis: {
     parameters: {
       query?: never;
