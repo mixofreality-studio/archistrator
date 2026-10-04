@@ -4,9 +4,213 @@
 package autoscaler_test
 
 import (
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 )
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "autoscalerEngine") }
+
+// Input_operate_a_delivered_system_P2_1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
+type Input_operate_a_delivered_system_P2_1 struct {
+	Telemetry          autoscaler.Telemetry          `json:"telemetry"`
+	CurrentDesired     autoscaler.DesiredState       `json:"currentDesired"`
+	Policy             autoscaler.AutoscalerPolicy   `json:"policy"`
+	InfrastructureKind autoscaler.InfrastructureKind `json:"infrastructureKind"`
+}
+
+// TestScenario_operate_a_delivered_system_P2 — Operate a Delivered System — [no] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
+	h := scenariohost.Start(t, "autoscalerEngine")
+	h.RunScenario(t, "operate-a-delivered-system-P2", func(t *testing.T) {
+		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
+		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[no], decision-nochange=[yes])
+		var in1 Input_operate_a_delivered_system_P2_1
+		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":12.5,"P95LatencyMs":85,"InflightRequests":3,"CurrentReplicas":2,"CPUUtilization":0.5,"MemoryUtilization":0.4,"Health":1,"SLOStatus":1,"TimeSinceLastRequest":1000000000},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":2,"LastDecisionAt":"2026-10-03T11:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":1,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.ProposeDesiredState(callContext(t, h, "1"), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
+		expect(t, "operate-a-delivered-system-P2", 1, out1, err1, `{"result":"{\"Kind\":0,\"Delta\":0,\"ToBaseline\":0,\"Reason\":{\"Code\":10}}","errorExpected":false}`)
+	})
+}
+
+// Input_operate_a_delivered_system_P3_1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
+type Input_operate_a_delivered_system_P3_1 struct {
+	Telemetry          autoscaler.Telemetry          `json:"telemetry"`
+	CurrentDesired     autoscaler.DesiredState       `json:"currentDesired"`
+	Policy             autoscaler.AutoscalerPolicy   `json:"policy"`
+	InfrastructureKind autoscaler.InfrastructureKind `json:"infrastructureKind"`
+}
+
+// TestScenario_operate_a_delivered_system_P3 — Operate a Delivered System — [no] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
+	h := scenariohost.Start(t, "autoscalerEngine")
+	h.RunScenario(t, "operate-a-delivered-system-P3", func(t *testing.T) {
+		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
+		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
+		var in1 Input_operate_a_delivered_system_P3_1
+		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":40,"P95LatencyMs":310,"InflightRequests":25,"CurrentReplicas":2,"CPUUtilization":0.92,"MemoryUtilization":0.6,"Health":1,"SLOStatus":1,"TimeSinceLastRequest":0},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":2,"LastDecisionAt":"2026-10-03T11:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":1,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.ProposeDesiredState(callContext(t, h, "1"), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
+		expect(t, "operate-a-delivered-system-P3", 1, out1, err1, `{"result":"{\"Kind\":1,\"Delta\":2,\"ToBaseline\":0,\"Reason\":{\"Code\":1}}","errorExpected":false}`)
+	})
+}
+
+// Input_operate_a_delivered_system_P4_1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
+type Input_operate_a_delivered_system_P4_1 struct {
+	Telemetry          autoscaler.Telemetry          `json:"telemetry"`
+	CurrentDesired     autoscaler.DesiredState       `json:"currentDesired"`
+	Policy             autoscaler.AutoscalerPolicy   `json:"policy"`
+	InfrastructureKind autoscaler.InfrastructureKind `json:"infrastructureKind"`
+}
+
+// TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
+	h := scenariohost.Start(t, "autoscalerEngine")
+	h.RunScenario(t, "operate-a-delivered-system-P4", func(t *testing.T) {
+		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
+		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[yes], decision-nochange=[yes])
+		var in1 Input_operate_a_delivered_system_P4_1
+		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":90,"P95LatencyMs":820,"InflightRequests":60,"CurrentReplicas":5,"CPUUtilization":0.95,"MemoryUtilization":0.7,"Health":2,"SLOStatus":1,"TimeSinceLastRequest":0},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":5,"LastDecisionAt":"2026-10-03T11:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":1,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.ProposeDesiredState(callContext(t, h, "1"), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
+		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"result":"{\"Kind\":0,\"Delta\":0,\"ToBaseline\":0,\"Reason\":{\"Code\":9}}","errorExpected":false}`)
+	})
+}
+
+// Input_operate_a_delivered_system_P5_1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
+type Input_operate_a_delivered_system_P5_1 struct {
+	Telemetry          autoscaler.Telemetry          `json:"telemetry"`
+	CurrentDesired     autoscaler.DesiredState       `json:"currentDesired"`
+	Policy             autoscaler.AutoscalerPolicy   `json:"policy"`
+	InfrastructureKind autoscaler.InfrastructureKind `json:"infrastructureKind"`
+}
+
+// TestScenario_operate_a_delivered_system_P5 — Operate a Delivered System — [yes] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
+	h := scenariohost.Start(t, "autoscalerEngine")
+	h.RunScenario(t, "operate-a-delivered-system-P5", func(t *testing.T) {
+		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
+		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
+		var in1 Input_operate_a_delivered_system_P5_1
+		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":3.5,"P95LatencyMs":0,"InflightRequests":2,"CurrentReplicas":0,"CPUUtilization":0,"MemoryUtilization":0,"Health":0,"SLOStatus":1,"TimeSinceLastRequest":0},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":0,"LastDecisionAt":"2026-10-03T10:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":0,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.ProposeDesiredState(callContext(t, h, "1"), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
+		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"{\"Kind\":4,\"Delta\":0,\"ToBaseline\":2,\"Reason\":{\"Code\":4}}","errorExpected":false}`)
+	})
+}
+
+// callContext is the fweng call context a generated step calls the subject with:
+// the test's own context, a zero principal and, on an idempotent layer, a key
+// unique to the step. A step that needs an identity is a Hook:true step.
+func callContext(t *testing.T, h *scenariohost.Host, step string) fweng.Context {
+	t.Helper()
+	_ = step
+	return fweng.Context{Context: h.Context(t)}
+}
+
+func mustUnmarshal(t *testing.T, raw string, into any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(raw), into); err != nil {
+		t.Fatalf("testgen: decode %s: %v", raw, err)
+	}
+}
+
+// expect checks one step's outcome against its binding's expectation: an
+// expected error must arrive (carrying the expected code, when one is named);
+// an unexpected error fails; a named result must be a JSON subset of the
+// marshalled outcome.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	var want struct {
+		Result        string `json:"result"`
+		ErrorExpected bool   `json:"errorExpected"`
+		ErrorCode     string `json:"errorCode"`
+	}
+	mustUnmarshal(t, expectJSON, &want)
+	if want.ErrorExpected {
+		if err == nil {
+			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+		}
+		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
+			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+	}
+	if want.Result != "" && !resultMatches(want.Result, out) {
+		got, _ := json.Marshal(out)
+		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+	}
+}
+
+// errorHasCode matches the layer error's kind name, or the code as a substring
+// of the error text for a component-specific code.
+func errorHasCode(err error, code string) bool {
+	var le *fweng.Error
+	if errors.As(err, &le) && le.Kind.String() == code {
+		return true
+	}
+	return strings.Contains(err.Error(), code)
+}
+
+// resultMatches decodes the expectation (a JSON document, or a bare string)
+// and the marshalled outcome, and compares them as a subset.
+func resultMatches(wantRaw string, got any) bool {
+	var want any
+	if json.Unmarshal([]byte(wantRaw), &want) != nil {
+		want = wantRaw
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		return false
+	}
+	var g any
+	if json.Unmarshal(raw, &g) != nil {
+		return false
+	}
+	return subset(want, g)
+}
+
+// subset: every key of an expected object is present and matches; an expected
+// array matches element-wise; a scalar must be equal.
+func subset(want, got any) bool {
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			return false
+		}
+		for k, wv := range w {
+			gv, ok := g[k]
+			if !ok || !subset(wv, gv) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		g, ok := got.([]any)
+		if !ok || len(g) != len(w) {
+			return false
+		}
+		for i := range w {
+			if !subset(w[i], g[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(want, got)
+	}
+}
