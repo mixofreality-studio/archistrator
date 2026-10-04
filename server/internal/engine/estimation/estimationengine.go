@@ -567,7 +567,7 @@ func topoOrder(idSet map[string]struct{}, predecessors map[string][]string) []st
 
 // maxCalendarStretch caps the calendar stretch factor so a pathological
 // CalendarDaysPerWeek (e.g. fractional days/week) cannot inflate the duration
-// without bound. 5 d/wk → 1.0; 1 d/wk → 5.0; capped at 7.0.
+// without bound. 7 d/wk → 1.0; 5 d/wk → 1.4; 1 d/wk → 7.0 (the cap).
 const maxCalendarStretch = 7.0
 
 // RiskScore is exposed as a decomposition (Criticality + ActivityRisk, not folded
@@ -622,8 +622,8 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 	onCP := criticalSet(activities, deps, milestones, staffCap)
 	solveActs := speedUpCritical(activities, onCP, speedup)
 
-	// --- Duration: resource-constrained (resource-leveled) schedule length in sim-days
-	// PLUS the decompression buffer, then calendar-stretched. The engine runs its OWN CPM
+	// --- Duration: resource-constrained (resource-leveled) schedule length in working
+	// days PLUS the decompression buffer, then stretched to CALENDAR days. The engine runs its OWN CPM
 	// + resource solve over the option's dependency graph honoring the staffing cap; it no
 	// longer sums authored on-critical-path efforts (Phase-2 rework F1/F3/F4). ---
 	sched := resourceLevelSchedule(solveActs, deps, milestones, staffCap, option.BufferDays)
@@ -841,15 +841,17 @@ func activityRiskOf(acts []leveledActivity) float64 {
 	return clamp01(1.0 - sumFloat/(float64(n)*maxFloat))
 }
 
-// calendarStretch maps the option's working days/week to a duration multiplier:
-// 5.0 / max(CalendarDaysPerWeek, 1), capped at maxCalendarStretch. A 5 d/wk team
-// is the 1.0 baseline; a 2 d/wk team stretches by 2.5×.
+// calendarStretch maps the option's working days/week to the calendar days one
+// working day spans: 7.0 / max(CalendarDaysPerWeek, 1), capped at
+// maxCalendarStretch. DurationDays is CALENDAR days (the unit the indirect daily
+// rate accrues in): a 7 d/wk team is the 1.0 baseline, a 5 d/wk team takes 1.4
+// calendar days per working day, a 2 d/wk team 3.5.
 func calendarStretch(calendarDaysPerWeek float64) float64 {
 	d := calendarDaysPerWeek
 	if d < 1 {
 		d = 1
 	}
-	s := 5.0 / d
+	s := 7.0 / d
 	if s > maxCalendarStretch {
 		s = maxCalendarStretch
 	}
