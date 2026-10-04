@@ -43975,7 +43975,473 @@
       },
       "episodeAccess": {
         "component": "episodeAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendEpisode",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-ep-exec-P1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "record",
+                    "value": "{\"EpisodeID\":\"ep-exec-P1-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-alpha\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T09:00:00Z\",\"EndedAt\":\"2026-10-01T09:42:10Z\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P1:activity:C-dct-ep-alpha\",\"RunID\":\"run-p1-0001\",\"ActivityID\":\"C-dct-ep-alpha\"},\"WorkerClass\":\"senior-developer\",\"Model\":\"claude-opus-5-5\",\"StreamedUsage\":{\"In\":41000,\"Out\":3850,\"CacheRead\":511000,\"CacheCreate\":17950},\"CostUSD\":3.75,\"NumTurns\":37,\"ToolCallCounts\":{\"Read\":21,\"Edit\":9,\"Bash\":14},\"SubagentSpans\":[{\"ToolUseID\":\"toolu_p1_01\",\"StartedAt\":\"2026-10-01T09:05:00Z\",\"EndedAt\":\"2026-10-01T09:18:30Z\"}],\"TracePath\":\"episodes/traces/ep-exec-P1-a1.jsonl\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "attempt-episode",
+                    "component": "episodeAccess",
+                    "operation": "ListEpisodes",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"ProjectID\":\"dct-ep-exec-P1\",\"TargetRef\":\"C-dct-ep-alpha\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"EpisodeID\":\"ep-exec-P1-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-alpha\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P1:activity:C-dct-ep-alpha\",\"RunID\":\"run-p1-0001\",\"ActivityID\":\"C-dct-ep-alpha\"},\"WorkerClass\":\"senior-developer\",\"Model\":\"claude-opus-5-5\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StreamedUsage\":{\"In\":41000,\"Out\":3850,\"CacheRead\":511000,\"CacheCreate\":17950},\"CostUSD\":3.75,\"NumTurns\":37,\"ToolCallCounts\":{\"Read\":21,\"Edit\":9,\"Bash\":14},\"SubagentSpans\":[{\"ToolUseID\":\"toolu_p1_01\",\"StartedAt\":\"2026-10-01T09:05:00Z\",\"EndedAt\":\"2026-10-01T09:18:30Z\"}],\"StartedAt\":\"2026-10-01T09:00:00Z\",\"EndedAt\":\"2026-10-01T09:42:10Z\",\"TracePath\":\"episodes/traces/ep-exec-P1-a1.jsonl\"}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendEpisode",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-ep-exec-P2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "record",
+                    "value": "{\"EpisodeID\":\"ep-exec-P2-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-bravo\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T10:00:00Z\",\"EndedAt\":\"2026-10-01T10:31:00Z\",\"Outcome\":1}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "attempt-episode",
+                    "component": "episodeAccess",
+                    "operation": "ListEpisodes",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"ProjectID\":\"dct-ep-exec-P2\",\"TargetRef\":\"C-dct-ep-bravo\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"EpisodeID\":\"ep-exec-P2-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-bravo\",\"Outcome\":1,\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T10:00:00Z\",\"EndedAt\":\"2026-10-01T10:31:00Z\"}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendEpisode",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-ep-exec-P5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "record",
+                    "value": "{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T11:00:00Z\",\"EndedAt\":\"2026-10-01T11:20:00Z\",\"Outcome\":1,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P5:activity:C-dct-ep-charlie\",\"RunID\":\"run-p5-0001\",\"ActivityID\":\"C-dct-ep-charlie\"},\"NumTurns\":22,\"CostUSD\":1.9}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "attempt-episode",
+                    "component": "episodeAccess",
+                    "operation": "ListEpisodes",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"ProjectID\":\"dct-ep-exec-P5\",\"TargetRef\":\"C-dct-ep-charlie\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "AppendEpisode",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-ep-exec-P5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "record",
+                    "value": "{\"EpisodeID\":\"ep-exec-P5-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T11:25:00Z\",\"EndedAt\":\"2026-10-01T11:51:00Z\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P5:activity:C-dct-ep-charlie\",\"RunID\":\"run-p5-0002\",\"ActivityID\":\"C-dct-ep-charlie\"},\"NumTurns\":30,\"CostUSD\":2.6}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "attempt-episode",
+                    "component": "episodeAccess",
+                    "operation": "ListEpisodes",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"ProjectID\":\"dct-ep-exec-P5\",\"TargetRef\":\"C-dct-ep-charlie\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1},{\"EpisodeID\":\"ep-exec-P5-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":0}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendEpisode",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-ep-exec-P6",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "record",
+                    "value": "{\"EpisodeID\":\"ep-exec-P6-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-delta\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T12:00:00Z\",\"EndedAt\":\"2026-10-01T12:44:00Z\",\"Outcome\":1,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P6:activity:C-dct-ep-delta\",\"RunID\":\"run-p6-0003\"},\"WorkerClass\":\"senior-developer\",\"ToolCallCounts\":{\"Bash\":40}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "attempt-episode",
+                    "component": "episodeAccess",
+                    "operation": "ListEpisodes",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"ProjectID\":\"dct-ep-exec-P6\",\"TargetRef\":\"C-dct-ep-delta\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"EpisodeID\":\"ep-exec-P6-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-delta\",\"Outcome\":1,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P6:activity:C-dct-ep-delta\",\"RunID\":\"run-p6-0003\"},\"ToolCallCounts\":{\"Bash\":40}}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendEpisode",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-ep-exec-P7",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "record",
+                    "value": "{\"EpisodeID\":\"ep-exec-P7-r2\",\"Kind\":3,\"TargetRef\":\"C-dct-ep-echo\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T13:00:00Z\",\"EndedAt\":\"2026-10-01T13:22:00Z\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P7:activity:C-dct-ep-echo\",\"RunID\":\"run-p7-0002\",\"ActivityID\":\"C-dct-ep-echo\"},\"WorkerClass\":\"senior-developer\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "attempt-episode",
+                    "component": "episodeAccess",
+                    "operation": "ListEpisodes",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"ProjectID\":\"dct-ep-exec-P7\",\"TargetRef\":\"C-dct-ep-echo\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"EpisodeID\":\"ep-exec-P7-r2\",\"Kind\":3,\"TargetRef\":\"C-dct-ep-echo\",\"Outcome\":0,\"WorkerClass\":\"senior-developer\"}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendEpisode",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-ep-replan-P2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "record",
+                    "value": "{\"EpisodeID\":\"ep-replan-under-scope-change-P2\",\"Kind\":0,\"TargetRef\":\"projectDesign/network\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-02T09:00:00Z\",\"EndedAt\":\"2026-10-02T09:12:00Z\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-replan-P2:activity:projectDesign\",\"RunID\":\"run-replan-under-scope-change-P2\"},\"WorkerClass\":\"project-designer\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "reenter",
+                    "component": "episodeAccess",
+                    "operation": "ListEpisodes",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"ProjectID\":\"dct-ep-replan-P2\",\"TargetRef\":\"projectDesign/network\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"EpisodeID\":\"ep-replan-under-scope-change-P2\",\"Kind\":0,\"TargetRef\":\"projectDesign/network\",\"Outcome\":0}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "amendment-session-open",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-ep-replan-P2",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "aiarch/amend/dct-ep-replan-P2/network",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"dct-ep-replan-P2\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AppendEpisode",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-ep-replan-P3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "record",
+                    "value": "{\"EpisodeID\":\"ep-replan-under-scope-change-P3\",\"Kind\":0,\"TargetRef\":\"projectDesign/activityList\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-02T09:00:00Z\",\"EndedAt\":\"2026-10-02T09:12:00Z\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-replan-P3:activity:projectDesign\",\"RunID\":\"run-replan-under-scope-change-P3\"},\"WorkerClass\":\"project-designer\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "reenter",
+                    "component": "episodeAccess",
+                    "operation": "ListEpisodes",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"ProjectID\":\"dct-ep-replan-P3\",\"TargetRef\":\"projectDesign/activityList\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[{\"EpisodeID\":\"ep-replan-under-scope-change-P3\",\"Kind\":0,\"TargetRef\":\"projectDesign/activityList\",\"Outcome\":0}]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "amendment-session-open",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "dct-ep-replan-P3",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "aiarch/amend/dct-ep-replan-P3/activityList",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"dct-ep-replan-P3\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "requeue-a-failed-construction-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ListEpisodes",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"ProjectID\":\"dct-ep-requeue-P1\",\"TargetRef\":\"C-dct-ep-foxtrot\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"EpisodeID\":\"ep-rq-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-foxtrot\",\"Outcome\":1,\"NumTurns\":18,\"CostUSD\":1.2,\"TracePath\":\"episodes/traces/ep-rq-a1.jsonl\"},{\"EpisodeID\":\"ep-rq-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-foxtrot\",\"Outcome\":3,\"GapReason\":\"trace stream lost: runner terminated before result event\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadTraceEvents",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-ep-requeue-P1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "episodeID",
+                    "value": "ep-rq-a1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"ep-rq-a1\"},{\"type\":\"assistant\",\"message\":{\"stop_reason\":\"tool_use\"}},{\"type\":\"result\",\"subtype\":\"error_max_turns\",\"is_error\":true,\"num_turns\":18}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "show-failure-evidence"
+                ],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "estimationEngine": {
         "component": "estimationEngine",
