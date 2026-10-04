@@ -14134,12 +14134,7 @@ func safeTestRunPath(p string) bool {
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return false
 	}
-	for _, seg := range strings.Split(cleaned, "/") {
-		if seg == ".." {
-			return false
-		}
-	}
-	return true
+	return !slices.Contains(strings.Split(cleaned, "/"), "..")
 }
 
 // testRunFileMIME is the endpoint's Content-Type, by extension: the four kinds a run

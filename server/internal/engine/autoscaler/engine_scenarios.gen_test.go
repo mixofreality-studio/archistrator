@@ -17,8 +17,8 @@ import (
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "autoscalerEngine") }
 
-// Input_operate_a_delivered_system_P2_1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
-type Input_operate_a_delivered_system_P2_1 struct {
+// inputOperateADeliveredSystemP2S1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP2S1 struct {
 	Telemetry          autoscaler.Telemetry          `json:"telemetry"`
 	CurrentDesired     autoscaler.DesiredState       `json:"currentDesired"`
 	Policy             autoscaler.AutoscalerPolicy   `json:"policy"`
@@ -27,11 +27,11 @@ type Input_operate_a_delivered_system_P2_1 struct {
 
 // TestScenario_operate_a_delivered_system_P2 — Operate a Delivered System — [no] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
-	h := scenariohost.Start(t, "autoscalerEngine")
-	h.RunScenario(t, "operate-a-delivered-system-P2", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P2", func(t *testing.T) {
 		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
 		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[no], decision-nochange=[yes])
-		var in1 Input_operate_a_delivered_system_P2_1
+		var in1 inputOperateADeliveredSystemP2S1
 		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":12.5,"P95LatencyMs":85,"InflightRequests":3,"CurrentReplicas":2,"CPUUtilization":0.5,"MemoryUtilization":0.4,"Health":1,"SLOStatus":1,"TimeSinceLastRequest":1000000000},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":2,"LastDecisionAt":"2026-10-03T11:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":1,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -40,8 +40,8 @@ func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 	})
 }
 
-// Input_operate_a_delivered_system_P3_1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
-type Input_operate_a_delivered_system_P3_1 struct {
+// inputOperateADeliveredSystemP3S1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP3S1 struct {
 	Telemetry          autoscaler.Telemetry          `json:"telemetry"`
 	CurrentDesired     autoscaler.DesiredState       `json:"currentDesired"`
 	Policy             autoscaler.AutoscalerPolicy   `json:"policy"`
@@ -50,11 +50,11 @@ type Input_operate_a_delivered_system_P3_1 struct {
 
 // TestScenario_operate_a_delivered_system_P3 — Operate a Delivered System — [no] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
-	h := scenariohost.Start(t, "autoscalerEngine")
-	h.RunScenario(t, "operate-a-delivered-system-P3", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P3", func(t *testing.T) {
 		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
 		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
-		var in1 Input_operate_a_delivered_system_P3_1
+		var in1 inputOperateADeliveredSystemP3S1
 		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":40,"P95LatencyMs":310,"InflightRequests":25,"CurrentReplicas":2,"CPUUtilization":0.92,"MemoryUtilization":0.6,"Health":1,"SLOStatus":1,"TimeSinceLastRequest":0},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":2,"LastDecisionAt":"2026-10-03T11:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":1,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -63,8 +63,8 @@ func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 	})
 }
 
-// Input_operate_a_delivered_system_P4_1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
-type Input_operate_a_delivered_system_P4_1 struct {
+// inputOperateADeliveredSystemP4S1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP4S1 struct {
 	Telemetry          autoscaler.Telemetry          `json:"telemetry"`
 	CurrentDesired     autoscaler.DesiredState       `json:"currentDesired"`
 	Policy             autoscaler.AutoscalerPolicy   `json:"policy"`
@@ -73,11 +73,11 @@ type Input_operate_a_delivered_system_P4_1 struct {
 
 // TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
-	h := scenariohost.Start(t, "autoscalerEngine")
-	h.RunScenario(t, "operate-a-delivered-system-P4", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P4", func(t *testing.T) {
 		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
 		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[yes], decision-nochange=[yes])
-		var in1 Input_operate_a_delivered_system_P4_1
+		var in1 inputOperateADeliveredSystemP4S1
 		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":90,"P95LatencyMs":820,"InflightRequests":60,"CurrentReplicas":5,"CPUUtilization":0.95,"MemoryUtilization":0.7,"Health":2,"SLOStatus":1,"TimeSinceLastRequest":0},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":5,"LastDecisionAt":"2026-10-03T11:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":1,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
@@ -86,8 +86,8 @@ func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 	})
 }
 
-// Input_operate_a_delivered_system_P5_1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
-type Input_operate_a_delivered_system_P5_1 struct {
+// inputOperateADeliveredSystemP5S1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP5S1 struct {
 	Telemetry          autoscaler.Telemetry          `json:"telemetry"`
 	CurrentDesired     autoscaler.DesiredState       `json:"currentDesired"`
 	Policy             autoscaler.AutoscalerPolicy   `json:"policy"`
@@ -96,11 +96,11 @@ type Input_operate_a_delivered_system_P5_1 struct {
 
 // TestScenario_operate_a_delivered_system_P5 — Operate a Delivered System — [yes] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
-	h := scenariohost.Start(t, "autoscalerEngine")
-	h.RunScenario(t, "operate-a-delivered-system-P5", func(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P5", func(t *testing.T) {
 		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
 		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
-		var in1 Input_operate_a_delivered_system_P5_1
+		var in1 inputOperateADeliveredSystemP5S1
 		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":3.5,"P95LatencyMs":0,"InflightRequests":2,"CurrentReplicas":0,"CPUUtilization":0,"MemoryUtilization":0,"Health":0,"SLOStatus":1,"TimeSinceLastRequest":0},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":0,"LastDecisionAt":"2026-10-03T10:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":0,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error

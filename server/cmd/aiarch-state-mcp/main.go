@@ -58,6 +58,11 @@ func runOneShotCommand(argv []string) (handled bool, err error) {
 	// The agent never records a run; the venue measures it.
 	case "record-test-run":
 		return true, wrapOneShot("record-test-run", runRecordTestRun(argv[1:], nil))
+	// `record-test-plan` is the single writer for one component's test plan while the
+	// plans are bound one at a time (recordtestplan.go): a byte splice gated on that
+	// component's TP-* rules plus no new errors.
+	case "record-test-plan":
+		return true, wrapOneShot("record-test-plan", runRecordTestPlan(argv[1:], os.Stdout))
 	}
 	return false, nil
 }
