@@ -11786,17 +11786,26 @@ func TestComponentScenarios_RoutesFacetCallsByOpName(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("decode dog-food fixture: ok=%v err=%v", ok, err)
 	}
-	opsOf := func(key string) map[string]bool {
-		sc, ok := p.ServiceContracts[key]
-		if !ok {
-			t.Fatalf("fixture precondition: no serviceContracts.%s", key)
-		}
-		out := map[string]bool{}
-		for _, op := range sc.Interface.Operations {
-			out[op.Name] = true
-		}
-		return out
+	facets := projectStateFacetKeys(&p)
+	if len(facets) == 0 {
+		t.Fatal("fixture precondition: projectStateAccess carries no facet contracts")
 	}
+	// The base keeps only its own ops; its reach is the design's business
+	// (TP-OP-REACHED), not the routing's.
+	routedReach(t, &p, "projectStateAccess")
+	for _, key := range facets {
+		reached := routedReach(t, &p, key)
+		for _, op := range p.ServiceContracts[key].Interface.Operations {
+			if !reached[op.Name] {
+				t.Errorf("%s.%s is drawn in a view but no routed stimulus drives it", key, op.Name)
+			}
+		}
+	}
+}
+
+// projectStateFacetKeys is every serviceContracts key, other than projectStateAccess
+// itself, whose `component` is projectStateAccess — sorted.
+func projectStateFacetKeys(p *Project) []string {
 	var facets []string
 	for key, sc := range p.ServiceContracts {
 		if scenario.Normalize(sc.Component) == scenario.Normalize("projectStateAccess") && key != "projectStateAccess" {
@@ -11804,38 +11813,33 @@ func TestComponentScenarios_RoutesFacetCallsByOpName(t *testing.T) {
 		}
 	}
 	slices.Sort(facets)
-	if len(facets) == 0 {
-		t.Fatal("fixture precondition: projectStateAccess carries no facet contracts")
-	}
+	return facets
+}
 
-	for _, key := range append([]string{"projectStateAccess"}, facets...) {
-		own := opsOf(key)
-		got, err := ComponentScenarios(&p, key)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got) == 0 {
-			t.Fatalf("%s: no projected scenario; its calls are not routed to it", key)
-		}
-		reached := map[string]bool{}
-		for _, s := range got {
-			for _, st := range s.Stimuli {
-				if st.Input.To != scenario.Normalize(key) {
-					t.Fatalf("%s: %s stimulus %d targets %q", key, s.ID, st.Seq, st.Input.To)
-				}
-				if st.Input.Op != "" && !own[st.Input.Op] {
-					t.Fatalf("%s: %s stimulus %d drives %q, which %s does not declare", key, s.ID, st.Seq, st.Input.Op, key)
-				}
-				reached[st.Input.Op] = true
+// routedReach projects the canonical set onto key, fails unless the projection is
+// non-empty and every stimulus targets key and drives an op key declares, and
+// returns the ops driven.
+func routedReach(t *testing.T, p *Project, key string) map[string]bool {
+	t.Helper()
+	own := map[string]bool{}
+	for _, op := range p.ServiceContracts[key].Interface.Operations {
+		own[op.Name] = true
+	}
+	got, err := ComponentScenarios(p, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Fatalf("%s: no projected scenario; its calls are not routed to it", key)
+	}
+	reached := map[string]bool{}
+	for _, s := range got {
+		for _, st := range s.Stimuli {
+			if st.Input.To != scenario.Normalize(key) || (st.Input.Op != "" && !own[st.Input.Op]) {
+				t.Fatalf("%s: %s stimulus %d is %s.%q, not an op %s declares", key, s.ID, st.Seq, st.Input.To, st.Input.Op, key)
 			}
-		}
-		if key == "projectStateAccess" {
-			continue // its own reach is the design's business (TP-OP-REACHED), not the routing's
-		}
-		for op := range own {
-			if !reached[op] {
-				t.Errorf("%s.%s is drawn in a view but no routed stimulus drives it", key, op)
-			}
+			reached[st.Input.Op] = true
 		}
 	}
+	return reached
 }
