@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
@@ -1063,6 +1064,6 @@ type DeliveryManager interface {
 // builder newDeliveryManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewDeliveryManager(client client.Client, projectState projectstate.ProjectStateAccess, artifact artifact.ArtifactAccess, intervention intervention.InterventionEngine, review review.ReviewEngine, estimator estimation.EstimationEngine, operationEstimator operationestimation.OperationEstimationEngine, billingEstimator billing.BillingEngine, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, gitStatus projectstate.GitActivityStatusAccess, designSession projectstate.DesignSessionAccess, activityExecution projectstate.ActivityExecutionAccess, messageBus messagebus.MessageBus, episodes episode.EpisodeAccess, escalationWaitTimeout time.Duration, interventionMode string, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), repoBase string) DeliveryManager {
-	return newDeliveryManager(client, projectState, artifact, intervention, review, estimator, operationEstimator, billingEstimator, pipeline, rail, gitStatus, designSession, activityExecution, messageBus, episodes, escalationWaitTimeout, interventionMode, repo, repoBase)
+func NewDeliveryManager(client client.Client, projectState projectstate.ProjectStateAccess, artifact artifact.ArtifactAccess, intervention intervention.InterventionEngine, review review.ReviewEngine, estimator estimation.EstimationEngine, operationEstimator operationestimation.OperationEstimationEngine, billingEstimator billing.BillingEngine, designHealth designhealth.DesignHealthEngine, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, gitStatus projectstate.GitActivityStatusAccess, designSession projectstate.DesignSessionAccess, activityExecution projectstate.ActivityExecutionAccess, messageBus messagebus.MessageBus, episodes episode.EpisodeAccess, escalationWaitTimeout time.Duration, interventionMode string, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), repoBase string) DeliveryManager {
+	return newDeliveryManager(client, projectState, artifact, intervention, review, estimator, operationEstimator, billingEstimator, designHealth, pipeline, rail, gitStatus, designSession, activityExecution, messageBus, episodes, escalationWaitTimeout, interventionMode, repo, repoBase)
 }

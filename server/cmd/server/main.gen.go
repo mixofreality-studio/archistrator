@@ -26,6 +26,7 @@ import (
 	operationsweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	enginebilling "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
@@ -540,6 +541,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	// Engines — pure, deterministic, dependency-free.
 	autoscalerEngine := autoscaler.NewAutoscalerEngine()
 	billingEngine := enginebilling.NewBillingEngine()
+	designHealthEngine := designhealth.NewDesignHealthEngine()
 	estimationEngine := estimation.NewEstimationEngine()
 	interventionEngine := intervention.NewInterventionEngine()
 	operationEstimationEngine := operationestimation.NewOperationEstimationEngine()
@@ -558,7 +560,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("billingManager Temporal Schedules registered")
-	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, agenticJobAccess, sourceControlAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, hooks.DeliveryManagerEscalationWaitTimeout(), hooks.DeliveryManagerInterventionMode(), hooks.DeliveryManagerRepo(), hooks.DeliveryManagerRepoBase())
+	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, designHealthEngine, agenticJobAccess, sourceControlAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, hooks.DeliveryManagerEscalationWaitTimeout(), hooks.DeliveryManagerInterventionMode(), hooks.DeliveryManagerRepo(), hooks.DeliveryManagerRepoBase())
 	if hooks.RegisterDeliveryManagerWorker(cfg) {
 		wDeliveryManager := worker.New(tc, delivery.TaskQueue, worker.Options{})
 		delivery.RegisterManagerWorker(wDeliveryManager, deliveryManager)

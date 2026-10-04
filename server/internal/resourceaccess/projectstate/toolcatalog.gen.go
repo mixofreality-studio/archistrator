@@ -311,6 +311,18 @@ func internalToolCatalog() []InternalTool {
 			OutputSchema: json.RawMessage("{\"$defs\":{\"Version\":{\"type\":\"integer\",\"x-go-type\":\"uint64\"}},\"$ref\":\"#/$defs/Version\"}"),
 		},
 		{
+			Name:         "designHealthEvaluateDesignHealth",
+			Component:    "designHealthEngine",
+			Layer:        "Engine",
+			Operation:    "EvaluateDesignHealth",
+			Params:       []string{"project"},
+			ReadOnly:     true,
+			AgentHidden:  false,
+			Description:  "EvaluateDesignHealth on the designHealthEngine Engine contract (read-only). Raw generated internal tool.",
+			InputSchema:  json.RawMessage("{\"additionalProperties\":false,\"properties\":{\"project\":{\"type\":\"string\",\"description\":\"The project.json document to judge (committed, or drafted at an artifact's gate).\"}},\"required\":[\"project\"],\"type\":\"object\"}"),
+			OutputSchema: json.RawMessage("{\"$defs\":{\"Finding\":{\"type\":\"object\",\"properties\":{\"ruleId\":{\"$ref\":\"#/$defs/RuleID\",\"x-go-name\":\"RuleID\"},\"severity\":{\"$ref\":\"#/$defs/Severity\"},\"message\":{\"type\":\"string\"},\"location\":{\"type\":[\"null\"],\"$ref\":\"#/$defs/Location\"}},\"required\":[\"ruleId\",\"severity\",\"message\"],\"additionalProperties\":false},\"Location\":{\"type\":\"object\",\"properties\":{\"ordinal\":{\"type\":\"integer\"},\"section\":{\"type\":\"string\"}},\"required\":[\"ordinal\",\"section\"],\"additionalProperties\":false},\"RuleID\":{\"type\":\"string\"},\"Severity\":{\"type\":\"string\",\"enum\":[\"info\",\"warning\",\"error\"],\"x-enum-varnames\":[\"SeverityInfo\",\"SeverityWarning\",\"SeverityError\"],\"x-go-base\":\"string\"}},\"items\":{\"$ref\":\"#/$defs/Finding\"},\"type\":[\"null\",\"array\"]}"),
+		},
+		{
 			Name:         "designSessionCommitArtifactWithProvenance",
 			Component:    "projectStateAccess",
 			Layer:        "ResourceAccess",

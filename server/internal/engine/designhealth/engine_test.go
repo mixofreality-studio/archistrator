@@ -26,9 +26,9 @@ import (
 
 func TestGreenFixtureNoErrors(t *testing.T) {
 	raw := readCommittedProjectJSON(t)
-	findings := EvaluateRaw(raw)
+	findings := evaluateRaw(raw)
 	if len(findings) == 0 {
-		t.Fatal("EvaluateRaw returned no findings at all — the rule layer is not running against the committed state")
+		t.Fatal("evaluateRaw returned no findings at all — the rule layer is not running against the committed state")
 	}
 
 	var errs []methodcheck.Finding
@@ -49,7 +49,7 @@ func TestGreenFixtureNoErrors(t *testing.T) {
 // severity flip that would red the gate) is caught here rather than in production.
 func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	raw := readCommittedProjectJSON(t)
-	findings := EvaluateRaw(raw)
+	findings := evaluateRaw(raw)
 	got := indexBySeverity(findings)
 
 	slots, perr := parseSlots(raw)
@@ -65,33 +65,33 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// Task 3; Task 4's A5 deletions then took it and activityExecutionAccess below the
 	// limit), so nothing is left to fire on. This is the FIRST time the repo has had no
 	// Manager contract past App-C's ceiling.
-	assertAbsent(t, got, RuleContractOpMax)
+	assertAbsent(t, got, ruleContractOpMax)
 	// Objective-coverage advisory: ERA-DEPENDENT. While any objective is referenced
 	// by neither an objectiveLinks entry nor a legacy justifyingObjective, the
 	// orphaned-business-need advisory fires at Warning; once every objective is
 	// linked (the committed state is converging on the typed objectiveLinks home)
 	// it must stay silent.
 	if objectiveCoverageComplete(slots) {
-		assertAbsent(t, got, RuleObjCoverage)
+		assertAbsent(t, got, ruleObjCoverage)
 	} else {
-		assertPresent(t, got, RuleObjCoverage, methodcheck.SeverityWarning)
+		assertPresent(t, got, ruleObjCoverage, methodcheck.SeverityWarning)
 	}
 	// the volatility count is reported informationally.
-	assertPresent(t, got, RuleCardVolatility, methodcheck.SeverityInfo)
+	assertPresent(t, got, ruleCardVolatility, methodcheck.SeverityInfo)
 	// Encapsulation-join advisory: ERA-DEPENDENT. Until the typed
 	// encapsulatesVolatilities join is authored on the committed components, facet
 	// groups make several volatility names match multiple blurbs (Info). Once ANY
 	// component carries the typed list the join is authoritative and shared owners
 	// are legitimate — no ambiguity finding may fire at all.
 	if slots.typedEncapsulationActive() {
-		assertAbsent(t, got, RuleVolEncapAmbig)
+		assertAbsent(t, got, ruleVolEncapAmbig)
 	} else {
-		assertPresent(t, got, RuleVolEncapAmbig, methodcheck.SeverityInfo)
+		assertPresent(t, got, ruleVolEncapAmbig, methodcheck.SeverityInfo)
 	}
 
 	// The facet join, promoted from the family-D gate, must find NO fossil on the
 	// reconciled state (all four facets resolve + layer-match).
-	assertAbsent(t, got, RuleContractFacet)
+	assertAbsent(t, got, ruleContractFacet)
 	// Stage 3 (2026-09-23) added the activityExecutionAccess facet ADDITIVELY and
 	// left the three folded facets deprecated in place so every Temporal activity
 	// name survives replay until the stage-4 drain. Two verbs now exist on two
@@ -107,14 +107,14 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// verbs went — and dct Plan 4 Task 4 deleted the activity-scoped twin (no Manager
 	// ever called it), so the committed state now carries NO cross-facet duplicate and
 	// the rule must stay silent. (The rule itself stays proven by its negative fixture.)
-	assertAbsent(t, got, RuleContractDeadOp)
+	assertAbsent(t, got, ruleContractDeadOp)
 	// No dangling volatility trace, no unarchitected core use case.
-	assertAbsent(t, got, RuleVolTrace)
-	assertAbsent(t, got, RuleCovUCDynamic)
-	assertAbsent(t, got, RuleObjResolve)
+	assertAbsent(t, got, ruleVolTrace)
+	assertAbsent(t, got, ruleCovUCDynamic)
+	assertAbsent(t, got, ruleObjResolve)
 	// The committed state's three buildStatus values (null, "external", "planned") are
 	// all in the closed vocabulary — verified live in Step 1 of the task brief.
-	assertAbsent(t, got, RuleBuildStatusVocabulary)
+	assertAbsent(t, got, ruleBuildStatusVocabulary)
 
 	// CC-* call-chain family (2026-07-30 callchain-realization; batches 1-3 landed
 	// 2026-08-01, D0 added the two construction variations, stage 4a collapsed the
@@ -146,23 +146,23 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// System` runs both tiers and reports 2x these counts) — a drift here means
 	// this mirror parses the slot-4 activity / slot-5 step shapes differently than
 	// the platform gate.
-	assertAbsent(t, got, RuleCCCoverage)
+	assertAbsent(t, got, ruleCCCoverage)
 	// CC-TRIGGER-EVENT (Task 7, 2026-08-01; re-measured at stage 4a): every
 	// timer/busMessage use case declares a matching event entry — operate's
 	// schedule-fires, bill's period-elapses, retry's charge-declined, replan's
 	// replan-triggered (now a timeEvent) and the new core's pump-fires — so the
 	// rule is silent on the committed state.
-	assertAbsent(t, got, RuleCCTriggerEvent)
+	assertAbsent(t, got, ruleCCTriggerEvent)
 	var ccCoverageCount, ccTriggerCount int
 	ccCoverageUseCases := map[string]bool{}
 	for _, f := range findings {
 		switch f.RuleID {
-		case RuleCCCoverage:
+		case ruleCCCoverage:
 			ccCoverageCount++
 			if f.Location != nil {
 				ccCoverageUseCases[f.Location.Section] = true
 			}
-		case RuleCCTriggerEvent:
+		case ruleCCTriggerEvent:
 			ccTriggerCount++
 		}
 	}
@@ -208,14 +208,14 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	}
 	// Vacuous check retained for all 16 views; genuinely clean on every one now
 	// that all 16 dynamic views are realized.
-	assertAbsent(t, got, RuleCCViewUseCase)
-	assertAbsent(t, got, RuleCCStepNode)
-	assertAbsent(t, got, RuleCCStepUnique)
-	assertAbsent(t, got, RuleCCStepNonempty)
-	assertAbsent(t, got, RuleCCEndpoint)
-	assertAbsent(t, got, RuleCCActorEdge)
-	assertAbsent(t, got, RuleCCActorLane)
-	assertAbsent(t, got, RuleCCPathConnected)
+	assertAbsent(t, got, ruleCCViewUseCase)
+	assertAbsent(t, got, ruleCCStepNode)
+	assertAbsent(t, got, ruleCCStepUnique)
+	assertAbsent(t, got, ruleCCStepNonempty)
+	assertAbsent(t, got, ruleCCEndpoint)
+	assertAbsent(t, got, ruleCCActorEdge)
+	assertAbsent(t, got, ruleCCActorLane)
+	assertAbsent(t, got, ruleCCPathConnected)
 
 	// CC-DECIDED-BY / CUC-ACTOR-REQUIRED (2026-07-31 rollout rulings): expect
 	// ZERO findings on the committed state. This is NOT a vacuous pass: the
@@ -228,8 +228,8 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// still declares at least one actor, across that whole volume of real
 	// usage. A finding here means either the data drifted or the
 	// decode/resolution joins drifted from the platform tier's.
-	assertAbsent(t, got, RuleCUCActorRequired)
-	assertAbsent(t, got, RuleCCDecidedBy)
+	assertAbsent(t, got, ruleCUCActorRequired)
+	assertAbsent(t, got, ruleCCDecidedBy)
 }
 
 // TestCC_AllRulesAreErrorSeverity pins ccLiveSeverity post-flip (Task 12,
@@ -250,9 +250,9 @@ func TestCC_AllRulesAreErrorSeverity(t *testing.T) {
 				actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 				actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 	)
-	findings := EvaluateRaw(mustMarshal(t, doc))
+	findings := evaluateRaw(mustMarshal(t, doc))
 	got := indexBySeverity(findings)
-	assertPresent(t, got, RuleCCStepNode, methodcheck.SeverityError)
+	assertPresent(t, got, ruleCCStepNode, methodcheck.SeverityError)
 	if ccLiveSeverity != methodcheck.SeverityError {
 		t.Fatalf("every CC-* rule must be the hard gate (SeverityError) post-flip, got %v", ccLiveSeverity)
 	}
@@ -278,7 +278,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				comps(comp("e", "engine"), comp("m", "manager")),
 				rels(rel("e", "m", "sync")),
 				nil),
-			wantRule: RuleGraphUpcall, wantSev: methodcheck.SeverityError,
+			wantRule: ruleGraphUpcall, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "graph sideways sync: manager calls manager sync",
@@ -286,7 +286,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				comps(comp("m1", "manager"), comp("m2", "manager")),
 				rels(rel("m1", "m2", "sync")),
 				nil),
-			wantRule: RuleGraphSidewaysSync, wantSev: methodcheck.SeverityError,
+			wantRule: ruleGraphSidewaysSync, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "graph client entry: client calls engine",
@@ -294,7 +294,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				comps(comp("c", "client"), comp("e", "engine")),
 				rels(rel("c", "e", "sync")),
 				nil),
-			wantRule: RuleGraphClientEntry, wantSev: methodcheck.SeverityError,
+			wantRule: ruleGraphClientEntry, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "graph queued target: queued call into an engine",
@@ -302,7 +302,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				comps(comp("m", "manager"), comp("e", "engine")),
 				rels(rel("m", "e", "queued")),
 				nil),
-			wantRule: RuleGraphQueuedTarget, wantSev: methodcheck.SeverityError,
+			wantRule: ruleGraphQueuedTarget, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "graph engine IO: engine calls resourceAccess",
@@ -310,7 +310,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				comps(comp("e", "engine"), comp("ra", "resourceAccess")),
 				rels(rel("e", "ra", "sync")),
 				nil),
-			wantRule: RuleGraphEngineIO, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleGraphEngineIO, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			name: "graph utility unreachable",
@@ -318,7 +318,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				comps(comp("m", "manager"), comp("u", "utility")),
 				rels(),
 				nil),
-			wantRule: RuleGraphUtilReach, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleGraphUtilReach, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			// A manager calling only ResourceAccess is a LEGITIMATE Method design (IO
@@ -329,17 +329,17 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				comps(comp("m", "manager"), comp("u", "utility")),
 				rels(rel("m", "u", "sync")),
 				nil),
-			wantRule: RuleGraphMgrEmpty, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleGraphMgrEmpty, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			name:     "cardinality: six managers exceeds five",
 			doc:      sysDoc(comps(comp("m1", "manager"), comp("m2", "manager"), comp("m3", "manager"), comp("m4", "manager"), comp("m5", "manager"), comp("m6", "manager")), rels(), nil),
-			wantRule: RuleCardManagers, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleCardManagers, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			name:     "cardinality: four engines exceeds the 2-3 band",
 			doc:      sysDoc(comps(comp("m", "manager"), comp("e1", "engine"), comp("e2", "engine"), comp("e3", "engine"), comp("e4", "engine")), rels(), nil),
-			wantRule: RuleCardEngines, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleCardEngines, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			// 5 RA + 4 Resources = 9 combined (> 8) while each individual count stays
@@ -348,18 +348,18 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 			doc: sysDoc(comps(
 				comp("ra1", "resourceAccess"), comp("ra2", "resourceAccess"), comp("ra3", "resourceAccess"), comp("ra4", "resourceAccess"), comp("ra5", "resourceAccess"),
 				comp("r1", "resource"), comp("r2", "resource"), comp("r3", "resource"), comp("r4", "resource")), rels(), nil),
-			wantRule: RuleCardRAResources, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleCardRAResources, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			name: "cardinality: seven utilities exceeds the half-dozen",
 			doc: sysDoc(comps(
 				comp("u1", "utility"), comp("u2", "utility"), comp("u3", "utility"), comp("u4", "utility"), comp("u5", "utility"), comp("u6", "utility"), comp("u7", "utility")), rels(), nil),
-			wantRule: RuleCardUtilities, wantSev: methodcheck.SeverityInfo,
+			wantRule: ruleCardUtilities, wantSev: methodcheck.SeverityInfo,
 		},
 		{
 			name:     "cardinality: single-manager system is unvalidatable",
 			doc:      sysDoc(comps(comp("m", "manager"), comp("e", "engine")), rels(), nil),
-			wantRule: RuleCardManagersMin, wantSev: methodcheck.SeverityInfo,
+			wantRule: ruleCardManagersMin, wantSev: methodcheck.SeverityInfo,
 		},
 		{
 			name: "use case: core decision missing essenceRationale",
@@ -367,7 +367,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				sysDoc(comps(comp("m", "manager")), rels(), dvs(dynView("uc-core", edge("c", "m", "sync")))),
 				slot("4", 4, ucDecisions(ucDecision("uc-core", "core"))),
 			),
-			wantRule: RuleUCEssenceMissing, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleUCEssenceMissing, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			name: "chain: two client-entry managers",
@@ -375,7 +375,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				comps(comp("c", "client"), comp("m1", "manager"), comp("m2", "manager")),
 				rels(rel("c", "m1", "sync")),
 				dvs(dynView("uc-x", edge("c", "m1", "sync"), edge("c", "m2", "sync")))),
-			wantRule: RuleChainEntryManager, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleChainEntryManager, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			name: "chain: two queued manager hops",
@@ -383,7 +383,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				comps(comp("c", "client"), comp("m1", "manager"), comp("m2", "manager"), comp("m3", "manager")),
 				rels(rel("c", "m1", "sync"), rel("m1", "m2", "queued"), rel("m1", "m3", "queued")),
 				dvs(dynView("uc-y", edge("c", "m1", "sync"), edge("m1", "m2", "queued"), edge("m1", "m3", "queued")))),
-			wantRule: RuleChainQueuedManager, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleChainQueuedManager, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			name: "coverage: core use case with no dynamic view",
@@ -393,7 +393,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 					map[string]any{"useCase": map[string]any{"id": "uc-orphan", "classification": "core"}},
 				}}),
 			),
-			wantRule: RuleCovUCDynamic, wantSev: methodcheck.SeverityError,
+			wantRule: ruleCovUCDynamic, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "coverage: volatility encapsulated by nothing",
@@ -403,7 +403,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 					map[string]any{"name": "Totally Unowned Volatility"},
 				}}),
 			),
-			wantRule: RuleVolEncapMissing, wantSev: methodcheck.SeverityError,
+			wantRule: ruleVolEncapMissing, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "coverage: typed join — volatility in no component's typed list",
@@ -414,7 +414,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 					map[string]any{"name": "B"},
 				}}),
 			),
-			wantRule: RuleVolEncapMissing, wantSev: methodcheck.SeverityError,
+			wantRule: ruleVolEncapMissing, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "join: typed entry dangles after a volatility rename",
@@ -422,7 +422,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				sysDoc(comps(compVols("m", "manager", "Ghost Vol")), rels(), nil),
 				slot("3", 3, map[string]any{"items": []any{map[string]any{"name": "A"}}}),
 			),
-			wantRule: RuleCompVolDangling, wantSev: methodcheck.SeverityError,
+			wantRule: ruleCompVolDangling, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "coverage: manager encapsulating no volatility",
@@ -430,7 +430,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				sysDoc(comps(compVols("ra", "resourceAccess", "A"), comp("m", "manager")), rels(), nil),
 				slot("3", 3, map[string]any{"items": []any{map[string]any{"name": "A"}}}),
 			),
-			wantRule: RuleCompNoVolatility, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleCompNoVolatility, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			name: "coverage: fallback ambiguity — name matches several blurbs",
@@ -440,7 +440,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 					compBlurb("m2", "engine", "also computes the Widget Policy")), rels(), nil),
 				slot("3", 3, map[string]any{"items": []any{map[string]any{"name": "Widget Policy"}}}),
 			),
-			wantRule: RuleVolEncapAmbig, wantSev: methodcheck.SeverityInfo,
+			wantRule: ruleVolEncapAmbig, wantSev: methodcheck.SeverityInfo,
 		},
 		{
 			name: "coverage: volatility trace to missing requirement",
@@ -451,7 +451,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 					map[string]any{"name": "V", "traces": []any{"R-999"}},
 				}}),
 			),
-			wantRule: RuleVolTrace, wantSev: methodcheck.SeverityError,
+			wantRule: ruleVolTrace, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "coverage: justifyingObjective resolves to nothing",
@@ -462,7 +462,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 					map[string]any{"justifyingObjective": 42},
 				}}),
 			),
-			wantRule: RuleObjResolve, wantSev: methodcheck.SeverityError,
+			wantRule: ruleObjResolve, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "coverage: objectiveLinks number resolves to nothing",
@@ -473,7 +473,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 					"deploymentScenario": []any{42},
 				}}),
 			),
-			wantRule: RuleObjResolve, wantSev: methodcheck.SeverityError,
+			wantRule: ruleObjResolve, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "coverage: unreferenced objective is an orphaned business need",
@@ -487,7 +487,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 					"deploymentScenario": []any{1},
 				}}),
 			),
-			wantRule: RuleObjCoverage, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleObjCoverage, wantSev: methodcheck.SeverityWarning,
 		},
 		{
 			name: "contract: op count hard reject at twenty",
@@ -495,7 +495,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				sysDoc(comps(comp("m", "manager")), rels(), nil),
 				map[string]any{"godManager": contractEntry("godManager", "Manager", "internal/manager/god", opNames(20))},
 			),
-			wantRule: RuleContractOpReject, wantSev: methodcheck.SeverityError,
+			wantRule: ruleContractOpReject, wantSev: methodcheck.SeverityError,
 		},
 		{
 			name: "contract: fossil facet resolves to nothing",
@@ -503,7 +503,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 				sysDoc(comps(comp("real-manager", "manager")), rels(), nil),
 				map[string]any{"ghostAccess": contractEntry("nonexistentComponent", "ResourceAccess", "internal/resourceaccess/ghost", opNames(2))},
 			),
-			wantRule: RuleContractFacet, wantSev: methodcheck.SeverityError,
+			wantRule: ruleContractFacet, wantSev: methodcheck.SeverityError,
 		},
 		{
 			// Same op name, SAME param signature across a facet group → exact
@@ -516,7 +516,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 					"constructionTransitionAccess": contractEntryOps("projectStateAccess", "ResourceAccess", "internal/resourceaccess/projectstate", opWithParams("ReadProject", "projectID"), opWithParams("RecordActivity", "activityID")),
 				},
 			),
-			wantRule: RuleContractDeadOp, wantSev: methodcheck.SeverityError,
+			wantRule: ruleContractDeadOp, wantSev: methodcheck.SeverityError,
 		},
 		{
 			// Same op name, DIFFERING param signature (the reconciled ReadProject
@@ -529,7 +529,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 					"constructionTransitionAccess": contractEntryOps("projectStateAccess", "ResourceAccess", "internal/resourceaccess/projectstate", opWithParams("ReadProject", "projectID", "cred")),
 				},
 			),
-			wantRule: RuleContractDeadOp, wantSev: methodcheck.SeverityWarning,
+			wantRule: ruleContractDeadOp, wantSev: methodcheck.SeverityWarning,
 		},
 
 		// ---- CC-* call-chain correspondence family (2026-07-30 callchain-realization) ----
@@ -544,7 +544,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCCViewUseCase, wantSev: ccLiveSeverity,
+			wantRule: ruleCCViewUseCase, wantSev: ccLiveSeverity,
 		},
 		{
 			name: "call-chain: step keys a node the diagram does not declare",
@@ -557,7 +557,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCCStepNode, wantSev: ccLiveSeverity,
+			wantRule: ruleCCStepNode, wantSev: ccLiveSeverity,
 		},
 		{
 			name: "call-chain: duplicate step for the same activity node",
@@ -572,7 +572,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCCStepUnique, wantSev: ccLiveSeverity,
+			wantRule: ruleCCStepUnique, wantSev: ccLiveSeverity,
 		},
 		{
 			name: "call-chain: action node realized by no step",
@@ -585,7 +585,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCCCoverage, wantSev: ccLiveSeverity,
+			wantRule: ruleCCCoverage, wantSev: ccLiveSeverity,
 		},
 		{
 			name: "call-chain: realized step makes no call",
@@ -598,7 +598,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCCStepNonempty, wantSev: ccLiveSeverity,
+			wantRule: ruleCCStepNonempty, wantSev: ccLiveSeverity,
 		},
 		{
 			name: "call-chain: call endpoint resolves to nothing",
@@ -611,7 +611,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCCEndpoint, wantSev: ccLiveSeverity,
+			wantRule: ruleCCEndpoint, wantSev: ccLiveSeverity,
 		},
 		{
 			name: "call-chain: actor calls a non-Client component",
@@ -624,7 +624,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCCActorEdge, wantSev: ccLiveSeverity,
+			wantRule: ruleCCActorEdge, wantSev: ccLiveSeverity,
 		},
 		{
 			name: "call-chain: lane-linked node's step never touches its actor",
@@ -637,7 +637,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNodeLane("act", "action", "User", "user"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCCActorLane, wantSev: ccLiveSeverity,
+			wantRule: ruleCCActorLane, wantSev: ccLiveSeverity,
 		},
 		{
 			name: "call-chain: timer-triggered use case has no timeEvent entry",
@@ -650,7 +650,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCCTriggerEvent, wantSev: ccLiveSeverity,
+			wantRule: ruleCCTriggerEvent, wantSev: ccLiveSeverity,
 		},
 		{
 			name: "call-chain: later step calls from a component the chain never reached",
@@ -665,7 +665,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNode("a1", "action"), actNode("a2", "action"), actNode("end", "end")),
 						actEdges(actEdge("start", "a1"), actEdge("a1", "a2"), actEdge("a2", "end"))))),
 			),
-			wantRule: RuleCCPathConnected, wantSev: ccLiveSeverity,
+			wantRule: ruleCCPathConnected, wantSev: ccLiveSeverity,
 		},
 		{
 			// CUC-ACTOR-REQUIRED (rollout rulings 2026-07-31): a clientAction use
@@ -678,7 +678,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCUCActorRequired, wantSev: ccLiveSeverity,
+			wantRule: ruleCUCActorRequired, wantSev: ccLiveSeverity,
 		},
 		{
 			// CC-DECIDED-BY (rollout rulings 2026-07-31), placement half: a
@@ -694,7 +694,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 						actNodes(actNode("start", "start"), actNodeDecided("act", "action", "m"), actNode("end", "end")),
 						actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 			),
-			wantRule: RuleCCDecidedBy, wantSev: ccLiveSeverity,
+			wantRule: ruleCCDecidedBy, wantSev: ccLiveSeverity,
 		},
 	}
 
@@ -704,7 +704,7 @@ func TestNegativeFixturesEachRuleFires(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal fixture: %v", err)
 			}
-			findings := EvaluateRaw(raw)
+			findings := evaluateRaw(raw)
 			for _, f := range findings {
 				if f.RuleID == tc.wantRule {
 					if f.Severity != tc.wantSev {
@@ -737,12 +737,12 @@ func TestCUCActorRequired(t *testing.T) {
 	// clientAction with zero actors → fires at ccLiveSeverity, use-case-scoped
 	// section (the grammar the spec mandates, deliberately not the "use case
 	// %d (%s)" grammar the older CUC-* checks would use).
-	findings := EvaluateRaw(build("uc-solo", "clientAction", ucActors()))
+	findings := evaluateRaw(build("uc-solo", "clientAction", ucActors()))
 	got := indexBySeverity(findings)
-	assertPresent(t, got, RuleCUCActorRequired, ccLiveSeverity)
+	assertPresent(t, got, ruleCUCActorRequired, ccLiveSeverity)
 	found := false
 	for _, f := range findings {
-		if f.RuleID == RuleCUCActorRequired {
+		if f.RuleID == ruleCUCActorRequired {
 			found = true
 			if f.Location == nil || f.Location.Section != "useCase uc-solo" {
 				t.Errorf("CUC-ACTOR-REQUIRED section must be %q, got %+v", "useCase uc-solo", f.Location)
@@ -754,16 +754,16 @@ func TestCUCActorRequired(t *testing.T) {
 	}
 
 	// clientAction WITH an actor → silent.
-	got = indexBySeverity(EvaluateRaw(build("uc-has-actor", "clientAction", ucActors(ucActor("user")))))
-	assertAbsent(t, got, RuleCUCActorRequired)
+	got = indexBySeverity(evaluateRaw(build("uc-has-actor", "clientAction", ucActors(ucActor("user")))))
+	assertAbsent(t, got, ruleCUCActorRequired)
 
 	// timer-triggered with zero actors → the clock starts it, not a person.
-	got = indexBySeverity(EvaluateRaw(build("uc-timer", "timer", ucActors())))
-	assertAbsent(t, got, RuleCUCActorRequired)
+	got = indexBySeverity(evaluateRaw(build("uc-timer", "timer", ucActors())))
+	assertAbsent(t, got, ruleCUCActorRequired)
 
 	// busMessage-triggered with zero actors → same reasoning.
-	got = indexBySeverity(EvaluateRaw(build("uc-bus", "busMessage", ucActors())))
-	assertAbsent(t, got, RuleCUCActorRequired)
+	got = indexBySeverity(evaluateRaw(build("uc-bus", "busMessage", ucActors())))
+	assertAbsent(t, got, ruleCUCActorRequired)
 }
 
 // TestCCDecidedBy pins CC-DECIDED-BY's two halves (rollout rulings
@@ -798,28 +798,28 @@ func TestCCDecidedBy(t *testing.T) {
 
 	// Placement: decidedBy on an action node fires even though the value
 	// ("m") would otherwise resolve to a System Component.
-	got := indexBySeverity(EvaluateRaw(build(ucActors(ucActor("user")), "act", "m")))
-	assertPresent(t, got, RuleCCDecidedBy, ccLiveSeverity)
+	got := indexBySeverity(evaluateRaw(build(ucActors(ucActor("user")), "act", "m")))
+	assertPresent(t, got, ruleCCDecidedBy, ccLiveSeverity)
 
 	// Unresolvable: neither a component nor an actor.
-	got = indexBySeverity(EvaluateRaw(build(ucActors(ucActor("user")), "d", "nobody")))
-	assertPresent(t, got, RuleCCDecidedBy, ccLiveSeverity)
+	got = indexBySeverity(evaluateRaw(build(ucActors(ucActor("user")), "d", "nobody")))
+	assertPresent(t, got, ruleCCDecidedBy, ccLiveSeverity)
 
 	// Resolves to a System Component → silent.
-	got = indexBySeverity(EvaluateRaw(build(ucActors(ucActor("user")), "d", "m")))
-	assertAbsent(t, got, RuleCCDecidedBy)
+	got = indexBySeverity(evaluateRaw(build(ucActors(ucActor("user")), "d", "m")))
+	assertAbsent(t, got, ruleCCDecidedBy)
 
 	// Resolves to the owning use case's actor → silent.
-	got = indexBySeverity(EvaluateRaw(build(ucActors(ucActor("user")), "d", "user")))
-	assertAbsent(t, got, RuleCCDecidedBy)
+	got = indexBySeverity(evaluateRaw(build(ucActors(ucActor("user")), "d", "user")))
+	assertAbsent(t, got, ruleCCDecidedBy)
 
 	// Ambiguous: the decider id collides with BOTH a Component and an actor.
-	findings := EvaluateRaw(build(ucActors(ucActor("c")), "d", "c"))
+	findings := evaluateRaw(build(ucActors(ucActor("c")), "d", "c"))
 	got = indexBySeverity(findings)
-	assertPresent(t, got, RuleCCDecidedBy, ccLiveSeverity)
+	assertPresent(t, got, ruleCCDecidedBy, ccLiveSeverity)
 	found := false
 	for _, f := range findings {
-		if f.RuleID == RuleCCDecidedBy {
+		if f.RuleID == ruleCCDecidedBy {
 			found = true
 			if f.Location == nil || f.Location.Section != "useCase uc-dec" {
 				t.Errorf("CC-DECIDED-BY section must be %q, got %+v", "useCase uc-dec", f.Location)
@@ -856,7 +856,7 @@ func TestCCPathConnectedAltGroupBothSeedReached(t *testing.T) {
 				actNodes(actNode("start", "start"), actNode("act", "action"), actNode("end", "end")),
 				actEdges(actEdge("start", "act"), actEdge("act", "end"))))),
 	)
-	findings := EvaluateRaw(mustMarshal(t, doc))
+	findings := evaluateRaw(mustMarshal(t, doc))
 	for _, f := range findings {
 		if strings.HasPrefix(string(f.RuleID), "CC-") {
 			t.Errorf("an alt-grouped both-surface entry is fully connected; no CC-* finding may fire, got %s: %s", f.RuleID, f.Message)
@@ -869,7 +869,7 @@ func TestCCPathConnectedAltGroupBothSeedReached(t *testing.T) {
 // inert for the CC-* verdicts and for per-edge legality, but the per-view
 // §6a/§6b chain rules (rules_chains.go) read a view's calls as concurrent: two
 // alternatives entering two different Managers is one Client driving two
-// Managers, and RuleChainEntryManager — this package's analog of the
+// Managers, and ruleChainEntryManager — this package's analog of the
 // platform's DV-SINGLE-MGR — says so. Alternatives are two doors into ONE
 // chain (same Manager), not two chains.
 func TestChainEntryManagerAltGroupToDifferentManagersFires(t *testing.T) {
@@ -878,8 +878,8 @@ func TestChainEntryManagerAltGroupToDifferentManagersFires(t *testing.T) {
 		rels(rel("c", "m1", "sync"), rel("c", "m2", "sync")),
 		dvs(dynView("uc-alt-two-mgrs", altEdge("c", "m1", "sync", "entry"), altEdge("c", "m2", "sync", "entry"))),
 	)
-	got := indexBySeverity(EvaluateRaw(mustMarshal(t, doc)))
-	assertPresent(t, got, RuleChainEntryManager, methodcheck.SeverityWarning)
+	got := indexBySeverity(evaluateRaw(mustMarshal(t, doc)))
+	assertPresent(t, got, ruleChainEntryManager, methodcheck.SeverityWarning)
 }
 
 // TestManagerWithOnlyResourceAccessIsValid pins the merits fix for
@@ -897,8 +897,8 @@ func TestManagerWithOnlyResourceAccessIsValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	for _, f := range EvaluateRaw(raw) {
-		if f.RuleID == RuleGraphMgrEmpty {
+	for _, f := range evaluateRaw(raw) {
+		if f.RuleID == ruleGraphMgrEmpty {
 			t.Errorf("DH-GRAPH-MANAGER-EMPTY must NOT fire on a manager that orchestrates ResourceAccess: %s", f.Message)
 		}
 	}
@@ -933,7 +933,7 @@ func TestDriftFixtureShapeDoesNotFlagCoveredComponents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	for _, f := range EvaluateRaw(raw) {
+	for _, f := range evaluateRaw(raw) {
 		if strings.Contains(f.Message, `"m1"`) || strings.Contains(f.Message, `"c1"`) ||
 			(f.Location != nil && (strings.Contains(f.Location.Section, "m1") || strings.Contains(f.Location.Section, "c1"))) {
 			t.Errorf("no live-tier finding may name a covered component c1/m1 on this valid shape, got %s: %s", f.RuleID, f.Message)
@@ -962,18 +962,18 @@ func TestTypedEncapsulationJoinAuthoritative(t *testing.T) {
 			map[string]any{"name": "Blurb Vol"},
 		}}),
 	)
-	findings := EvaluateRaw(mustMarshal(t, doc))
+	findings := evaluateRaw(mustMarshal(t, doc))
 	got := indexBySeverity(findings)
 
 	// Two typed owners of "Shared Vol" are a legitimate shared component/facet
 	// group under the ratified doctrine — never an ambiguity finding.
-	assertAbsent(t, got, RuleVolEncapAmbig)
+	assertAbsent(t, got, ruleVolEncapAmbig)
 	// "Blurb Vol" is mentioned only in a blurb; under the authoritative typed join
 	// that is no longer ownership, so the encapsulation gap is a real Error.
-	assertPresent(t, got, RuleVolEncapMissing, methodcheck.SeverityError)
+	assertPresent(t, got, ruleVolEncapMissing, methodcheck.SeverityError)
 	var missing []string
 	for _, f := range findings {
-		if f.RuleID == RuleVolEncapMissing {
+		if f.RuleID == ruleVolEncapMissing {
 			missing = append(missing, f.Message)
 		}
 	}
@@ -981,7 +981,7 @@ func TestTypedEncapsulationJoinAuthoritative(t *testing.T) {
 		t.Errorf("exactly the blurb-only volatility must be missing under the typed join, got: %v", missing)
 	}
 	// Both typed entries name committed volatilities — nothing dangles.
-	assertAbsent(t, got, RuleCompVolDangling)
+	assertAbsent(t, got, ruleCompVolDangling)
 }
 
 // TestFallbackJoinPreserved pins that a state with NO typed field anywhere keeps the
@@ -998,13 +998,13 @@ func TestFallbackJoinPreserved(t *testing.T) {
 			map[string]any{"name": "Unowned Vol"},
 		}}),
 	)
-	findings := EvaluateRaw(mustMarshal(t, doc))
+	findings := evaluateRaw(mustMarshal(t, doc))
 	got := indexBySeverity(findings)
-	assertPresent(t, got, RuleVolEncapAmbig, methodcheck.SeverityInfo)
-	assertPresent(t, got, RuleVolEncapMissing, methodcheck.SeverityError)
-	assertAbsent(t, got, RuleCompVolDangling)
+	assertPresent(t, got, ruleVolEncapAmbig, methodcheck.SeverityInfo)
+	assertPresent(t, got, ruleVolEncapMissing, methodcheck.SeverityError)
+	assertAbsent(t, got, ruleCompVolDangling)
 	// Both components' blurbs mention a committed name → ownership under fallback.
-	assertAbsent(t, got, RuleCompNoVolatility)
+	assertAbsent(t, got, ruleCompNoVolatility)
 }
 
 // TestCompVolDangling pins the dangling-reference rule: exact-name semantics (a case
@@ -1018,15 +1018,15 @@ func TestCompVolDangling(t *testing.T) {
 	}
 
 	// Case-different entry: the join is exact-name → dangling reference.
-	got := indexBySeverity(EvaluateRaw(mustMarshal(t, base([]any{map[string]any{"name": "Widget Policy"}}))))
-	assertPresent(t, got, RuleCompVolDangling, methodcheck.SeverityError)
+	got := indexBySeverity(evaluateRaw(mustMarshal(t, base([]any{map[string]any{"name": "Widget Policy"}}))))
+	assertPresent(t, got, ruleCompVolDangling, methodcheck.SeverityError)
 
 	// Empty volatilities slot: nothing to join against → every volatility-join rule
 	// stays silent (the same posture as the other joins).
-	got = indexBySeverity(EvaluateRaw(mustMarshal(t, base([]any{}))))
-	assertAbsent(t, got, RuleCompVolDangling)
-	assertAbsent(t, got, RuleCompNoVolatility)
-	assertAbsent(t, got, RuleVolEncapMissing)
+	got = indexBySeverity(evaluateRaw(mustMarshal(t, base([]any{}))))
+	assertAbsent(t, got, ruleCompVolDangling)
+	assertAbsent(t, got, ruleCompNoVolatility)
+	assertAbsent(t, got, ruleVolEncapMissing)
 }
 
 // TestCompNoVolatility pins the reverse anti-functional-decomposition check across
@@ -1045,7 +1045,7 @@ func TestCompNoVolatility(t *testing.T) {
 		), rels(), nil),
 		slot("3", 3, map[string]any{"items": []any{map[string]any{"name": "Widget Policy"}}}),
 	)
-	assertNoVolWarnings(t, EvaluateRaw(mustMarshal(t, typedDoc)), []string{"component e", "component ra"})
+	assertNoVolWarnings(t, evaluateRaw(mustMarshal(t, typedDoc)), []string{"component e", "component ra"})
 
 	// FALLBACK regime: ownership is a blurb mentioning ≥1 committed name (containsFold).
 	fallbackDoc := withSlots(
@@ -1057,7 +1057,7 @@ func TestCompNoVolatility(t *testing.T) {
 		), rels(), nil),
 		slot("3", 3, map[string]any{"items": []any{map[string]any{"name": "Widget Policy"}}}),
 	)
-	assertNoVolWarnings(t, EvaluateRaw(mustMarshal(t, fallbackDoc)), []string{"component e", "component ra"})
+	assertNoVolWarnings(t, evaluateRaw(mustMarshal(t, fallbackDoc)), []string{"component e", "component ra"})
 }
 
 // assertNoVolWarnings asserts DH-COMP-NO-VOLATILITY fired at Warning for exactly the
@@ -1066,7 +1066,7 @@ func assertNoVolWarnings(t *testing.T, findings []methodcheck.Finding, wantSecti
 	t.Helper()
 	var gotSections []string
 	for _, f := range findings {
-		if f.RuleID != RuleCompNoVolatility {
+		if f.RuleID != ruleCompNoVolatility {
 			continue
 		}
 		if f.Severity != methodcheck.SeverityWarning {
@@ -1095,11 +1095,11 @@ func TestBuildStatusVocabulary(t *testing.T) {
 		compBuildStatus("planned-manager", "manager", "planned"),
 		compBuildStatus("external-util", "utility", "external"),
 	), rels(), nil)
-	findings := EvaluateRaw(mustMarshal(t, doc))
+	findings := evaluateRaw(mustMarshal(t, doc))
 
 	var got []methodcheck.Finding
 	for _, f := range findings {
-		if f.RuleID == RuleBuildStatusVocabulary {
+		if f.RuleID == ruleBuildStatusVocabulary {
 			got = append(got, f)
 		}
 	}
@@ -1129,19 +1129,19 @@ func TestCardinalityBandBoundaries(t *testing.T) {
 		comp("r1", "resource"), comp("r2", "resource"), comp("r3", "resource"), comp("r4", "resource"),
 		comp("u1", "utility"), comp("u2", "utility"), comp("u3", "utility"), comp("u4", "utility"), comp("u5", "utility"), comp("u6", "utility"),
 	), rels(), nil)
-	got := indexBySeverity(EvaluateRaw(mustMarshal(t, doc)))
-	assertAbsent(t, got, RuleCardEngines)
-	assertAbsent(t, got, RuleCardRAResources)
-	assertAbsent(t, got, RuleCardUtilities)
-	assertAbsent(t, got, RuleCardManagersMin)
+	got := indexBySeverity(evaluateRaw(mustMarshal(t, doc)))
+	assertAbsent(t, got, ruleCardEngines)
+	assertAbsent(t, got, ruleCardRAResources)
+	assertAbsent(t, got, ruleCardUtilities)
+	assertAbsent(t, got, ruleCardManagersMin)
 }
 
 // TestCardManagersMinSkips pins the DH-CARD-MANAGERS-MIN skip semantics: a system
 // with ZERO components (mid-draft) is not a single-Manager system — the rule stays
 // entirely silent rather than nagging an architecture that does not exist yet.
 func TestCardManagersMinSkips(t *testing.T) {
-	got := indexBySeverity(EvaluateRaw(mustMarshal(t, sysDoc(comps(), rels(), nil))))
-	assertAbsent(t, got, RuleCardManagersMin)
+	got := indexBySeverity(evaluateRaw(mustMarshal(t, sysDoc(comps(), rels(), nil))))
+	assertAbsent(t, got, ruleCardManagersMin)
 }
 
 // TestUCEssenceRationale pins DH-UC-ESSENCE-MISSING across the decision shapes:
@@ -1157,34 +1157,34 @@ func TestUCEssenceRationale(t *testing.T) {
 	}
 
 	// Non-empty rationale → silent.
-	got := indexBySeverity(EvaluateRaw(build(ucDecisionEssence("uc-1", "core", "the differentiating revenue stream"))))
-	assertAbsent(t, got, RuleUCEssenceMissing)
+	got := indexBySeverity(evaluateRaw(build(ucDecisionEssence("uc-1", "core", "the differentiating revenue stream"))))
+	assertAbsent(t, got, ruleUCEssenceMissing)
 
 	// Field absent → Warning.
-	got = indexBySeverity(EvaluateRaw(build(ucDecision("uc-1", "core"))))
-	assertPresent(t, got, RuleUCEssenceMissing, methodcheck.SeverityWarning)
+	got = indexBySeverity(evaluateRaw(build(ucDecision("uc-1", "core"))))
+	assertPresent(t, got, ruleUCEssenceMissing, methodcheck.SeverityWarning)
 
 	// Explicit null → Warning.
 	null := ucDecision("uc-1", "core")
 	null["essenceRationale"] = nil
-	got = indexBySeverity(EvaluateRaw(build(null)))
-	assertPresent(t, got, RuleUCEssenceMissing, methodcheck.SeverityWarning)
+	got = indexBySeverity(evaluateRaw(build(null)))
+	assertPresent(t, got, ruleUCEssenceMissing, methodcheck.SeverityWarning)
 
 	// Whitespace-only → Warning.
-	got = indexBySeverity(EvaluateRaw(build(ucDecisionEssence("uc-1", "core", "   "))))
-	assertPresent(t, got, RuleUCEssenceMissing, methodcheck.SeverityWarning)
+	got = indexBySeverity(evaluateRaw(build(ucDecisionEssence("uc-1", "core", "   "))))
+	assertPresent(t, got, ruleUCEssenceMissing, methodcheck.SeverityWarning)
 
 	// nonCore without a rationale → silent (that side carries rejectionReason).
-	got = indexBySeverity(EvaluateRaw(build(ucDecision("uc-2", "nonCore"))))
-	assertAbsent(t, got, RuleUCEssenceMissing)
+	got = indexBySeverity(evaluateRaw(build(ucDecision("uc-2", "nonCore"))))
+	assertAbsent(t, got, ruleUCEssenceMissing)
 
 	// Empty decisions list (slot present but empty) → skip.
-	got = indexBySeverity(EvaluateRaw(build()))
-	assertAbsent(t, got, RuleUCEssenceMissing)
+	got = indexBySeverity(evaluateRaw(build()))
+	assertAbsent(t, got, ruleUCEssenceMissing)
 
 	// Slot absent entirely → skip.
-	got = indexBySeverity(EvaluateRaw(mustMarshal(t, sysDoc(comps(comp("m", "manager")), rels(), nil))))
-	assertAbsent(t, got, RuleUCEssenceMissing)
+	got = indexBySeverity(evaluateRaw(mustMarshal(t, sysDoc(comps(comp("m", "manager")), rels(), nil))))
+	assertAbsent(t, got, ruleUCEssenceMissing)
 }
 
 // TestObjectiveLinksJoin pins the objective↔architecture traceability join (ch. 5)
@@ -1207,22 +1207,22 @@ func TestObjectiveLinksJoin(t *testing.T) {
 	}
 
 	// Every objective referenced via the typed objectiveLinks map → both joins silent.
-	got := indexBySeverity(EvaluateRaw(build(map[string]any{
+	got := indexBySeverity(evaluateRaw(build(map[string]any{
 		"objectiveLinks": map[string]any{"deploymentScenario": []any{1, 2}},
 	})))
-	assertAbsent(t, got, RuleObjResolve)
-	assertAbsent(t, got, RuleObjCoverage)
+	assertAbsent(t, got, ruleObjResolve)
+	assertAbsent(t, got, ruleObjCoverage)
 
 	// A dangling number arriving via objectiveLinks → DH-OBJ-RESOLVE Error, exactly
 	// as via the legacy path, and the finding names its source knob.
-	findings := EvaluateRaw(build(map[string]any{
+	findings := evaluateRaw(build(map[string]any{
 		"objectiveLinks": map[string]any{"constructionVenue": []any{1, 2, 42}},
 	}))
 	got = indexBySeverity(findings)
-	assertPresent(t, got, RuleObjResolve, methodcheck.SeverityError)
+	assertPresent(t, got, ruleObjResolve, methodcheck.SeverityError)
 	knobNamed := false
 	for _, f := range findings {
-		if f.RuleID == RuleObjResolve && strings.Contains(f.Message, "constructionVenue") && strings.Contains(f.Message, "42") {
+		if f.RuleID == ruleObjResolve && strings.Contains(f.Message, "constructionVenue") && strings.Contains(f.Message, "42") {
 			knobNamed = true
 		}
 	}
@@ -1231,42 +1231,42 @@ func TestObjectiveLinksJoin(t *testing.T) {
 	}
 
 	// Legacy decisions[].justifyingObjective still harvests (older states).
-	got = indexBySeverity(EvaluateRaw(build(map[string]any{"decisions": []any{
+	got = indexBySeverity(evaluateRaw(build(map[string]any{"decisions": []any{
 		map[string]any{"justifyingObjective": 1},
 		map[string]any{"justifyingObjective": 2},
 	}})))
-	assertAbsent(t, got, RuleObjResolve)
-	assertAbsent(t, got, RuleObjCoverage)
+	assertAbsent(t, got, ruleObjResolve)
+	assertAbsent(t, got, ruleObjCoverage)
 
 	// The two sources MERGE into one referenced set: decisions cover objective 1,
 	// objectiveLinks covers objective 2 → full coverage.
-	got = indexBySeverity(EvaluateRaw(build(map[string]any{
+	got = indexBySeverity(evaluateRaw(build(map[string]any{
 		"decisions":      []any{map[string]any{"justifyingObjective": 1}},
 		"objectiveLinks": map[string]any{"scalingPolicy": []any{2}},
 	})))
-	assertAbsent(t, got, RuleObjResolve)
-	assertAbsent(t, got, RuleObjCoverage)
+	assertAbsent(t, got, ruleObjResolve)
+	assertAbsent(t, got, ruleObjCoverage)
 
 	// Empty objectiveLinks map → tolerated; nothing referenced, so the coverage
 	// advisory fires at Warning (an orphaned business need, non-blocking).
-	got = indexBySeverity(EvaluateRaw(build(map[string]any{"objectiveLinks": map[string]any{}})))
-	assertAbsent(t, got, RuleObjResolve)
-	assertPresent(t, got, RuleObjCoverage, methodcheck.SeverityWarning)
+	got = indexBySeverity(evaluateRaw(build(map[string]any{"objectiveLinks": map[string]any{}})))
+	assertAbsent(t, got, ruleObjResolve)
+	assertPresent(t, got, ruleObjCoverage, methodcheck.SeverityWarning)
 
 	// objectiveLinks absent entirely → same tolerance.
-	got = indexBySeverity(EvaluateRaw(build(map[string]any{})))
-	assertAbsent(t, got, RuleObjResolve)
-	assertPresent(t, got, RuleObjCoverage, methodcheck.SeverityWarning)
+	got = indexBySeverity(evaluateRaw(build(map[string]any{})))
+	assertAbsent(t, got, ruleObjResolve)
+	assertPresent(t, got, ruleObjCoverage, methodcheck.SeverityWarning)
 }
 
 // TestEvaluateRawTolerates checks the structural-degradation contract: a document
 // the published parser rejects yields no findings (the framework gate owns it),
 // never a panic.
 func TestEvaluateRawTolerates(t *testing.T) {
-	if f := EvaluateRaw([]byte("not json")); f != nil {
+	if f := evaluateRaw([]byte("not json")); f != nil {
 		t.Errorf("non-JSON input should yield nil findings, got %d", len(f))
 	}
-	if f := EvaluateRaw([]byte(`{}`)); len(f) != 0 {
+	if f := evaluateRaw([]byte(`{}`)); len(f) != 0 {
 		t.Errorf("empty document should yield no findings, got %d", len(f))
 	}
 }
@@ -1458,7 +1458,7 @@ func edge(from, to, mode string) map[string]any {
 }
 
 // altEdge builds a call edge carrying an alt (surface-alternative group) tag
-// — the CC-* family's alt-inertness tests and the RuleChainEntryManager
+// — the CC-* family's alt-inertness tests and the ruleChainEntryManager
 // alt-cardinality pin both join on it.
 func altEdge(from, to, mode, alt string) map[string]any {
 	m := edge(from, to, mode)
@@ -2204,13 +2204,13 @@ func TestPaths_BudgetDoesNotBindOnOrdinaryDiagram(t *testing.T) {
 // duplicate, and this test is where it surfaces.
 func TestMovedManagerRulesFireIdenticallyOnTheGreenFixture(t *testing.T) {
 	moved := []methodcheck.RuleID{
-		RuleSysRAOrphan, RuleSysEncapsulates, RuleSysRelDup, RuleDVTitleEmpty,
-		RuleUCVariationRef, RuleGlossFourQ, RuleSRIDUnique, RuleOPCTopicCoverage,
-		RuleUCActivityMissing, RuleUCDynamicMissing, RuleSysLayerDegenerate,
-		RuleVolCoverage, RuleSysServicesExplosion,
+		ruleSysRAOrphan, ruleSysEncapsulates, ruleSysRelDup, ruleDVTitleEmpty,
+		ruleUCVariationRef, ruleGlossFourQ, ruleSRIDUnique, ruleOPCTopicCoverage,
+		ruleUCActivityMissing, ruleUCDynamicMissing, ruleSysLayerDegenerate,
+		ruleVolCoverage, ruleSysServicesExplosion,
 	}
 	raw := readCommittedProjectJSON(t)
-	green := indexByRule(EvaluateRaw(raw))
+	green := indexByRule(evaluateRaw(raw))
 	for _, id := range moved {
 		if len(green[id]) != 0 {
 			t.Errorf("%s fires on the committed state; the Manager copy was silent there, so the move changed behaviour: %s", id, renderFindings(green[id]))
@@ -2218,7 +2218,7 @@ func TestMovedManagerRulesFireIdenticallyOnTheGreenFixture(t *testing.T) {
 	}
 	for _, id := range moved {
 		t.Run(string(id), func(t *testing.T) {
-			if id == RuleOPCTopicCoverage {
+			if id == ruleOPCTopicCoverage {
 				// OPC-TOPIC-COVERAGE arrived INERT: the free-text decisions[].topic list it
 				// nudged over was replaced by required typed fields, so it returned no
 				// findings in the Manager either. A rule that cannot fire has no red mutant;
@@ -2226,7 +2226,7 @@ func TestMovedManagerRulesFireIdenticallyOnTheGreenFixture(t *testing.T) {
 				t.Skip("inert by design — see TestOPCTopicCoverageIsInert")
 			}
 			mutant := mutantFor(t, raw, id)
-			got := indexByRule(EvaluateRaw(mutant))
+			got := indexByRule(evaluateRaw(mutant))
 			if len(got[id]) == 0 {
 				t.Fatalf("%s did not fire on its own mutant — the moved rule is dead", id)
 			}
@@ -2259,12 +2259,12 @@ func TestOPCTopicCoverageIsInert(t *testing.T) {
 		sysDoc(comps(comp("m", "manager")), rels(), nil),
 		slot("6", 6, map[string]any{"decisions": []any{map[string]any{"topic": ""}}}),
 	)
-	for _, f := range EvaluateRaw(mustMarshal(t, doc)) {
-		if f.RuleID == RuleOPCTopicCoverage {
+	for _, f := range evaluateRaw(mustMarshal(t, doc)) {
+		if f.RuleID == ruleOPCTopicCoverage {
 			t.Fatalf("OPC-TOPIC-COVERAGE is inert by design; something made it fire: %s", f.Message)
 		}
 	}
-	if got := opcTopicFindings(Input{}); got != nil {
+	if got := opcTopicFindings(input{}); got != nil {
 		t.Fatalf("opcTopicFindings must return nil for every input, got %+v", got)
 	}
 }
@@ -2293,7 +2293,7 @@ func mutantFor(t *testing.T, raw []byte, id methodcheck.RuleID) []byte {
 // design and the parity test skips it by name.
 var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 	// Blank the first dynamic view's title.
-	RuleDVTitleEmpty: func(t *testing.T, doc map[string]any) {
+	ruleDVTitleEmpty: func(t *testing.T, doc map[string]any) {
 		first, ok := dynamicViewsOf(t, doc)[0].(map[string]any)
 		if !ok {
 			t.Fatalf("dynamicViews[0] is not an object")
@@ -2301,7 +2301,7 @@ var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 		first["title"] = "   "
 	},
 	// Point a nonCore use case's variationOf at an id no core use case carries.
-	RuleUCVariationRef: func(t *testing.T, doc map[string]any) {
+	ruleUCVariationRef: func(t *testing.T, doc map[string]any) {
 		for _, d := range decisionsOf(t, doc) {
 			uc := useCaseOf(t, d)
 			if uc["classification"] != "core" {
@@ -2312,7 +2312,7 @@ var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 		t.Fatal("no nonCore use case in the committed state to point at a missing parent")
 	},
 	// Give a term a category outside the closed Four-Questions set.
-	RuleGlossFourQ: func(t *testing.T, doc map[string]any) {
+	ruleGlossFourQ: func(t *testing.T, doc map[string]any) {
 		first, ok := slotItems(t, doc, "1")[0].(map[string]any)
 		if !ok {
 			t.Fatalf("glossary items[0] is not an object")
@@ -2321,7 +2321,7 @@ var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 	},
 	// ADD a requirement duplicating an existing id, rather than renaming one: a
 	// rename would also strand the volatility traces that cite the old id.
-	RuleSRIDUnique: func(t *testing.T, doc map[string]any) {
+	ruleSRIDUnique: func(t *testing.T, doc map[string]any) {
 		items := slotItems(t, doc, "2")
 		first, ok := items[0].(map[string]any)
 		if !ok {
@@ -2334,7 +2334,7 @@ var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 	// A new ResourceAccess named by no relationship at all. It carries both an
 	// encapsulates blurb and a typed volatility claim so it trips ONLY the orphan
 	// rule and not the encapsulation pair.
-	RuleSysRAOrphan: func(t *testing.T, doc map[string]any) {
+	ruleSysRAOrphan: func(t *testing.T, doc map[string]any) {
 		addComponent(t, doc, map[string]any{
 			"id": "orphan-access", "name": "OrphanAccess", "kind": "resourceAccess",
 			"layer": "resourceAccess", "encapsulates": "reaches nothing at all",
@@ -2344,7 +2344,7 @@ var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 	// A new ENGINE with a blank encapsulates. Added rather than blanking an existing
 	// component's blurb, because blanking one would also strand the volatility names
 	// that component's prose was the only mention of.
-	RuleSysEncapsulates: func(t *testing.T, doc map[string]any) {
+	ruleSysEncapsulates: func(t *testing.T, doc map[string]any) {
 		addComponent(t, doc, map[string]any{
 			"id": "silent-engine", "name": "SilentEngine", "kind": "engine",
 			"layer": "engine", "encapsulates": "",
@@ -2352,7 +2352,7 @@ var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 		})
 	},
 	// An exact duplicate of an existing (from, to, mode) edge.
-	RuleSysRelDup: func(t *testing.T, doc map[string]any) {
+	ruleSysRelDup: func(t *testing.T, doc map[string]any) {
 		rels := relationshipsOf(t, doc)
 		first, ok := rels[0].(map[string]any)
 		if !ok {
@@ -2364,14 +2364,14 @@ var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 	},
 	// A new nonCore use case with NO activity diagram — and WITH a dynamic view, so
 	// the dynamic-view rule stays silent and the attribution is unambiguous.
-	RuleUCActivityMissing: func(t *testing.T, doc map[string]any) {
+	ruleUCActivityMissing: func(t *testing.T, doc map[string]any) {
 		ucID := addUseCase(t, doc, nil)
 		setDynamicViews(t, doc, append(dynamicViewsOf(t, doc), map[string]any{
 			"key": ucID + "-view", "title": "A Titled View", "useCaseId": ucID, "steps": []any{},
 		}))
 	},
 	// A new nonCore use case with a WELL-FORMED activity and no dynamic view.
-	RuleUCDynamicMissing: func(t *testing.T, doc map[string]any) {
+	ruleUCDynamicMissing: func(t *testing.T, doc map[string]any) {
 		addUseCase(t, doc, map[string]any{
 			"nodes": []any{
 				map[string]any{"id": "n-start", "kind": "start"},
@@ -2386,7 +2386,7 @@ var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 	},
 	// Re-label a Manager's LAYER while keeping its "…Manager" name — the name/layer
 	// contradiction that is the fingerprint of a defaulted layer.
-	RuleSysLayerDegenerate: func(t *testing.T, doc map[string]any) {
+	ruleSysLayerDegenerate: func(t *testing.T, doc map[string]any) {
 		for _, c := range componentsOf(t, doc) {
 			comp, ok := c.(map[string]any)
 			if !ok || comp["kind"] != "manager" {
@@ -2400,7 +2400,7 @@ var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 	// Redact a volatility's NAME out of every component's encapsulates prose, leaving
 	// the typed encapsulatesVolatilities join (which DH-VOL-ENCAP-MISSING reads)
 	// untouched — so only the prose-claim rule notices.
-	RuleVolCoverage: func(t *testing.T, doc map[string]any) {
+	ruleVolCoverage: func(t *testing.T, doc map[string]any) {
 		name := unredactableVolatilityName(t, doc)
 		redacted := 0
 		for _, c := range componentsOf(t, doc) {
@@ -2422,7 +2422,7 @@ var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
 	// Rename Managers so their stems MIRROR core use-case names: the count already
 	// matches (three Managers, three core use cases) on the committed state, and the
 	// 60% name-mirroring threshold is the only thing keeping the rule silent.
-	RuleSysServicesExplosion: mirrorManagerNamesOntoCoreUseCases,
+	ruleSysServicesExplosion: mirrorManagerNamesOntoCoreUseCases,
 }
 
 // ---- mutant plumbing: tolerant accessors over the committed document ----------

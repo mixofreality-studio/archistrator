@@ -117,7 +117,7 @@ func TestExecuteProjectStateRead_ReadProject(t *testing.T) {
 	}
 }
 
-// TestInSubstrateLedger pins the executes-vs-unavailable split: exactly the 6 Engines
+// TestInSubstrateLedger pins the executes-vs-unavailable split: exactly the 7 Engines
 // + projectStateAccess execute in-substrate, and every other RA component is on the
 // documented unavailable ledger. A new component must consciously land on one side.
 func TestInSubstrateLedger(t *testing.T) {
@@ -133,8 +133,8 @@ func TestInSubstrateLedger(t *testing.T) {
 			t.Errorf("component %q is neither in-substrate nor on the unavailable ledger — classify it", tl.Component)
 		}
 	}
-	// The in-substrate set is exactly projectStateAccess + the 6 engines.
-	if got := len(inSubstrateComponents()); got != 7 {
-		t.Errorf("expected 7 in-substrate components (projectStateAccess + 6 engines), got %d: %v", got, inSubstrateComponents())
+	// The in-substrate set is exactly projectStateAccess + the 7 engines.
+	if got := len(inSubstrateComponents()); got != 8 {
+		t.Errorf("expected 8 in-substrate components (projectStateAccess + 7 engines), got %d: %v", got, inSubstrateComponents())
 	}
 }

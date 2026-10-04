@@ -7369,6 +7369,7 @@
               "Design Conformance Rules"
             ],
             "atomicBusinessVerbs": [],
+            "contractKey": "designHealthEngine",
             "constructionProfile": "handwritten",
             "provisioning": "owned",
             "uiSurface": false
@@ -19881,6 +19882,10 @@
           "component": "billingEngine"
         },
         {
+          "name": "designHealth",
+          "component": "designHealthEngine"
+        },
+        {
           "name": "pipeline",
           "component": "agenticJobAccess"
         },
@@ -23928,6 +23933,102 @@
             ],
             "result": {
               "$ref": "#/$defs/ActivityView"
+            },
+            "error": true
+          }
+        ]
+      }
+    },
+    "designHealthEngine": {
+      "component": "designHealthEngine",
+      "layer": "Engine",
+      "goPackage": "internal/engine/designhealth",
+      "title": "design-health engine contract",
+      "$defs": {
+        "Finding": {
+          "type": "object",
+          "properties": {
+            "ruleId": {
+              "$ref": "#/$defs/RuleID",
+              "x-go-name": "RuleID"
+            },
+            "severity": {
+              "$ref": "#/$defs/Severity"
+            },
+            "message": {
+              "type": "string"
+            },
+            "location": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/Location"
+            }
+          },
+          "required": [
+            "ruleId",
+            "severity",
+            "message"
+          ],
+          "additionalProperties": false
+        },
+        "Location": {
+          "type": "object",
+          "properties": {
+            "ordinal": {
+              "type": "integer"
+            },
+            "section": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ordinal",
+            "section"
+          ],
+          "additionalProperties": false
+        },
+        "RuleID": {
+          "type": "string"
+        },
+        "Severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "x-enum-varnames": [
+            "SeverityInfo",
+            "SeverityWarning",
+            "SeverityError"
+          ],
+          "x-go-base": "string"
+        }
+      },
+      "interface": {
+        "name": "DesignHealthEngine",
+        "layer": "engine",
+        "operations": [
+          {
+            "name": "EvaluateDesignHealth",
+            "params": [
+              {
+                "name": "project",
+                "schema": {
+                  "type": "string",
+                  "description": "The project.json document to judge (committed, or drafted at an artifact's gate)."
+                }
+              }
+            ],
+            "result": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/Finding"
+              }
             },
             "error": true
           }

@@ -1794,7 +1794,7 @@ func (m *deliveryManager) GetDesignHealth(rc fwmanager.Context, projectID Projec
 	if err != nil {
 		return DesignHealth{}, fwmanager.Wrap(fwmanager.Infrastructure, err, "projectStateAccess.EncodeProjectJSON")
 	}
-	live, err := m.designHealth.EvaluateDesignHealth(fweng.Context{Context: ctx}, raw)
+	live, err := m.designHealth.EvaluateDesignHealth(fweng.Context{Context: ctx}, string(raw))
 	if err != nil {
 		return DesignHealth{}, fwmanager.Wrap(fwmanager.Infrastructure, err, "designHealthEngine.EvaluateDesignHealth")
 	}
@@ -1821,39 +1821,24 @@ func (m *deliveryManager) GetDesignHealth(rc fwmanager.Context, projectID Projec
 	}, nil
 }
 
-// findingsToContract maps the platform methodcheck.Finding values the live-tier
-// rule engine mints into the systemDesignManager contract Finding VIEW shape. The
-// slice is always non-nil so the required contract array serializes as [] not null.
-func findingsToContract(in []methodcheck.Finding) []Finding {
+// findingsToContract maps the DesignHealthEngine contract's findings into this
+// Manager's contract Finding VIEW shape (the two contracts each own their Finding;
+// the wire spellings agree, so the copy is field for field). The slice is always
+// non-nil so the required contract array serializes as [] not null.
+func findingsToContract(in []designhealth.Finding) []Finding {
 	out := make([]Finding, 0, len(in))
 	for _, f := range in {
 		fc := Finding{
 			RuleID:   RuleID(f.RuleID),
-			Severity: severityToContract(f.Severity),
+			Severity: Severity(f.Severity),
 			Message:  f.Message,
 		}
 		if f.Location != nil {
-			fc.Location = &Location{Ordinal: int64(f.Location.Ordinal), Section: f.Location.Section}
+			fc.Location = &Location{Ordinal: f.Location.Ordinal, Section: f.Location.Section}
 		}
 		out = append(out, fc)
 	}
 	return out
-}
-
-// severityToContract renders a methodcheck severity ordinal as its VIEW string
-// (info/warning/error) — the contract Severity is a string enum where methodcheck's
-// is an int, so the value is translated by the same names the wire form uses.
-func severityToContract(s methodcheck.Severity) Severity {
-	switch s {
-	case methodcheck.SeverityError:
-		return SeverityError
-	case methodcheck.SeverityWarning:
-		return SeverityWarning
-	case methodcheck.SeverityInfo:
-		return SeverityInfo
-	default:
-		return SeverityInfo
-	}
 }
 
 // checkItemsToContract maps committed RA CheckItem ledger entries (waivers /
@@ -1930,9 +1915,6 @@ func sdMapRAError(err error, label string) error {
 // architecture yet has nothing to derive from, and the authored edges (if any)
 // still serve on their own.
 func (m *deliveryManager) computeDeploymentEdgesAtRead(p *projectstate.Project) {
-	if m.designHealth == nil {
-		return
-	}
 	op, ok := p.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
 	if !ok || op == nil || len(op.Deployment.Environments) == 0 {
 		return
@@ -1942,14 +1924,7 @@ func (m *deliveryManager) computeDeploymentEdgesAtRead(p *projectstate.Project) 
 		return
 	}
 
-	derived, err := m.designHealth.DeriveDeploymentEdges(
-		fweng.Context{Context: context.Background()},
-		toMethodcheckSystem(*sys),
-		toMethodcheckTopology(op.Deployment),
-	)
-	if err != nil {
-		return // degenerate input guard — serve the authored edges unenriched
-	}
+	derived := deriveDeploymentEdges(toMethodcheckSystem(*sys), toMethodcheckTopology(op.Deployment))
 
 	for i := range op.Deployment.Environments {
 		env := &op.Deployment.Environments[i]
@@ -1962,6 +1937,30 @@ func (m *deliveryManager) computeDeploymentEdgesAtRead(p *projectstate.Project) 
 			DerivedRelationships: fromMethodcheckRelationships(edges),
 		}
 	}
+}
+
+// deriveDeploymentEdges is the deployment view's DERIVED relationships, keyed by
+// deployment-profile wire name: each System relationship mapped through container
+// membership onto the elements that host its endpoints, so the application edges
+// the System already states are never restated (and drift) in the deployment slot.
+// It calls the SAME platform function the DEP-EDGE-* rules judge with, so the
+// picture and the gate count the same edges.
+//
+// It used to be a second, contract-less DesignHealthEngine operation. When that
+// engine gained its service contract (dct Plan 4 Task 5) no use case drew the call,
+// so by spec §11 A5 it left the engine: it is a projection of the served model, not
+// a design-conformance rule, and the platform function is its whole body.
+//
+// An environment that derives no edges is an ABSENT key rather than an empty slice,
+// so the served model never carries an empty computed block.
+func deriveDeploymentEdges(system methodcheck.System, topology methodcheck.DeploymentTopology) map[string][]methodcheck.DeploymentRelationship {
+	out := make(map[string][]methodcheck.DeploymentRelationship, len(topology.Environments))
+	for _, env := range topology.Environments {
+		if derived := methodcheck.DeriveDeploymentRelationships(env, topology.Containers, system); len(derived) > 0 {
+			out[env.Profile] = derived
+		}
+	}
+	return out
 }
 
 // toMethodcheckSystem maps the committed System onto the platform's string-typed
@@ -10667,11 +10666,9 @@ type deliveryManager struct {
 	estimator estimation.EstimationEngine
 	repoBase  string
 
-	// designHealth is the DesignHealthEngine behind the designHealth read. It is NOT a
-	// generated constructor dep: the component carries no service contract and an Engine is
-	// pure and stateless, so the builder constructs it directly rather than threading a
-	// parameter no composition root could vary. Re-classifying it is 4b2's.
-	designHealth designhealth.Engine
+	// designHealth is the DesignHealthEngine behind the designHealth read and the
+	// design-artifact gate (its contract's one op, EvaluateDesignHealth).
+	designHealth designhealth.DesignHealthEngine
 }
 
 var _ DeliveryManager = (*deliveryManager)(nil)
@@ -10689,6 +10686,7 @@ func newDeliveryManager(
 	estimator estimation.EstimationEngine,
 	operationEstimator operationestimation.OperationEstimationEngine,
 	billingEstimator billing.BillingEngine,
+	designHealth designhealth.DesignHealthEngine,
 	pipeline agenticjob.AgenticJobAccess,
 	rail sourcecontrol.SourceControlAccess,
 	gitStatus projectstate.GitActivityStatusAccess,
@@ -10719,7 +10717,7 @@ func newDeliveryManager(
 		episodes:          episodes,
 		estimator:         estimator,
 		repoBase:          repoBase,
-		designHealth:      designhealth.NewEngine(),
+		designHealth:      designHealth,
 	}
 }
 
