@@ -30,10 +30,12 @@ package main
 // a session amending a DIFFERENT slot is never deadlocked by them.
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -55,9 +57,44 @@ func appendAppSideCrossArtifactFindings(proj projectstate.Project, findings []me
 	findings = append(findings, rateCardFindings(proj)...)
 	findings = append(findings, paEnumHoleFindings(proj)...)
 	if raw, err := projectstate.EncodeProjectJSON(proj); err == nil {
-		findings = append(findings, designhealth.EvaluateRaw(raw)...)
+		findings = append(findings, liveDesignHealthFindings(raw)...)
 	}
 	return findings
+}
+
+// liveDesignHealthFindings runs the DesignHealthEngine's one contract op over raw and
+// maps its findings back onto the platform methodcheck.Finding this gate's severity
+// policies read. The engine is pure and never errs (a document that will not parse
+// yields no findings — the framework gate owns structural failures), so an error is
+// impossible here and would only mean no live-tier findings.
+func liveDesignHealthFindings(raw []byte) []methodcheck.Finding {
+	live, err := designhealth.NewDesignHealthEngine().EvaluateDesignHealth(fweng.Context{Context: context.Background()}, string(raw))
+	if err != nil {
+		return nil
+	}
+	out := make([]methodcheck.Finding, 0, len(live))
+	for _, f := range live {
+		mf := methodcheck.Finding{RuleID: methodcheck.RuleID(f.RuleID), Severity: methodcheckSeverity(f.Severity), Message: f.Message}
+		if f.Location != nil {
+			mf.Location = &methodcheck.Location{Ordinal: int(f.Location.Ordinal), Section: f.Location.Section}
+		}
+		out = append(out, mf)
+	}
+	return out
+}
+
+// methodcheckSeverity is the inverse of the engine contract's severity rendering.
+func methodcheckSeverity(s designhealth.Severity) methodcheck.Severity {
+	switch s {
+	case designhealth.SeverityError:
+		return methodcheck.SeverityError
+	case designhealth.SeverityWarning:
+		return methodcheck.SeverityWarning
+	case designhealth.SeverityInfo:
+		return methodcheck.SeverityInfo
+	default:
+		return methodcheck.SeverityInfo
+	}
 }
 
 // paEnumHoleFindings emits PA-INFRA-KIND / PA-TERMS-REGIME over the committed

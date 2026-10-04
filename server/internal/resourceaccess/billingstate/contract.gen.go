@@ -16,6 +16,12 @@ type Billing struct {
 	Terms        BillingTerms `json:"Terms"`
 }
 
+type BillingCycle struct {
+	Cycle   string         `json:"Cycle"`
+	Settled bool           `json:"Settled"`
+	Outcome BillingOutcome `json:"Outcome"`
+}
+
 type BillingOutcome struct {
 	Net       Money            `json:"Net"`
 	Directive RoutingDirective `json:"Directive"`
@@ -62,6 +68,7 @@ type BillingStateAccess interface {
 	BindGatewayLive(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, binding GatewayBinding, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReadPersistentlyDelinquentCustomers(rc fwra.Context, scope DelinquencyScope) ([]CustomerSummary, error)
 	ReadBilling(rc fwra.Context, customerID uuid.UUID) (Billing, error)
+	ReadCycle(rc fwra.Context, customerID uuid.UUID, cycle string) (BillingCycle, error)
 	RegisterCustomer(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, profile CustomerProfile, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ResettleCycle(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, cycle string, correction BillingOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SettleCycle(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, cycle string, outcome BillingOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error)
@@ -90,6 +97,11 @@ func (*stubBillingStateAccess) ReadPersistentlyDelinquentCustomers(_ fwra.Contex
 
 func (*stubBillingStateAccess) ReadBilling(_ fwra.Context, _ uuid.UUID) (Billing, error) {
 	var zero Billing
+	return zero, fwra.New(fwra.Unknown, "not implemented")
+}
+
+func (*stubBillingStateAccess) ReadCycle(_ fwra.Context, _ uuid.UUID, _ string) (BillingCycle, error) {
+	var zero BillingCycle
 	return zero, fwra.New(fwra.Unknown, "not implemented")
 }
 

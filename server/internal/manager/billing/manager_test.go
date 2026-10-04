@@ -17,6 +17,8 @@ package billing
 //   A8  Workflow-id derivation tokens are the §6.1 shapes
 //   A9  RoutingDirective String() coverage
 //   A10 gatewayIdempotencyKey is settle:{customerId}:{cycleId}
+//   A11 GetBillingCycle rejects empty ids, reports the recorded settlement (open /
+//       charged / escalated) and maps billingStateAccess read errors
 //
 // B. OnboardWorkflow (workflow_test.go):
 //   B1  happy path: read → bindGatewayLive → registerSchedule (charge-only: no
@@ -61,6 +63,7 @@ import (
 	billingengine "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
+	billingstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
@@ -134,6 +137,70 @@ func Test_Sweep_EmptyTickID(t *testing.T) {
 	_, err := m.RunShortfallSweep(testCtx(), "")
 	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+// ---- A11: GetBillingCycle (the read-only cycle probe, dct Plan 4 Task 5) -----
+
+func Test_GetBillingCycle_EmptyIDs(t *testing.T) {
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil)
+	for _, tc := range []struct {
+		customer uuid.UUID
+		cycle    string
+	}{{uuid.Nil, "cycle-1"}, {uuid.New(), ""}} {
+		_, err := m.GetBillingCycle(testCtx(), tc.customer, tc.cycle)
+		if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
+			t.Fatalf("(%v, %q): want ContractMisuse, got %s", tc.customer, tc.cycle, got)
+		}
+	}
+}
+
+func Test_GetBillingCycle_ReportsTheRecordedSettlement(t *testing.T) {
+	customer := uuid.New()
+	for _, tc := range []struct {
+		name   string
+		stored billingstate.BillingCycle
+		want   BillingCycleView
+	}{
+		{"open", billingstate.BillingCycle{Cycle: "2026-09"},
+			BillingCycleView{CustomerID: customer, CycleID: "2026-09", Routed: RoutingDirectiveNoAction}},
+		{"charged", billingstate.BillingCycle{Cycle: "2026-09", Settled: true, Outcome: billingstate.BillingOutcome{Directive: billingstate.RoutingCharge}},
+			BillingCycleView{CustomerID: customer, CycleID: "2026-09", Closed: true, Routed: RoutingDirectiveCharge}},
+		{"escalated", billingstate.BillingCycle{Cycle: "2026-09", Settled: true, Outcome: billingstate.BillingOutcome{Directive: billingstate.RoutingCharge, Escalated: true}},
+			BillingCycleView{CustomerID: customer, CycleID: "2026-09", Closed: true, Routed: RoutingDirectiveCharge, Escalated: true}},
+	} {
+		bs := &billingstatefake.FakeBillingStateAccess{
+			ReadCycleFn: func(_ fwra.Context, c uuid.UUID, cycle string) (billingstate.BillingCycle, error) {
+				if c != customer || cycle != "2026-09" {
+					t.Fatalf("%s: read (%v, %q), want (%v, 2026-09)", tc.name, c, cycle, customer)
+				}
+				return tc.stored, nil
+			},
+		}
+		got, err := newBillingManager(nil, bs, nil, nil, nil, nil, nil).GetBillingCycle(testCtx(), customer, "2026-09")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s: got %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func Test_GetBillingCycle_MapsAccessErrors(t *testing.T) {
+	for _, tc := range []struct {
+		ra   fwra.Kind
+		want fwmgr.Kind
+	}{{fwra.NotFound, fwmgr.NotFound}, {fwra.ContractMisuse, fwmgr.ContractMisuse}, {fwra.Unknown, fwmgr.Infrastructure}} {
+		bs := &billingstatefake.FakeBillingStateAccess{
+			ReadCycleFn: func(fwra.Context, uuid.UUID, string) (billingstate.BillingCycle, error) {
+				return billingstate.BillingCycle{}, fwra.New(tc.ra, "boom")
+			},
+		}
+		_, err := newBillingManager(nil, bs, nil, nil, nil, nil, nil).GetBillingCycle(testCtx(), uuid.New(), "cycle-1")
+		if got := asBillingError(t, err).Kind; got != tc.want {
+			t.Fatalf("RA %s: want %s, got %s", tc.ra, tc.want, got)
+		}
 	}
 }
 
@@ -230,6 +297,17 @@ func (f *fakeBillingState) ReadBilling(_ fwra.Context, _ uuid.UUID) (billingstat
 		return billingstate.Billing{}, fwra.New(fwra.NotFound, "no row")
 	}
 	return f.billing, nil
+}
+
+// ReadCycle reports the last settled outcome as the cycle's (the workflow tests
+// settle one cycle per fake), or an open cycle when nothing has settled.
+func (f *fakeBillingState) ReadCycle(_ fwra.Context, _ uuid.UUID, cycle string) (billingstate.BillingCycle, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.settled) == 0 {
+		return billingstate.BillingCycle{Cycle: cycle}, nil
+	}
+	return billingstate.BillingCycle{Cycle: cycle, Settled: true, Outcome: f.settled[len(f.settled)-1]}, nil
 }
 
 func (f *fakeBillingState) ReadPersistentlyDelinquentCustomers(_ fwra.Context, _ billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error) {

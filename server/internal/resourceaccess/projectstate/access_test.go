@@ -5380,6 +5380,22 @@ var wantAltTally = map[altCallKey]string{
 	{"var-register-operated-system", "request-registration", "operator", "mcp-client"}:           "s1",
 	{"var-register-operated-system", "request-registration", "web-client", "operations-manager"}: "s2",
 	{"var-register-operated-system", "request-registration", "mcp-client", "operations-manager"}: "s2",
+	// dct Plan 4 Task 5: replan-under-scope-change is redrawn as architect-initiated (the
+	// replan sweep it entered on is deleted), so its entry, its snapshot read and its
+	// re-entry into project design are client calls; view-a-billing-cycle is the new
+	// read variation that carries billingManager.GetBillingCycle.
+	{"var-replan-scope-change", "raise-scope-trigger", "architect-user", "web-client"}: "s1",
+	{"var-replan-scope-change", "raise-scope-trigger", "architect-user", "mcp-client"}: "s1",
+	{"var-replan-scope-change", "snapshot", "web-client", "delivery-manager"}:          "s2",
+	{"var-replan-scope-change", "snapshot", "mcp-client", "delivery-manager"}:          "s2",
+	{"var-replan-scope-change", "reenter", "architect-user", "web-client"}:             "s1",
+	{"var-replan-scope-change", "reenter", "architect-user", "mcp-client"}:             "s1",
+	{"var-replan-scope-change", "reenter", "web-client", "delivery-manager"}:           "s2",
+	{"var-replan-scope-change", "reenter", "mcp-client", "delivery-manager"}:           "s2",
+	{"var-view-billing-cycle", "open-billing-cycle", "architect-user", "web-client"}:   "s1",
+	{"var-view-billing-cycle", "open-billing-cycle", "architect-user", "mcp-client"}:   "s1",
+	{"var-view-billing-cycle", "read-billing-cycle", "web-client", "billing-manager"}:  "s2",
+	{"var-view-billing-cycle", "read-billing-cycle", "mcp-client", "billing-manager"}:  "s2",
 }
 
 // TestCommittedProjectJSON_DynamicViewCalls_Alt is the tolerant-decode regression
@@ -5455,6 +5471,7 @@ var wantDecidedByTally = map[string]int{
 	"operator":            2,
 	"operations-manager":  2,
 	"autoscaler-engine":   1,
+	"billing-manager":     1,
 	"review-engine":       1,
 }
 
@@ -5509,12 +5526,13 @@ func TestCommittedProjectJSON_ActivityNodes_DecidedBySplit(t *testing.T) {
 	if nodeCount == 0 {
 		t.Fatal("committed use cases have zero activity nodes across all decisions — fixture assumption no longer holds")
 	}
-	if decidedByCount != 23 {
-		t.Fatalf("committed activity nodes carry DecidedBy on %d nodes, want 23 (the Task-7 "+
+	if decidedByCount != 24 {
+		t.Fatalf("committed activity nodes carry DecidedBy on %d nodes, want 24 (the Task-7 "+
 			"architect spec's D-table explicit rows, re-measured at stage 4a: the two absorbed core "+
 			"use cases took six deciders with them and execute-a-project-activity brought three; dct "+
 			"Plan 4 Task 4 added two operations-manager guards — withdraw-a-delivered-system's "+
-			"already-withdrawn and view-live-deployment-health's anything-deployed) — "+
+			"already-withdrawn and view-live-deployment-health's anything-deployed; Task 5 added "+
+			"view-a-billing-cycle's billing-manager cycle-closed guard) — "+
 			"investigate drift, don't just re-pin", decidedByCount)
 	}
 	if !reflect.DeepEqual(gotTally, wantDecidedByTally) {
@@ -11768,4 +11786,78 @@ func TestScenarioInputOf_GatesOnCommittedSlots(t *testing.T) {
 			t.Fatalf("system %v: expected no views and %d diagrams, got views=%d diagrams=%d", status, len(base.Diagrams), len(in.Views), len(in.Diagrams))
 		}
 	}
+}
+
+// TestComponentScenarios_RoutesFacetCallsByOpName pins the facet routing (dct Plan 4
+// Task 5, migration report §2.4): projectStateAccess is ONE slot-5 component with
+// several contract facets (every serviceContracts entry whose `component` is
+// projectStateAccess), so a dynamic-view call into project-state-access lands on the
+// facet contract that DECLARES the op its label names. Before the fix every such call
+// was filed under projectStateAccess and resolved only against its own ops, so the
+// facet ops were never reached (TP-OP-REACHED 17) and a facet's projection was empty.
+func TestComponentScenarios_RoutesFacetCallsByOpName(t *testing.T) {
+	raw, err := os.ReadFile("../../../../.aiarch/state/project.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok, err := DecodeProjectJSON(raw, ProjectID("archistrator"))
+	if err != nil || !ok {
+		t.Fatalf("decode dog-food fixture: ok=%v err=%v", ok, err)
+	}
+	facets := projectStateFacetKeys(&p)
+	if len(facets) == 0 {
+		t.Fatal("fixture precondition: projectStateAccess carries no facet contracts")
+	}
+	// The base keeps only its own ops; its reach is the design's business
+	// (TP-OP-REACHED), not the routing's.
+	routedReach(t, &p, "projectStateAccess")
+	for _, key := range facets {
+		reached := routedReach(t, &p, key)
+		for _, op := range p.ServiceContracts[key].Interface.Operations {
+			if !reached[op.Name] {
+				t.Errorf("%s.%s is drawn in a view but no routed stimulus drives it", key, op.Name)
+			}
+		}
+	}
+}
+
+// projectStateFacetKeys is every serviceContracts key, other than projectStateAccess
+// itself, whose `component` is projectStateAccess — sorted.
+func projectStateFacetKeys(p *Project) []string {
+	var facets []string
+	for key, sc := range p.ServiceContracts {
+		if scenario.Normalize(sc.Component) == scenario.Normalize("projectStateAccess") && key != "projectStateAccess" {
+			facets = append(facets, key)
+		}
+	}
+	slices.Sort(facets)
+	return facets
+}
+
+// routedReach projects the canonical set onto key, fails unless the projection is
+// non-empty and every stimulus targets key and drives an op key declares, and
+// returns the ops driven.
+func routedReach(t *testing.T, p *Project, key string) map[string]bool {
+	t.Helper()
+	own := map[string]bool{}
+	for _, op := range p.ServiceContracts[key].Interface.Operations {
+		own[op.Name] = true
+	}
+	got, err := ComponentScenarios(p, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Fatalf("%s: no projected scenario; its calls are not routed to it", key)
+	}
+	reached := map[string]bool{}
+	for _, s := range got {
+		for _, st := range s.Stimuli {
+			if st.Input.To != scenario.Normalize(key) || (st.Input.Op != "" && !own[st.Input.Op]) {
+				t.Fatalf("%s: %s stimulus %d is %s.%q, not an op %s declares", key, s.ID, st.Seq, st.Input.To, st.Input.Op, key)
+			}
+			reached[st.Input.Op] = true
+		}
+	}
+	return reached
 }

@@ -66,6 +66,7 @@ var engineImplAllowlist = []string{
 	"operationEstimationEngine",
 	"autoscalerEngine",
 	"estimationEngine",
+	"designHealthEngine",
 }
 
 func main() {

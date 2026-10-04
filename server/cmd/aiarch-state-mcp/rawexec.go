@@ -10,7 +10,7 @@ package main
 // SUBSTRATE MODEL (agentic-managers spec item 1). The MCP binary runs INSIDE a
 // checkout, so:
 //
-//   - ENGINES (all 6) are pure in-process computation with no outbound calls and
+//   - ENGINES (all 7) are pure in-process computation with no outbound calls and
 //     zero-arg constructors, so they are constructed directly and invoked in
 //     process. Dispatch is generic (reflection over the constructed interface
 //     value + the catalog's ordered Params), so a new Engine op becomes executable
@@ -39,6 +39,7 @@ import (
 
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	enginebilling "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
@@ -54,6 +55,7 @@ func engineImpls() map[string]any {
 	return map[string]any{
 		"autoscalerEngine":          autoscaler.NewAutoscalerEngine(),
 		"billingEngine":             enginebilling.NewBillingEngine(),
+		"designHealthEngine":        designhealth.NewDesignHealthEngine(),
 		"estimationEngine":          estimation.NewEstimationEngine(),
 		"interventionEngine":        intervention.NewInterventionEngine(),
 		"operationEstimationEngine": operationestimation.NewOperationEstimationEngine(),

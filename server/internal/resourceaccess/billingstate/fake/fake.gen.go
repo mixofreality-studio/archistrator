@@ -15,6 +15,7 @@ type FakeBillingStateAccess struct {
 	BindGatewayLiveFn                     func(rc fwra.Context, customerID uuid.UUID, expectedVersion billingstate.Version, binding billingstate.GatewayBinding, idempotencyKey fwra.IdempotencyKey) (billingstate.Version, error)
 	ReadPersistentlyDelinquentCustomersFn func(rc fwra.Context, scope billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error)
 	ReadBillingFn                         func(rc fwra.Context, customerID uuid.UUID) (billingstate.Billing, error)
+	ReadCycleFn                           func(rc fwra.Context, customerID uuid.UUID, cycle string) (billingstate.BillingCycle, error)
 	RegisterCustomerFn                    func(rc fwra.Context, customerID uuid.UUID, expectedVersion billingstate.Version, profile billingstate.CustomerProfile, idempotencyKey fwra.IdempotencyKey) (billingstate.Version, error)
 	ResettleCycleFn                       func(rc fwra.Context, customerID uuid.UUID, expectedVersion billingstate.Version, cycle string, correction billingstate.BillingOutcome, idempotencyKey fwra.IdempotencyKey) (billingstate.Version, error)
 	SettleCycleFn                         func(rc fwra.Context, customerID uuid.UUID, expectedVersion billingstate.Version, cycle string, outcome billingstate.BillingOutcome, idempotencyKey fwra.IdempotencyKey) (billingstate.Version, error)
@@ -39,6 +40,13 @@ func (f *FakeBillingStateAccess) ReadBilling(rc fwra.Context, customerID uuid.UU
 		panic("FakeBillingStateAccess.ReadBillingFn not set")
 	}
 	return f.ReadBillingFn(rc, customerID)
+}
+
+func (f *FakeBillingStateAccess) ReadCycle(rc fwra.Context, customerID uuid.UUID, cycle string) (billingstate.BillingCycle, error) {
+	if f.ReadCycleFn == nil {
+		panic("FakeBillingStateAccess.ReadCycleFn not set")
+	}
+	return f.ReadCycleFn(rc, customerID, cycle)
 }
 
 func (f *FakeBillingStateAccess) RegisterCustomer(rc fwra.Context, customerID uuid.UUID, expectedVersion billingstate.Version, profile billingstate.CustomerProfile, idempotencyKey fwra.IdempotencyKey) (billingstate.Version, error) {

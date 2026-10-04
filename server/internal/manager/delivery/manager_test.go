@@ -4463,6 +4463,7 @@ func fullyWiredDeliveryManager() *deliveryManager {
 		estimation.NewEstimationEngine(),
 		operationestimation.NewOperationEstimationEngine(),
 		billing.NewBillingEngine(),
+		designhealth.NewDesignHealthEngine(),
 		csNewFakePipeline(),
 		&stubRail{},
 		ps,
@@ -21971,7 +21972,7 @@ func task12Manager(c client.Client, ps *csFakeProjectState) *deliveryManager {
 	return newDeliveryManager(
 		c, full, &artifactfake.FakeArtifactAccess{}, &fakeIntervention{}, &fakeReview{},
 		estimation.NewEstimationEngine(), operationestimation.NewOperationEstimationEngine(),
-		billing.NewBillingEngine(), csNewFakePipeline(), &stubRail{}, ps,
+		billing.NewBillingEngine(), designhealth.NewDesignHealthEngine(), csNewFakePipeline(), &stubRail{}, ps,
 		projectstate.NewDesignSessionAccess(full), csFakeActivityExecution{ps}, &recordingSignalBus{},
 		&fakeEpisodes{}, 0, "", func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef(""), false }, "")
 }
@@ -23378,7 +23379,7 @@ func newDesignFacade(
 	return &deliveryManager{
 		client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo,
 		estimator: estimator, designSession: designSession, activityExecution: activityExecution,
-		episodes: episodes, repoBase: repoBase, designHealth: designhealth.NewEngine(),
+		episodes: episodes, repoBase: repoBase, designHealth: designhealth.NewDesignHealthEngine(),
 	}
 }
 
@@ -23392,7 +23393,7 @@ func newPlanFacade(
 	return &deliveryManager{
 		client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo,
 		estimator: estimator, designSession: designSession, activityExecution: activityExecution,
-		episodes: episodes, designHealth: designhealth.NewEngine(),
+		episodes: episodes, designHealth: designhealth.NewDesignHealthEngine(),
 	}
 }
 
@@ -32059,7 +32060,7 @@ func TestQueryTestRunView_ProductionWiringJoinsTheDerivedProjection(t *testing.T
 	}
 	m := newDeliveryManager(&fakeTemporalClient{}, full, art, &fakeIntervention{}, &fakeReview{},
 		estimation.NewEstimationEngine(), operationestimation.NewOperationEstimationEngine(),
-		billing.NewBillingEngine(), csNewFakePipeline(), &stubRail{}, ps,
+		billing.NewBillingEngine(), designhealth.NewDesignHealthEngine(), csNewFakePipeline(), &stubRail{}, ps,
 		projectstate.NewDesignSessionAccess(full), csFakeActivityExecution{ps}, &recordingSignalBus{},
 		&fakeEpisodes{}, 0, "", func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef(""), false }, "")
 	v := queryTestRun(t, m, "C-DM")

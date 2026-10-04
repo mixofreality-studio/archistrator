@@ -36,6 +36,7 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	acts := &mf.Activities
 	w.RegisterActivityWithOptions(acts.BillingStateBindGatewayLive, activity.RegisterOptions{Name: "billingStateAccess.bindGatewayLive"})
 	w.RegisterActivityWithOptions(acts.BillingStateReadBilling, activity.RegisterOptions{Name: "billingStateAccess.readBilling"})
+	w.RegisterActivityWithOptions(acts.BillingStateReadCycle, activity.RegisterOptions{Name: "billingStateAccess.readCycle"})
 	w.RegisterActivityWithOptions(acts.BillingStateReadPersistentlyDelinquentCustomers, activity.RegisterOptions{Name: "billingStateAccess.readPersistentlyDelinquentCustomers"})
 	w.RegisterActivityWithOptions(acts.BillingStateRegisterCustomer, activity.RegisterOptions{Name: "billingStateAccess.registerCustomer"})
 	w.RegisterActivityWithOptions(acts.BillingStateResettleCycle, activity.RegisterOptions{Name: "billingStateAccess.resettleCycle"})

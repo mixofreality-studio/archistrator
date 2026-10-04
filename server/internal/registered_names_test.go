@@ -112,6 +112,7 @@ var registeredTemporalNamesGolden = []string{
 	"billingShortfallSweep",
 	"billingStateAccess.bindGatewayLive",
 	"billingStateAccess.readBilling",
+	"billingStateAccess.readCycle",
 	"billingStateAccess.readPersistentlyDelinquentCustomers",
 	"billingStateAccess.registerCustomer",
 	"billingStateAccess.resettleCycle",
@@ -210,7 +211,7 @@ func mustRegisteredNames(t *testing.T) []string {
 	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil)
 	billing.RegisterManagerWorker(&reg, billingMgr)
 
-	deliveryMgr := delivery.NewDeliveryManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, "")
+	deliveryMgr := delivery.NewDeliveryManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, "")
 	delivery.RegisterManagerWorker(&reg, deliveryMgr)
 
 	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)

@@ -3550,7 +3550,7 @@
                   {
                     "id": "replan-async-note",
                     "kind": "note",
-                    "label": "Replan is asynchronous. This path only records the trigger. Rebuilding the options and recommending the SDP review happen later in the scheduled replan sweep (var-replan-scope-change), so do not expect rebuilt options or an SDP-review signal on this path.",
+                    "label": "Replan is a separate, architect-initiated use case. This path only records the trigger; the architect rebuilds the options and recommends the SDP review later through Replan Under Scope Change (var-replan-scope-change), so do not expect rebuilt options or an SDP-review signal on this path.",
                     "roleName": "",
                     "linkedActorId": null,
                     "anchor": "replan"
@@ -3724,25 +3724,24 @@
                   "role": "Architect User"
                 }
               ],
-              "trigger": "timer",
+              "trigger": "clientAction",
               "classification": "nonCore",
               "variationOf": "execute-a-project-activity",
               "activity": {
                 "nodes": [
                   {
-                    "id": "capture-trigger",
-                    "kind": "action",
-                    "label": "Capture the scope trigger; never answer the request in the room",
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
                     "roleName": "",
                     "linkedActorId": null
                   },
                   {
-                    "id": "scope-trigger-captured",
-                    "kind": "objectNode",
-                    "label": "Scope trigger",
-                    "roleName": "",
-                    "linkedActorId": null,
-                    "inState": "[captured]"
+                    "id": "raise-scope-trigger",
+                    "kind": "action",
+                    "label": "Architect raises a scope trigger (scope added or removed, a deadline shift, a resource change) and opens the project's progress; the request is captured, never answered in the room",
+                    "roleName": "Architect User",
+                    "linkedActorId": "architect-user"
                   },
                   {
                     "id": "snapshot",
@@ -3836,7 +3835,7 @@
                   {
                     "id": "mgmt-decision-value-note",
                     "kind": "note",
-                    "label": "Guard-to-wire mapping for binding: [accept] = submitReviewDecision{decision: approve}; [reject] = {decision: reject}; [defer] must also carry a decisionDate, which ends up in recordSdpReviewOutcome(deferred, decisionDate). The view's call label lists only approve | reject, so the defer value has to be set up explicitly.",
+                    "label": "Guard-to-wire mapping for binding: [accept] = submitReviewDecision{decision: approve}; [reject] = {decision: reject}.",
                     "roleName": "",
                     "linkedActorId": null,
                     "anchor": "mgmt"
@@ -3880,29 +3879,6 @@
                     "inState": "[rejected; current commitment stands]"
                   },
                   {
-                    "id": "flag-risk",
-                    "kind": "action",
-                    "label": "Document a decision date; flag the project at-risk while deferred",
-                    "roleName": "",
-                    "linkedActorId": null
-                  },
-                  {
-                    "id": "sdp-revision-deferred",
-                    "kind": "objectNode",
-                    "label": "SDP review revision",
-                    "roleName": "",
-                    "linkedActorId": null,
-                    "inState": "[deferred until decision date]"
-                  },
-                  {
-                    "id": "project-at-risk",
-                    "kind": "objectNode",
-                    "label": "Project",
-                    "roleName": "",
-                    "linkedActorId": null,
-                    "inState": "[at-risk]"
-                  },
-                  {
                     "id": "merge-end",
                     "kind": "merge",
                     "label": "",
@@ -3915,24 +3891,17 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
-                  },
-                  {
-                    "id": "replan-triggered",
-                    "kind": "timeEvent",
-                    "label": "Replan sweep comes due (a recorded variance or scope trigger is waiting)",
-                    "roleName": "",
-                    "linkedActorId": null
                   }
                 ],
                 "edges": [
                   {
-                    "from": "capture-trigger",
-                    "to": "scope-trigger-captured",
+                    "from": "start",
+                    "to": "raise-scope-trigger",
                     "kind": "controlFlow",
                     "guard": ""
                   },
                   {
-                    "from": "scope-trigger-captured",
+                    "from": "raise-scope-trigger",
                     "to": "snapshot",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4022,12 +3991,6 @@
                     "guard": "[reject]"
                   },
                   {
-                    "from": "mgmt",
-                    "to": "flag-risk",
-                    "kind": "guardedFlow",
-                    "guard": "[defer]"
-                  },
-                  {
                     "from": "adopt",
                     "to": "sdp-revision-adopted",
                     "kind": "controlFlow",
@@ -4058,32 +4021,8 @@
                     "guard": ""
                   },
                   {
-                    "from": "flag-risk",
-                    "to": "sdp-revision-deferred",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "sdp-revision-deferred",
-                    "to": "project-at-risk",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "project-at-risk",
-                    "to": "merge-end",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
                     "from": "merge-end",
                     "to": "end",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "replan-triggered",
-                    "to": "capture-trigger",
                     "kind": "controlFlow",
                     "guard": ""
                   }
@@ -7184,6 +7123,120 @@
               }
             },
             "rejectionReason": "Variation of Operate a Delivered System entered by a queued bus message instead of an operator or a timer. It carries out the pause-or-withdraw that billing decided, using the same runtime and head-state RAs. The enforcement decision itself belongs to billing (intervention-engine), not to this chain."
+          },
+          {
+            "useCase": {
+              "id": "view-a-billing-cycle",
+              "name": "View a Billing Cycle",
+              "actors": [
+                {
+                  "id": "architect-user",
+                  "role": "Architect User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "bill-the-user-for-usage",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "open-billing-cycle",
+                    "kind": "action",
+                    "label": "Architect user opens the billing view for one billing period",
+                    "roleName": "Architect User",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
+                    "id": "read-billing-cycle",
+                    "kind": "action",
+                    "label": "Read the billing period's recorded settlement",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "cycle-closed",
+                    "kind": "decision",
+                    "label": "Has the period been closed?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "decidedBy": "billing-manager"
+                  },
+                  {
+                    "id": "send-cycle-open",
+                    "kind": "sendSignal",
+                    "label": "Report that the period is still open: nothing has been charged for it yet",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
+                    "id": "send-cycle-settlement",
+                    "kind": "sendSignal",
+                    "label": "Return the period's settlement: how the net routed (charged or nothing owed) and whether a declined charge escalated the customer to delinquency (invoice unpaid)",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "open-billing-cycle",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "open-billing-cycle",
+                    "to": "read-billing-cycle",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "read-billing-cycle",
+                    "to": "cycle-closed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "cycle-closed",
+                    "to": "send-cycle-open",
+                    "kind": "guardedFlow",
+                    "guard": "[no: period open]"
+                  },
+                  {
+                    "from": "send-cycle-open",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "cycle-closed",
+                    "to": "send-cycle-settlement",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "send-cycle-settlement",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Pure read: the recorded settlement of one billing period. It is a read variation of Bill the User for Usage; nothing is charged or recorded. It is also the probe the billing scenarios observe cycle, invoice and delinquency state through."
           }
         ]
       },
@@ -7369,6 +7422,7 @@
               "Design Conformance Rules"
             ],
             "atomicBusinessVerbs": [],
+            "contractKey": "designHealthEngine",
             "constructionProfile": "handwritten",
             "provisioning": "owned",
             "uiSurface": false
@@ -7434,6 +7488,7 @@
             ],
             "atomicBusinessVerbs": [
               "readBilling",
+              "readCycle",
               "registerCustomer",
               "bindPaymentInstrument",
               "settleCycle",
@@ -7754,7 +7809,7 @@
             "from": "web-client",
             "to": "billing-manager",
             "mode": "sync",
-            "label": "registerCustomer | bindPaymentInstrument"
+            "label": "registerCustomer | bindPaymentInstrument | getBillingCycle"
           },
           {
             "from": "mcp-client",
@@ -7766,7 +7821,7 @@
             "from": "mcp-client",
             "to": "billing-manager",
             "mode": "sync",
-            "label": "registerCustomer | bindPaymentInstrument"
+            "label": "registerCustomer | bindPaymentInstrument | getBillingCycle"
           },
           {
             "from": "scheduler-client",
@@ -7838,7 +7893,7 @@
             "from": "billing-manager",
             "to": "billing-state-access",
             "mode": "sync",
-            "label": "readBilling / registerCustomer / bindPaymentInstrument / settleCycle / resettleCycle / readPersistentlyDelinquentCustomers"
+            "label": "readBilling / readCycle / registerCustomer / bindPaymentInstrument / settleCycle / resettleCycle / readPersistentlyDelinquentCustomers"
           },
           {
             "from": "billing-manager",
@@ -7988,7 +8043,7 @@
             "from": "scheduler-client",
             "to": "delivery-manager",
             "mode": "sync",
-            "label": "executeNextActivity | replanProject"
+            "label": "executeNextActivity"
           },
           {
             "from": "delivery-manager",
@@ -8060,7 +8115,7 @@
             "from": "delivery-manager",
             "to": "message-bus",
             "mode": "sync",
-            "label": "registerSchedule(deliveryPump, replanSweep) / deliverSignal(replan trigger)"
+            "label": "registerSchedule(pumpSweep, roundSweep) / deliverSignal"
           },
           {
             "from": "delivery-manager",
@@ -9274,7 +9329,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "record the scope-change replan trigger (new components / activities) — picked up by the scheduled replan sweep (scheduler → deliveryManager replanProject → var-replan-scope-change rebuilds the options and recommends the new SDP review)"
+                    "label": "record the scope-change replan trigger (new components / activities) — the architect then replans through Replan Under Scope Change (var-replan-scope-change re-enters project design, rebuilds the options and recommends the new SDP review)"
                   }
                 ]
               }
@@ -9286,36 +9341,41 @@
             "title": "Replan Under Scope Change",
             "steps": [
               {
-                "activityNodeId": "replan-triggered",
+                "activityNodeId": "raise-scope-trigger",
                 "calls": [
                   {
-                    "from": "scheduler-client",
-                    "to": "delivery-manager",
+                    "from": "architect-user",
+                    "to": "web-client",
                     "mode": "sync",
-                    "label": "replanProject(projectId?, tickId) — the delivery rail’s own replan sweep (delivery:replanSweep, 300s) comes due and picks up the recorded variance"
+                    "label": "raises the scope trigger and opens the project's progress",
+                    "alt": "s1"
                   },
                   {
-                    "from": "delivery-manager",
-                    "to": "message-bus",
+                    "from": "architect-user",
+                    "to": "mcp-client",
                     "mode": "sync",
-                    "label": "deliverSignal(replan trigger) — the hand-off to the project’s pump is now an INTERNAL signal of one Manager, not an architecture edge between two"
-                  }
-                ]
-              },
-              {
-                "activityNodeId": "capture-trigger",
-                "calls": [
-                  {
-                    "from": "delivery-manager",
-                    "to": "project-state-access",
-                    "mode": "sync",
-                    "label": "record the scope trigger (captured — never answered in the room)"
+                    "label": "raises the scope trigger via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
                   }
                 ]
               },
               {
                 "activityNodeId": "snapshot",
                 "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "QueryProjectView({kind: summary, projectId}) → head state with the network and earned-value trend computed at read",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "QueryProjectView({kind: summary, projectId}) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
                   {
                     "from": "delivery-manager",
                     "to": "project-state-access",
@@ -9344,6 +9404,34 @@
               {
                 "activityNodeId": "reenter",
                 "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "re-enters project design at the affected step",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "re-enters project design via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "DispatchActivityTask(projectId, projectDesign activity, taskId=<affected step: planningAssumptions | activityList | network>) — re-draft from the affected step; construction continues against the current network",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "DispatchActivityTask(projectId, projectDesign activity, taskId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
                   {
                     "from": "delivery-manager",
                     "to": "source-control-access",
@@ -9459,7 +9547,7 @@
                     "from": "web-client",
                     "to": "delivery-manager",
                     "mode": "sync",
-                    "label": "submitReviewDecision(projectId, projectDesign activity, sdpReview, {decision: approve | reject}) — accept | reject | defer the revision",
+                    "label": "submitReviewDecision(projectId, projectDesign activity, sdpReview, {decision: approve | reject}) — accept | reject the revision",
                     "alt": "s2"
                   },
                   {
@@ -9496,17 +9584,6 @@
                     "to": "project-state-access",
                     "mode": "sync",
                     "label": "recordSdpReviewOutcome(rejected) — the current commitment stands"
-                  }
-                ]
-              },
-              {
-                "activityNodeId": "flag-risk",
-                "calls": [
-                  {
-                    "from": "delivery-manager",
-                    "to": "project-state-access",
-                    "mode": "sync",
-                    "label": "recordSdpReviewOutcome(deferred, decisionDate) — project flagged at-risk while deferred"
                   }
                 ]
               }
@@ -9618,7 +9695,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "record corrective action / scope-change replan trigger (picked up by the delivery rail's replan sweep)"
+                    "label": "record corrective action / scope-change replan trigger (the architect replans through Replan Under Scope Change)"
                   }
                 ]
               }
@@ -11224,6 +11301,63 @@
                     "to": "operated-system-state",
                     "mode": "sync",
                     "label": "guarded in-place update (version + applied_mutation dedup)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "view-a-billing-cycle",
+            "key": "var-view-billing-cycle",
+            "title": "View a Billing Cycle",
+            "steps": [
+              {
+                "activityNodeId": "open-billing-cycle",
+                "calls": [
+                  {
+                    "from": "architect-user",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "opens the billing view for a billing period",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "architect-user",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "opens the billing period via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "read-billing-cycle",
+                "calls": [
+                  {
+                    "from": "web-client",
+                    "to": "billing-manager",
+                    "mode": "sync",
+                    "label": "GetBillingCycle(customerId, cycleId) → BillingCycleView",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "billing-manager",
+                    "mode": "sync",
+                    "label": "GetBillingCycle(customerId, cycleId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-state-access",
+                    "mode": "sync",
+                    "label": "ReadCycle(customerId, cycleId) → BillingCycle (settled outcome, or open)"
+                  },
+                  {
+                    "from": "billing-state-access",
+                    "to": "billing-state",
+                    "mode": "sync",
+                    "label": "read row"
                   }
                 ]
               }
@@ -19314,6 +19448,41 @@
       ],
       "title": "billing-manager contract",
       "$defs": {
+        "BillingCycleView": {
+          "type": "object",
+          "properties": {
+            "customerId": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID",
+              "x-go-name": "CustomerID"
+            },
+            "cycleId": {
+              "type": "string",
+              "x-go-name": "CycleID"
+            },
+            "closed": {
+              "type": "boolean",
+              "description": "The period has been closed and its outcome recorded."
+            },
+            "routed": {
+              "$ref": "#/$defs/RoutingDirective"
+            },
+            "escalated": {
+              "type": "boolean",
+              "description": "The charge failed and was escalated: the customer is persistently delinquent and the cycle's invoice unpaid."
+            }
+          },
+          "required": [
+            "customerId",
+            "cycleId",
+            "closed",
+            "routed",
+            "escalated"
+          ],
+          "additionalProperties": false
+        },
         "BillingRef": {
           "type": "object",
           "properties": {
@@ -19423,6 +19592,30 @@
             "error": true
           },
           {
+            "name": "GetBillingCycle",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "cycleID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/BillingCycleView"
+            },
+            "error": true
+          },
+          {
             "name": "OnboardPaymentIntegration",
             "params": [
               {
@@ -19513,6 +19706,28 @@
             "Terms"
           ],
           "additionalProperties": false
+        },
+        "BillingCycle": {
+          "type": "object",
+          "properties": {
+            "Cycle": {
+              "type": "string"
+            },
+            "Settled": {
+              "type": "boolean",
+              "description": "True once the cycle's close recorded its outcome (settleCycle); false while the period is open."
+            },
+            "Outcome": {
+              "$ref": "#/$defs/BillingOutcome"
+            }
+          },
+          "required": [
+            "Cycle",
+            "Settled",
+            "Outcome"
+          ],
+          "additionalProperties": false,
+          "description": "One billing cycle as head state records it: the settled outcome of its close, or Settled=false (zero outcome) while it is open."
         },
         "BillingOutcome": {
           "type": "object",
@@ -19717,6 +19932,30 @@
             "error": true
           },
           {
+            "name": "ReadCycle",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "cycle",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/BillingCycle"
+            },
+            "error": true
+          },
+          {
             "name": "RegisterCustomer",
             "params": [
               {
@@ -19879,6 +20118,10 @@
         {
           "name": "billingEstimator",
           "component": "billingEngine"
+        },
+        {
+          "name": "designHealth",
+          "component": "designHealthEngine"
         },
         {
           "name": "pipeline",
@@ -23928,6 +24171,102 @@
             ],
             "result": {
               "$ref": "#/$defs/ActivityView"
+            },
+            "error": true
+          }
+        ]
+      }
+    },
+    "designHealthEngine": {
+      "component": "designHealthEngine",
+      "layer": "Engine",
+      "goPackage": "internal/engine/designhealth",
+      "title": "design-health engine contract",
+      "$defs": {
+        "Finding": {
+          "type": "object",
+          "properties": {
+            "ruleId": {
+              "$ref": "#/$defs/RuleID",
+              "x-go-name": "RuleID"
+            },
+            "severity": {
+              "$ref": "#/$defs/Severity"
+            },
+            "message": {
+              "type": "string"
+            },
+            "location": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/Location"
+            }
+          },
+          "required": [
+            "ruleId",
+            "severity",
+            "message"
+          ],
+          "additionalProperties": false
+        },
+        "Location": {
+          "type": "object",
+          "properties": {
+            "ordinal": {
+              "type": "integer"
+            },
+            "section": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ordinal",
+            "section"
+          ],
+          "additionalProperties": false
+        },
+        "RuleID": {
+          "type": "string"
+        },
+        "Severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "x-enum-varnames": [
+            "SeverityInfo",
+            "SeverityWarning",
+            "SeverityError"
+          ],
+          "x-go-base": "string"
+        }
+      },
+      "interface": {
+        "name": "DesignHealthEngine",
+        "layer": "engine",
+        "operations": [
+          {
+            "name": "EvaluateDesignHealth",
+            "params": [
+              {
+                "name": "project",
+                "schema": {
+                  "type": "string",
+                  "description": "The project.json document to judge (committed, or drafted at an artifact's gate)."
+                }
+              }
+            ],
+            "result": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/Finding"
+              }
             },
             "error": true
           }

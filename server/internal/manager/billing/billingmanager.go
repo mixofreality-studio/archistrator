@@ -16,11 +16,12 @@
 // operatedRuntimeAccess) and the messageBus Utility import no
 // Temporal.
 //
-// The FOUR public ops (billingManager.md §2; the two webhook-fed revenue Signals were
+// The FIVE public ops (billingManager.md §2; the two webhook-fed revenue Signals were
 // deleted in dct4 — charge-only keeps no revenue, and nothing produced them):
 //   - OnboardPaymentIntegration — Workflow (entry; operator-initiated UC5 onboard)
 //   - RegisterCustomer          — Workflow (entry; ncuc1 open the aggregate)
 //   - CloseBillingCycle      — Workflow (entry; Schedule-triggered cycle close)
+//   - GetBillingCycle           — plain read (view-a-billing-cycle; no Temporal)
 //   - RunShortfallSweep         — Workflow (entry; Schedule-triggered delinquency sweep)
 //
 // File layout (mirrors internal/manager/operations):
@@ -222,6 +223,57 @@ func (m *billingManager) CloseBillingCycle(rc fwmgr.Context, customerID customer
 		return CloseCycleResult{}, newError(fwmgr.Infrastructure, err.Error())
 	}
 	return result, nil
+}
+
+// GetBillingCycle is the read-only query over one billing cycle (use case
+// view-a-billing-cycle; dct Plan 4 Task 5): the settlement its close recorded, or an
+// open period. It is a plain read of billingStateAccess — no Temporal, no write —
+// and so the probe the billing scenarios observe cycle, invoice and delinquency state
+// through: Closed is the period closed, Routed is how its net routed, Escalated is a
+// declined charge escalated to delinquency (the invoice is unpaid).
+func (m *billingManager) GetBillingCycle(rc fwmgr.Context, customerID customerID, cycleID cycleID) (BillingCycleView, error) {
+	if customerID == uuid.Nil {
+		return BillingCycleView{}, newError(fwmgr.ContractMisuse, "empty customerId")
+	}
+	if cycleID == "" {
+		return BillingCycleView{}, newError(fwmgr.ContractMisuse, "empty cycleId")
+	}
+	c, err := m.billingState.ReadCycle(fwra.Context{Context: rc.Context}, customerID, cycleID)
+	if err != nil {
+		return BillingCycleView{}, mapReadError(err, "billingStateAccess.ReadCycle")
+	}
+	routed := RoutingDirectiveNoAction
+	if c.Outcome.Directive == billingstate.RoutingCharge {
+		routed = RoutingDirectiveCharge
+	}
+	return BillingCycleView{
+		CustomerID: customerID,
+		CycleID:    cycleID,
+		Closed:     c.Settled,
+		Routed:     routed,
+		Escalated:  c.Settled && c.Outcome.Escalated,
+	}, nil
+}
+
+// mapReadError maps a billingStateAccess read error onto the façade error model:
+// NotFound and ContractMisuse keep their kind, every other kind is Infrastructure
+// (retryability carried through).
+func mapReadError(err error, label string) error {
+	var raErr *fwra.Error
+	if errors.As(err, &raErr) {
+		switch raErr.Kind {
+		case fwra.NotFound:
+			return fwmgr.Wrap(fwmgr.NotFound, err, label)
+		case fwra.ContractMisuse:
+			return fwmgr.Wrap(fwmgr.ContractMisuse, err, label)
+		case fwra.Unknown, fwra.Transient, fwra.RateLimited, fwra.Infrastructure,
+			fwra.Auth, fwra.Conflict, fwra.QuotaExhausted, fwra.ContentPolicy:
+		}
+		mapped := fwmgr.Wrap(fwmgr.Infrastructure, err, label)
+		mapped.Retryable = raErr.Retryable
+		return mapped
+	}
+	return fwmgr.Wrap(fwmgr.Infrastructure, err, label)
 }
 
 // RunShortfallSweep — op 2.4. Temporal Workflow (entry; scheduler-triggered via the

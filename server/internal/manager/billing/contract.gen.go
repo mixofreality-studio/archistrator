@@ -15,6 +15,14 @@ import (
 	"go.temporal.io/sdk/client"
 )
 
+type BillingCycleView struct {
+	CustomerID uuid.UUID        `json:"customerId"`
+	CycleID    string           `json:"cycleId"`
+	Closed     bool             `json:"closed"`
+	Routed     RoutingDirective `json:"routed"`
+	Escalated  bool             `json:"escalated"`
+}
+
 type BillingRef struct {
 	CustomerID uuid.UUID `json:"customerId"`
 }
@@ -40,6 +48,7 @@ type ShortfallSweepResult struct {
 // BillingManager is the generated service-contract interface for this component.
 type BillingManager interface {
 	CloseBillingCycle(rc fwm.Context, customerID uuid.UUID, cycleID string) (CloseCycleResult, error)
+	GetBillingCycle(rc fwm.Context, customerID uuid.UUID, cycleID string) (BillingCycleView, error)
 	OnboardPaymentIntegration(rc fwm.Context, deployedAppID uuid.UUID) (BillingRef, error)
 	RegisterCustomer(rc fwm.Context, customerID uuid.UUID) (BillingRef, error)
 	RunShortfallSweep(rc fwm.Context, tickID string) (ShortfallSweepResult, error)

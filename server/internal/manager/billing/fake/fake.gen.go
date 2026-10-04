@@ -13,6 +13,7 @@ import (
 // a test needs; calling a method whose Fn is unset panics.
 type FakeBillingManager struct {
 	CloseBillingCycleFn         func(rc fwm.Context, customerID uuid.UUID, cycleID string) (billing.CloseCycleResult, error)
+	GetBillingCycleFn           func(rc fwm.Context, customerID uuid.UUID, cycleID string) (billing.BillingCycleView, error)
 	OnboardPaymentIntegrationFn func(rc fwm.Context, deployedAppID uuid.UUID) (billing.BillingRef, error)
 	RegisterCustomerFn          func(rc fwm.Context, customerID uuid.UUID) (billing.BillingRef, error)
 	RunShortfallSweepFn         func(rc fwm.Context, tickID string) (billing.ShortfallSweepResult, error)
@@ -23,6 +24,13 @@ func (f *FakeBillingManager) CloseBillingCycle(rc fwm.Context, customerID uuid.U
 		panic("FakeBillingManager.CloseBillingCycleFn not set")
 	}
 	return f.CloseBillingCycleFn(rc, customerID, cycleID)
+}
+
+func (f *FakeBillingManager) GetBillingCycle(rc fwm.Context, customerID uuid.UUID, cycleID string) (billing.BillingCycleView, error) {
+	if f.GetBillingCycleFn == nil {
+		panic("FakeBillingManager.GetBillingCycleFn not set")
+	}
+	return f.GetBillingCycleFn(rc, customerID, cycleID)
 }
 
 func (f *FakeBillingManager) OnboardPaymentIntegration(rc fwm.Context, deployedAppID uuid.UUID) (billing.BillingRef, error) {
