@@ -39,16 +39,16 @@ package main
 //     there. Cloud (DRYRUN=false) is identity.
 //
 //  2. SEPARATE GIT-SUBSTRATE INSTANCES PER SECONDARY CONTRACT (B6). Once
-//     constructionTransitionAccess/gitActivityStatusAccess/designSessionAccess
-//     became their OWN deployment bindings (sharing projectstate's goPackage +
-//     git substrate with projectStateAccess, but composegen has no notion of a
+//     gitActivityStatusAccess/designSessionAccess/activityExecutionAccess became
+//     their OWN deployment bindings (sharing projectstate's goPackage + git
+//     substrate with projectStateAccess, but composegen has no notion of a
 //     binding "providing" a second contract), the generated body constructs
 //     THREE separate *GitStore-backed instances alongside projectStateAccess's
-//     own (NewGitLocal/GitHubConstructionTransitionAccess etc., gitadapter.go /
-//     designsession.go) — four total instead of the pre-B6 hand-wired two (one
-//     shared psa's GitConstructionPorts served both ports). All four address the
-//     SAME repo and GitStore holds no connection state, so this is an
-//     instance-count residual, not a correctness one.
+//     own (NewGitLocal/GitHubGitActivityStatusAccess etc., gitadapter.go /
+//     designsession.go) — four total. All four address the SAME repo and
+//     GitStore holds no connection state, so this is an instance-count residual,
+//     not a correctness one. (constructionTransitionAccess was a fifth until dct
+//     Plan 4 Task 3 deleted it.)
 //
 //  4. POSTGRES POOL DIAL — PROFILE-GATED (local-first-init-funnel Task 2).
 //     main.gen.go's Postgres pool (postgresinfra.NewPool(ctx, cfg.PostgresURL),
@@ -991,15 +991,10 @@ func (h *appHooks) ProjectStateAccessGitHubArgs(cfg *Config) (string, string, pr
 	return h.projectStateCloudPorts(cfg)
 }
 
-// ConstructionTransitionAccessGitHubArgs / GitActivityStatusAccessGitHubArgs /
-// DesignSessionAccessGitHubArgs (B6) supply the SAME CLOUD ports as
-// ProjectStateAccessGitHubArgs above — these three secondary contracts build
-// their own git substrate over the identical sourcecontrol-backed catalog +
+// GitActivityStatusAccessGitHubArgs / DesignSessionAccessGitHubArgs (B6) supply the
+// SAME CLOUD ports as ProjectStateAccessGitHubArgs above — these secondary contracts
+// build their own git substrate over the identical sourcecontrol-backed catalog +
 // credential minter, never raw github-app credentials directly.
-func (h *appHooks) ConstructionTransitionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
-	return h.projectStateCloudPorts(cfg)
-}
-
 func (h *appHooks) GitActivityStatusAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
 	return h.projectStateCloudPorts(cfg)
 }
@@ -1008,22 +1003,18 @@ func (h *appHooks) DesignSessionAccessGitHubArgs(cfg *Config) (string, string, p
 	return h.projectStateCloudPorts(cfg)
 }
 
-// ActivityExecutionAccessGitHubArgs supplies the FIFTH facet (stage 3) the same CLOUD
-// ports as its four siblings: it is one more contract over the one git substrate, not a
-// second store, so it must never be handed raw github-app credentials of its own.
+// ActivityExecutionAccessGitHubArgs supplies the activityExecutionAccess facet (stage 3)
+// the same CLOUD ports as its siblings: it is one more contract over the one git
+// substrate, not a second store, so it must never be handed raw github-app credentials
+// of its own.
 func (h *appHooks) ActivityExecutionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
 	return h.projectStateCloudPorts(cfg)
 }
 
-// ConstructionTransitionAccessGitLocalArgs / GitActivityStatusAccessGitLocalArgs /
-// DesignSessionAccessGitLocalArgs (B6) supply the SAME LOCAL repoURL setting
-// projectStateAccess's own GitLocal arm reads (cfg.ProjectStateGitRepoURL) — a hook
-// purely to REUSE that existing binding-scoped setting rather than declare a
-// duplicate one for the same env var.
-func (h *appHooks) ConstructionTransitionAccessGitLocalArgs(cfg *Config) string {
-	return cfg.ProjectStateGitRepoURL
-}
-
+// GitActivityStatusAccessGitLocalArgs / DesignSessionAccessGitLocalArgs (B6) supply the
+// SAME LOCAL repoURL setting projectStateAccess's own GitLocal arm reads
+// (cfg.ProjectStateGitRepoURL) — a hook purely to REUSE that existing binding-scoped
+// setting rather than declare a duplicate one for the same env var.
 func (h *appHooks) GitActivityStatusAccessGitLocalArgs(cfg *Config) string {
 	return cfg.ProjectStateGitRepoURL
 }
@@ -1032,8 +1023,8 @@ func (h *appHooks) DesignSessionAccessGitLocalArgs(cfg *Config) string {
 	return cfg.ProjectStateGitRepoURL
 }
 
-// ActivityExecutionAccessGitLocalArgs reads the SAME binding-scoped setting its four
-// siblings read — one on-disk repo, five facets over it.
+// ActivityExecutionAccessGitLocalArgs reads the SAME binding-scoped setting its
+// siblings read — one on-disk repo, four facets over it.
 func (h *appHooks) ActivityExecutionAccessGitLocalArgs(cfg *Config) string {
 	return cfg.ProjectStateGitRepoURL
 }
@@ -1178,14 +1169,9 @@ func (h *appHooks) FinalizeUsageAccess(_ *Config, v usage.UsageAccess) usage.Usa
 	return v
 }
 
-// FinalizeConstructionTransitionAccess / FinalizeGitActivityStatusAccess /
-// FinalizeDesignSessionAccess (B6) are identity — the three secondary git-substrate
-// contracts are profile-switched exactly like projectStateAccess, with no
-// orthogonal toggle of their own.
-func (h *appHooks) FinalizeConstructionTransitionAccess(_ *Config, v projectstate.ConstructionTransitionAccess) projectstate.ConstructionTransitionAccess {
-	return v
-}
-
+// FinalizeGitActivityStatusAccess / FinalizeDesignSessionAccess (B6) are identity — the
+// secondary git-substrate contracts are profile-switched exactly like
+// projectStateAccess, with no orthogonal toggle of their own.
 func (h *appHooks) FinalizeGitActivityStatusAccess(_ *Config, v projectstate.GitActivityStatusAccess) projectstate.GitActivityStatusAccess {
 	return v
 }
@@ -1194,7 +1180,7 @@ func (h *appHooks) FinalizeDesignSessionAccess(_ *Config, v projectstate.DesignS
 	return v
 }
 
-// FinalizeActivityExecutionAccess is identity for the same reason the other three are:
+// FinalizeActivityExecutionAccess is identity for the same reason the other two are:
 // the facet is profile-switched exactly like projectStateAccess, with no orthogonal
 // toggle of its own.
 func (h *appHooks) FinalizeActivityExecutionAccess(_ *Config, v projectstate.ActivityExecutionAccess) projectstate.ActivityExecutionAccess {
@@ -1207,13 +1193,6 @@ func (h *appHooks) FinalizeActivityExecutionAccess(_ *Config, v projectstate.Act
 // binding for the LocalFS/NoOp variants is composition-root work that does not live here
 // (see main.gen.go's per-profile switch).
 func (h *appHooks) FinalizeEpisodeAccess(_ *Config, v episode.EpisodeAccess) episode.EpisodeAccess {
-	return v
-}
-
-// FinalizeRevenueLedgerAccess is identity — revenueLedgerAccess is the required,
-// arm-less stub binding (billingstate.NewRevenueLedgerAccess, a permanent no-op per
-// the charge-only R-013 rationale); no composition-root policy applies.
-func (h *appHooks) FinalizeRevenueLedgerAccess(_ *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess {
 	return v
 }
 

@@ -5693,16 +5693,15 @@ func solutionKindOfOption(rows []projectstate.SdpOptionRow, id projectstate.Opti
 type constructionManager struct {
 	client client.Client
 
-	projectState           projectstate.ProjectStateAccess
-	artifact               artifact.ArtifactAccess
-	intervention           intervention.InterventionEngine
-	review                 review.ReviewEngine
-	pipeline               agenticjob.AgenticJobAccess
-	rail                   sourcecontrol.SourceControlAccess
-	constructionTransition projectstate.ConstructionTransitionAccess
-	gitActivityStatus      projectstate.GitActivityStatusAccess
-	escalationWaitTimeout  time.Duration
-	interventionMode       string
+	projectState          projectstate.ProjectStateAccess
+	artifact              artifact.ArtifactAccess
+	intervention          intervention.InterventionEngine
+	review                review.ReviewEngine
+	pipeline              agenticjob.AgenticJobAccess
+	rail                  sourcecontrol.SourceControlAccess
+	gitActivityStatus     projectstate.GitActivityStatusAccess
+	escalationWaitTimeout time.Duration
+	interventionMode      string
 
 	// sdpEngines are the three estimate Engines deterministic Project Design calls (stage
 	// 4b1 Task 9). The construction half holds them because the GENERIC child runs on this
@@ -5774,7 +5773,6 @@ func newConstructionManager(
 	reviewEng review.ReviewEngine,
 	pipeline agenticjob.AgenticJobAccess,
 	rail sourcecontrol.SourceControlAccess,
-	constructionTransition projectstate.ConstructionTransitionAccess,
 	gitActivityStatus projectstate.GitActivityStatusAccess,
 	designSession projectstate.DesignSessionAccess,
 	activityExecution projectstate.ActivityExecutionAccess,
@@ -5790,24 +5788,23 @@ func newConstructionManager(
 	eng sdpEngines,
 ) *constructionManager {
 	return &constructionManager{
-		client:                 c,
-		projectState:           projectState,
-		artifact:               art,
-		intervention:           interventionEng,
-		review:                 reviewEng,
-		pipeline:               pipeline,
-		rail:                   rail,
-		constructionTransition: constructionTransition,
-		gitActivityStatus:      gitActivityStatus,
-		designSession:          designSession,
-		activityExecution:      activityExecution,
-		messageBus:             messageBus,
-		episodes:               episodes,
-		escalationWaitTimeout:  escalationWaitTimeout,
-		interventionMode:       interventionMode,
-		repo:                   repo,
-		sdpEngines:             eng,
-		scenarios:              projectstate.ComponentScenarios,
+		client:                c,
+		projectState:          projectState,
+		artifact:              art,
+		intervention:          interventionEng,
+		review:                reviewEng,
+		pipeline:              pipeline,
+		rail:                  rail,
+		gitActivityStatus:     gitActivityStatus,
+		designSession:         designSession,
+		activityExecution:     activityExecution,
+		messageBus:            messageBus,
+		episodes:              episodes,
+		escalationWaitTimeout: escalationWaitTimeout,
+		interventionMode:      interventionMode,
+		repo:                  repo,
+		sdpEngines:            eng,
+		scenarios:             projectstate.ComponentScenarios,
 	}
 }
 
@@ -6197,7 +6194,7 @@ func (m *constructionManager) recordResumed(ctx context.Context, projectID Proje
 	key := fwra.IdempotencyKey("resume:" + string(projectID) + ":" + uuid.NewString())
 	version := seen.Version
 	for range resumeConflictAttempts {
-		_, err := m.constructionTransition.RecordOperatorResumed(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), version, projectstate.RepoCredential{}, key)
+		_, err := m.projectState.RecordOperatorResumed(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), version, key)
 		if err == nil {
 			return nil
 		}
@@ -7560,7 +7557,7 @@ func (m *constructionManager) SetReviewPolicy(rc fwmanager.Context, projectID Pr
 	}
 	policy := proj.ReviewPolicy
 	policy.Preset = &preset
-	if _, err := m.constructionTransition.RecordReviewPolicy(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), proj.Version, policy, projectstate.RepoCredential{}, fwra.IdempotencyKey(uuid.NewString())); err != nil {
+	if _, err := m.projectState.RecordReviewPolicy(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), proj.Version, policy, fwra.IdempotencyKey(uuid.NewString())); err != nil {
 		return newError(fwmanager.Infrastructure, err.Error())
 	}
 	return nil
@@ -7580,7 +7577,7 @@ func isRANotFound(err error) bool {
 // UpdateReviewPolicy — op 2.7. Persists the per-project ReviewPolicy.
 // Converts the input's GatedPhasesByType (map[string][]string of ad-hoc or canonical
 // gate ids) via projectstate.ReviewPolicyFromGateIDs to a typed ReviewPolicy, reads the
-// current project version, then calls RecordReviewPolicy on the constructionTransition RA.
+// current project version, then calls RecordReviewPolicy on the projectStateAccess RA.
 func (m *constructionManager) UpdateReviewPolicy(rc fwmanager.Context, projectID ProjectID, input ReviewPolicyInput) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -7591,7 +7588,7 @@ func (m *constructionManager) UpdateReviewPolicy(rc fwmanager.Context, projectID
 		return newError(fwmanager.Infrastructure, err.Error())
 	}
 	policy := projectstate.ReviewPolicyFromGateIDs(input.GatedPhasesByType)
-	if _, err := m.constructionTransition.RecordReviewPolicy(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), proj.Version, policy, projectstate.RepoCredential{}, fwra.IdempotencyKey(uuid.NewString())); err != nil {
+	if _, err := m.projectState.RecordReviewPolicy(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), proj.Version, policy, fwra.IdempotencyKey(uuid.NewString())); err != nil {
 		return newError(fwmanager.Infrastructure, err.Error())
 	}
 	return nil
@@ -7702,10 +7699,9 @@ func overrideKindName(k OverrideKind) string {
 //
 // B8 (custom activities → generated, clean cut) + its follow-up removed EVERY
 // Manager-local RA seam that used to live here:
-//   - constructionTransitionAccess (10 ops) and gitActivityStatusAccess (6 ops): every
-//     write verb is reached through the GENERATED invoker surface (invokers.gen.go:
-//     genInvokers.ConstructionTransition* / genInvokers.GitStatus*). wfDeps/csWorkflows
-//     carry no ConstructionTransition field; GitStatus survives as a plain
+//   - gitActivityStatusAccess (6 ops): every write verb is reached through the GENERATED
+//     invoker surface (invokers.gen.go: genInvokers.GitStatus*). (constructionTransitionAccess
+//     was the other facet here until dct Plan 4 Task 3 deleted it.) GitStatus survives as a plain
 //     projectstate.GitActivityStatusAccess-typed field whose ONLY remaining role is
 //     the nil-check "is the per-activity git head-state mirror wired" feature flag
 //     (gitforward.go's gitEnabled/startedCred), never a direct method call.
@@ -8290,9 +8286,9 @@ func (c railCredEnvelope) toProjectState() projectstate.RepoCredential {
 // The ResourceAccess layer is reached ENTIRELY through the generated invoker surface
 // (Acts) — the whole-aggregate read included (B8 follow-up); the unit tests register
 // contract-typed fakes behind the generated activity names. It is a package-internal
-// builder input. There is no ProjectState/ConstructionTransition field anymore: the
-// reads ride Acts.DesignSessionReadProjectOnBranch / Acts.ProjectStateReadProjectVersion
-// and the cred-threaded writes ride Acts.ConstructionTransition* (B8).
+// builder input. There is no ProjectState field anymore: the reads ride
+// Acts.DesignSessionReadProjectOnBranch / Acts.ProjectStateReadProjectVersion and the
+// cred-threaded writes ride Acts.ActivityExecution* / Acts.GitStatus* (B8).
 type wfDeps struct {
 	Intervention intervention.InterventionEngine
 	Review       review.ReviewEngine
@@ -8480,8 +8476,8 @@ func observePipelineActivityOptions() workflow.ActivityOptions {
 // recordActivityOptions is the head-state Record-verb preset VALUE (10s; ContractMisuse
 // terminal only — Conflict must reach the workflow so the §6.5 re-read→re-apply loop can
 // recover it) the manifest's Opts hook (workermanifest.go) applies to the GENERATED
-// constructionTransitionAccess / gitActivityStatusAccess Record* invokers by registered
-// name. Every Record* verb goes through the generated invoker surface, so only the
+// activityExecutionAccess / gitActivityStatusAccess / projectStateAccess Record* invokers
+// by registered name. Every Record* verb goes through the generated invoker surface, so only the
 // VALUE form is needed (no direct-ExecuteActivity call site for this preset).
 func recordActivityOptions() workflow.ActivityOptions {
 	return fwmanager.ActivityPreset{
@@ -8497,6 +8493,31 @@ func stampNoteDeliveredActivityOptions() workflow.ActivityOptions {
 	o := recordActivityOptions()
 	o.ScheduleToCloseTimeout = noteStampRetryWindow
 	return o
+}
+
+// noteStampActivity is the registered name the delivery stamp rides: since dct Plan 4
+// Task 3 the stamp is a RE-RECORD of the note through activityExecutionAccess's
+// RecordOperatorNote, the SAME verb (and so the same activity name) the gate-time record
+// uses. One name cannot carry two presets in the manifest's hook, so the stamp's bounded
+// envelope is applied by stampActs instead.
+const noteStampActivity = "activityExecutionAccess.recordOperatorNote"
+
+// stampActs is wf.Acts with the delivery stamp's own envelope (M4) on noteStampActivity
+// and every other name answered exactly as wf.Acts answers it. The stamp follows a submit
+// that already dispatched the job, so it must retry inside a bound and then let the run go
+// on — while the gate-time record of the same note must not be bounded that way, or a slow
+// store would fail a run over a note nothing has carried yet.
+func (wf *csWorkflows) stampActs() genInvokers {
+	base := wf.Acts.Opts
+	return genInvokers{Opts: func(name string) (workflow.ActivityOptions, bool) {
+		if name == noteStampActivity {
+			return stampNoteDeliveredActivityOptions(), true
+		}
+		if base == nil {
+			return workflow.ActivityOptions{}, false
+		}
+		return base(name)
+	}}
 }
 
 // isRAContractMisuse reports whether err is (or wraps) an RA ContractMisuse.
@@ -8909,21 +8930,13 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		// round-trip plus a transfer, not a git read — so it gets the download's own budget.
 		// NotFound (the venue never uploaded it) is terminal: the gate reads it as evidence
 		// and holds.
-		"artifactAccess.getTestRunIndex":                    testRunIndexActivityOptions(),
-		"constructionTransitionAccess.recordChangeReviewed": recordActivityOptions(),
-		"constructionTransitionAccess.recordActivityExited": recordActivityOptions(),
-		"constructionTransitionAccess.recordActivityFailed": recordActivityOptions(),
-		"constructionTransitionAccess.recordOperatorPaused": recordActivityOptions(),
-		// (recordPhaseStarted / recordPhaseCompleted went with the retired flat walk, stage 4b1
-		// review fix round 2: they were the only two presets in this map naming an activity NO
-		// surviving workflow invokes, which Test_DeliveryActivityOptions_EveryInvokedActivityIsTuned
-		// found and now guards. The verbs themselves survive on the deprecated facet until 4b2;
-		// a preset for a call that cannot happen is configuration nobody can retire.)
-		// B1.4: the operator note and its delivery stamp are head-state Record verbs.
-		"constructionTransitionAccess.recordOperatorNote": recordActivityOptions(),
-		// The delivery stamp has its own bounded envelope (M4): it follows a submit that
-		// already dispatched the job, so it retries rather than fail the run.
-		"constructionTransitionAccess.recordOperatorNoteDelivered": stampNoteDeliveredActivityOptions(),
+		"artifactAccess.getTestRunIndex": testRunIndexActivityOptions(),
+		// The project-scoped operator pause (projectsupervision.go) is a head-state Record
+		// verb; it moved here from the deleted constructionTransitionAccess (dct Plan 4 Task 3).
+		// The pump's blocked verdict and the child's exit, operator notes and delivery stamps
+		// are activityExecutionAccess verbs, tuned with the rest of that facet below (the
+		// stamp's bounded M4 envelope rides stampActs, not this map).
+		"projectStateAccess.recordOperatorPaused": recordActivityOptions(),
 		// C.1.4: the managed-scaffold sync before a GitHub-venue dispatch is a rail verb.
 		// THE SCAFFOLD SYNC TAKES FIVE MINUTES, NOT THIRTY SECONDS (stage 4b1 Task 13, Step 5).
 		//
@@ -8974,7 +8987,10 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		"gitActivityStatusAccess.recordActivityArchApproved": recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityMerged":       recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityStarted":      recordActivityOptions(),
-		"gitActivityStatusAccess.recordActivityCompleted":    recordActivityOptions(),
+		// (gitActivityStatusAccess.recordActivityCompleted has no preset: its only workflow
+		// caller was the pre-ledger exit arm, which went with constructionTransitionAccess in
+		// dct Plan 4 Task 3. The ledger's RecordActivityOutcome stamps the CompletedAt the pump
+		// reads.)
 		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
 		// business one (see appendEpisodeActivityOptions).
 		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
@@ -9095,15 +9111,14 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{
-			ProjectState:           m.projectState,
-			Artifact:               m.artifact,
-			Pipeline:               m.pipeline,
-			Rail:                   m.rail,
-			ConstructionTransition: m.constructionTransition,
-			GitStatus:              m.gitActivityStatus,
-			Episodes:               m.episodes,
-			DesignSession:          m.designSession,
-			MessageBus:             m.messageBus,
+			ProjectState:  m.projectState,
+			Artifact:      m.artifact,
+			Pipeline:      m.pipeline,
+			Rail:          m.rail,
+			GitStatus:     m.gitActivityStatus,
+			Episodes:      m.episodes,
+			DesignSession: m.designSession,
+			MessageBus:    m.messageBus,
 			// The execution ledger's twelve activities are registered by worker.gen.go the
 			// moment the dep exists; THREADING it is what gives them something to call. It
 			// was taken but not threaded while nothing invoked them (stage 3 task 3), which
@@ -10699,7 +10714,6 @@ func newDeliveryManager(
 	billingEstimator billing.BillingEngine,
 	pipeline agenticjob.AgenticJobAccess,
 	rail sourcecontrol.SourceControlAccess,
-	constructionTransition projectstate.ConstructionTransitionAccess,
 	gitStatus projectstate.GitActivityStatusAccess,
 	designSession projectstate.DesignSessionAccess,
 	activityExecution projectstate.ActivityExecutionAccess,
@@ -10712,7 +10726,7 @@ func newDeliveryManager(
 ) *deliveryManager {
 	return &deliveryManager{
 		cs: newConstructionManager(c, projectState, art, interventionEng, reviewEng, pipeline,
-			rail, constructionTransition, gitStatus, designSession, activityExecution, bus,
+			rail, gitStatus, designSession, activityExecution, bus,
 			episodes, escalationWaitTimeout, interventionMode, repo,
 			// The three estimate Engines, handed to the construction half TOO: the generic child
 			// runs on its worker and walks the projectDesign lifecycle, whose one task is a

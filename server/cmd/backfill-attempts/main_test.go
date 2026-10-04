@@ -442,8 +442,9 @@ func TestFullyImplemented_FacetInterfacesAreNotRequiredToHaveAFile(t *testing.T)
 	}
 }
 
-// The revenueLedgerAccess shape: the component's OWN entry is the stub and its facet is
-// not. The facet being built does not rescue the component.
+// A component whose OWN entry is the stub while a facet of it is built (the shape
+// billingStateAccess had while it carried the since-deleted revenueLedgerAccess facet). The
+// facet being built does not rescue the component.
 func TestFullyImplemented_AnOwnStubWithABuiltFacetStillFails(t *testing.T) {
 	p, root := fixtureProject(), fixtureServer(t)
 	own := p.ServiceContracts["gammaAccess"]

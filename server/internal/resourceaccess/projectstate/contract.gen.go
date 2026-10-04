@@ -1117,22 +1117,6 @@ type ActivityExecutionAccess interface {
 	ReadActivityExecution(rc fwra.Context, projectID ProjectID, activityID string) (ActivityExecution, error)
 }
 
-// ConstructionTransitionAccess is the generated service-contract interface for this component.
-type ConstructionTransitionAccess interface {
-	RecordChangeReviewed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityExited(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityFailed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordServiceContractProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseArtifactProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, note OperatorNoteInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorNoteDelivered(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, noteID string, attemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-}
-
 // DesignSessionAccess is the generated service-contract interface for this component.
 type DesignSessionAccess interface {
 	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (ProjectEnvelope, error)
@@ -1164,6 +1148,9 @@ type ProjectStateAccess interface {
 	ListProjects(rc fwra.Context, owner OwnerScope) ([]ProjectSummary, error)
 	ReadProject(rc fwra.Context, projectID ProjectID) (Project, error)
 	ReadProjectVersion(rc fwra.Context, projectID ProjectID) (Version, error)
+	RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetOperatingModel(rc fwra.Context, projectID ProjectID, expectedVersion Version, model OperatingModel) (Version, error)
 	SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error)
 }

@@ -368,6 +368,19 @@ func (f *renderFakeProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ project
 // compile-time conformance.
 var _ projectstate.ProjectStateAccess = (*renderFakeProjectState)(nil)
 
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *renderFakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *renderFakeProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *renderFakeProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
 // IsPhase1 covers the Phase-1 subset gate the contract uses.
 func Test_ArtifactKind_IsPhase1(t *testing.T) {
 	phase1 := []ArtifactKind{
@@ -601,6 +614,19 @@ func (f *fakeProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.
 }
 
 var _ projectstate.ProjectStateAccess = (*fakeProjectState)(nil)
+
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *fakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *fakeProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *fakeProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
 
 // ---- fakePipeline: the EXTERNAL agentic-job seam (agenticJobAccess) ---
 
@@ -1626,6 +1652,19 @@ func (f *fakeProjectStateAccess) ReadProject(_ fwra.Context, projectID projectst
 // inert stubs present solely to satisfy the interface.
 var _ projectstate.ProjectStateAccess = (*fakeProjectStateAccess)(nil)
 
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *fakeProjectStateAccess) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *fakeProjectStateAccess) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *fakeProjectStateAccess) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
 func (f *fakeProjectStateAccess) AdvancePhase(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version) (projectstate.Version, error) {
 	return 0, nil
 }
@@ -2153,6 +2192,19 @@ type seqProjectState struct {
 
 var _ projectstate.ProjectStateAccess = (*seqProjectState)(nil)
 
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *seqProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *seqProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *seqProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
 func (f *seqProjectState) ReadProject(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
 	// main-path read (branch override "" ⇒ ReadProject): this is the priors read AND
 	// the post-merge re-read the approve path does before commit-on-main.
@@ -2391,6 +2443,19 @@ type branchAwareFakeProjectState struct {
 
 var _ projectstate.ProjectStateAccess = (*branchAwareFakeProjectState)(nil)
 
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *branchAwareFakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *branchAwareFakeProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *branchAwareFakeProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
 func (f *branchAwareFakeProjectState) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
 	if branch == "" {
 		// The generated ProjectStateAccess contract requires ReadProjectOnBranch("") to
@@ -2527,6 +2592,19 @@ type f29BranchFake struct {
 
 var _ projectstate.ProjectStateAccess = (*f29BranchFake)(nil)
 
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *f29BranchFake) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *f29BranchFake) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *f29BranchFake) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
 func (f *f29BranchFake) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -2645,6 +2723,19 @@ func (f *ledgerFakeProjectState) ReadProjectOnBranch(rc fwra.Context, projectID 
 }
 
 var _ projectstate.ProjectStateAccess = (*ledgerFakeProjectState)(nil)
+
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *ledgerFakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *ledgerFakeProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *ledgerFakeProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
 
 func (f *ledgerFakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.seededRounds = append(f.seededRounds, round)
@@ -2827,6 +2918,19 @@ func (f *setResearchFakeState) AcknowledgeStaleBasis(fwra.Context, projectstate.
 }
 
 var _ projectstate.ProjectStateAccess = (*setResearchFakeState)(nil)
+
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *setResearchFakeState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *setResearchFakeState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *setResearchFakeState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
 
 func sampleResearch() ResearchInput {
 	return ResearchInput{Sources: []ResearchSource{
@@ -3050,6 +3154,19 @@ func (f *setResearchNotFoundOnWrite) SetResearchInput(fwra.Context, projectstate
 }
 
 var _ projectstate.ProjectStateAccess = (*setResearchNotFoundOnWrite)(nil)
+
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *setResearchNotFoundOnWrite) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *setResearchNotFoundOnWrite) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *setResearchNotFoundOnWrite) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
 
 // stagename_test.go — F72 stageName label. The bare Stage int's enum values differ across
 // managers (systemdesign StageAwaitingReview == 2), so a human-readable StageName label ships
@@ -4494,6 +4611,19 @@ type roundLedgerFake struct {
 
 var _ projectstate.ProjectStateAccess = (*roundLedgerFake)(nil)
 
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *roundLedgerFake) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *roundLedgerFake) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *roundLedgerFake) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
 func (f *roundLedgerFake) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	v, err := f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
 	if err != nil {
@@ -4555,7 +4685,6 @@ func fullyWiredDeliveryManager() *deliveryManager {
 		billing.NewBillingEngine(),
 		csNewFakePipeline(),
 		&stubRail{},
-		fakeConstructionTransition{ps},
 		ps,
 		projectstate.NewDesignSessionAccess(full),
 		csFakeActivityExecution{ps},
@@ -4851,6 +4980,19 @@ func (f *pdFakeProjectState) AcknowledgeStaleBasis(_ fwra.Context, _ projectstat
 }
 
 var _ projectstate.ProjectStateAccess = (*pdFakeProjectState)(nil)
+
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *pdFakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *pdFakeProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *pdFakeProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
 
 // ---- pdFakePipeline: the EXTERNAL agentic-job seam (agenticJobAccess) ---
 
@@ -5433,6 +5575,19 @@ type pdSeqProjectState struct {
 
 var _ projectstate.ProjectStateAccess = (*pdSeqProjectState)(nil)
 
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *pdSeqProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *pdSeqProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *pdSeqProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
 func (f *pdSeqProjectState) ReadProject(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
 	f.log.add("readMain", "")
 	f.mu.Lock()
@@ -5498,6 +5653,19 @@ type branchAwareRejectFake struct {
 }
 
 var _ projectstate.ProjectStateAccess = (*branchAwareRejectFake)(nil)
+
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *branchAwareRejectFake) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *branchAwareRejectFake) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *branchAwareRejectFake) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
 
 func (f *branchAwareRejectFake) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, _ string) (projectstate.Project, error) {
 	return f.ReadProject(rc, projectID)
@@ -5575,6 +5743,19 @@ type pdF29BranchFake struct {
 }
 
 var _ projectstate.ProjectStateAccess = (*pdF29BranchFake)(nil)
+
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *pdF29BranchFake) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *pdF29BranchFake) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *pdF29BranchFake) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
 
 func (f *pdF29BranchFake) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
 	f.mu.Lock()
@@ -5670,6 +5851,19 @@ type ledgerThreadFake struct {
 }
 
 var _ projectstate.ProjectStateAccess = (*ledgerThreadFake)(nil)
+
+// The three project-scoped records (projectStateAccess since dct Plan 4 Task 3) — inert.
+func (f *ledgerThreadFake) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *ledgerThreadFake) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f *ledgerThreadFake) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
 
 func (f *ledgerThreadFake) snapshot() []projectstate.ReviewComment {
 	f.tmu.Lock()
@@ -8164,7 +8358,7 @@ func newTestConstructionManager(c client.Client) *constructionManager {
 // child writes.
 func newFacadeConstructionManager(c client.Client, ps *csFakeProjectState) *constructionManager {
 	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil,
-		fakeConstructionTransition{ps}, nil, nil, csFakeActivityExecution{ps}, nil, nil, 0, "", nil, sdpEngines{})
+		nil, nil, csFakeActivityExecution{ps}, nil, nil, 0, "", nil, sdpEngines{})
 }
 
 // testCtx returns a minimal fwmanager.Context backed by context.Background.
@@ -8189,7 +8383,7 @@ func asConstructionError(t *testing.T, err error) *fwmanager.Error {
 // ---- ExecuteNextActivity (op 2.1) ------------------------------------------
 
 func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -8197,7 +8391,7 @@ func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -8564,7 +8758,7 @@ func Test_ExecuteNextActivity_StillDecidingAtBudget_ReturnsDistinguishableOutcom
 // ---- PauseProject (op 2.3) --------------------------------------------------
 
 func Test_PauseProject_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(""), "reason")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -8572,7 +8766,7 @@ func Test_PauseProject_EmptyProjectID(t *testing.T) {
 }
 
 func Test_PauseProject_EmptyReason(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty pause reason, got %s", got)
@@ -8582,7 +8776,7 @@ func Test_PauseProject_EmptyReason(t *testing.T) {
 // ---- OverrideActivity (op 2.4) ----------------------------------------------
 
 func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "C-1", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -8590,7 +8784,7 @@ func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty activityId, got %s", got)
@@ -8598,7 +8792,7 @@ func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
 }
 
 func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "C-1", ActivityOverride{Kind: OverrideUnknown})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an unknown override kind, got %s", got)
@@ -8608,7 +8802,7 @@ func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
 // ---- GetSessionState (op 2.5) -----------------------------------------------
 
 func Test_CS_GetSessionState_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), nil)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -8616,7 +8810,7 @@ func Test_CS_GetSessionState_EmptyProjectID(t *testing.T) {
 }
 
 func Test_GetSessionState_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	empty := ActivityID("")
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), &empty)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -8898,37 +9092,25 @@ func readFileT(t *testing.T, path string) string {
 	return string(b)
 }
 
-// fakeReviewPolicyTransition is a minimal fake satisfying projectstate.ConstructionTransitionAccess
-// for UpdateReviewPolicy tests. It embeds the interface (unimplemented methods panic
-// if reached — intentional) and only implements the two verbs UpdateReviewPolicy exercises:
-// ReadProject (to supply the current version) and RecordReviewPolicy (the write verb).
-type fakeReviewPolicyTransition struct {
-	projectstate.ConstructionTransitionAccess
-	version    projectstate.Version
-	lastPolicy *projectstate.ReviewPolicy
-}
-
-func (f *fakeReviewPolicyTransition) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, policy projectstate.ReviewPolicy, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.version++
-	f.lastPolicy = &policy
-	return f.version, nil
-}
-
 // TestUpdateReviewPolicy asserts that UpdateReviewPolicy maps the ReviewPolicyInput
 // through projectstate.ReviewPolicyFromGateIDs and calls RecordReviewPolicy with the
 // resulting typed ReviewPolicy. The ad-hoc gate id "svc-contract" maps to
 // MethodPhaseDetailedDesign for the "service" activity type; after the call, the
 // persisted document must list that phase under "service".
 func TestUpdateReviewPolicy(t *testing.T) {
-	fake := &fakeReviewPolicyTransition{version: 7}
-	// The version read moved to the base projectStateAccess port (constructionTransitionAccess.ReadProject
-	// pruned); RecordReviewPolicy stays on constructionTransition.
+	// Both halves are on the projectStateAccess port: the version read, and RecordReviewPolicy
+	// (moved there from the deleted constructionTransitionAccess, dct Plan 4 Task 3).
+	var lastPolicy *projectstate.ReviewPolicy
 	ps := &projectstatefake.FakeProjectStateAccess{
 		ReadProjectFn: func(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
 			return projectstate.Project{Version: 7}, nil
 		},
+		RecordReviewPolicyFn: func(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+			lastPolicy = &policy
+			return expectedVersion + 1, nil
+		},
 	}
-	m := newConstructionManager(nil, ps, nil, nil, nil, nil, nil, fake, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+	m := newConstructionManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 
 	err := m.UpdateReviewPolicy(testCtx(), "proj-1", ReviewPolicyInput{
 		GatedPhasesByType: map[string][]string{
@@ -8938,13 +9120,13 @@ func TestUpdateReviewPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateReviewPolicy: %v", err)
 	}
-	if fake.lastPolicy == nil {
+	if lastPolicy == nil {
 		t.Fatal("RecordReviewPolicy was not called")
 	}
 	// "svc-contract" is the ad-hoc gate id that maps to MethodPhaseDetailedDesign
 	// via projectstate.gateIDToPhase; ReviewPolicyFromGateIDs must translate it.
-	if !slices.Contains(fake.lastPolicy.GatedPhasesByType["service"], projectstate.MethodPhaseDetailedDesign) {
-		t.Fatalf("expected service/detailed_design to be gated, got policy=%+v", fake.lastPolicy)
+	if !slices.Contains(lastPolicy.GatedPhasesByType["service"], projectstate.MethodPhaseDetailedDesign) {
+		t.Fatalf("expected service/detailed_design to be gated, got policy=%+v", lastPolicy)
 	}
 }
 
@@ -10533,9 +10715,8 @@ type csFakeProjectState struct {
 	// re-read→re-apply loop.
 	conflictFirst int
 
-	reviewed []string
-	exited   []exitCall
-	failed   []failCall
+	exited []exitCall
+	failed []failCall
 	// tailFailed is the THIRD terminal log (stage 4b3 Task 9): a RecordActivityOutcome that
 	// arrived at an already-completed row and therefore recorded a broken merge tail rather
 	// than a failure. It is separate from `failed` for the same reason TailFailureDetail is
@@ -10543,7 +10724,6 @@ type csFakeProjectState struct {
 	// must not find one here.
 	tailFailed []failCall
 	paused     []string
-	phaseDone  []phaseCompletedCall
 
 	version projectstate.Version
 
@@ -10551,7 +10731,9 @@ type csFakeProjectState struct {
 	// log shared with the other fakes (callLog).
 	order *callLog
 
-	// notes / delivered record the operator-note verbs (B1.4), in call order.
+	// notes / delivered record the operator-note verb (B1.4), in call order: notes is every
+	// NEW note recorded, delivered every delivery stamp (a re-record carrying an attempt —
+	// the fold of the retired note/delivery pair, dct Plan 4 Task 3).
 	notes     []noteCall
 	delivered []deliveredCall
 
@@ -10570,9 +10752,6 @@ type csFakeProjectState struct {
 	// replay fixture exercise the SAME store semantics rather than two that drift.
 	rec *shapeRecorder
 
-	// stampConflicts, when >0, returns fwra.Conflict on the next N
-	// RecordOperatorNoteDelivered calls only (a stamp that cannot land, M4).
-	stampConflicts int
 	// afterConflict, when set, runs each time maybeConflict serves a Conflict — the
 	// concurrent write that caused it (I2: a new pause landing between two tries).
 	afterConflict func(*csFakeProjectState)
@@ -10620,7 +10799,7 @@ type csFakeProjectState struct {
 	// (stage 4b1 Task 10). It is the drain-past-capacity case's whole assertion.
 	commentStatuses []string
 
-	// failDelay holds RecordActivityFailed open for this long AFTER it has appended to
+	// failDelay holds a failure RecordActivityOutcome open for this long AFTER it has appended to
 	// `failed` and released the lock (stage 4b2 Task 14). It exists for exactly ONE
 	// consumer and it is a CAPTURE knob, not a behaviour knob: the pump's pause check at
 	// dispatch gate 2 (pumpPausedBehindGate, pre-dispatch) consumes a pause that was buffered
@@ -10680,7 +10859,8 @@ func (f *csFakeProjectState) setOperatorPaused(reason string) {
 	f.bump()
 }
 
-// failedCount reports how many RecordActivityFailed calls have landed. A capture driver
+// failedCount reports how many failure outcomes (RecordActivityOutcome with a reason) have
+// landed. A capture driver
 // polls it to learn that the pump is INSIDE the next one (see failDelay).
 func (f *csFakeProjectState) failedCount() int {
 	f.mu.Lock()
@@ -10688,7 +10868,8 @@ func (f *csFakeProjectState) failedCount() int {
 	return len(f.failed)
 }
 
-// noteCall is one RecordOperatorNote; deliveredCall one RecordOperatorNoteDelivered.
+// noteCall is one NEW note RecordOperatorNote recorded; deliveredCall one delivery stamp
+// (a RecordOperatorNote re-record carrying an attempt).
 type noteCall struct {
 	activityID string
 	note       projectstate.OperatorNoteInput
@@ -10696,13 +10877,6 @@ type noteCall struct {
 
 type deliveredCall struct {
 	activityID, noteID, attemptID string
-}
-
-// phaseCompletedCall records one RecordPhaseCompleted transition (the gate's durable
-// per-phase completion record). The gate tests assert on it via phaseCompleted.
-type phaseCompletedCall struct {
-	activityID string
-	phase      string
 }
 
 type exitCall struct {
@@ -10754,56 +10928,14 @@ func (f *csFakeProjectState) maybeConflict() error {
 	return nil
 }
 
-func (f *csFakeProjectState) RecordChangeReviewed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.maybeConflict(); err != nil {
-		return 0, err
-	}
-	f.reviewed = append(f.reviewed, activityID)
-	f.stampRow(activityID)
-	return f.bump(), nil
-}
-
-func (f *csFakeProjectState) RecordActivityExited(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.maybeConflict(); err != nil {
-		return 0, err
-	}
-	f.exited = append(f.exited, exitCall{activityID: activityID, outcome: outcome})
-	f.stampRow(activityID)
-	return f.bump(), nil
-}
-
-func (f *csFakeProjectState) RecordActivityFailed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	if err := f.maybeConflict(); err != nil {
-		f.mu.Unlock()
-		return 0, err
-	}
-	f.failed = append(f.failed, failCall{activityID: activityID, reason: reason, detail: detail})
-	f.stampRow(activityID)
-	v, delay := f.bump(), f.failDelay
-	f.mu.Unlock()
-	// The hold is OUTSIDE the lock and AFTER the append, so a capture driver polling
-	// failedCount() observes the call and can deliver a signal while the pump is still
-	// waiting on this Activity. Zero for every other test, which is every other test's
-	// behaviour unchanged.
-	if delay > 0 {
-		time.Sleep(delay)
-	}
-	return v, nil
-}
-
-func (f *csFakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, reason string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *csFakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, reason string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
 		return 0, err
 	}
 	f.paused = append(f.paused, reason)
-	// Like the real store (GitStore.RecordOperatorPaused): the pause lands in head-state,
+	// Like the real store (projectStateAccess.RecordOperatorPaused): the pause lands in head-state,
 	// so a later read — the pump's readProject — sees it.
 	f.project.OperatorPaused = true
 	f.project.PauseReason = reason
@@ -10812,7 +10944,7 @@ func (f *csFakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate
 }
 
 // RecordOperatorResumed records a resume (B1.7): the recorded pause is cleared.
-func (f *csFakeProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *csFakeProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -10827,75 +10959,18 @@ func (f *csFakeProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstat
 	return f.bump(), nil
 }
 
-func (f *csFakeProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *csFakeProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
 		return 0, err
 	}
-	return f.bump(), nil
-}
-
-func (f *csFakeProjectState) RecordOperatorNote(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, note projectstate.OperatorNoteInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.maybeConflict(); err != nil {
-		return 0, err
-	}
-	f.notes = append(f.notes, noteCall{activityID: activityID, note: note})
-	if f.order != nil {
-		f.order.add("note")
-	}
-	f.stampRow(activityID)
-	return f.bump(), nil
-}
-
-func (f *csFakeProjectState) RecordOperatorNoteDelivered(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID, noteID, attemptID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.stampConflicts > 0 {
-		f.stampConflicts--
-		f.version++
-		f.project.Version = f.version
-		return 0, fwra.New(fwra.Conflict, "stale version (stamp)")
-	}
-	if err := f.maybeConflict(); err != nil {
-		return 0, err
-	}
-	f.delivered = append(f.delivered, deliveredCall{activityID: activityID, noteID: noteID, attemptID: attemptID})
-	if f.order != nil {
-		f.order.add("delivered")
-	}
-	f.stampRow(activityID)
-	return f.bump(), nil
-}
-
-func (f *csFakeProjectState) RecordPhaseStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.ActivityMethodPhase, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.maybeConflict(); err != nil {
-		return 0, err
-	}
-	f.stampRow(activityID)
-	return f.bump(), nil
-}
-
-func (f *csFakeProjectState) RecordPhaseCompleted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.maybeConflict(); err != nil {
-		return 0, err
-	}
-	f.phaseDone = append(f.phaseDone, phaseCompletedCall{activityID: activityID, phase: phase.String()})
-	f.stampRow(activityID)
 	return f.bump(), nil
 }
 
 // ---- gitActivityStatusAccess seam (per-activity construction head-state) ----
 // The gate tests wire GitStatus so gitOn is true (the LOCAL/dry-run profile — no PR
-// rail), which is what drives the phase-started/completed head-state records. These
-// are no-op bumps; only RecordPhaseCompleted (a construction-transition verb, above)
-// carries the assertion the gate tests read.
+// rail). These are no-op bumps.
 
 func (f *csFakeProjectState) RecordActivityBranchOpened(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _, _, _, _, _ string, _ bool, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
@@ -10935,40 +11010,7 @@ func (f *csFakeProjectState) RecordActivityCompleted(_ fwra.Context, _ projectst
 	return f.bump(), nil
 }
 
-func (f *csFakeProjectState) RecordServiceContractProduced(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ServiceContract, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.maybeConflict(); err != nil {
-		return 0, err
-	}
-	return f.bump(), nil
-}
-
-func (f *csFakeProjectState) RecordPhaseArtifactProduced(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ string, _ projectstate.PhaseArtifactPayload, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.maybeConflict(); err != nil {
-		return 0, err
-	}
-	return f.bump(), nil
-}
-
 var _ projectstate.GitActivityStatusAccess = (*csFakeProjectState)(nil)
-
-// fakeConstructionTransition widens csFakeProjectState onto the FULL
-// projectstate.ConstructionTransitionAccess contract (B8): the nine write verbs are
-// inherited verbatim (byte-identical signatures); ReadProject gets the extra `cred`
-// parameter the fake's own 2-arg ReadProject never carried, so this adapter widens the
-// signature by ignoring cred and delegating.
-type fakeConstructionTransition struct {
-	*csFakeProjectState
-}
-
-func (f fakeConstructionTransition) ReadProject(rc fwra.Context, projectID projectstate.ProjectID, _ projectstate.RepoCredential) (projectstate.Project, error) {
-	return f.csFakeProjectState.ReadProject(rc, projectID)
-}
-
-var _ projectstate.ConstructionTransitionAccess = fakeConstructionTransition{}
 
 // csFakeActivityExecution is the in-memory activityExecutionAccess the workflow tests write
 // their attempts and review rounds through (stage 3, task 5). It is hand-rolled rather
@@ -11008,19 +11050,16 @@ func (f *csFakeProjectState) execution(activityID string) projectstate.ActivityE
 	return f.project.ActivityExecution[activityID]
 }
 
-// stampRow mirrors the production store's per-activity counter for a RETIRED-facet verb.
-// Those verbs write the row through upsertActivityExecution, so each applied transition
-// advances Version by exactly one, the same as the facet's own verbs — and the double has
-// to stamp it too, or a workflow test would never see the drift a run's copy of the row
-// version takes when an old-rail write lands between two new-rail ones.
+// stampRow mirrors the production store's per-activity counter for a gitActivityStatusAccess
+// verb. Those verbs write the row through upsertActivityExecution, so each applied
+// transition advances Version by exactly one, the same as activityExecutionAccess's own
+// verbs — and the double has to stamp it too, or a workflow test would never see the drift
+// a run's copy of the row version takes when such a write lands between two ledger ones.
 //
-// EVERY retired verb that stamps in production calls it — the nine in
-// TestEveryMutatingVerbOnARowStampsItsVersion's first block: RecordChangeReviewed,
-// RecordActivityExited, RecordActivityFailed, RecordOperatorNote,
-// RecordOperatorNoteDelivered, RecordPhaseStarted, RecordPhaseCompleted,
-// RecordActivityStarted, RecordActivityCompleted. Mirroring only the four that a ledger-on
-// run reaches today would leave the double passing exactly where production Conflicts the
-// moment a fence moves, which is the shape of hazard this whole guard exists to refuse.
+// EVERY such verb that stamps in production calls it — the two in
+// TestEveryMutatingVerbOnARowStampsItsVersion's first block: RecordActivityStarted and
+// RecordActivityCompleted. (constructionTransitionAccess's seven stamping verbs went with
+// that facet, dct Plan 4 Task 3.)
 //
 // It stamps an EXISTING row and never births one. A run reaches these verbs with a row
 // only after OpenActivity birthed it (step 0 of the spine), and birthing a bare row here
@@ -11376,6 +11415,14 @@ func (f csFakeActivityExecution) RecordActivityOutcome(_ fwra.Context, _ project
 	}
 	if reason != projectstate.FailureReasonUnknown {
 		f.failed = append(f.failed, failCall{activityID: activityID, reason: reason, detail: detail})
+		if delay := f.failDelay; delay > 0 {
+			// The hold is OUTSIDE the lock and AFTER the append, so a capture driver polling
+			// failedCount() observes the call and can deliver a signal while the pump is still
+			// waiting on this Activity. Zero for every other test.
+			f.mu.Unlock()
+			time.Sleep(delay)
+			f.mu.Lock()
+		}
 		return v, nil
 	}
 	f.exited = append(f.exited, exitCall{activityID: activityID, outcome: outcome})
@@ -11520,43 +11567,131 @@ func (csFakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.
 func (f csFakeActivityExecution) RecordOperatorNote(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, note projectstate.OperatorNoteInput, deliveredToAttemptID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	if note.Kind == projectstate.NoteRequeue {
 		if err := f.refuseTerminality(activityID, func(row projectstate.ActivityExecution) error {
-			if held, ok := noteByID(row, note.NoteID); ok && held.Kind == projectstate.NoteRequeue {
-				return nil // a replay: the first delivery already re-armed the row
-			}
-			switch phase := projectstate.CoarsePhaseFor(row, nil); phase {
-			case projectstate.ActivityConstructionDone, projectstate.ActivityConstructionFailed,
-				projectstate.ActivityConstructionCompletedNotLanded:
-				// completedNotLanded joins the terminals here for the same reason it joins them in
-				// reopenTerminalRow: it is the one state the heal exists for (stage 4b3 Task 9).
-				return nil
-			case projectstate.ActivityConstructionNotStarted, projectstate.ActivityConstructionRunning:
-				// CONFLICT, mirroring the store since Task 12 round 3 (minor (e)): the refusal is
-				// state-dependent, not a malformed request, and the double must not disagree with
-				// the store about which kind the façade maps.
-				return fwra.New(fwra.Conflict, fmt.Sprintf(
-					"fake projectstate.RecordOperatorNote: activity %s is %v, not finished — a requeue re-arms an activity that already exited", activityID, phase))
-			}
-			return fwra.New(fwra.Conflict, "fake projectstate.RecordOperatorNote: no coarse phase a requeue can reason about")
+			return fakeRequeueRefusal(row, note, activityID)
 		}); err != nil {
 			return 0, err
 		}
 	}
-	return f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
-		if note.Kind == projectstate.NoteRequeue {
-			if _, replay := noteByID(*row, note.NoteID); !replay {
-				row.StartedAt, row.CompletedAt = nil, nil
-				row.FailureReason, row.FailureDetail = projectstate.FailureReasonUnknown, ""
-				// The FIFTH head fact clears with the other four, mirroring reopenTerminalRow: a
-				// re-armed row that kept it would derive a red node over a walk that has restarted.
-				row.TailFailureDetail = ""
-			}
+	// A RE-RECORD of a held note is the store's dedup-and-stamp arm (dct Plan 4 Task 3, the
+	// fold of the retired RecordOperatorNoteDelivered): different content is refused, the same
+	// content is a no-op unless it carries an attempt the note was not yet delivered to, and a
+	// second, different attempt is refused. Like the store, a refusal writes nothing.
+	f.mu.Lock()
+	held, isReRecord := noteByID(f.project.ActivityExecution[activityID], note.NoteID)
+	f.mu.Unlock()
+	if isReRecord {
+		if err := fakeReRecordRefusal(held, note, activityID, deliveredToAttemptID); err != nil {
+			return 0, err
 		}
-		row.OperatorNotes = append(row.OperatorNotes, projectstate.OperatorNote{
-			NoteID: note.NoteID, Kind: note.Kind, Gate: note.Gate, Text: note.Text,
-			Comments: slices.Clone(note.Comments), RecordedAt: testLedgerClock,
-			DeliveredToAttemptID: deliveredToAttemptID,
-		})
+	}
+	stamped := false
+	v, err := f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
+		if isReRecord {
+			stamped = fakeStampHeldNote(row, note.NoteID, deliveredToAttemptID)
+			return
+		}
+		fakeAppendNote(row, note, deliveredToAttemptID)
 	})
+	if err != nil {
+		return 0, err
+	}
+	f.logNote(activityID, note, isReRecord, stamped, deliveredToAttemptID)
+	return v, nil
+}
+
+// fakeRequeueRefusal is the store's requeue terminality rule (reopenTerminalRow) over a row
+// that exists: a replay of a held requeue is fine, an exited row is fine, a live one is a
+// Conflict.
+func fakeRequeueRefusal(row projectstate.ActivityExecution, note projectstate.OperatorNoteInput, activityID string) error {
+	if held, ok := noteByID(row, note.NoteID); ok && held.Kind == projectstate.NoteRequeue {
+		return nil // a replay: the first delivery already re-armed the row
+	}
+	switch phase := projectstate.CoarsePhaseFor(row, nil); phase {
+	case projectstate.ActivityConstructionDone, projectstate.ActivityConstructionFailed,
+		projectstate.ActivityConstructionCompletedNotLanded:
+		// completedNotLanded joins the terminals here for the same reason it joins them in
+		// reopenTerminalRow: it is the one state the heal exists for (stage 4b3 Task 9).
+		return nil
+	case projectstate.ActivityConstructionNotStarted, projectstate.ActivityConstructionRunning:
+		// CONFLICT, mirroring the store since Task 12 round 3 (minor (e)): the refusal is
+		// state-dependent, not a malformed request, and the double must not disagree with
+		// the store about which kind the façade maps.
+		return fwra.New(fwra.Conflict, fmt.Sprintf(
+			"fake projectstate.RecordOperatorNote: activity %s is %v, not finished — a requeue re-arms an activity that already exited", activityID, phase))
+	}
+	return fwra.New(fwra.Conflict, "fake projectstate.RecordOperatorNote: no coarse phase a requeue can reason about")
+}
+
+// fakeReRecordRefusal is the store's re-record rule: one id names one note (different
+// content is refused), and a note is delivered once (a second, different attempt is
+// refused).
+func fakeReRecordRefusal(held projectstate.OperatorNote, note projectstate.OperatorNoteInput, activityID, deliveredToAttemptID string) error {
+	if held.Kind != note.Kind || held.Gate != note.Gate || held.Text != note.Text || !slices.Equal(held.Comments, note.Comments) {
+		return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+			"fake projectstate.RecordOperatorNote: note %q is already recorded on %s with different content", note.NoteID, activityID))
+	}
+	if held.DeliveredToAttemptID != "" && deliveredToAttemptID != "" && held.DeliveredToAttemptID != deliveredToAttemptID {
+		return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+			"fake projectstate.RecordOperatorNote: note %q on %s was already delivered to %s", note.NoteID, activityID, held.DeliveredToAttemptID))
+	}
+	return nil
+}
+
+// fakeStampHeldNote stamps the held note delivered to attemptID when it was not yet
+// delivered, and reports whether it did.
+func fakeStampHeldNote(row *projectstate.ActivityExecution, noteID, attemptID string) bool {
+	if attemptID == "" {
+		return false
+	}
+	for i := range row.OperatorNotes {
+		n := &row.OperatorNotes[i]
+		if n.NoteID == noteID && n.DeliveredToAttemptID == "" {
+			t := testLedgerClock
+			n.DeliveredToAttemptID, n.DeliveredAt = attemptID, &t
+			return true
+		}
+	}
+	return false
+}
+
+// fakeAppendNote records a NEW note, re-arming the row first when it is a requeue (the
+// store's reopenTerminalRow), and stamping it delivered when it arrives already addressed.
+func fakeAppendNote(row *projectstate.ActivityExecution, note projectstate.OperatorNoteInput, deliveredToAttemptID string) {
+	if note.Kind == projectstate.NoteRequeue {
+		row.StartedAt, row.CompletedAt = nil, nil
+		row.FailureReason, row.FailureDetail = projectstate.FailureReasonUnknown, ""
+		// The FIFTH head fact clears with the other four, mirroring reopenTerminalRow: a
+		// re-armed row that kept it would derive a red node over a walk that has restarted.
+		row.TailFailureDetail = ""
+	}
+	held := projectstate.OperatorNote{
+		NoteID: note.NoteID, Kind: note.Kind, Gate: note.Gate, Text: note.Text,
+		Comments: slices.Clone(note.Comments), RecordedAt: testLedgerClock,
+	}
+	if deliveredToAttemptID != "" {
+		t := testLedgerClock
+		held.DeliveredToAttemptID, held.DeliveredAt = deliveredToAttemptID, &t
+	}
+	row.OperatorNotes = append(row.OperatorNotes, held)
+}
+
+// logNote appends to the double's call logs: a NEW note to notes, a delivery stamp to
+// delivered (an identical re-record that stamped nothing is neither).
+func (f csFakeActivityExecution) logNote(activityID string, note projectstate.OperatorNoteInput, isReRecord, stamped bool, deliveredToAttemptID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch {
+	case !isReRecord:
+		f.notes = append(f.notes, noteCall{activityID: activityID, note: note})
+		if f.order != nil {
+			f.order.add("note")
+		}
+	case stamped:
+		f.delivered = append(f.delivered, deliveredCall{activityID: activityID, noteID: note.NoteID, attemptID: deliveredToAttemptID})
+		if f.order != nil {
+			f.order.add("delivered")
+		}
+	}
 }
 
 // ReadActivityExecution is the row read applyRecovering's Conflict arm makes (stage 4b1).
@@ -12316,20 +12451,22 @@ func registerGenProjectStateVersion(env *testsuite.TestWorkflowEnvironment, ps *
 	env.RegisterActivityWithOptions(acts.ProjectStateReadProjectVersion, activity.RegisterOptions{Name: "projectStateAccess.readProjectVersion"})
 }
 
-// registerGenConstructionTransition registers the GENERATED constructionTransitionAccess
-// Record* activities (B8: migrated off the custom Record*Activity methods,
-// activities_custom.go) under their generated registered names, backed by ps widened onto
-// the full ConstructionTransitionAccess contract (fakeConstructionTransition).
-func registerGenConstructionTransition(env *testsuite.TestWorkflowEnvironment, ps *csFakeProjectState) {
-	acts := &genActivities{ConstructionTransition: fakeConstructionTransition{ps}}
-	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordChangeReviewed, activity.RegisterOptions{Name: "constructionTransitionAccess.recordChangeReviewed"})
-	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordActivityExited, activity.RegisterOptions{Name: "constructionTransitionAccess.recordActivityExited"})
-	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordActivityFailed, activity.RegisterOptions{Name: "constructionTransitionAccess.recordActivityFailed"})
-	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorPaused, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorPaused"})
-	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordPhaseStarted, activity.RegisterOptions{Name: "constructionTransitionAccess.recordPhaseStarted"})
-	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordPhaseCompleted, activity.RegisterOptions{Name: "constructionTransitionAccess.recordPhaseCompleted"})
-	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorNote, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorNote"})
-	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorNoteDelivered, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorNoteDelivered"})
+// registerGenProjectStatePause registers the GENERATED projectStateAccess.recordOperatorPaused
+// activity — the supervision workflow's project-scoped pause record, which moved onto the
+// core projectStateAccess facet when constructionTransitionAccess was deleted (dct Plan 4
+// Task 3) — backed by ps widened onto the full contract (fakeFullProjectState).
+func registerGenProjectStatePause(env *testsuite.TestWorkflowEnvironment, ps *csFakeProjectState) {
+	acts := &genActivities{ProjectState: fakeFullProjectState{ps}}
+	env.RegisterActivityWithOptions(acts.ProjectStateRecordOperatorPaused, activity.RegisterOptions{Name: "projectStateAccess.recordOperatorPaused"})
+}
+
+// registerGenOperatorNote registers the GENERATED activityExecutionAccess.recordOperatorNote
+// activity — the child's gate-time note record AND its delivery stamp (one verb since dct
+// Plan 4 Task 3) — for the rigs that do not already register it beside their other
+// execution-ledger verbs.
+func registerGenOperatorNote(env *testsuite.TestWorkflowEnvironment, ps *csFakeProjectState) {
+	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}}
+	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordOperatorNote, activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
 }
 
 // csRegisterGenActivityExecution registers the GENERATED activityExecutionAccess activities
@@ -12440,7 +12577,8 @@ func registerSupervisionWithBus(env *testsuite.TestWorkflowEnvironment, wf *csWo
 	registerGenEpisodes(env, eps)
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
-	registerGenConstructionTransition(env, ps)
+	registerGenProjectStatePause(env, ps)
+	registerGenOperatorNote(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	acts := &genActivities{MessageBus: bus}
 	env.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
@@ -13908,14 +14046,14 @@ func (p *mergeConflictPipeline) CancelAgenticJob(_ fwra.Context, _ agenticjob.Pi
 
 var _ agenticjob.AgenticJobAccess = (*mergeConflictPipeline)(nil)
 
-// setReviewPolicyManager wires a constructionManager over the generated
-// FakeConstructionTransitionAccess for the preset write-path tests.
-func setReviewPolicyManager(ps projectstate.ProjectStateAccess, ct projectstate.ConstructionTransitionAccess) *constructionManager {
-	return newConstructionManager(nil, ps, nil, nil, nil, nil, nil, ct, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
+// setReviewPolicyManager wires a constructionManager over a projectStateAccess double for
+// the preset write-path tests: the read and the RecordReviewPolicy write are both on it.
+func setReviewPolicyManager(ps projectstate.ProjectStateAccess) *constructionManager {
+	return newConstructionManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 }
 
 func Test_SetReviewPolicy_EmptyProjectID(t *testing.T) {
-	m := setReviewPolicyManager(nil, nil)
+	m := setReviewPolicyManager(nil)
 	err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID(""), projectstate.ReviewPresetVibes)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -13928,7 +14066,7 @@ func Test_SetReviewPolicy_EmptyProjectID(t *testing.T) {
 // unrecognized preset as the legacy explicit-map fallback (empty map → gates
 // NOTHING), so a typo must never be persistable.
 func Test_SetReviewPolicy_RejectsUnknownPreset(t *testing.T) {
-	m := setReviewPolicyManager(nil, &projectstatefake.FakeConstructionTransitionAccess{})
+	m := setReviewPolicyManager(&projectstatefake.FakeProjectStateAccess{})
 	for _, preset := range []string{"", "vibess", "YOLO", "Full", "VIBES"} {
 		err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID("p1"), preset)
 		if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -13947,8 +14085,8 @@ func Test_SetReviewPolicy_WritesPresetPreservingGateMap(t *testing.T) {
 	}
 	var recorded *projectstate.ReviewPolicy
 	var recordedVersion projectstate.Version
-	// The read moved to the base projectStateAccess port (constructionTransitionAccess.ReadProject
-	// was pruned — both call sites passed empty cred); RecordReviewPolicy stays on constructionTransition.
+	// The read and the write are both on the projectStateAccess port (RecordReviewPolicy moved
+	// there from the deleted constructionTransitionAccess, dct Plan 4 Task 3).
 	ps := &projectstatefake.FakeProjectStateAccess{
 		ReadProjectFn: func(_ fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
 			return projectstate.Project{
@@ -13957,15 +14095,13 @@ func Test_SetReviewPolicy_WritesPresetPreservingGateMap(t *testing.T) {
 				ReviewPolicy: projectstate.ReviewPolicy{GatedPhasesByType: existing},
 			}, nil
 		},
-	}
-	ct := &projectstatefake.FakeConstructionTransitionAccess{
-		RecordReviewPolicyFn: func(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+		RecordReviewPolicyFn: func(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 			recorded = &policy
 			recordedVersion = expectedVersion
 			return expectedVersion + 1, nil
 		},
 	}
-	m := setReviewPolicyManager(ps, ct)
+	m := setReviewPolicyManager(ps)
 	for _, preset := range []string{projectstate.ReviewPresetVibes, projectstate.ReviewPresetCheckpoints, projectstate.ReviewPresetFull} {
 		recorded = nil
 		if err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID("p1"), preset); err != nil {
@@ -13989,7 +14125,7 @@ func Test_SetReviewPolicy_UnknownProject_NotFound(t *testing.T) {
 			return projectstate.Project{}, fwra.New(fwra.NotFound, "no such project")
 		},
 	}
-	m := setReviewPolicyManager(ps, nil)
+	m := setReviewPolicyManager(ps)
 	err := m.SetReviewPolicy(fwmanager.Context{Context: context.Background()}, ProjectID("ghost"), projectstate.ReviewPresetVibes)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.NotFound {
 		t.Fatalf("want NotFound, got %s", got)
@@ -14127,7 +14263,7 @@ func TestEpisodeRecordFor_FirstAttemptIsOne(t *testing.T) {
 // csEpisodeMgr builds a constructionManager exercising ONLY the episode facet read
 // ops (Task 9): every other dep stays nil since those ops touch only episodes.
 func csEpisodeMgr(eps episode.EpisodeAccess) *constructionManager {
-	return newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "", nil, sdpEngines{})
+	return newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "", nil, sdpEngines{})
 }
 
 // csSampleEpisodeRecord returns a fully-populated ledger record (every optional
@@ -14486,15 +14622,14 @@ func (r replayRig) activities() genActivities {
 		// The venue double records the integration job's scenario run and the gate reads its
 		// artifact back, exactly as registerGenPipeline wires the in-process rigs — a capture
 		// that reached the testing gate with no venue behind it would record a park.
-		Pipeline:               venueOver(r.ps, r.pipe),
-		Artifact:               venueArtifact(r.ps),
-		ConstructionTransition: fakeConstructionTransition{r.ps},
-		ActivityExecution:      csFakeActivityExecution{r.ps},
-		GitStatus:              r.ps,
-		DesignSession:          projectstate.NewDesignSessionAccess(full),
-		MessageBus:             bus,
-		Episodes:               &fakeEpisodes{},
-		Rail:                   r.railOrStub(),
+		Pipeline:          venueOver(r.ps, r.pipe),
+		Artifact:          venueArtifact(r.ps),
+		ActivityExecution: csFakeActivityExecution{r.ps},
+		GitStatus:         r.ps,
+		DesignSession:     projectstate.NewDesignSessionAccess(full),
+		MessageBus:        bus,
+		Episodes:          &fakeEpisodes{},
+		Rail:              r.railOrStub(),
 	}
 }
 
@@ -16367,7 +16502,7 @@ func pausedProject() projectstate.Project {
 // resumeManager wires a façade over mc and a fake store serving proj.
 func resumeManager(mc client.Client, proj projectstate.Project) (*constructionManager, *csFakeProjectState) {
 	ps := &csFakeProjectState{project: proj, version: proj.Version}
-	return newConstructionManager(mc, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{}), ps
+	return newConstructionManager(mc, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{}), ps
 }
 
 func constructionErrorKind(err error) fwmanager.Kind {
@@ -17516,7 +17651,7 @@ func TestNormalizeAttempts_AGateWithRoundsGetsNoReconstruction(t *testing.T) {
 // avManager builds a façade over a project, an episode ledger and a strict client.
 func avManager(c client.Client, proj projectstate.Project, eps *fakeEpisodes) *constructionManager {
 	ps := &csFakeProjectState{project: proj}
-	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, eps, 0, "", nil, sdpEngines{})
+	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "", nil, sdpEngines{})
 }
 
 func TestQueryActivityView_RefusesBlankIDs(t *testing.T) {
@@ -19999,7 +20134,7 @@ func registerDeliveryActivityWithBus(
 	registerGenDesignSessionSlotWrites(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenProjectStateAdvancePhase(env, ps)
-	registerGenConstructionTransition(env, ps)
+	registerGenProjectStatePause(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, ps)
 	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}, MessageBus: bus, Rail: &stubRail{}}
@@ -21592,7 +21727,7 @@ func Test_ConstructionWalk_LocalMergeRunsOnTheLocalProfileOnly(t *testing.T) {
 	registerGenDesignSessionSlotWrites(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenProjectStateAdvancePhase(env, ps)
-	registerGenConstructionTransition(env, ps)
+	registerGenProjectStatePause(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, git)
 	registerGenRail(env, rail)
@@ -21816,9 +21951,9 @@ func Test_ConstructionVariance_EscalatedThenOperatorSkip_ExitsTheActivitySkipped
 	}
 }
 
-// countNotesAtGate counts the operator notes the run recorded for one activity at one gate. The
-// notes land through the constructionTransition facet (recordOperatorNote's verb), so they are
-// read off the double's own call log rather than off the execution row.
+// countNotesAtGate counts the operator notes the run recorded for one activity at one gate,
+// read off the double's own call log (every NEW note activityExecutionAccess.RecordOperatorNote
+// recorded) rather than off the execution row.
 func countNotesAtGate(ps *csFakeProjectState, activityID, gate string) int {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -22336,7 +22471,7 @@ func task12Manager(c client.Client, ps *csFakeProjectState) *deliveryManager {
 	return newDeliveryManager(
 		c, full, &artifactfake.FakeArtifactAccess{}, &fakeIntervention{}, &fakeReview{},
 		estimation.NewEstimationEngine(), operationestimation.NewOperationEstimationEngine(),
-		billing.NewBillingEngine(), csNewFakePipeline(), &stubRail{}, fakeConstructionTransition{ps}, ps,
+		billing.NewBillingEngine(), csNewFakePipeline(), &stubRail{}, ps,
 		projectstate.NewDesignSessionAccess(full), csFakeActivityExecution{ps}, &recordingSignalBus{},
 		&fakeEpisodes{}, 0, "", func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef(""), false }, "")
 }
@@ -24948,7 +25083,8 @@ func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *csWorkflow
 	registerGenPipeline(env, ps, &csFakePipeline{phase: PipelineSucceeded})
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
-	registerGenConstructionTransition(env, ps)
+	registerGenProjectStatePause(env, ps)
+	registerGenOperatorNote(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, git)
 	registerGenRail(env, rail)
@@ -25416,7 +25552,8 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, 
 	registerGenEpisodes(env, eps)
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
-	registerGenConstructionTransition(env, ps)
+	registerGenProjectStatePause(env, ps)
+	registerGenOperatorNote(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	// Phase-gate + per-activity construction-status records (fire only when gitOn;
 	// the gate tests wire GitStatus so these must be registered).
@@ -25452,7 +25589,7 @@ func registerPumpWithBus(
 	registerGenDesignSessionSlotWrites(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenProjectStateAdvancePhase(env, ps)
-	registerGenConstructionTransition(env, ps)
+	registerGenProjectStatePause(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, ps)
 	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}, MessageBus: bus}
@@ -26742,8 +26879,8 @@ func Test_Pump_PauseThenResumeThenTheNextTickDispatches(t *testing.T) {
 	if res, err := paused.run(t); err != nil || res.Dispatched || *paused.childStarts != 0 {
 		t.Fatalf("paused: want a quiet tick, got %+v err=%v starts=%d", res, err, *paused.childStarts)
 	}
-	if _, err := (fakeConstructionTransition{paused.ps}).RecordOperatorResumed(fwra.Context{Context: context.Background()},
-		projectstate.ProjectID(paused.pid), paused.ps.project.Version, projectstate.RepoCredential{}, "resume"); err != nil {
+	if _, err := paused.ps.RecordOperatorResumed(fwra.Context{Context: context.Background()},
+		projectstate.ProjectID(paused.pid), paused.ps.project.Version, "resume"); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
 	next := newCascadingPumpRig(10*time.Minute, 0, func(p *projectstate.Project) { *p = paused.ps.project })
@@ -27326,7 +27463,8 @@ func noteChildRun(t *testing.T, rail *stubRail) (*testsuite.TestWorkflowEnvironm
 	registerGenEpisodes(env, nil)
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
-	registerGenConstructionTransition(env, ps)
+	registerGenProjectStatePause(env, ps)
+	registerGenOperatorNote(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, git)
 	registerGenRail(env, rail)
@@ -28289,6 +28427,31 @@ var deliveryDeliberateGeneratedDefaults = map[string]string{
 	// head-state mutation and neither has ever had a tuned envelope on any rail.
 	"messageBus.deliverSignal":        "a signal relay, never a head-state mutation; no rail has ever tuned it",
 	"projectStateAccess.listProjects": "the sweeps' fan-out read; the generated default is its envelope on every rail",
+}
+
+// Test_StampActs_KeepsTheDeliveryStampsBoundedEnvelope pins M4 across the fold of the retired
+// note/delivery pair (dct Plan 4 Task 3). The stamp and the gate-time record are now ONE
+// registered activity, activityExecutionAccess.recordOperatorNote, so the manifest's hook can
+// carry only one preset for both — the record's, with unlimited attempts. stampActs is what
+// keeps the stamp bounded by noteStampRetryWindow so a stamp that cannot land lets the run go
+// on with the note pending, and it must leave every other name exactly as the hook answers it.
+func Test_StampActs_KeepsTheDeliveryStampsBoundedEnvelope(t *testing.T) {
+	wf := &csWorkflows{Acts: genInvokers{Opts: deliveryActivityOptions()}}
+	stamp, ok := wf.stampActs().Opts(noteStampActivity)
+	if !ok || stamp.ScheduleToCloseTimeout != noteStampRetryWindow {
+		t.Fatalf("the stamp's envelope = %+v (ok=%v), want ScheduleToClose %v", stamp, ok, noteStampRetryWindow)
+	}
+	record, ok := wf.Acts.Opts(noteStampActivity)
+	if !ok || record.ScheduleToCloseTimeout != 0 {
+		t.Fatalf("the gate-time record must keep the record preset (no retry window), got %+v (ok=%v)", record, ok)
+	}
+	for _, name := range []string{"activityExecutionAccess.recordActivityOutcome", "projectStateAccess.recordOperatorPaused", "no.suchActivity"} {
+		want, wantOK := wf.Acts.Opts(name)
+		got, gotOK := wf.stampActs().Opts(name)
+		if gotOK != wantOK || !reflect.DeepEqual(got, want) {
+			t.Errorf("stampActs must answer %q exactly as the hook does: got %+v/%v, want %+v/%v", name, got, gotOK, want, wantOK)
+		}
+	}
 }
 
 func Test_DeliveryActivityOptions_EveryInvokedActivityIsTuned(t *testing.T) {
@@ -31509,16 +31672,15 @@ func registerDeliveryActivityOverGitWithPipeline(
 		workflow.RegisterOptions{Name: executionKindDeliveryActivity})
 	pipe = &gitVenueDouble{inner: pipe, t: t, wf: wf, repoURL: repoURL, specs: map[agenticjob.PipelineHandle]agenticjob.PipelineSpec{}}
 	acts := &genActivities{
-		Artifact:               artifact.NewDryRunArtifactAccess(),
-		ProjectState:           projectstate.NewGitLocalProjectStateAccess(repoURL),
-		ConstructionTransition: projectstate.NewGitLocalConstructionTransitionAccess(repoURL),
-		GitStatus:              projectstate.NewGitLocalGitActivityStatusAccess(repoURL),
-		DesignSession:          projectstate.NewGitLocalDesignSessionAccess(repoURL),
-		ActivityExecution:      projectstate.NewGitLocalActivityExecutionAccess(repoURL),
-		Rail:                   sourcecontrol.NewGitLocalSourceControlAccess(repoURL),
-		Pipeline:               pipe,
-		Episodes:               &fakeEpisodes{},
-		MessageBus:             &recordingSignalBus{},
+		Artifact:          artifact.NewDryRunArtifactAccess(),
+		ProjectState:      projectstate.NewGitLocalProjectStateAccess(repoURL),
+		GitStatus:         projectstate.NewGitLocalGitActivityStatusAccess(repoURL),
+		DesignSession:     projectstate.NewGitLocalDesignSessionAccess(repoURL),
+		ActivityExecution: projectstate.NewGitLocalActivityExecutionAccess(repoURL),
+		Rail:              sourcecontrol.NewGitLocalSourceControlAccess(repoURL),
+		Pipeline:          pipe,
+		Episodes:          &fakeEpisodes{},
+		MessageBus:        &recordingSignalBus{},
 	}
 	for name, fn := range map[string]any{
 		"projectStateAccess.readProjectVersion":              acts.ProjectStateReadProjectVersion,
@@ -31537,11 +31699,6 @@ func registerDeliveryActivityOverGitWithPipeline(
 		"activityExecutionAccess.setReviewCommentStatus":     acts.ActivityExecutionSetReviewCommentStatus,
 		"activityExecutionAccess.recordOperatorNote":         acts.ActivityExecutionRecordOperatorNote,
 		"activityExecutionAccess.recordActivityOutcome":      acts.ActivityExecutionRecordActivityOutcome,
-		"constructionTransitionAccess.recordPhaseStarted":    acts.ConstructionTransitionRecordPhaseStarted,
-		"constructionTransitionAccess.recordPhaseCompleted":  acts.ConstructionTransitionRecordPhaseCompleted,
-		"constructionTransitionAccess.recordChangeReviewed":  acts.ConstructionTransitionRecordChangeReviewed,
-		"constructionTransitionAccess.recordActivityExited":  acts.ConstructionTransitionRecordActivityExited,
-		"constructionTransitionAccess.recordActivityFailed":  acts.ConstructionTransitionRecordActivityFailed,
 		"gitActivityStatusAccess.recordActivityStarted":      acts.GitStatusRecordActivityStarted,
 		"gitActivityStatusAccess.recordActivityCompleted":    acts.GitStatusRecordActivityCompleted,
 		"gitActivityStatusAccess.recordActivityBranchOpened": acts.GitStatusRecordActivityBranchOpened,
@@ -31653,10 +31810,9 @@ func TestDryRun_WalksTheWholeDerivedPlanFromBirthToTheLastActivity(t *testing.T)
 	// VIBES, committed, which is what a local boot runs: every non-floor gate auto-approves,
 	// so the traversal needs no human for anything but M0 (whose spend floor is not
 	// overridable by any preset).
-	ct := projectstate.NewGitLocalConstructionTransitionAccess(rig.repoURL)
-	if _, err := ct.RecordReviewPolicy(fwra.Context{Context: context.Background(), IdempotencyKey: "policy:vibes"},
+	if _, err := projectstate.NewGitLocalProjectStateAccess(rig.repoURL).RecordReviewPolicy(fwra.Context{Context: context.Background(), IdempotencyKey: "policy:vibes"},
 		rig.id, projectstate.Version(rig.read(t).Version),
-		projectstate.ReviewPolicy{Preset: ptrTo(projectstate.ReviewPresetVibes)}, projectstate.RepoCredential{},
+		projectstate.ReviewPolicy{Preset: ptrTo(projectstate.ReviewPresetVibes)},
 		"policy:vibes"); err != nil {
 		t.Fatalf("commit the vibes review policy: %v", err)
 	}
@@ -31975,14 +32131,13 @@ func newDesignWalkGitRig(t *testing.T) (*m0GitRig, string) {
 
 	// VIBES, committed: every gate the policy owns auto-approves, so the only holds left are
 	// the ones the PLATFORM floors (an un-judged critique) — which is what a local boot runs.
-	ct := projectstate.NewGitLocalConstructionTransitionAccess(repoURL)
 	proj, err := ps.ReadProject(fwra.Context{Context: context.Background()}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject straight after birth: %v", err)
 	}
-	if _, err := ct.RecordReviewPolicy(fwra.Context{Context: context.Background(), IdempotencyKey: "policy:vibes"},
+	if _, err := ps.RecordReviewPolicy(fwra.Context{Context: context.Background(), IdempotencyKey: "policy:vibes"},
 		pid, projectstate.Version(proj.Version),
-		projectstate.ReviewPolicy{Preset: ptrTo(projectstate.ReviewPresetVibes)}, projectstate.RepoCredential{},
+		projectstate.ReviewPolicy{Preset: ptrTo(projectstate.ReviewPresetVibes)},
 		"policy:vibes"); err != nil {
 		t.Fatalf("commit the vibes review policy: %v", err)
 	}
@@ -32423,7 +32578,7 @@ func TestQueryTestRunView_ProductionWiringJoinsTheDerivedProjection(t *testing.T
 	}
 	m := newDeliveryManager(&fakeTemporalClient{}, full, art, &fakeIntervention{}, &fakeReview{},
 		estimation.NewEstimationEngine(), operationestimation.NewOperationEstimationEngine(),
-		billing.NewBillingEngine(), csNewFakePipeline(), &stubRail{}, fakeConstructionTransition{ps}, ps,
+		billing.NewBillingEngine(), csNewFakePipeline(), &stubRail{}, ps,
 		projectstate.NewDesignSessionAccess(full), csFakeActivityExecution{ps}, &recordingSignalBus{},
 		&fakeEpisodes{}, 0, "", func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef(""), false }, "")
 	v := queryTestRun(t, m, "C-DM")

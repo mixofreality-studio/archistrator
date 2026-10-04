@@ -25,16 +25,15 @@ import (
 // contract) — the manager's architecture-approved call surface. Fields are the
 // contract interfaces, threaded by RegisterWorker.
 type genActivities struct {
-	ProjectState           projectstate.ProjectStateAccess
-	Artifact               artifact.ArtifactAccess
-	Pipeline               agenticjob.AgenticJobAccess
-	Rail                   sourcecontrol.SourceControlAccess
-	ConstructionTransition projectstate.ConstructionTransitionAccess
-	GitStatus              projectstate.GitActivityStatusAccess
-	DesignSession          projectstate.DesignSessionAccess
-	ActivityExecution      projectstate.ActivityExecutionAccess
-	MessageBus             messagebus.MessageBus
-	Episodes               episode.EpisodeAccess
+	ProjectState      projectstate.ProjectStateAccess
+	Artifact          artifact.ArtifactAccess
+	Pipeline          agenticjob.AgenticJobAccess
+	Rail              sourcecontrol.SourceControlAccess
+	GitStatus         projectstate.GitActivityStatusAccess
+	DesignSession     projectstate.DesignSessionAccess
+	ActivityExecution projectstate.ActivityExecutionAccess
+	MessageBus        messagebus.MessageBus
+	Episodes          episode.EpisodeAccess
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -92,6 +91,27 @@ func (a *genActivities) ProjectStateReadProject(ctx context.Context, projectID p
 // Registered as "projectStateAccess.readProjectVersion".
 func (a *genActivities) ProjectStateReadProjectVersion(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
 	v, err := a.ProjectState.ReadProjectVersion(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordOperatorPaused wraps projectStateAccess.recordOperatorPaused.
+// Registered as "projectStateAccess.recordOperatorPaused".
+func (a *genActivities) ProjectStateRecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordOperatorPaused(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, reason, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordOperatorResumed wraps projectStateAccess.recordOperatorResumed.
+// Registered as "projectStateAccess.recordOperatorResumed".
+func (a *genActivities) ProjectStateRecordOperatorResumed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordOperatorResumed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordReviewPolicy wraps projectStateAccess.recordReviewPolicy.
+// Registered as "projectStateAccess.recordReviewPolicy".
+func (a *genActivities) ProjectStateRecordReviewPolicy(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordReviewPolicy(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, policy, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
@@ -239,90 +259,6 @@ func (a *genActivities) RailPostReview(ctx context.Context, repo sourcecontrol.R
 // Registered as "sourceControlAccess.syncManagedScaffold".
 func (a *genActivities) RailSyncManagedScaffold(ctx context.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
 	v, err := a.Rail.SyncManagedScaffold(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, repo, cred)
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordActivityExited wraps constructionTransitionAccess.recordActivityExited.
-// Registered as "constructionTransitionAccess.recordActivityExited".
-func (a *genActivities) ConstructionTransitionRecordActivityExited(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordActivityExited(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, outcome, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordActivityFailed wraps constructionTransitionAccess.recordActivityFailed.
-// Registered as "constructionTransitionAccess.recordActivityFailed".
-func (a *genActivities) ConstructionTransitionRecordActivityFailed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordActivityFailed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, reason, detail, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordChangeReviewed wraps constructionTransitionAccess.recordChangeReviewed.
-// Registered as "constructionTransitionAccess.recordChangeReviewed".
-func (a *genActivities) ConstructionTransitionRecordChangeReviewed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordChangeReviewed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordOperatorNote wraps constructionTransitionAccess.recordOperatorNote.
-// Registered as "constructionTransitionAccess.recordOperatorNote".
-func (a *genActivities) ConstructionTransitionRecordOperatorNote(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordOperatorNote(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, note, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordOperatorNoteDelivered wraps constructionTransitionAccess.recordOperatorNoteDelivered.
-// Registered as "constructionTransitionAccess.recordOperatorNoteDelivered".
-func (a *genActivities) ConstructionTransitionRecordOperatorNoteDelivered(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, noteID string, attemptID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordOperatorNoteDelivered(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, noteID, attemptID, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordOperatorPaused wraps constructionTransitionAccess.recordOperatorPaused.
-// Registered as "constructionTransitionAccess.recordOperatorPaused".
-func (a *genActivities) ConstructionTransitionRecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordOperatorPaused(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, reason, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordOperatorResumed wraps constructionTransitionAccess.recordOperatorResumed.
-// Registered as "constructionTransitionAccess.recordOperatorResumed".
-func (a *genActivities) ConstructionTransitionRecordOperatorResumed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordOperatorResumed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordPhaseArtifactProduced wraps constructionTransitionAccess.recordPhaseArtifactProduced.
-// Registered as "constructionTransitionAccess.recordPhaseArtifactProduced".
-func (a *genActivities) ConstructionTransitionRecordPhaseArtifactProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordPhaseArtifactProduced(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, mapKey, payload, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordPhaseCompleted wraps constructionTransitionAccess.recordPhaseCompleted.
-// Registered as "constructionTransitionAccess.recordPhaseCompleted".
-func (a *genActivities) ConstructionTransitionRecordPhaseCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordPhaseCompleted(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, phase, artifactRef, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordPhaseStarted wraps constructionTransitionAccess.recordPhaseStarted.
-// Registered as "constructionTransitionAccess.recordPhaseStarted".
-func (a *genActivities) ConstructionTransitionRecordPhaseStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordPhaseStarted(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, phase, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordReviewPolicy wraps constructionTransitionAccess.recordReviewPolicy.
-// Registered as "constructionTransitionAccess.recordReviewPolicy".
-func (a *genActivities) ConstructionTransitionRecordReviewPolicy(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordReviewPolicy(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, policy, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordServiceContractProduced wraps constructionTransitionAccess.recordServiceContractProduced.
-// Registered as "constructionTransitionAccess.recordServiceContractProduced".
-func (a *genActivities) ConstructionTransitionRecordServiceContractProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordServiceContractProduced(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, component, contract, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 

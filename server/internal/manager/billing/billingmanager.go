@@ -14,8 +14,8 @@
 // compensation), and derives the idempotency keys passed down to each billing
 // head-state RA write. Temporal lives ONLY in this component; the downstream
 // Engines (billingEngine, interventionEngine — pure, in-workflow, by value) and
-// ResourceAccess ports (billingStateAccess, revenueLedgerAccess, usageAccess,
-// merchantGatewayAccess, operatedRuntimeAccess) and the messageBus Utility import no
+// ResourceAccess ports (billingStateAccess, usageAccess, merchantGatewayAccess,
+// operatedRuntimeAccess) and the messageBus Utility import no
 // Temporal.
 //
 // The SIX frozen public ops (billingManager.md §2):
@@ -104,12 +104,6 @@ type billingManager struct {
 	messageBus      messagebus.MessageBus
 	billing         billingengine.BillingEngine
 	intervention    intervention.InterventionEngine
-
-	// revenueLedger (B6/B7) is the generated revenueLedgerAccess dep, threaded into
-	// genActivities (workermanifest.go) exactly like billingState/usage/merchantGateway
-	// /messageBus: the workflow reaches it through the generated invoker surface
-	// (invokers.gen.go/activities.gen.go) — no Manager-local seam or custom Activity.
-	revenueLedger billingstate.RevenueLedgerAccess
 }
 
 // newBillingManager is the hand-written, unexported builder the generated
@@ -124,11 +118,9 @@ func newBillingManager(
 	messageBus messagebus.MessageBus,
 	billing billingengine.BillingEngine,
 	interventionEng intervention.InterventionEngine,
-	revenueLedger billingstate.RevenueLedgerAccess,
 ) *billingManager {
 	return &billingManager{
 		client:          c,
-		revenueLedger:   revenueLedger,
 		billingState:    billingState,
 		usage:           usage,
 		merchantGateway: merchantGateway,
@@ -269,9 +261,10 @@ func (m *billingManager) RunShortfallSweep(rc fwmgr.Context, tickID string) (Sho
 
 // RecordInboundRevenue — op 2.5. Temporal Signal (inboundRevenueReceived, to the
 // affected cycle's workflow id {customerId}:{cycleId}:close; signal-with-start when the
-// cycle workflow is not yet running). The targeted cycle workflow appends the revenue
-// fact to the Revenue Ledger (idempotent on the gateway event id). SYNC from the
-// Client's POV: returns once the signal is durably enqueued. Signature verified
+// cycle workflow is not yet running). The targeted cycle workflow consumes the fact
+// and records nothing: under the charge-only model the platform keeps no revenue
+// ledger (the permanent no-op revenueLedgerAccess was deleted, dct Plan 4 Task 3), so
+// end-user revenue never enters the net. SYNC from the Client's POV: returns once the signal is durably enqueued. Signature verified
 // upstream — this façade does not re-verify.
 func (m *billingManager) RecordInboundRevenue(rc fwmgr.Context, event GatewayRevenueEvent) error {
 	ctx := rc.Context
@@ -305,9 +298,9 @@ func (m *billingManager) RecordInboundRevenue(rc fwmgr.Context, event GatewayRev
 // RecordRevenueReversal — op 2.6. Temporal Signal (chargebackReceived, to the affected
 // cycle's workflow id {customerId}:{cycleId}:close; signal-with-start → the cycle
 // workflow re-derives the forward-only recompute when the original close has
-// completed). The cycle workflow appends the reversal (idempotent on the chargeback's
-// gateway event id), recomputes the net forward-only, records the correction, and
-// routes the delta. Compensation is forward-only; no rollback. SYNC.
+// completed). The cycle workflow recomputes the net forward-only, records the
+// correction, and routes the delta (it records no reversal fact: there is no revenue
+// ledger under the charge-only model). Compensation is forward-only; no rollback. SYNC.
 func (m *billingManager) RecordRevenueReversal(rc fwmgr.Context, event GatewayReversalEvent) error {
 	ctx := rc.Context
 	if event.CustomerID == uuid.Nil {
@@ -323,8 +316,8 @@ func (m *billingManager) RecordRevenueReversal(rc fwmgr.Context, event GatewayRe
 		return newError(fwmgr.ContractMisuse, "empty amount currency — a money value with no currency is not a money value")
 	}
 	// The back-link is OPTIONAL (nil = a chargeback that reverses no single event),
-	// but a pointer to "" is a third state: derefString persists it into the ledger
-	// as an empty id indistinguishable from absent. Reject a link that points nowhere.
+	// but a pointer to "" is a third state, indistinguishable downstream from absent.
+	// Reject a link that points nowhere.
 	if event.ReversesGatewayEventID != nil && strings.TrimSpace(*event.ReversesGatewayEventID) == "" {
 		return newError(fwmgr.ContractMisuse, "reversesGatewayEventId is present but empty — omit it entirely when the chargeback reverses no single event")
 	}
@@ -403,8 +396,7 @@ func isNotFound(err error) bool {
 // Identity & canonical types (billingManager.md §3.0 — THE MATERIAL RULING).
 //
 // CANONICAL billing aggregate identity = CustomerID, typed uuid.UUID. This
-// ratifies the two frozen ledgers (revenueLedgerAccess / usageAccess, already
-// CustomerID(uuid)) in place and forces the design-only billingStateAccess to
+// ratifies the frozen usage ledger (usageAccess, already CustomerID(uuid)) in place and forces the design-only billingStateAccess to
 // migrate BillingID(string) → CustomerID(uuid) additively (FU-MST-1). We do NOT
 // reintroduce BillingID(string). CycleID stays string (all three ledgers agree).
 // DeployedAppID is the operations-side operated-app identity (NOT the billing
@@ -413,12 +405,12 @@ func isNotFound(err error) bool {
 // ---------------------------------------------------------------------------
 
 // CustomerID is the canonical billing aggregate identity (billingManager.md
-// §3.0). One billing aggregate per customer; shared by revenueLedgerAccess,
-// usageAccess, and (post FU-MST-1) billingStateAccess.
+// §3.0). One billing aggregate per customer; shared by usageAccess and (post
+// FU-MST-1) billingStateAccess.
 type customerID = uuid.UUID
 
 // CycleID is the billing cycle a billing folds at close. Agreed string across
-// revenueLedgerAccess / usageAccess / billingStateAccess (billingManager.md §3.0).
+// usageAccess / billingStateAccess (billingManager.md §3.0).
 type cycleID = string
 
 // DeployedAppID is the operated-app identity owned by the operations side; it is
@@ -428,7 +420,7 @@ type deployedAppID = uuid.UUID
 
 // ---------------------------------------------------------------------------
 // Money — exact integer minor units + currency. NEVER a float (billingManager.md
-// §3 / revenueLedgerAccess §3.1 / billingEngine §3). Signed: positive == payout to
+// §3 / billingEngine §3). Signed: positive == payout to
 // the customer, negative == shortfall charge. This Manager moves money via
 // merchantGatewayAccess by VALUE; the math is the Engine's, never re-derived here.
 // ---------------------------------------------------------------------------
@@ -464,7 +456,7 @@ type deployedAppID = uuid.UUID
 // ---------------------------------------------------------------------------
 // Public façade return values (billingManager.md §3). These are this Manager's
 // own view types — NOT persisted head-state. The persisted shapes (BillingOutcome,
-// RevenueEntry, ...) are owned by their RA/Engine and referenced via deps.go seams,
+// ...) are owned by their RA/Engine and referenced via deps.go seams,
 // never redefined here.
 // ---------------------------------------------------------------------------
 
@@ -485,13 +477,13 @@ type deployedAppID = uuid.UUID
 
 // ---------------------------------------------------------------------------
 // Webhook payload inputs (billingManager.md §3). These façade input types carry
-// the (upstream-signature-verified) webhook body the Manager maps onto the
-// revenueLedgerAccess-owned RevenueEntry / ReversalEntry at append time. The
-// persisted shapes are owned by revenueLedgerAccess (deps.go seams), not redefined.
+// the (upstream-signature-verified) webhook body. Nothing persists them: the revenue
+// ledger they were appended to was a permanent no-op under the charge-only model and
+// was deleted with revenueLedgerAccess (dct Plan 4 Task 3).
 // ---------------------------------------------------------------------------
 
 // GatewayRevenueEvent is the verified inbound-revenue webhook body (op 2.5). The
-// gateway event id is the append's dedup token (revenueLedgerAccess dedups on it).
+// gateway event id was the retired ledger append's dedup token.
 
 // globally-unique dedup token
 
@@ -529,7 +521,7 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 //     published messagebus.MessageBus port onto it (messageBusAdapter, below).
 //
 // Every other collaborator — billingStateAccess, usageAccess, merchantGatewayAccess,
-// revenueLedgerAccess, billingengine.BillingEngine, intervention.InterventionEngine —
+// billingengine.BillingEngine, intervention.InterventionEngine —
 // is reached directly through the generated typed invokers/Activities and their
 // published contracts (workflow.go); no Manager-local seam or data mirror remains for
 // any of them (see the per-collaborator notes below). The in-workflow awaitSignal
@@ -547,17 +539,6 @@ func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 // RoutingDirective, CustomerSummary, DelinquencyScope, GatewayBinding, Version)
 // directly, with no Manager-local wrapper. The empty CustomerProfile opened at
 // registration is built inline in the workflow (billingstate.CustomerProfile{}).
-// ===========================================================================
-
-// ===========================================================================
-// revenueLedgerAccess — B7: the former Manager-local seam (interface +
-// entryRefSeam/revenueEntrySeam/reversalEntrySeam mirrors) and the three custom
-// Temporal Activities that wrapped it (activities_custom.go) are RETIRED. The
-// close/recompute workflow spine now reaches this RA through the generated typed
-// invokers (invokers.gen.go) and speaks the generated billingstate contract types
-// (RevenueEntry, ReversalEntry, EntryRef, RevenueKind) directly, with no Manager-local
-// wrapper — the same discipline billingStateAccess already followed. The append-only
-// dedup semantics (idempotent on entry.GatewayEventID; NO Conflict kind) are unchanged.
 // ===========================================================================
 
 // ===========================================================================
@@ -632,12 +613,6 @@ type scheduleSpec struct {
 // Manager depends on each dependency's PUBLISHED interface and adapts it internally
 // (Option-B boundary mapping), exactly as operations/construction fold their adapters.
 
-// revenueLedgerAccess (B7): the former Manager-local seam + noopRevenueLedger stub
-// adapter are RETIRED. The workflow now reaches this RA through the generated typed
-// invokers (invokers.gen.go), speaking billingstate.RevenueEntry/ReversalEntry/EntryRef
-// directly — no adapter needed (see workermanifest.go WorkerManifest, which threads
-// m.revenueLedger straight into genActivities.RevenueLedger).
-
 // ===========================================================================
 // billingStateAccess contract converters. The former billingStateAdapter struct AND
 // the Manager-local billingHead/billingOutcomeSeam/gatewayBindingSeam/customerSummary/
@@ -693,8 +668,8 @@ func (a messageBusAdapter) RegisterSchedule(ctx context.Context, spec scheduleSp
 //     DIRECTLY in-workflow by value (no Activity wrapper — replay-safe), with
 //     fweng.Context{Context: context.Background()} supplied inline at each call site.
 //   - The ResourceAccess layer is I/O and NON-deterministic; the workflow reaches it
-//     ONLY through the generated typed invoker surface (Acts, invokers.gen.go),
-//     including the three revenueLedgerAccess ops — so no hand file in this package
+//     ONLY through the generated typed invoker surface (Acts, invokers.gen.go) — so no
+//     hand file in this package
 //     names an activity by string (arch_activitynames_test.go proves it).
 
 // wfDeps bundles every downstream dependency the billingManager orchestrates, passed to
@@ -827,9 +802,8 @@ func recordHeadActivityOptions() workflow.ActivityOptions {
 	}.Options()
 }
 
-// ledgerActivityOptions — revenueLedgerAccess / usageAccess appends + reads (30s;
-// terminal ContractMisuse). Append-only ledgers: NO Conflict (gateway/runtime-event-id
-// idempotent).
+// ledgerActivityOptions — usageAccess reads (30s; terminal ContractMisuse). An
+// append-only ledger: NO Conflict (runtime-event-id idempotent).
 func ledgerActivityOptions() workflow.ActivityOptions {
 	return fwmgr.ActivityPreset{
 		Timeout:    30 * time.Second,
@@ -869,9 +843,6 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"billingStateAccess.settleCycle":                         recordHeadActivityOptions(),
 		"billingStateAccess.resettleCycle":                       recordHeadActivityOptions(),
 		"usageAccess.readRange":                                  ledgerActivityOptions(),
-		"revenueLedgerAccess.readRange":                          ledgerActivityOptions(),
-		"revenueLedgerAccess.recordInboundRevenue":               ledgerActivityOptions(),
-		"revenueLedgerAccess.recordReversal":                     ledgerActivityOptions(),
 		"merchantGatewayAccess.chargeCustomer":                   gatewayActivityOptions(),
 		"merchantGatewayAccess.validateStoredInstrument":         gatewayActivityOptions(),
 		"messageBus.deliverSignal":                               messageBusActivityOptions(),
@@ -886,9 +857,8 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 // WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go)
 // consumes: the four workflow bodies under their registered names, the per-activity
 // option-preset hook, and the genActivities threaded from the impl's stored published
-// deps. The three revenue-ledger Activities are the GENERATED revenueLedgerAccess.*
-// activities (activities.gen.go/worker.gen.go), reached workflow-side through
-// wf.Acts (invokers.gen.go) exactly like every other RA.
+// deps. Every RA Activity is a GENERATED one (activities.gen.go/worker.gen.go), reached
+// workflow-side through wf.Acts (invokers.gen.go).
 //
 // Unlike operations, billing's messageBus IS wired into genActivities: the
 // close-schedule registration (op 2.1) and the queued applyDelinquencyPolicy cross-
@@ -916,7 +886,6 @@ func (m *billingManager) WorkerManifest() genWorkerManifest {
 			Usage:           m.usage,
 			MerchantGateway: m.merchantGateway,
 			MessageBus:      m.messageBus,
-			RevenueLedger:   m.revenueLedger,
 		},
 	}
 }

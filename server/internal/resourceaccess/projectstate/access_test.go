@@ -386,7 +386,7 @@ func TestProjectIdentityGuard_RefusesCrossProjectWrite(t *testing.T) {
 
 	before := readRawProjectDoc(ctx, t, proj)
 
-	_, err = store.RecordOperatorPaused(fwra.Context{Context: ctx}, intruderID, v1, "cross-project contamination", cred, fwra.IdempotencyKey("wf:pause-intruder"))
+	_, err = store.recordOperatorPaused(fwra.Context{Context: ctx}, intruderID, v1, "cross-project contamination", cred, fwra.IdempotencyKey("wf:pause-intruder"))
 	if err == nil {
 		t.Fatal("RecordOperatorPaused for a MISMATCHED project must be refused, got nil error")
 	}
@@ -427,7 +427,7 @@ func TestProjectIdentityGuard_FreshRepoFirstWriteSucceeds(t *testing.T) {
 		t.Fatalf("CreateProject version = %d, want 1", v1)
 	}
 
-	v2, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v1, "matching-project", cred, fwra.IdempotencyKey("wf:pause-same"))
+	v2, err := store.recordOperatorPaused(fwra.Context{Context: ctx}, id, v1, "matching-project", cred, fwra.IdempotencyKey("wf:pause-same"))
 	if err != nil {
 		t.Fatalf("RecordOperatorPaused for the SAME project must keep working, got: %v", err)
 	}
@@ -498,23 +498,16 @@ func TestProjectIdentityGuard_CreateProjectRefusesForeignIDAgainstOccupiedRepo(t
 	}
 }
 
-// gitconstruction_test.go — black-box regression tests for the 7 construction-
-// transition verbs (Task 4: state foundation). Mirrors the activityconstruction_test.go
-// and gitactivity_test.go discipline: real throwaway on-disk git store, no mocks,
-// test-authoring constitution §7 anti-cheat.
+// gitconstruction_test.go — black-box regression tests for the project-scoped records
+// (operator pause/resume) and the phase-artifact payload routing. Real throwaway on-disk
+// git store, no mocks, test-authoring constitution §7 anti-cheat. (The construction-
+// transition verbs this file was named for went with constructionTransitionAccess, dct
+// Plan 4 Task 3; their activity-scoped successors are tested with activityExecutionAccess.)
 //
-// STP: all the ways these verbs can fail to work correctly.
-//   1. RecordChangeReviewed sets BuildStatus = BuildInReview.
-//   2. RecordActivityExited(Completed) → Phase=Done, BuildStatus=Integrated, CompletedAt set.
-//   3. RecordActivityExited(Skipped) → Phase=Done, BuildStatus=InReview, CompletedAt set.
-//   4. RecordOperatorPaused → Project.OperatorPaused=true, PauseReason set, persists round-trip.
-//   5. RecordPhaseStarted seeds Phases, sets CurrentPhase, advances coarse Phase to Running.
-//   6. RecordPhaseCompleted marks the phase Completed=true, ArtifactRef set, CoarsePhase recomputed.
-//   7. After ALL phases completed, CoarsePhase = Done.
-//   8. RecordServiceContractProduced writes contract under component key.
-//   9. RecordPhaseArtifactProduced(SRS) → PhaseArtifacts.SRS keyed by mapKey.
-//   10. RecordPhaseArtifactProduced(TestRun) → TestingState.TestRuns, replacing by run ID.
-//   11. RecordPhaseStarted idempotency — same key, stale version → ledger wins.
+// STP: all the ways these can fail to work correctly.
+//   4. recordOperatorPaused → Project.OperatorPaused=true, PauseReason set, persists round-trip.
+//   9. ApplyPhaseArtifactPayload(SRS) → PhaseArtifacts.SRS keyed by mapKey.
+//   10. ApplyPhaseArtifactPayload(TestRun) → TestingState.TestRuns, replacing by run ID.
 //   12. PhaseArtifactPayload round-trip via EncodeProjectJSON → DecodeProjectJSON.
 
 // --------------------------------------------------------------------------
@@ -530,128 +523,6 @@ func readProject(t *testing.T, store *GitStore, id ProjectID, cred RepoCredentia
 	return p
 }
 
-func readConstructionStatus(t *testing.T, store *GitStore, id ProjectID, cred RepoCredential, activityID string) ActivityExecution {
-	t.Helper()
-	p := readProject(t, store, id, cred)
-	s, ok := p.ActivityExecution[activityID]
-	if !ok {
-		t.Fatalf("ActivityConstruction[%s] absent", activityID)
-	}
-	return s
-}
-
-// seedActivity creates a project and calls RecordActivityStarted so
-// modeRequireExisting verbs have a row to upsert.
-func seedActivity(t *testing.T, store *GitStore, id ProjectID, v Version, cred RepoCredential, activityID string) Version {
-	t.Helper()
-	v2, err := store.RecordActivityStarted(fwra.Context{Context: context.Background()}, id, v, activityID, ActivityTypeService, 0, cred, fwra.IdempotencyKey("wf:seed-"+activityID))
-	if err != nil {
-		t.Fatalf("RecordActivityStarted(%s): %v", activityID, err)
-	}
-	return v2
-}
-
-// --------------------------------------------------------------------------
-// STP 1: RecordChangeReviewed sets BuildStatus = BuildInReview
-// --------------------------------------------------------------------------
-
-func TestRecordChangeReviewed_SetsInReview(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2 := seedActivity(t, store, id, v, cred, "C001")
-
-	v3, err := store.RecordChangeReviewed(fwra.Context{Context: ctx}, id, v2, "C001", cred, fwra.IdempotencyKey("wf:cr-reviewed"))
-	if err != nil {
-		t.Fatalf("RecordChangeReviewed: %v", err)
-	}
-	if v3 != v2+1 {
-		t.Fatalf("version = %d, want %d", v3, v2+1)
-	}
-
-	// The review is a ReviewRound on the execution ledger now (stage-3 task 3), and the
-	// coarse build status this verb used to stamp is derived from it. What survives the
-	// deprecation is the row it births and the version it advances.
-	s := readConstructionStatus(t, store, id, cred, "C001")
-	if s.ActivityID != "C001" {
-		t.Fatalf("the row must be born under its own id, got %+v", s)
-	}
-	if len(s.Reviews) != 0 || len(s.Attempts) != 0 {
-		t.Fatalf("the deprecated verb must record no ledger entry of its own, got %+v", s)
-	}
-}
-
-// STP 1b: empty activityID is rejected at the guard
-func TestRecordChangeReviewed_EmptyActivityID_Error(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-	_, err := store.RecordChangeReviewed(fwra.Context{Context: ctx}, id, v, "", cred, fwra.IdempotencyKey("wf:cr-empty"))
-	if err == nil {
-		t.Fatal("want error for empty activityID, got nil")
-	}
-}
-
-// --------------------------------------------------------------------------
-// STP 2: RecordActivityExited(Completed) → Phase=Done, BuildStatus=Integrated
-// --------------------------------------------------------------------------
-
-func TestRecordActivityExited_Completed_SetsDone(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2 := seedActivity(t, store, id, v, cred, "C002")
-
-	v3, err := store.RecordActivityExited(fwra.Context{Context: ctx}, id, v2, "C002", ActivityOutcomeCompleted, cred, fwra.IdempotencyKey("wf:exited-completed"))
-	if err != nil {
-		t.Fatalf("RecordActivityExited: %v", err)
-	}
-	if v3 != v2+1 {
-		t.Fatalf("version = %d, want %d", v3, v2+1)
-	}
-
-	// The exit stamp is the whole record: Done follows from it, and INTEGRATED follows
-	// from the ledger instead — an activity that exited with no gate passed is done but
-	// not integrated, which is the Skipped/TakenOver shape and now also the honest read
-	// of a "completed" exit nothing was recorded for.
-	s := readConstructionStatus(t, store, id, cred, "C002")
-	if coarsePhaseOf(s) != ActivityConstructionDone {
-		t.Fatalf("Phase = %v, want Done", coarsePhaseOf(s))
-	}
-	if buildStatusOf(s) != BuildInReview {
-		t.Fatalf("BuildStatus = %v, want BuildInReview over an empty ledger", buildStatusOf(s))
-	}
-	if s.CompletedAt == nil {
-		t.Fatal("CompletedAt must be set after RecordActivityExited")
-	}
-}
-
-// --------------------------------------------------------------------------
-// STP 3: RecordActivityExited(Skipped) → Phase=Done, BuildStatus=InReview
-// --------------------------------------------------------------------------
-
-func TestRecordActivityExited_Skipped_SetsDone(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2 := seedActivity(t, store, id, v, cred, "C003")
-
-	_, err := store.RecordActivityExited(fwra.Context{Context: ctx}, id, v2, "C003", ActivityOutcomeSkipped, cred, fwra.IdempotencyKey("wf:exited-skipped"))
-	if err != nil {
-		t.Fatalf("RecordActivityExited(Skipped): %v", err)
-	}
-
-	s := readConstructionStatus(t, store, id, cred, "C003")
-	if coarsePhaseOf(s) != ActivityConstructionDone {
-		t.Fatalf("Phase = %v, want Done", coarsePhaseOf(s))
-	}
-	if buildStatusOf(s) != BuildInReview {
-		t.Fatalf("BuildStatus = %v, want BuildInReview (skipped)", buildStatusOf(s))
-	}
-	if s.CompletedAt == nil {
-		t.Fatal("CompletedAt must be set after Skipped exit")
-	}
-}
-
 // --------------------------------------------------------------------------
 // STP 4: RecordOperatorPaused → OperatorPaused=true, PauseReason set
 // --------------------------------------------------------------------------
@@ -660,7 +531,7 @@ func TestRecordOperatorPaused_SetsPaused(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v, "awaiting contractor availability", cred, fwra.IdempotencyKey("wf:paused"))
+	v2, err := store.recordOperatorPaused(fwra.Context{Context: ctx}, id, v, "awaiting contractor availability", cred, fwra.IdempotencyKey("wf:paused"))
 	if err != nil {
 		t.Fatalf("RecordOperatorPaused: %v", err)
 	}
@@ -674,6 +545,41 @@ func TestRecordOperatorPaused_SetsPaused(t *testing.T) {
 	}
 	if p.PauseReason != "awaiting contractor availability" {
 		t.Fatalf("PauseReason = %q, want %q", p.PauseReason, "awaiting contractor availability")
+	}
+}
+
+// TestProjectStateAccess_ProjectScopedRecordsThroughTheAdapter — the three project-scoped
+// records moved onto the core projectStateAccess facet when constructionTransitionAccess was
+// deleted (dct Plan 4 Task 3). On this facet they take NO credential: the cred-binding
+// adapter mints it just-in-time, exactly as for every sibling op, so this drives them
+// through the adapter rather than the store.
+func TestProjectStateAccess_ProjectScopedRecordsThroughTheAdapter(t *testing.T) {
+	store, id, v, cred := newConstructionStore(t)
+	var psa ProjectStateAccess = &projectStateGitAdapter{store: store, minter: localCredentialMinter{}}
+	rc := fwra.Context{Context: context.Background()}
+
+	v, err := psa.RecordOperatorPaused(rc, id, v, "operator halt", fwra.IdempotencyKey("wf:psa-pause"))
+	if err != nil {
+		t.Fatalf("RecordOperatorPaused: %v", err)
+	}
+	if p := readProject(t, store, id, cred); !p.OperatorPaused || p.PauseReason != "operator halt" {
+		t.Fatalf("paused/reason = %v/%q, want true/%q", p.OperatorPaused, p.PauseReason, "operator halt")
+	}
+
+	preset := "strict"
+	policy := ReviewPolicy{Preset: &preset}
+	if v, err = psa.RecordReviewPolicy(rc, id, v, policy, fwra.IdempotencyKey("wf:psa-policy")); err != nil {
+		t.Fatalf("RecordReviewPolicy: %v", err)
+	}
+	if p := readProject(t, store, id, cred); p.ReviewPolicy.Preset == nil || *p.ReviewPolicy.Preset != preset {
+		t.Fatalf("ReviewPolicy = %+v, want preset %q", p.ReviewPolicy, preset)
+	}
+
+	if _, err = psa.RecordOperatorResumed(rc, id, v, fwra.IdempotencyKey("wf:psa-resume")); err != nil {
+		t.Fatalf("RecordOperatorResumed: %v", err)
+	}
+	if p := readProject(t, store, id, cred); p.OperatorPaused || p.PauseReason != "" {
+		t.Fatalf("a resumed project reads as never paused; got %v/%q", p.OperatorPaused, p.PauseReason)
 	}
 }
 
@@ -715,11 +621,11 @@ func TestRecordOperatorResumed_ClearsThePause(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode the never-paused project: %v", err)
 	}
-	v2, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v, "operator halt", cred, fwra.IdempotencyKey("wf:paused"))
+	v2, err := store.recordOperatorPaused(fwra.Context{Context: ctx}, id, v, "operator halt", cred, fwra.IdempotencyKey("wf:paused"))
 	if err != nil {
 		t.Fatalf("RecordOperatorPaused: %v", err)
 	}
-	v3, err := store.RecordOperatorResumed(fwra.Context{Context: ctx}, id, v2, cred, fwra.IdempotencyKey("wf:resumed"))
+	v3, err := store.recordOperatorResumed(fwra.Context{Context: ctx}, id, v2, cred, fwra.IdempotencyKey("wf:resumed"))
 	if err != nil {
 		t.Fatalf("RecordOperatorResumed: %v", err)
 	}
@@ -768,15 +674,15 @@ func stripVolatile(t *testing.T, raw []byte) string {
 func TestRecordOperatorResumed_IdempotentUnderTheSameKey(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
-	v2, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v, "halt", cred, fwra.IdempotencyKey("wf:p"))
+	v2, err := store.recordOperatorPaused(fwra.Context{Context: ctx}, id, v, "halt", cred, fwra.IdempotencyKey("wf:p"))
 	if err != nil {
 		t.Fatalf("pause: %v", err)
 	}
-	v3, err := store.RecordOperatorResumed(fwra.Context{Context: ctx}, id, v2, cred, fwra.IdempotencyKey("wf:r"))
+	v3, err := store.recordOperatorResumed(fwra.Context{Context: ctx}, id, v2, cred, fwra.IdempotencyKey("wf:r"))
 	if err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	again, err := store.RecordOperatorResumed(fwra.Context{Context: ctx}, id, v2, cred, fwra.IdempotencyKey("wf:r"))
+	again, err := store.recordOperatorResumed(fwra.Context{Context: ctx}, id, v2, cred, fwra.IdempotencyKey("wf:r"))
 	if err != nil {
 		t.Fatalf("a replayed resume under the same key must dedupe, got %v", err)
 	}
@@ -789,7 +695,7 @@ func TestRecordOperatorResumed_IdempotentUnderTheSameKey(t *testing.T) {
 // the cleared state; the façade owns the "not paused" precondition.
 func TestRecordOperatorResumed_NotPausedChangesNoField(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
-	if _, err := store.RecordOperatorResumed(fwra.Context{Context: context.Background()}, id, v, cred, fwra.IdempotencyKey("wf:r0")); err != nil {
+	if _, err := store.recordOperatorResumed(fwra.Context{Context: context.Background()}, id, v, cred, fwra.IdempotencyKey("wf:r0")); err != nil {
 		t.Fatalf("resume of an unpaused project: %v", err)
 	}
 	if p := readProject(t, store, id, cred); p.OperatorPaused || p.PauseReason != "" {
@@ -800,220 +706,17 @@ func TestRecordOperatorResumed_NotPausedChangesNoField(t *testing.T) {
 // TestRecordOperatorResumed_NoProjectIsNotFound: the resume requires an existing project.
 func TestRecordOperatorResumed_NoProjectIsNotFound(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
-	_, err := store.RecordOperatorResumed(fwra.Context{Context: ctx}, ProjectID(uuid.NewString()), 0, cred, fwra.IdempotencyKey("wf:r1"))
+	_, err := store.recordOperatorResumed(fwra.Context{Context: ctx}, ProjectID(uuid.NewString()), 0, cred, fwra.IdempotencyKey("wf:r1"))
 	if k := kindOf(t, err); k != fwra.NotFound {
 		t.Fatalf("resume of an absent project kind = %v, want NotFound", k)
 	}
 }
 
 // --------------------------------------------------------------------------
-// STP 5: RecordPhaseStarted records no lifecycle claim of its own
+// STP 9: ApplyPhaseArtifactPayload(SRS) → PhaseArtifacts.SRS[key]
 // --------------------------------------------------------------------------
 
-// Entering a lifecycle phase is not a fact the ledgers are missing: the attempt is. The
-// verb used to seed a stored phase set, stamp CurrentPhase and advance a stored coarse
-// roll-up — all three derived now (spec §5.3) — so what it leaves behind is the row it
-// births and nothing else. The row is still NOT started: a seeded row with no start stamp,
-// no ledger and no exit asserts nothing about having run.
-func TestRecordPhaseStarted_RecordsNoDerivedClaim(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2 := seedActivity(t, store, id, v, cred, "C004")
-
-	v3, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, v2, "C004", MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:phase-started"))
-	if err != nil {
-		t.Fatalf("RecordPhaseStarted: %v", err)
-	}
-	if v3 != v2+1 {
-		t.Fatalf("version = %d, want %d", v3, v2+1)
-	}
-
-	s := readConstructionStatus(t, store, id, cred, "C004")
-	if len(s.Attempts) != 0 {
-		t.Fatalf("attempts = %d, want none: entering a phase records no attempt", len(s.Attempts))
-	}
-	if got := completedPhasesOf(s); len(got) != 0 {
-		t.Fatalf("completed phases = %v, want none", got)
-	}
-}
-
-// STP 5b: empty phase is rejected
-func TestRecordPhaseStarted_EmptyPhase_Error(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-	v2 := seedActivity(t, store, id, v, cred, "C004b")
-	_, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, v2, "C004b", "", cred, fwra.IdempotencyKey("wf:phase-started-empty"))
-	if err == nil {
-		t.Fatal("want error for empty phase, got nil")
-	}
-}
-
-// --------------------------------------------------------------------------
-// STP 6: RecordPhaseCompleted marks phase Completed, ArtifactRef set
-// --------------------------------------------------------------------------
-
-func TestRecordPhaseCompleted_MarksPhase(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2 := seedActivity(t, store, id, v, cred, "C005")
-	v3, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, v2, "C005", MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-c005"))
-	if err != nil {
-		t.Fatalf("RecordPhaseStarted: %v", err)
-	}
-
-	v4, err := store.RecordPhaseCompleted(fwra.Context{Context: ctx}, id, v3, "C005", MethodPhaseRequirements, "srs/myservice.md", cred, fwra.IdempotencyKey("wf:pc-c005"))
-	if err != nil {
-		t.Fatalf("RecordPhaseCompleted: %v", err)
-	}
-	if v4 != v3+1 {
-		t.Fatalf("version = %d, want %d", v4, v3+1)
-	}
-
-	// The completion is recorded the ONE way the read path recognises: a passed attempt
-	// at the phase's GATE task. The resolved set then reports the phase complete, with
-	// the clock and the artifact taken from that attempt — so the record and the
-	// derivation are the same fact, not two.
-	s := readConstructionStatus(t, store, id, cred, "C005")
-	gate, ok := latestAttempt(s.Attempts, GateTaskFor(MethodPhaseRequirements))
-	if !ok {
-		t.Fatal("RecordPhaseCompleted must record the requirements gate attempt")
-	}
-	if gate.Outcome != OutcomePassed || gate.Evidence.Ref != "srs/myservice.md" {
-		t.Fatalf("gate attempt = %+v, want passed citing srs/myservice.md", gate)
-	}
-	var reqPhase *PhaseCompletion
-	resolved := resolvedOf(s)
-	for i := range resolved {
-		if resolved[i].Phase == MethodPhaseRequirements {
-			reqPhase = &resolved[i]
-			break
-		}
-	}
-	if reqPhase == nil {
-		t.Fatal("MethodPhaseRequirements not in the resolved set after RecordPhaseCompleted")
-	}
-	if !reqPhase.Completed {
-		t.Fatal("Completed must be true after RecordPhaseCompleted")
-	}
-	if reqPhase.CompletedAt == nil {
-		t.Fatal("CompletedAt must be set after RecordPhaseCompleted")
-	}
-	if reqPhase.ArtifactRef != "srs/myservice.md" {
-		t.Fatalf("ArtifactRef = %q, want srs/myservice.md", reqPhase.ArtifactRef)
-	}
-}
-
-// --------------------------------------------------------------------------
-// STP 7: after ALL phases completed, CoarsePhase = Done
-// --------------------------------------------------------------------------
-
-func TestRecordPhaseCompleted_AllPhasesDone_CoarsePhaseIsDone(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2 := seedActivity(t, store, id, v, cred, "C006")
-	// Service type → phases: requirements, detailed_design, test_plan, construction, integration
-	phases := []ActivityMethodPhase{
-		MethodPhaseRequirements,
-		MethodPhaseDetailedDesign,
-		MethodPhaseTestPlan,
-		MethodPhaseConstruction,
-		MethodPhaseIntegration,
-	}
-
-	cur := v2
-	for i, ph := range phases {
-		startKey := fwra.IdempotencyKey("wf:ps-c006-" + ph.String())
-		cur2, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, cur, "C006", ph, cred, startKey)
-		if err != nil {
-			t.Fatalf("RecordPhaseStarted(%s): %v", ph, err)
-		}
-		completedKey := fwra.IdempotencyKey("wf:pc-c006-" + ph.String())
-		cur3, err := store.RecordPhaseCompleted(fwra.Context{Context: ctx}, id, cur2, "C006", ph, "", cred, completedKey)
-		if err != nil {
-			t.Fatalf("RecordPhaseCompleted(%s): %v", ph, err)
-		}
-		_ = i
-		cur = cur3
-	}
-
-	// Every gate attempt is on the ledger, so the row's own profile resolves every phase
-	// complete — which is what makes the coarse roll-up Done for any reader that knows
-	// how to classify the row.
-	s := readConstructionStatus(t, store, id, cred, "C006")
-	if got, want := len(completedPhasesOf(s)), len(resolvedOf(s)); got != want || want == 0 {
-		t.Fatalf("completed phases = %d of %d, want every phase complete", got, want)
-	}
-	if got := CoarsePhaseFor(s, resolvedOf(s)); got != ActivityConstructionDone {
-		t.Fatalf("Phase = %v after all phases completed, want Done", got)
-	}
-}
-
-// --------------------------------------------------------------------------
-// STP 8: RecordServiceContractProduced writes contract under component key
-// --------------------------------------------------------------------------
-
-func TestRecordServiceContractProduced_WritesContract(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	contract := ServiceContract{
-		Component: "myEngine",
-		Layer:     "Engine",
-		GoPackage: "internal/engine/myengine",
-		Title:     "myengine contract",
-		Interface: ContractInterface{
-			Name:  "MyEngine",
-			Layer: "engine",
-			Operations: []ContractOperation{
-				{Name: "Compute", Error: true},
-			},
-		},
-	}
-
-	v2, err := store.RecordServiceContractProduced(fwra.Context{Context: ctx}, id, v, "myEngine", contract, cred, fwra.IdempotencyKey("wf:contract-myengine"))
-	if err != nil {
-		t.Fatalf("RecordServiceContractProduced: %v", err)
-	}
-	if v2 != v+1 {
-		t.Fatalf("version = %d, want %d", v2, v+1)
-	}
-
-	p := readProject(t, store, id, cred)
-	sc, found := p.ServiceContracts["myEngine"]
-	if !found {
-		t.Fatal("ServiceContracts[myEngine] absent after RecordServiceContractProduced")
-	}
-	if sc.Component != "myEngine" {
-		t.Fatalf("Component = %q, want myEngine", sc.Component)
-	}
-	if sc.Title != "myengine contract" {
-		t.Fatalf("Title = %q, want myengine contract", sc.Title)
-	}
-}
-
-// STP 8b: empty component is rejected
-func TestRecordServiceContractProduced_EmptyComponent_Error(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-	_, err := store.RecordServiceContractProduced(fwra.Context{Context: ctx}, id, v, "", ServiceContract{}, cred, fwra.IdempotencyKey("wf:contract-empty"))
-	if err == nil {
-		t.Fatal("want error for empty component, got nil")
-	}
-}
-
-// --------------------------------------------------------------------------
-// STP 9: RecordPhaseArtifactProduced(SRS) → PhaseArtifacts.SRS[key]
-// --------------------------------------------------------------------------
-
-func TestRecordPhaseArtifactProduced_SRS(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2 := seedActivity(t, store, id, v, cred, "C007")
-
+func TestApplyPhaseArtifactPayload_SRS(t *testing.T) {
 	now := time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC)
 	payload := PhaseArtifactPayload{
 		SRS: &SRSRecord{
@@ -1023,17 +726,11 @@ func TestRecordPhaseArtifactProduced_SRS(t *testing.T) {
 		},
 	}
 
-	v3, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v2, "C007", "myService", payload, cred, fwra.IdempotencyKey("wf:artifact-srs"))
-	if err != nil {
-		t.Fatalf("RecordPhaseArtifactProduced(SRS): %v", err)
-	}
-	if v3 != v2+1 {
-		t.Fatalf("version = %d, want %d", v3, v2+1)
-	}
+	var p Project
+	ApplyPhaseArtifactPayload(&p, "myService", payload)
 
-	p := readProject(t, store, id, cred)
 	if p.PhaseArtifacts == nil {
-		t.Fatal("PhaseArtifacts nil after RecordPhaseArtifactProduced")
+		t.Fatal("PhaseArtifacts nil after ApplyPhaseArtifactPayload")
 	}
 	srs, found := p.PhaseArtifacts.SRS["myService"]
 	if !found {
@@ -1048,47 +745,31 @@ func TestRecordPhaseArtifactProduced_SRS(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// STP 10: RecordPhaseArtifactProduced(TestRun) → TestingState.TestRuns, replacing a
+// STP 10: ApplyPhaseArtifactPayload(TestRun) → TestingState.TestRuns, replacing a
 // run with the same ID (the venue re-records a run it re-ran) and appending otherwise.
 // (Was the SystemTestPlan write; that artifact is retired — deterministic component
 // testing, spec §7.)
 // --------------------------------------------------------------------------
 
-func TestRecordPhaseArtifactProduced_TestRunReplacesByID(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2 := seedActivity(t, store, id, v, cred, "C-BG")
-
+func TestApplyPhaseArtifactPayload_TestRunReplacesByID(t *testing.T) {
 	ended := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	first := TestRun{
 		ID: "9", Activity: "C-BG", Component: "billingManager", Revision: "abc123", Artifact: "test-results-C-BG-abc123",
 		EndedAt:   &ended,
 		Scenarios: []ScenarioResult{{Scenario: "bill-the-user-for-usage-P1", Status: "fail", DurationMs: 5}},
 	}
-	v3, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v2, "C-BG", "", PhaseArtifactPayload{TestRun: &first}, cred, fwra.IdempotencyKey("wf:testrun-9-a"))
-	if err != nil {
-		t.Fatalf("RecordPhaseArtifactProduced(TestRun): %v", err)
-	}
-	if v3 != v2+1 {
-		t.Fatalf("version = %d, want %d", v3, v2+1)
-	}
+	var p Project
+	ApplyPhaseArtifactPayload(&p, "", PhaseArtifactPayload{TestRun: &first})
 
 	rerun := first
 	rerun.Revision = "def456"
 	rerun.Scenarios = []ScenarioResult{{Scenario: "bill-the-user-for-usage-P1", Status: "pass", DurationMs: 4}}
-	v4, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v3, "C-BG", "", PhaseArtifactPayload{TestRun: &rerun}, cred, fwra.IdempotencyKey("wf:testrun-9-b"))
-	if err != nil {
-		t.Fatalf("RecordPhaseArtifactProduced(TestRun, same id): %v", err)
-	}
+	ApplyPhaseArtifactPayload(&p, "", PhaseArtifactPayload{TestRun: &rerun})
 	other := TestRun{ID: "10", Activity: "C-BG", Component: "billingManager", Revision: "def456", Artifact: "test-results-C-BG-def456"}
-	if _, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v4, "C-BG", "", PhaseArtifactPayload{TestRun: &other}, cred, fwra.IdempotencyKey("wf:testrun-10")); err != nil {
-		t.Fatalf("RecordPhaseArtifactProduced(TestRun, new id): %v", err)
-	}
+	ApplyPhaseArtifactPayload(&p, "", PhaseArtifactPayload{TestRun: &other})
 
-	p := readProject(t, store, id, cred)
 	if p.TestingState == nil {
-		t.Fatal("TestingState nil after RecordPhaseArtifactProduced(TestRun)")
+		t.Fatal("TestingState nil after ApplyPhaseArtifactPayload(TestRun)")
 	}
 	runs := p.TestingState.TestRuns
 	if len(runs) != 2 {
@@ -1099,36 +780,6 @@ func TestRecordPhaseArtifactProduced_TestRunReplacesByID(t *testing.T) {
 	}
 	if runs[1].ID != "10" {
 		t.Fatalf("runs[1] = %+v, want run 10", runs[1])
-	}
-}
-
-// --------------------------------------------------------------------------
-// STP 11: RecordPhaseStarted idempotency — same key, stale version → ledger
-// --------------------------------------------------------------------------
-
-func TestRecordPhaseStarted_Idempotent(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2 := seedActivity(t, store, id, v, cred, "C008")
-
-	v3, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, v2, "C008", MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-idem"))
-	if err != nil {
-		t.Fatalf("RecordPhaseStarted: %v", err)
-	}
-	before := readProject(t, store, id, cred)
-
-	// Retry with SAME key but stale expectedVersion; dedup ledger must win.
-	v3again, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, 0, "C008", MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-idem"))
-	if err != nil {
-		t.Fatalf("idempotent retry should succeed via ledger, got: %v", err)
-	}
-	if v3again != v3 {
-		t.Fatalf("idempotent retry version = %d, want original %d", v3again, v3)
-	}
-	after := readProject(t, store, id, cred)
-	if after.Version != before.Version {
-		t.Fatalf("retry produced a NEW state commit %d → %d (DOUBLE APPLY)", before.Version, after.Version)
 	}
 }
 
@@ -1226,85 +877,8 @@ func TestPhaseArtifactPayload_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestRecordPhaseArtifactProduced_EmptyActivityID_Error validates the guard.
-func TestRecordPhaseArtifactProduced_EmptyActivityID_Error(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-	v2 := seedActivity(t, store, id, v, cred, "C009")
-	_ = v2
-	_, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v, "", "key", PhaseArtifactPayload{}, cred, fwra.IdempotencyKey("wf:artifact-empty"))
-	if err == nil {
-		t.Fatal("want error for empty activityID, got nil")
-	}
-}
-
-// TestRecordServiceContractProduced_TwoComponents verifies second write doesn't
-// clobber the first (map-key upsert, not full-map replace).
-func TestRecordServiceContractProduced_TwoComponents(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2, err := store.RecordServiceContractProduced(fwra.Context{Context: ctx}, id, v, "engineA", ServiceContract{Component: "engineA", Title: "engineA contract"}, cred, fwra.IdempotencyKey("wf:contract-a"))
-	if err != nil {
-		t.Fatalf("RecordServiceContractProduced(engineA): %v", err)
-	}
-	_, err = store.RecordServiceContractProduced(fwra.Context{Context: ctx}, id, v2, "engineB", ServiceContract{Component: "engineB", Title: "engineB contract"}, cred, fwra.IdempotencyKey("wf:contract-b"))
-	if err != nil {
-		t.Fatalf("RecordServiceContractProduced(engineB): %v", err)
-	}
-
-	p := readProject(t, store, id, cred)
-	if _, ok := p.ServiceContracts["engineA"]; !ok {
-		t.Fatal("ServiceContracts[engineA] absent — first write clobbered by second")
-	}
-	if _, ok := p.ServiceContracts["engineB"]; !ok {
-		t.Fatal("ServiceContracts[engineB] absent")
-	}
-}
-
-// TestRecordPhaseCompleted_NoPhaseMatch_NoopOnUnknownPhase verifies that
-// completing a phase not in the Phases slice does not panic or corrupt the set.
-func TestRecordPhaseCompleted_NoPhaseMatch_Noop(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	ctx := context.Background()
-
-	v2 := seedActivity(t, store, id, v, cred, "C010")
-	// seed phases
-	v3, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, v2, "C010", MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-c010"))
-	if err != nil {
-		t.Fatalf("RecordPhaseStarted: %v", err)
-	}
-	// complete a phase that is NOT in the service phase set (e.g. "ui_design" — a non-existent id post-refactor)
-	v4, err := store.RecordPhaseCompleted(fwra.Context{Context: ctx}, id, v3, "C010", ActivityMethodPhase("ui_design"), "", cred, fwra.IdempotencyKey("wf:pc-c010-nophase"))
-	if err != nil {
-		t.Fatalf("RecordPhaseCompleted on unknown phase should not error: %v", err)
-	}
-	if v4 != v3+1 {
-		t.Fatalf("version = %d, want %d", v4, v3+1)
-	}
-	// Nothing was recorded: a phase outside the lifecycle has no gate task to attempt.
-	s := readConstructionStatus(t, store, id, cred, "C010")
-	if len(s.Attempts) != 0 {
-		t.Fatalf("attempts = %d, want none for a phase the lifecycle does not carry", len(s.Attempts))
-	}
-}
-
 // uuid import used by newConstructionStore helper.
 var _ = uuid.NewString
-
-// TestConstructionTransitionAccess_OpCount asserts the port is within App-C §6 bounds.
-// 3–5 ops: strive. ≤12: acceptable. >12: warning. ≥20: reject (directive error).
-// Current count: 8. This test documents the adjudicated count from lifecycle-2 Plan 2.
-func TestConstructionTransitionAccess_OpCount(t *testing.T) {
-	const wantOps = 8
-	const avoidAbove = 12
-	if wantOps > avoidAbove {
-		t.Errorf("ConstructionTransitionAccess has %d ops; App-C §6 advises avoiding >%d", wantOps, avoidAbove)
-	}
-	// The var _ assertion above (GitStore) is the real compile-time gate.
-	// This test just documents the decision.
-	t.Logf("ConstructionTransitionAccess: %d ops (App-C §6 adjudicated ≤12 at lifecycle-2 Task 3)", wantOps)
-}
 
 // reconcile_test.go — coverage for the F80 deterministic project.json reconciler.
 
@@ -1638,6 +1212,18 @@ func (s *stubProjectState) SetOperatingModel(_ fwra.Context, _ ProjectID, _ Vers
 }
 
 func (s *stubProjectState) SetResearchInput(_ fwra.Context, _ ProjectID, _ Version, _ ResearchInput) (Version, error) {
+	return 0, nil
+}
+
+func (s *stubProjectState) RecordOperatorPaused(_ fwra.Context, _ ProjectID, _ Version, _ string, _ fwra.IdempotencyKey) (Version, error) {
+	return 0, nil
+}
+
+func (s *stubProjectState) RecordOperatorResumed(_ fwra.Context, _ ProjectID, _ Version, _ fwra.IdempotencyKey) (Version, error) {
+	return 0, nil
+}
+
+func (s *stubProjectState) RecordReviewPolicy(_ fwra.Context, _ ProjectID, _ Version, _ ReviewPolicy, _ fwra.IdempotencyKey) (Version, error) {
 	return 0, nil
 }
 
@@ -3267,7 +2853,7 @@ func TestGitStore_ListProjects_SurfacesOperatorPaused(t *testing.T) {
 		t.Fatalf("want nil OperatorPaused before any pause, got %+v", before)
 	}
 
-	if _, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v, "operator pause", cred, fwra.IdempotencyKey("wf:paused")); err != nil {
+	if _, err := store.recordOperatorPaused(fwra.Context{Context: ctx}, id, v, "operator pause", cred, fwra.IdempotencyKey("wf:paused")); err != nil {
 		t.Fatalf("RecordOperatorPaused: %v", err)
 	}
 
@@ -4046,7 +3632,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	// Writer B — operator pause: RecordOperatorPaused at the SAME base.
 	go func() {
 		defer wg.Done()
-		v, e := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, base, "operator pause", cred, "wf:operator-pause")
+		v, e := store.recordOperatorPaused(fwra.Context{Context: ctx}, id, base, "operator pause", cred, "wf:operator-pause")
 		results <- casRaceOutcome{"B-pause", v, e}
 	}()
 	wg.Wait()
@@ -4071,7 +3657,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	case "A-commit":
 		retried, err = store.CommitArtifact(ctx, id, cur.Version, KindMission, cred, "wf:reconcile-commit")
 	case "B-pause":
-		retried, err = store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, cur.Version, "operator pause", cred, "wf:operator-pause")
+		retried, err = store.recordOperatorPaused(fwra.Context{Context: ctx}, id, cur.Version, "operator pause", cred, "wf:operator-pause")
 	}
 	if err != nil {
 		t.Fatalf("loser %s retry: %v", loser.who, err)
@@ -4120,7 +3706,7 @@ func assertWinnerKeyDedupsNoDoubleApply(ctx context.Context, t *testing.T, store
 	case "A-commit":
 		dedupV, err = store.CommitArtifact(ctx, id, 0 /* deliberately stale */, KindMission, cred, winnerKey)
 	case "B-pause":
-		dedupV, err = store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, 0 /* stale */, "operator pause", cred, winnerKey)
+		dedupV, err = store.recordOperatorPaused(fwra.Context{Context: ctx}, id, 0 /* stale */, "operator pause", cred, winnerKey)
 	}
 	if err != nil {
 		t.Fatalf("dedup retry of winner key (stale version) should succeed via ledger, got: %v", err)
@@ -10411,44 +9997,52 @@ func raKindOf(err error) fwra.Kind {
 
 var noteClock = time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
-func TestRecordOperatorNote_AppendsInRecordedOrder(t *testing.T) {
+// newClockedExecutionStore is newExecutionStore over a store whose clock is pinned, so a
+// test can assert the server-resolved RecordedAt / DeliveredAt stamps, and opens C-X.
+func newClockedExecutionStore(t *testing.T, now time.Time) (ActivityExecutionAccess, *GitStore, ProjectID, Version, RepoCredential) {
+	t.Helper()
 	store, id, v, cred := newConstructionStore(t)
-	store = store.WithClock(func() time.Time { return noteClock })
-	rc := fwra.Context{Context: context.Background()}
-	first := operatorNoteInput("C-A:note:r1:1", NoteSendBack, "tighten the error model")
+	store = store.WithClock(func() time.Time { return now })
+	a := &activityExecutionAccess{store: store, minter: localCredentialMinter{}}
+	return a, store, id, openTestActivity(t, a, id, v, cred), cred
+}
+
+func TestRecordOperatorNote_AppendsInRecordedOrder(t *testing.T) {
+	a, store, id, v, cred := newClockedExecutionStore(t, noteClock)
+	first := operatorNoteInput("C-X:note:r1:1", NoteSendBack, "tighten the error model")
 	first.Comments = []NoteComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}
-	v, err := store.RecordOperatorNote(rc, id, v, "C-A", first, cred, fwra.IdempotencyKey("wf:note-1"))
+	v, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", first, "", cred, fwra.IdempotencyKey("wf:note-1"))
 	if err != nil {
 		t.Fatalf("RecordOperatorNote(first): %v", err)
 	}
-	second := operatorNoteInput("C-A:note:r1:2", NoteRetry, "the fixture server was down")
+	second := operatorNoteInput("C-X:note:r1:2", NoteRetry, "the fixture server was down")
 	second.Gate = "takeover"
-	if _, err := store.RecordOperatorNote(rc, id, v, "C-A", second, cred, fwra.IdempotencyKey("wf:note-2")); err != nil {
+	if _, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", second, "", cred, fwra.IdempotencyKey("wf:note-2")); err != nil {
 		t.Fatalf("RecordOperatorNote(second): %v", err)
 	}
 	want := []OperatorNote{
 		{NoteID: first.NoteID, Kind: NoteSendBack, Gate: "detailed_design", Text: first.Text, Comments: first.Comments, RecordedAt: noteClock},
 		{NoteID: second.NoteID, Kind: NoteRetry, Gate: "takeover", Text: second.Text, RecordedAt: noteClock},
 	}
-	if got := readConstruction(t, store, id, cred, "C-A").OperatorNotes; !reflect.DeepEqual(got, want) {
+	if got := readConstruction(t, store, id, cred, "C-X").OperatorNotes; !reflect.DeepEqual(got, want) {
 		t.Fatalf("OperatorNotes = %+v, want %+v", got, want)
 	}
 }
 
 func TestRecordOperatorNote_OneIDNamesOneNote(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	rc := fwra.Context{Context: context.Background()}
-	n := operatorNoteInput("C-A:note:r1:1", NoteSendBack, "tighten the error model")
-	v, err := store.RecordOperatorNote(rc, id, v, "C-A", n, cred, fwra.IdempotencyKey("wf:a"))
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	n := operatorNoteInput("C-X:note:r1:1", NoteSendBack, "tighten the error model")
+	v, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", n, "", cred, fwra.IdempotencyKey("wf:a"))
 	if err != nil {
 		t.Fatalf("RecordOperatorNote: %v", err)
 	}
 	// The same note again under a NEW idempotency key (not a ledger replay): nothing appended.
-	v, err = store.RecordOperatorNote(rc, id, v, "C-A", n, cred, fwra.IdempotencyKey("wf:b"))
+	v, err = a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", n, "", cred, fwra.IdempotencyKey("wf:b"))
 	if err != nil {
 		t.Fatalf("re-recording identical content must succeed, got %v", err)
 	}
-	if got := readConstruction(t, store, id, cred, "C-A").OperatorNotes; len(got) != 1 {
+	if got := readConstruction(t, store, id, cred, "C-X").OperatorNotes; len(got) != 1 {
 		t.Fatalf("identical content appended a second note: %+v", got)
 	}
 	for name, changed := range map[string]OperatorNoteInput{
@@ -10457,80 +10051,119 @@ func TestRecordOperatorNote_OneIDNamesOneNote(t *testing.T) {
 		"gate":     {NoteID: n.NoteID, Kind: n.Kind, Gate: "integration", Text: n.Text},
 		"comments": {NoteID: n.NoteID, Kind: n.Kind, Gate: n.Gate, Text: n.Text, Comments: []NoteComment{{JSONPath: "$", Text: "x"}}},
 	} {
-		if _, err := store.RecordOperatorNote(rc, id, v, "C-A", changed, cred, fwra.IdempotencyKey("wf:c-"+name)); raKindOf(err) != fwra.ContractMisuse {
+		if _, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", changed, "", cred, fwra.IdempotencyKey("wf:c-"+name)); raKindOf(err) != fwra.ContractMisuse {
 			t.Errorf("same id, different %s: want ContractMisuse, got %v", name, err)
 		}
 	}
-	if got := readConstruction(t, store, id, cred, "C-A").OperatorNotes; len(got) != 1 || got[0].Text != n.Text {
+	if got := readConstruction(t, store, id, cred, "C-X").OperatorNotes; len(got) != 1 || got[0].Text != n.Text {
 		t.Fatalf("a refused duplicate changed the note: %+v", got)
 	}
 }
 
 func TestRecordOperatorNote_RefusesMisuse(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	rc := fwra.Context{Context: context.Background()}
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
 	cases := map[string]struct {
 		activityID string
 		note       OperatorNoteInput
 	}{
 		"empty activityID":  {"", operatorNoteInput("n", NoteSendBack, "t")},
-		"empty noteId":      {"C-A", operatorNoteInput("", NoteSendBack, "t")},
-		"blank text":        {"C-A", operatorNoteInput("n", NoteSendBack, " \n\t")},
-		"unknown kind 0":    {"C-A", operatorNoteInput("n", OperatorNoteKindUnknown, "t")},
-		"kind out of range": {"C-A", operatorNoteInput("n", OperatorNoteKind(7), "t")},
+		"empty noteId":      {"C-X", operatorNoteInput("", NoteSendBack, "t")},
+		"blank text":        {"C-X", operatorNoteInput("n", NoteSendBack, " \n\t")},
+		"unknown kind 0":    {"C-X", operatorNoteInput("n", OperatorNoteKindUnknown, "t")},
+		"kind out of range": {"C-X", operatorNoteInput("n", OperatorNoteKind(7), "t")},
 	}
 	for name, c := range cases {
-		if _, err := store.RecordOperatorNote(rc, id, v, c.activityID, c.note, cred, fwra.IdempotencyKey("wf:"+name)); raKindOf(err) != fwra.ContractMisuse {
+		if _, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, c.activityID, c.note, "", cred, fwra.IdempotencyKey("wf:"+name)); raKindOf(err) != fwra.ContractMisuse {
 			t.Errorf("%s: want ContractMisuse, got %v", name, err)
 		}
 	}
 }
 
-func TestRecordOperatorNoteDelivered_StampsOnce(t *testing.T) {
-	store, id, v, cred := newConstructionStore(t)
-	store = store.WithClock(func() time.Time { return noteClock })
-	rc := fwra.Context{Context: context.Background()}
-	v, err := store.RecordOperatorNote(rc, id, v, "C-A", operatorNoteInput("n1", NoteSendBack, "tighten it"), cred, fwra.IdempotencyKey("wf:rec"))
+// TestRecordOperatorNote_ReRecordStampsDeliveryOnce — the second half of the fold of the
+// retired note/delivery pair (dct Plan 4 Task 3 deleted RecordOperatorNoteDelivered with
+// constructionTransitionAccess). A gate records its note BEFORE the attempt that will carry
+// it exists, so the stamp cannot ride the record; it rides a RE-RECORD of the same note
+// carrying the attempt. Every rule the retired stamp held is held here: stamped once at the
+// server clock, a retried stamp for the same attempt changes nothing, a stamp for another
+// attempt is refused, and the row must exist.
+func TestRecordOperatorNote_ReRecordStampsDeliveryOnce(t *testing.T) {
+	a, store, id, v, cred := newClockedExecutionStore(t, noteClock)
+	note := operatorNoteInput("n1", NoteSendBack, "tighten it")
+	v, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", note, "", cred, fwra.IdempotencyKey("wf:rec"))
 	if err != nil {
 		t.Fatalf("RecordOperatorNote: %v", err)
 	}
-	const attempt = "C-A:detailedDesign:2"
-	v, err = store.RecordOperatorNoteDelivered(rc, id, v, "C-A", "n1", attempt, cred, fwra.IdempotencyKey("wf:d1"))
-	if err != nil {
-		t.Fatalf("RecordOperatorNoteDelivered: %v", err)
+	if got := len(PendingOperatorNotes(readConstruction(t, store, id, cred, "C-X"))); got != 1 {
+		t.Fatalf("a recorded, undelivered note is pending; pending = %d", got)
 	}
-	got := readConstruction(t, store, id, cred, "C-A").OperatorNotes[0]
-	if got.DeliveredToAttemptID != attempt || got.DeliveredAt == nil || !got.DeliveredAt.Equal(noteClock) {
-		t.Fatalf("delivery stamp = %q at %v, want %q at %v", got.DeliveredToAttemptID, got.DeliveredAt, attempt, noteClock)
+	const attempt = "C-X:detailedDesign:2"
+	later := &activityExecutionAccess{store: store.WithClock(func() time.Time { return noteClock.Add(time.Minute) }), minter: localCredentialMinter{}}
+	v, err = later.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", note, attempt, cred, fwra.IdempotencyKey("wf:d1"))
+	if err != nil {
+		t.Fatalf("the delivery re-record: %v", err)
+	}
+	row := readConstruction(t, store, id, cred, "C-X")
+	if len(row.OperatorNotes) != 1 {
+		t.Fatalf("a re-record must not append a second note: %+v", row.OperatorNotes)
+	}
+	got := row.OperatorNotes[0]
+	stampedAt := noteClock.Add(time.Minute)
+	if got.DeliveredToAttemptID != attempt || got.DeliveredAt == nil || !got.DeliveredAt.Equal(stampedAt) {
+		t.Fatalf("delivery stamp = %q at %v, want %q at %v", got.DeliveredToAttemptID, got.DeliveredAt, attempt, stampedAt)
+	}
+	if !got.RecordedAt.Equal(noteClock) {
+		t.Fatalf("the stamp must not re-date the note's own RecordedAt: %v", got.RecordedAt)
+	}
+	if n := len(PendingOperatorNotes(row)); n != 0 {
+		t.Fatalf("a delivered note is not pending; pending = %d", n)
 	}
 	// Re-stamping the same attempt (a retried write under a new key) changes nothing.
-	later := store.WithClock(func() time.Time { return noteClock.Add(time.Hour) })
-	v, err = later.RecordOperatorNoteDelivered(rc, id, v, "C-A", "n1", attempt, cred, fwra.IdempotencyKey("wf:d2"))
-	if err != nil {
+	evenLater := &activityExecutionAccess{store: store.WithClock(func() time.Time { return noteClock.Add(time.Hour) }), minter: localCredentialMinter{}}
+	if _, err = evenLater.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", note, attempt, cred, fwra.IdempotencyKey("wf:d2")); err != nil {
 		t.Fatalf("re-stamping the same attempt must succeed, got %v", err)
 	}
-	if again := readConstruction(t, store, id, cred, "C-A").OperatorNotes[0]; !again.DeliveredAt.Equal(noteClock) {
+	if again := readConstruction(t, store, id, cred, "C-X").OperatorNotes[0]; !again.DeliveredAt.Equal(stampedAt) {
 		t.Fatalf("re-stamping moved DeliveredAt to %v", again.DeliveredAt)
 	}
+}
+
+// TestRecordOperatorNote_ReRecordRefusals — the other half of the delivery fold: what a
+// re-record may NOT do. A re-record without an attempt never un-delivers; a note is
+// delivered once; different content under the same id is refused even carrying an attempt;
+// and the row must exist.
+func TestRecordOperatorNote_ReRecordRefusals(t *testing.T) {
+	a, store, id, v, cred := newClockedExecutionStore(t, noteClock)
+	note := operatorNoteInput("n1", NoteSendBack, "tighten it")
+	const attempt = "C-X:detailedDesign:2"
+	v, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", note, attempt, cred, fwra.IdempotencyKey("wf:rec-delivered"))
+	if err != nil {
+		t.Fatalf("RecordOperatorNote (delivered at record time): %v", err)
+	}
+	// A re-record with NO attempt over a delivered note is the ordinary identical-content
+	// no-op: it does not un-deliver anything.
+	if v, err = a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", note, "", cred, fwra.IdempotencyKey("wf:d2b")); err != nil {
+		t.Fatalf("an undelivered re-record of a delivered note must succeed, got %v", err)
+	}
+	if kept := readConstruction(t, store, id, cred, "C-X").OperatorNotes[0]; kept.DeliveredToAttemptID != attempt {
+		t.Fatalf("a re-record without an attempt un-delivered the note: %+v", kept)
+	}
 	// A note is delivered once.
-	if _, err := store.RecordOperatorNoteDelivered(rc, id, v, "C-A", "n1", "C-A:detailedDesign:3", cred, fwra.IdempotencyKey("wf:d3")); raKindOf(err) != fwra.ContractMisuse {
+	if _, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", note, "C-X:detailedDesign:3", cred, fwra.IdempotencyKey("wf:d3")); raKindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("stamping a different attempt: want ContractMisuse, got %v", err)
 	}
-	if kept := readConstruction(t, store, id, cred, "C-A").OperatorNotes[0]; kept.DeliveredToAttemptID != attempt {
+	if kept := readConstruction(t, store, id, cred, "C-X").OperatorNotes[0]; kept.DeliveredToAttemptID != attempt {
 		t.Fatalf("a refused re-stamp moved the delivery to %q", kept.DeliveredToAttemptID)
 	}
-	if _, err := store.RecordOperatorNoteDelivered(rc, id, v, "C-A", "no-such-note", attempt, cred, fwra.IdempotencyKey("wf:d4")); raKindOf(err) != fwra.NotFound {
-		t.Errorf("unknown note: want NotFound, got %v", err)
+	// The stamp is still a NOTE: different content under the same id is refused even when
+	// it carries an attempt, and the row must exist.
+	changed := note
+	changed.Text = "something else"
+	if _, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", changed, attempt, cred, fwra.IdempotencyKey("wf:d4")); raKindOf(err) != fwra.ContractMisuse {
+		t.Errorf("a stamp carrying different content: want ContractMisuse, got %v", err)
 	}
-	if _, err := store.RecordOperatorNoteDelivered(rc, id, v, "C-ZZ", "n1", attempt, cred, fwra.IdempotencyKey("wf:d5")); raKindOf(err) != fwra.NotFound {
+	if _, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-ZZ", note, attempt, cred, fwra.IdempotencyKey("wf:d5")); raKindOf(err) != fwra.NotFound {
 		t.Errorf("no such row: want NotFound, got %v", err)
-	}
-	for name, args := range map[string][3]string{
-		"empty activityID": {"", "n1", attempt}, "empty noteID": {"C-A", "", attempt}, "empty attemptID": {"C-A", "n1", ""},
-	} {
-		if _, err := store.RecordOperatorNoteDelivered(rc, id, v, args[0], args[1], args[2], cred, fwra.IdempotencyKey("wf:m-"+name)); raKindOf(err) != fwra.ContractMisuse {
-			t.Errorf("%s: want ContractMisuse, got %v", name, err)
-		}
 	}
 }
 
@@ -11281,6 +10914,55 @@ func TestRecordActivityOutcome_FoldsExitedAndFailed(t *testing.T) {
 	}
 }
 
+// TestRecordActivityOutcome_AFailureBirthsAnUnopenedRow — the fold of the retired
+// RecordActivityFailed's one case OpenActivity cannot cover (dct Plan 4 Task 3). The pump
+// records a BLOCKED verdict — an activity it cannot classify, or one whose dependency does
+// not resolve — against an activity that was never opened and never can be: there is no
+// lifecycle to pin. The retired verb upserted the row; this one must too, or the pump's
+// loud, durable, app-visible failure (spec §4.3) becomes a NotFound nobody sees.
+//
+// The birth is exactly that narrow: a FAILURE, from a writer holding NO row version. A
+// completion, or a writer claiming to hold a version of a row that does not exist, still
+// finds nothing to transition.
+func TestRecordActivityOutcome_AFailureBirthsAnUnopenedRow(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v2, err := a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-NEW",
+		ActivityOutcomeUnknown, ActivityUnclassifiable, "no lifecycle for this type", cred, fwra.IdempotencyKey("birth-fail"))
+	if err != nil {
+		t.Fatalf("a failure against an unopened activity must record it: %v", err)
+	}
+	if v2 != v+1 {
+		t.Fatalf("version = %d, want %d", v2, v+1)
+	}
+	row := readConstruction(t, store, id, cred, "C-NEW")
+	if row.ActivityID != "C-NEW" || row.FailureReason != ActivityUnclassifiable || row.FailureDetail != "no lifecycle for this type" || row.CompletedAt == nil {
+		t.Fatalf("the born row must carry the failure terminal; got %+v", row)
+	}
+	if got := coarsePhaseOf(row); got != ActivityConstructionFailed {
+		t.Fatalf("phase = %v, want failed (the red node the operator must see)", got)
+	}
+	if row.Version != 1 {
+		t.Fatalf("a born row starts its own version count; got %d", row.Version)
+	}
+
+	for name, call := range map[string]func() error{
+		"a completion": func() error {
+			_, err := a.RecordActivityOutcome(execRC(), id, v2, NoActivityVersionExpectation, "C-OTHER",
+				ActivityOutcomeCompleted, FailureReasonUnknown, "", cred, fwra.IdempotencyKey("birth-done"))
+			return err
+		},
+		"a held version": func() error {
+			_, err := a.RecordActivityOutcome(execRC(), id, v2, 3, "C-OTHER",
+				ActivityOutcomeUnknown, PipelineFailed, "x", cred, fwra.IdempotencyKey("birth-held"))
+			return err
+		},
+	} {
+		if err := call(); raKindOf(err) != fwra.NotFound {
+			t.Errorf("%s against an unopened activity: want NotFound, got %v", name, err)
+		}
+	}
+}
+
 // A SECOND TERMINAL DOES NOT OVERWRITE THE FIRST. These three tests are where the contract
 // note's write-once promise stops being a claim (stage 4b3 Task 9). Measured before the fix:
 // only CompletedAt was guarded (stampExit no-ops when set) and this verb assigned
@@ -12012,23 +11694,6 @@ func buildStatusOf(s ActivityExecution) ActivityBuildStatus {
 	return build
 }
 
-// resolvedOf is the row's profile-ordered phase set, resolved from its ledger against the
-// type it carries — what the stored Phases slice used to approximate.
-func resolvedOf(s ActivityExecution) []PhaseCompletion {
-	return ResolvePhaseCompletions(ProfileFor(s.Type, s.Variant), s.Attempts)
-}
-
-// completedPhasesOf names the lifecycle phases the row's ledger resolves complete.
-func completedPhasesOf(s ActivityExecution) []ActivityMethodPhase {
-	var out []ActivityMethodPhase
-	for _, pc := range resolvedOf(s) {
-		if pc.Completed {
-			out = append(out, pc.Phase)
-		}
-	}
-	return out
-}
-
 // ---- The per-activity Version (task 4, step 3) -------------------------------------
 
 // TestWithActivityVersion_RefusesAStaleExpectationAndStampsTheCounter pins the
@@ -12240,11 +11905,12 @@ func TestActivityExecutionAcceptsTheUnreadPosture(t *testing.T) {
 }
 
 // TestEveryMutatingVerbOnARowStampsItsVersion pins ActivityExecution.Version's own claim:
-// EVERY transition on a row advances it. It loops BOTH rails — the retired facet's verbs
-// (which write through upsertActivityExecution) and activityExecutionAccess's (which write
-// through withActivityVersion) — because both write these rows for the length of this
-// wave, and a counter only one rail stamped would stand still across a real write and
-// tell a reader nothing happened.
+// EVERY transition on a row advances it. It loops BOTH rails — gitActivityStatusAccess's
+// verbs (which write through upsertActivityExecution) and activityExecutionAccess's (which
+// write through withActivityVersion) — because both write these rows, and a counter only
+// one rail stamped would stand still across a real write and tell a reader nothing
+// happened. (constructionTransitionAccess's verbs were the third writer until dct Plan 4
+// Task 3 deleted that facet.)
 //
 // A test that claims "every" and checks one verb is worse than no test: it reports the
 // property as held while nine writers quietly do not hold it. Each case runs against its
@@ -12258,35 +11924,7 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 		// apply runs ONE mutating verb against an already-opened row.
 		apply func(t *testing.T, a ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential)
 	}{
-		// ---- the retired facet's verbs (upsertActivityExecution) ----
-		{"RecordChangeReviewed", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(store.RecordChangeReviewed(execRC(), id, v, activity, cred, "k-cr")).must(t)
-		}},
-		{"RecordActivityExited", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(store.RecordActivityExited(execRC(), id, v, activity, ActivityOutcomeCompleted, cred, "k-ex")).must(t)
-		}},
-		{"RecordActivityFailed", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(store.RecordActivityFailed(execRC(), id, v, activity, PipelineFailed, "detail", cred, "k-fail")).must(t)
-		}},
-		{"RecordOperatorNote", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(store.RecordOperatorNote(execRC(), id, v, activity, note, cred, "k-note")).must(t)
-		}},
-		{"RecordOperatorNoteDelivered", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			v2 := verbDone(store.RecordOperatorNote(execRC(), id, v, activity, note, cred, "k-note")).must(t)
-			// Read the version the delivery starts from, so the assertion below is about
-			// the DELIVERY's stamp and not about the note's.
-			before := readConstruction(t, store, id, cred, activity).Version
-			verbDone(store.RecordOperatorNoteDelivered(execRC(), id, v2, activity, note.NoteID, "C-X:srs:1", cred, "k-deliver")).must(t)
-			if got := readConstruction(t, store, id, cred, activity).Version; got != before+1 {
-				t.Fatalf("RecordOperatorNoteDelivered: version = %d, want %d", got, before+1)
-			}
-		}},
-		{"RecordPhaseStarted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(store.RecordPhaseStarted(execRC(), id, v, activity, MethodPhaseRequirements, cred, "k-ps")).must(t)
-		}},
-		{"RecordPhaseCompleted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(store.RecordPhaseCompleted(execRC(), id, v, activity, MethodPhaseRequirements, "srs.md", cred, "k-pc")).must(t)
-		}},
+		// ---- gitActivityStatusAccess's verbs (upsertActivityExecution) ----
 		{"RecordActivityStarted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			verbDone(store.RecordActivityStarted(execRC(), id, v, activity, ActivityTypeService, 0, cred, "k-as")).must(t)
 		}},
@@ -12343,6 +11981,16 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 		}},
 		{"RecordOperatorNote (facet)", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			verbDone(a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, activity, note, "", cred, "k-facet-note")).must(t)
+		}},
+		{"RecordOperatorNote (facet, delivery stamp on a re-record)", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			v2 := verbDone(a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, activity, note, "", cred, "k-facet-note")).must(t)
+			// Read the version the stamp starts from, so the assertion below is about the
+			// STAMP's advance and not about the note's.
+			before := verbRowVersion(t, a, id, activity)
+			verbDone(a.RecordOperatorNote(execRC(), id, v2, NoActivityVersionExpectation, activity, note, "C-X:srs:1", cred, "k-facet-deliver")).must(t)
+			if got := verbRowVersion(t, a, id, activity); got != before+1 {
+				t.Fatalf("the delivery stamp: version = %d, want %d", got, before+1)
+			}
 		}},
 		{"AcknowledgeStaleBasis", func(_ *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			// The activity-scoped slot transition: it guards on the row existing but writes

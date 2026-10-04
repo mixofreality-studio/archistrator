@@ -890,10 +890,15 @@ func (wf *csWorkflows) pumpRecordBlocked(
 		"projectId", string(in.ProjectID),
 		"activityId", sel.BlockedActivityID,
 		"reason", sel.BlockedReason)
+	// activityExecutionAccess's RecordActivityOutcome is the fold of the retired
+	// RecordActivityFailed (dct Plan 4 Task 3). The pump writes in the UNREAD posture
+	// (NoActivityVersionExpectation): it fails a row no child holds, and the activity it
+	// blocks — unclassifiable, or waiting on a dependency that does not resolve — was usually
+	// never opened, so the write must BIRTH the row, which only that posture may do.
 	_, ferr := wf.applyRecovering(ctx, in.ProjectID, proj.Version, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ConstructionTransitionRecordActivityFailed(
-			ctx, projectstate.ProjectID(in.ProjectID), expected,
-			sel.BlockedActivityID, sel.BlockedFailureReason, sel.BlockedReason,
+		return wf.Acts.ActivityExecutionRecordActivityOutcome(
+			ctx, projectstate.ProjectID(in.ProjectID), expected, projectstate.NoActivityVersionExpectation,
+			sel.BlockedActivityID, projectstate.ActivityOutcomeUnknown, sel.BlockedFailureReason, sel.BlockedReason,
 			railCredEnvelope{}.toProjectState())
 	})
 	return ferr

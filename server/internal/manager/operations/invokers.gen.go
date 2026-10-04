@@ -263,6 +263,27 @@ func (i genInvokers) ProjectStateReadProjectVersion(ctx workflow.Context, projec
 	return out, err
 }
 
+// ProjectStateRecordOperatorPaused invokes activity "projectStateAccess.recordOperatorPaused".
+func (i genInvokers) ProjectStateRecordOperatorPaused(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordOperatorPaused"), "projectStateAccess.recordOperatorPaused", projectID, expectedVersion, reason).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordOperatorResumed invokes activity "projectStateAccess.recordOperatorResumed".
+func (i genInvokers) ProjectStateRecordOperatorResumed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordOperatorResumed"), "projectStateAccess.recordOperatorResumed", projectID, expectedVersion).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordReviewPolicy invokes activity "projectStateAccess.recordReviewPolicy".
+func (i genInvokers) ProjectStateRecordReviewPolicy(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordReviewPolicy"), "projectStateAccess.recordReviewPolicy", projectID, expectedVersion, policy).Get(ctx, &out)
+	return out, err
+}
+
 // ProjectStateSetOperatingModel invokes activity "projectStateAccess.setOperatingModel".
 func (i genInvokers) ProjectStateSetOperatingModel(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
 	var out projectstate.Version

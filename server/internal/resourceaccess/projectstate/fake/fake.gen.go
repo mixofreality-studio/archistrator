@@ -111,109 +111,6 @@ func (f *FakeActivityExecutionAccess) ReadActivityExecution(rc fwra.Context, pro
 
 var _ projectstate.ActivityExecutionAccess = (*FakeActivityExecutionAccess)(nil)
 
-// FakeConstructionTransitionAccess is a generated test double for projectstate.ConstructionTransitionAccess: set the Fn field(s)
-// a test needs; calling a method whose Fn is unset panics.
-type FakeConstructionTransitionAccess struct {
-	RecordChangeReviewedFn          func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityExitedFn          func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityFailedFn          func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordOperatorPausedFn          func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordOperatorResumedFn         func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordReviewPolicyFn            func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordPhaseStartedFn            func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordPhaseCompletedFn          func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordServiceContractProducedFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordPhaseArtifactProducedFn   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordOperatorNoteFn            func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordOperatorNoteDeliveredFn   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, noteID string, attemptID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordChangeReviewed(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordChangeReviewedFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordChangeReviewedFn not set")
-	}
-	return f.RecordChangeReviewedFn(rc, projectID, expectedVersion, activityID, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordActivityExited(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordActivityExitedFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordActivityExitedFn not set")
-	}
-	return f.RecordActivityExitedFn(rc, projectID, expectedVersion, activityID, outcome, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordActivityFailed(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordActivityFailedFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordActivityFailedFn not set")
-	}
-	return f.RecordActivityFailedFn(rc, projectID, expectedVersion, activityID, reason, detail, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordOperatorPaused(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordOperatorPausedFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordOperatorPausedFn not set")
-	}
-	return f.RecordOperatorPausedFn(rc, projectID, expectedVersion, reason, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordOperatorResumed(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordOperatorResumedFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordOperatorResumedFn not set")
-	}
-	return f.RecordOperatorResumedFn(rc, projectID, expectedVersion, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordReviewPolicy(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordReviewPolicyFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordReviewPolicyFn not set")
-	}
-	return f.RecordReviewPolicyFn(rc, projectID, expectedVersion, policy, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordPhaseStarted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordPhaseStartedFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordPhaseStartedFn not set")
-	}
-	return f.RecordPhaseStartedFn(rc, projectID, expectedVersion, activityID, phase, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordPhaseCompleted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordPhaseCompletedFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordPhaseCompletedFn not set")
-	}
-	return f.RecordPhaseCompletedFn(rc, projectID, expectedVersion, activityID, phase, artifactRef, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordServiceContractProduced(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordServiceContractProducedFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordServiceContractProducedFn not set")
-	}
-	return f.RecordServiceContractProducedFn(rc, projectID, expectedVersion, component, contract, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordPhaseArtifactProduced(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordPhaseArtifactProducedFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordPhaseArtifactProducedFn not set")
-	}
-	return f.RecordPhaseArtifactProducedFn(rc, projectID, expectedVersion, activityID, mapKey, payload, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordOperatorNote(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordOperatorNoteFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordOperatorNoteFn not set")
-	}
-	return f.RecordOperatorNoteFn(rc, projectID, expectedVersion, activityID, note, cred, idempotencyKey)
-}
-
-func (f *FakeConstructionTransitionAccess) RecordOperatorNoteDelivered(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, noteID string, attemptID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
-	if f.RecordOperatorNoteDeliveredFn == nil {
-		panic("FakeConstructionTransitionAccess.RecordOperatorNoteDeliveredFn not set")
-	}
-	return f.RecordOperatorNoteDeliveredFn(rc, projectID, expectedVersion, activityID, noteID, attemptID, cred, idempotencyKey)
-}
-
-var _ projectstate.ConstructionTransitionAccess = (*FakeConstructionTransitionAccess)(nil)
-
 // FakeDesignSessionAccess is a generated test double for projectstate.DesignSessionAccess: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeDesignSessionAccess struct {
@@ -350,6 +247,9 @@ type FakeProjectStateAccess struct {
 	ListProjectsFn          func(rc fwra.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error)
 	ReadProjectFn           func(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
 	ReadProjectVersionFn    func(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Version, error)
+	RecordOperatorPausedFn  func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordOperatorResumedFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordReviewPolicyFn    func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	SetOperatingModelFn     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error)
 	SetResearchInputFn      func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error)
 }
@@ -401,6 +301,27 @@ func (f *FakeProjectStateAccess) ReadProjectVersion(rc fwra.Context, projectID p
 		panic("FakeProjectStateAccess.ReadProjectVersionFn not set")
 	}
 	return f.ReadProjectVersionFn(rc, projectID)
+}
+
+func (f *FakeProjectStateAccess) RecordOperatorPaused(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	if f.RecordOperatorPausedFn == nil {
+		panic("FakeProjectStateAccess.RecordOperatorPausedFn not set")
+	}
+	return f.RecordOperatorPausedFn(rc, projectID, expectedVersion, reason, idempotencyKey)
+}
+
+func (f *FakeProjectStateAccess) RecordOperatorResumed(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	if f.RecordOperatorResumedFn == nil {
+		panic("FakeProjectStateAccess.RecordOperatorResumedFn not set")
+	}
+	return f.RecordOperatorResumedFn(rc, projectID, expectedVersion, idempotencyKey)
+}
+
+func (f *FakeProjectStateAccess) RecordReviewPolicy(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	if f.RecordReviewPolicyFn == nil {
+		panic("FakeProjectStateAccess.RecordReviewPolicyFn not set")
+	}
+	return f.RecordReviewPolicyFn(rc, projectID, expectedVersion, policy, idempotencyKey)
 }
 
 func (f *FakeProjectStateAccess) SetOperatingModel(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {

@@ -259,6 +259,27 @@ func (a *genActivities) ProjectStateReadProjectVersion(ctx context.Context, proj
 	return v, fwmanager.MapError(err)
 }
 
+// ProjectStateRecordOperatorPaused wraps projectStateAccess.recordOperatorPaused.
+// Registered as "projectStateAccess.recordOperatorPaused".
+func (a *genActivities) ProjectStateRecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordOperatorPaused(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, reason, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordOperatorResumed wraps projectStateAccess.recordOperatorResumed.
+// Registered as "projectStateAccess.recordOperatorResumed".
+func (a *genActivities) ProjectStateRecordOperatorResumed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordOperatorResumed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordReviewPolicy wraps projectStateAccess.recordReviewPolicy.
+// Registered as "projectStateAccess.recordReviewPolicy".
+func (a *genActivities) ProjectStateRecordReviewPolicy(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordReviewPolicy(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, policy, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
 // ProjectStateSetOperatingModel wraps projectStateAccess.setOperatingModel.
 // Registered as "projectStateAccess.setOperatingModel".
 func (a *genActivities) ProjectStateSetOperatingModel(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {

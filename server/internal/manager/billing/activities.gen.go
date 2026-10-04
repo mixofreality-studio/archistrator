@@ -27,7 +27,6 @@ type genActivities struct {
 	Usage           usage.UsageAccess
 	MerchantGateway merchantgateway.MerchantGatewayAccess
 	MessageBus      messagebus.MessageBus
-	RevenueLedger   billingstate.RevenueLedgerAccess
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -128,25 +127,4 @@ func (a *genActivities) MessageBusDeliverSignal(ctx context.Context, targetExecu
 func (a *genActivities) MessageBusRegisterSchedule(ctx context.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
 	err := a.MessageBus.RegisterSchedule(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scheduleID, spec)
 	return fwmanager.MapError(err)
-}
-
-// RevenueLedgerReadRange wraps revenueLedgerAccess.readRange.
-// Registered as "revenueLedgerAccess.readRange".
-func (a *genActivities) RevenueLedgerReadRange(ctx context.Context, customerID uuid.UUID, cycleID string) ([]billingstate.RevenueEntry, error) {
-	v, err := a.RevenueLedger.ReadRange(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, customerID, cycleID)
-	return v, fwmanager.MapError(err)
-}
-
-// RevenueLedgerRecordInboundRevenue wraps revenueLedgerAccess.recordInboundRevenue.
-// Registered as "revenueLedgerAccess.recordInboundRevenue".
-func (a *genActivities) RevenueLedgerRecordInboundRevenue(ctx context.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
-	v, err := a.RevenueLedger.RecordInboundRevenue(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, entry)
-	return v, fwmanager.MapError(err)
-}
-
-// RevenueLedgerRecordReversal wraps revenueLedgerAccess.recordReversal.
-// Registered as "revenueLedgerAccess.recordReversal".
-func (a *genActivities) RevenueLedgerRecordReversal(ctx context.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
-	v, err := a.RevenueLedger.RecordReversal(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, reversal)
-	return v, fwmanager.MapError(err)
 }

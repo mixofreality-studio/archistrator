@@ -121,18 +121,6 @@ type Hooks interface {
 	// generated variant constructor call.
 	ArtifactAccessGitHubCloudArgs(cfg *Config) (*github.AppClient, string, string, int64)
 
-	// ConstructionTransitionAccessGitHubArgs supplies the constructionTransitionAccess GitHub variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	ConstructionTransitionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter)
-
-	// ConstructionTransitionAccessGitLocalArgs supplies the constructionTransitionAccess GitLocal variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	ConstructionTransitionAccessGitLocalArgs(cfg *Config) string
-
 	// DesignSessionAccessGitHubArgs supplies the designSessionAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
 	// typed values). Read from cfg; the returned tuple is spread into the
@@ -211,12 +199,6 @@ type Hooks interface {
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeBillingStateAccess(cfg *Config, v billingstate.BillingStateAccess) billingstate.BillingStateAccess
 
-	// FinalizeConstructionTransitionAccess is called immediately after constructionTransitionAccess's construction
-	// (presence required). Return v unchanged unless
-	// composition policy needs to swap or wrap it (e.g. a construction
-	// dry-run stub swap-in) — the identity implementation is always correct.
-	FinalizeConstructionTransitionAccess(cfg *Config, v projectstate.ConstructionTransitionAccess) projectstate.ConstructionTransitionAccess
-
 	// FinalizeDesignSessionAccess is called immediately after designSessionAccess's construction
 	// (presence required). Return v unchanged unless
 	// composition policy needs to swap or wrap it (e.g. a construction
@@ -264,12 +246,6 @@ type Hooks interface {
 	// composition policy needs to swap or wrap it (e.g. a construction
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeProjectStateAccess(cfg *Config, v projectstate.ProjectStateAccess) projectstate.ProjectStateAccess
-
-	// FinalizeRevenueLedgerAccess is called immediately after revenueLedgerAccess's construction
-	// (presence required). Return v unchanged unless
-	// composition policy needs to swap or wrap it (e.g. a construction
-	// dry-run stub swap-in) — the identity implementation is always correct.
-	FinalizeRevenueLedgerAccess(cfg *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess
 
 	// FinalizeSourceControlAccess is called immediately after sourceControlAccess's construction
 	// (presence optional-dormant). Return v unchanged unless
@@ -427,22 +403,6 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	billingStateAccess := billingstate.NewBillingStateAccess()
 	logger.Info("billingStateAccess (stub) ready")
 	billingStateAccess = hooks.FinalizeBillingStateAccess(cfg, billingStateAccess)
-	var constructionTransitionAccess projectstate.ConstructionTransitionAccess
-	switch profile {
-	case "cloud":
-		v, err := projectstate.NewGitHubConstructionTransitionAccess(hooks.ConstructionTransitionAccessGitHubArgs(cfg))
-		if err != nil {
-			return err
-		}
-		constructionTransitionAccess = v
-		logger.Info("constructionTransitionAccess (GitHub) ready")
-	case "local":
-		constructionTransitionAccess = projectstate.NewGitLocalConstructionTransitionAccess(hooks.ConstructionTransitionAccessGitLocalArgs(cfg))
-		logger.Info("constructionTransitionAccess (GitLocal) ready")
-	default:
-		return errors.New("constructionTransitionAccess: no ResourceAccess variant for the active profile")
-	}
-	constructionTransitionAccess = hooks.FinalizeConstructionTransitionAccess(cfg, constructionTransitionAccess)
 	var designSessionAccess projectstate.DesignSessionAccess
 	switch profile {
 	case "cloud":
@@ -546,9 +506,6 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return errors.New("projectStateAccess: no ResourceAccess variant for the active profile")
 	}
 	projectStateAccess = hooks.FinalizeProjectStateAccess(cfg, projectStateAccess)
-	revenueLedgerAccess := billingstate.NewRevenueLedgerAccess()
-	logger.Info("revenueLedgerAccess (stub) ready")
-	revenueLedgerAccess = hooks.FinalizeRevenueLedgerAccess(cfg, revenueLedgerAccess)
 	var sourceControlAccess sourcecontrol.SourceControlAccess
 	switch profile {
 	case "cloud":
@@ -589,7 +546,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	reviewEngine := review.NewReviewEngine()
 
 	// Managers — generated DI constructors + one embedded Worker each.
-	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, messageBus, billingEngine, interventionEngine, revenueLedgerAccess)
+	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, messageBus, billingEngine, interventionEngine)
 	wBillingManager := worker.New(tc, managerbilling.TaskQueue, worker.Options{})
 	managerbilling.RegisterManagerWorker(wBillingManager, billingManager)
 	if err := wBillingManager.Start(); err != nil {
@@ -601,7 +558,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("billingManager Temporal Schedules registered")
-	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, hooks.DeliveryManagerEscalationWaitTimeout(), hooks.DeliveryManagerInterventionMode(), hooks.DeliveryManagerRepo(), hooks.DeliveryManagerRepoBase())
+	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, agenticJobAccess, sourceControlAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, hooks.DeliveryManagerEscalationWaitTimeout(), hooks.DeliveryManagerInterventionMode(), hooks.DeliveryManagerRepo(), hooks.DeliveryManagerRepoBase())
 	if hooks.RegisterDeliveryManagerWorker(cfg) {
 		wDeliveryManager := worker.New(tc, delivery.TaskQueue, worker.Options{})
 		delivery.RegisterManagerWorker(wDeliveryManager, deliveryManager)

@@ -83,22 +83,17 @@ var unavailableDeps = map[string]string{
 	"operatedRuntimeAccess":     "an operated-runtime profile/infrastructure",
 	"billingStateAccess":        "the billing-state store (a server-side stub, not a real substrate impl)",
 	"merchantGatewayAccess":     "a merchant payment gateway (Stripe)",
-	// B6: constructionTransitionAccess / gitActivityStatusAccess / designSessionAccess
-	// share projectStateAccess's git substrate (the checkout IS available here), but
-	// unlike projectStateAccess's plain reads, every op on these three is a
-	// Manager-orchestrated head-state transition primitive (cred/idempotencyKey/
-	// version threading the constructionManager or design Managers mint and check —
-	// exactly the authority projectStateAccess's WRITES are AgentHidden to protect).
-	// Not yet consumed by any Manager (B7-B10 land that); the raw MCP rail refuses
-	// them for the same reason, not a missing infra dependency.
-	"constructionTransitionAccess": "constructionManager-orchestrated transition authority (version/eligibility checks the raw MCP rail cannot replicate)",
-	"gitActivityStatusAccess":      "constructionManager-orchestrated git head-state authority (version/eligibility checks the raw MCP rail cannot replicate)",
-	"designSessionAccess":          "design-Manager-orchestrated branch/session authority (version/capability-fallback checks the raw MCP rail cannot replicate)",
-	// revenueLedgerAccess is a permanent server-side no-op (charge-only, R-013 —
-	// billingstate.NewRevenueLedgerAccess never persists), same category as
-	// billingStateAccess above.
-	"revenueLedgerAccess": "the revenue-ledger store (a permanent no-op stub, not a real substrate impl)",
-	"episodeAccess":       "the gitignored episode-ledger sidecar (deliberately outside the git substrate — the raw MCP rail must never let an agent read or write its own audit trail; Managers own episode capture as a terminal-observation side effect)",
+	// B6: gitActivityStatusAccess / designSessionAccess share projectStateAccess's git
+	// substrate (the checkout IS available here), but unlike projectStateAccess's plain
+	// reads, every op on these two is a Manager-orchestrated head-state transition
+	// primitive (cred/idempotencyKey/version threading the delivery Manager mints and
+	// checks — exactly the authority projectStateAccess's WRITES are AgentHidden to
+	// protect); the raw MCP rail refuses them for that reason, not a missing infra
+	// dependency. (constructionTransitionAccess was a third, and revenueLedgerAccess a
+	// permanent no-op beside billingStateAccess, until dct Plan 4 Task 3 deleted both.)
+	"gitActivityStatusAccess": "constructionManager-orchestrated git head-state authority (version/eligibility checks the raw MCP rail cannot replicate)",
+	"designSessionAccess":     "design-Manager-orchestrated branch/session authority (version/capability-fallback checks the raw MCP rail cannot replicate)",
+	"episodeAccess":           "the gitignored episode-ledger sidecar (deliberately outside the git substrate — the raw MCP rail must never let an agent read or write its own audit trail; Managers own episode capture as a terminal-observation side effect)",
 }
 
 // executeRawTool is the entry point registerRawTool binds each raw tool's handler

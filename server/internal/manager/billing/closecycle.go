@@ -31,10 +31,10 @@ type closeInput struct {
 }
 
 // CloseCycleWorkflow drives UC6 cycle-close (billingManager.md §6.3):
-//  1. (drain any inbound-revenue signals already enqueued — the append is idempotent on
-//     the gateway event id; the net is computed here, not at signal time).
+//  1. (drain any inbound-revenue signals already enqueued — consumed and dropped: the
+//     charge-only model keeps no revenue ledger, so revenue never enters the net).
 //  2. ReadBillingActivity → terms + expectedVersion.
-//  3. ReadRevenueRangeActivity + ReadUsageRangeActivity → value snapshots.
+//  3. ReadUsageRangeActivity → the usage value snapshot (revenue is the zero snapshot).
 //  4. billingengine.BillingEngine.ComputeNet (direct, by value) → {signedNet, routingDirective}.
 //  5. execute the directive: Payout / Charge (on failure decide→execute) / NoAction.
 //  6. SettleCycleActivity (head-state; Conflict loop).
@@ -43,9 +43,9 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	logger := workflow.GetLogger(ctx)
 
 	// Drain any inbound-revenue signals delivered before/at close (signal-with-start
-	// may have started this workflow). Each append is idempotent on the gateway event
-	// id; the net is computed below, not at signal time (§2.5).
-	wf.drainInboundRevenue(ctx, in.CustomerID, in.CycleID)
+	// may have started this workflow). They are consumed and dropped (§2.5 under the
+	// charge-only model).
+	drainInboundRevenue(ctx)
 
 	billing, err := wf.readBilling(ctx, in.CustomerID)
 	if err != nil {
@@ -57,10 +57,6 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 			fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
 	}
 
-	revenue, rerr := wf.foldRevenue(ctx, in.CustomerID, in.CycleID)
-	if rerr != nil {
-		return CloseCycleResult{}, rerr
-	}
 	usage, uerr := wf.foldUsage(ctx, in.CustomerID, in.CycleID)
 	if uerr != nil {
 		return CloseCycleResult{}, uerr
@@ -70,7 +66,7 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	// through the published contract (fweng.Context{Context: context.Background()} is
 	// the replay-safe idiom the Engine op requires).
 	result, cerr := wf.Billing.ComputeNet(fweng.Context{Context: context.Background()},
-		revenue, usage, termsToEngine(billing.Terms))
+		chargeOnlyRevenue(), usage, termsToEngine(billing.Terms))
 	if cerr != nil {
 		return CloseCycleResult{}, fwmgr.MapError(cerr)
 	}
@@ -182,30 +178,26 @@ func (wf *workflows) handleChargeFailure(ctx workflow.Context, customerID custom
 	}
 }
 
-// drainInboundRevenue appends any inbound-revenue signals already enqueued on the cycle
-// workflow (non-blocking). Each append is idempotent on the gateway event id (§2.5);
-// the net is (re)computed at close, not here.
-func (wf *workflows) drainInboundRevenue(ctx workflow.Context, customerID customerID, cycleID cycleID) {
+// drainInboundRevenue consumes any inbound-revenue signals already enqueued on the cycle
+// workflow (non-blocking) and drops them. Under the charge-only model the platform never
+// shares in end-user revenue (billingManager.md §3.0, R-013), so there is nothing to
+// record: the ledger these facts were once appended to was a permanent no-op and was
+// deleted with revenueLedgerAccess (dct Plan 4 Task 3).
+func drainInboundRevenue(ctx workflow.Context) {
 	ch := workflow.GetSignalChannel(ctx, signalInboundRevenueReceived)
 	for {
 		var event GatewayRevenueEvent
 		if !ch.ReceiveAsync(&event) {
 			return
 		}
-		// A signal targeting a different cycle is ignored (defensive; the workflow id
-		// already scopes to this cycle).
-		if event.CycleID != cycleID {
-			continue
-		}
-		_ = wf.recordInboundRevenue(ctx, billingstate.RevenueEntry{
-			CustomerID:     customerID,
-			CycleID:        string(cycleID),
-			Kind:           billingstate.RevenueKindInbound,
-			Amount:         billingstate.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
-			GatewayEventID: event.GatewayEventID,
-			OccurredAt:     event.OccurredAt,
-		})
 	}
+}
+
+// chargeOnlyRevenue is the cycle's revenue snapshot under the charge-only model: zero,
+// in no currency, from no events — exactly what folding the retired no-op ledger's empty
+// range produced. The net is the hosting-cost charge alone.
+func chargeOnlyRevenue() billingengine.CycleRevenue {
+	return billingengine.CycleRevenue{}
 }
 
 // awaitChargeback waits (bounded by the cycle window) for a chargebackReceived signal
@@ -220,39 +212,21 @@ func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID
 		// fresh close workflow via signal-with-start (§6.2).
 		return
 	}
-	if err := wf.recomputeCycle(ctx, customerID, cycleID, event, prior); err != nil {
+	// The chargeback's own amount enters nothing — there is no revenue ledger to reverse
+	// under charge-only — so its arrival is the whole of what it contributes: the trigger.
+	if err := wf.recomputeCycle(ctx, customerID, cycleID, prior); err != nil {
 		workflow.GetLogger(ctx).Error("chargeback recompute failed", "customerId", customerID.String(), "cycleId", cycleID, "err", err.Error())
 	}
 }
 
 // recomputeCycle runs the forward-only chargeback recompute saga (billingManager.md
 // §6.3 RecomputeCycleWorkflow body):
-//  1. RecordReversalActivity (revenueLedgerAccess; dedup on the chargeback event id).
-//  2. re-fold the reversal-adjusted revenue + usage.
+//  1. (no reversal fact is recorded — there is no revenue ledger under charge-only).
+//  2. re-fold the usage.
 //  3. billingengine.BillingEngine.RecomputeNet (direct, by value) → corrected net + DELTA directive.
 //  4. ResettleCycleActivity (head-state correction; Conflict loop).
 //  5. route the DELTA charge/payout via the gateway. No rollback (forward-only).
-func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, event GatewayReversalEvent, prior billingengine.BillingResult) error {
-	// Append the reversal (idempotent on the chargeback's gateway event id).
-	if err := wf.recordReversal(ctx, billingstate.ReversalEntry{
-		CustomerID:     customerID,
-		CycleID:        string(cycleID),
-		Amount:         billingstate.Money{MinorUnits: event.Amount.MinorUnits, Currency: event.Amount.Currency},
-		GatewayEventID: event.GatewayEventID,
-		// ReversesGatewayEventID is an optional back-link; the generated façade type
-		// carries it as *string (`,omitempty`), the generated RA contract type as a
-		// plain string (empty ⇒ absent), so deref nil-safe at the boundary.
-		ReversesGatewayEventID: derefString(event.ReversesGatewayEventID),
-		OccurredAt:             event.OccurredAt,
-	}); err != nil {
-		return err
-	}
-
-	// Re-read the now reversal-adjusted range + the cycle usage.
-	revenue, rerr := wf.foldRevenue(ctx, customerID, cycleID)
-	if rerr != nil {
-		return rerr
-	}
+func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, prior billingengine.BillingResult) error {
 	usage, uerr := wf.foldUsage(ctx, customerID, cycleID)
 	if uerr != nil {
 		return uerr
@@ -267,7 +241,7 @@ func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID,
 	// through the published contract.
 	corrected, cerr := wf.Billing.RecomputeNet(fweng.Context{Context: context.Background()},
 		billingengine.ReBillingInput{
-			Revenue:      revenue,
+			Revenue:      chargeOnlyRevenue(),
 			Usage:        usage,
 			Terms:        termsToEngine(billing.Terms),
 			PriorSettled: prior,
@@ -288,29 +262,6 @@ func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID,
 	// Route the DELTA forward (no rollback).
 	_, routeErr := wf.routeNet(ctx, customerID, cycleID, corrected, 0)
 	return routeErr
-}
-
-// foldRevenue invokes revenueLedgerAccess.readRange and folds the cycle's revenue facts
-// into the published billingengine.CycleRevenue value snapshot (exact minor-unit signed
-// sum; never a float).
-func (wf *workflows) foldRevenue(ctx workflow.Context, customerID customerID, cycleID cycleID) (billingengine.CycleRevenue, error) {
-	entries, err := wf.Acts.RevenueLedgerReadRange(ctx, customerID, string(cycleID))
-	if err != nil {
-		return billingengine.CycleRevenue{}, err
-	}
-
-	var gross int64
-	currency := ""
-	for _, e := range entries {
-		gross += e.Amount.MinorUnits // signed; reversals are negative facts
-		if currency == "" {
-			currency = e.Amount.Currency
-		}
-	}
-	return billingengine.CycleRevenue{
-		GrossInbound: billingengine.Money{MinorUnits: gross, Currency: currency},
-		EventCount:   int64(len(entries)),
-	}, nil
 }
 
 // foldUsage invokes usageAccess.readRange (whole cycle; OperatedAppID nil) and folds the
@@ -339,20 +290,6 @@ func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID,
 	key := gatewayIdempotencyKey(customerID, cycleID)
 	return wf.Acts.MerchantGatewayChargeCustomer(ctx, fwra.IdempotencyKey(key), customerID,
 		merchantgateway.Money{MinorUnits: amount.MinorUnits, Currency: amount.Currency}, key)
-}
-
-// recordInboundRevenue invokes revenueLedgerAccess.recordInboundRevenue (dedup on the
-// gateway event id; NO Conflict kind on this append-only ledger).
-func (wf *workflows) recordInboundRevenue(ctx workflow.Context, entry billingstate.RevenueEntry) error {
-	_, err := wf.Acts.RevenueLedgerRecordInboundRevenue(ctx, entry)
-	return err
-}
-
-// recordReversal invokes revenueLedgerAccess.recordReversal (dedup on the chargeback's
-// gateway event id; NO Conflict kind on this append-only ledger).
-func (wf *workflows) recordReversal(ctx workflow.Context, reversal billingstate.ReversalEntry) error {
-	_, err := wf.Acts.RevenueLedgerRecordReversal(ctx, reversal)
-	return err
 }
 
 func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, seed billingstate.Version, cycleID cycleID, outcome billingstate.BillingOutcome) (billingstate.Version, error) {
@@ -396,17 +333,15 @@ var gatewayDeclineErrType = fwmgr.RAErrType(fwra.Auth)
 // the affected cycle's workflow id {customerId}:{cycleId}:close; signal-with-start
 // starts the cycle workflow when it is not yet running (§6.2).
 //
-//   - inboundRevenueReceived (op 2.5): the cycle workflow appends the revenue fact to
-//     the Revenue Ledger (idempotent on the gateway event id). The append is the
-//     durable record; the net is (re)computed at cycle close, not at signal time.
-//     Drained by CloseCycleWorkflow.drainInboundRevenue (workflow.go).
-//   - chargebackReceived (op 2.6): the cycle workflow appends the reversal, recomputes
-//     the net forward-only, records the correction, and routes the delta. Handled by
-//     CloseCycleWorkflow.awaitChargeback → recomputeCycle (workflow.go).
+//   - inboundRevenueReceived (op 2.5): drained and dropped by
+//     CloseCycleWorkflow.drainInboundRevenue — the charge-only model keeps no revenue
+//     ledger (revenueLedgerAccess, a permanent no-op, was deleted in dct Plan 4 Task 3).
+//   - chargebackReceived (op 2.6): the cycle workflow recomputes the net forward-only,
+//     records the correction, and routes the delta. Handled by
+//     CloseCycleWorkflow.awaitChargeback → recomputeCycle.
 //
 // The signal PAYLOADS are the façade input types GatewayRevenueEvent /
-// GatewayReversalEvent (contract.go) — the verified webhook body the Manager maps onto
-// the revenueLedgerAccess-owned entry shapes. awaitSignal (the wait on these channels)
+// GatewayReversalEvent (contract.go) — the verified webhook body. awaitSignal (the wait on these channels)
 // is the Manager's OWN in-workflow primitive (D-DA category A), NOT a contract op.
 
 // Signal names (billingManager.md §6.1/§6.2). The two webhook-fed revenue facts are
@@ -425,17 +360,6 @@ const (
 // function. This is the operations/behavior.go precedent (a contract-value-type
 // method becomes a free function so the generated scalar/enum carries no behavior;
 // contractstrip refuses to strip an owned type that still has a method).
-
-// derefString returns the pointed-to string, or "" for nil. The generated
-// GatewayReversalEvent.ReversesGatewayEventID is optional (`,omitempty` ⇒ *string);
-// the generated billingstate.ReversalEntry carries it as a plain string (empty ⇒
-// absent).
-func derefString(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
 
 // routingDirectiveName returns the canonical name for the façade RoutingDirective.
 // Kept as a FREE FUNCTION (not a RoutingDirective method) so the generated enum is

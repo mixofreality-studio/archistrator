@@ -3689,7 +3689,7 @@ func (wf *csWorkflows) finalizeWalk(
 	// after it lands the work first and exits second. The marker is taken unconditionally,
 	// at this one point, before either arm emits a command.
 	exitLast := workflow.GetVersion(ctx, changeExitAfterTheWorkLands, workflow.DefaultVersion, 1) >= 1
-	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred,
+	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.cred,
 		reconcileTargetOf(lc), exitLast); err != nil {
 		return wf.recordTailFailure(ctx, in, state, "finalizeActivity", err)
 	}
@@ -3712,7 +3712,7 @@ func (wf *csWorkflows) finalizeWalk(
 			// error: the caller must receive the commit's cause and not a report about
 			// bookkeeping.
 			if eerr := wf.recordBinaryExit(ctx, csIn, &state.walk.headVersion, state,
-				state.walk.gitOn, state.walk.cred); eerr != nil {
+				state.walk.cred); eerr != nil {
 				workflow.GetLogger(ctx).Error("the completion a broken landing earned could not be recorded",
 					"activityId", in.ActivityID, "err", eerr.Error(),
 					"consequence", "the row reads failed rather than completedNotLanded, so only an operator can re-open it")
@@ -3722,7 +3722,7 @@ func (wf *csWorkflows) finalizeWalk(
 	}
 	if exitLast {
 		if err := wf.recordBinaryExit(ctx, csIn, &state.walk.headVersion, state,
-			state.walk.gitOn, state.walk.cred); err != nil {
+			state.walk.cred); err != nil {
 			return wf.recordTailFailure(ctx, in, state, "recordBinaryExit", err)
 		}
 	}
@@ -4881,29 +4881,6 @@ func (wf *csWorkflows) recordActivityStarted(
 	return nil
 }
 
-// recordActivityCompleted marks the activity Done in the per-activity construction
-// head-state at the END of the spine (Task 3), alongside RecordActivityExited. This
-// is what unblocks dependents in the pump's eligibility selection (projectstate.AllDepsSatisfied). A
-// dormant slice is a no-op.
-func (wf *csWorkflows) recordActivityCompleted(
-	ctx workflow.Context,
-	in constructActivityInput,
-	cred railCredEnvelope,
-	headVersion *projectstate.Version,
-) error {
-	if wf.GitStatus == nil {
-		return nil
-	}
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityCompleted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), cred.toProjectState())
-	})
-	if err != nil {
-		return err
-	}
-	*headVersion = v
-	return nil
-}
-
 // startedCred resolves the credential the construction started/completed records
 // thread, and reports whether those records fire at all. It deliberately gates on the
 // CONSTRUCTION-STATUS slice (GitStatus), NOT the full PR-rail slice — the per-activity
@@ -5137,9 +5114,14 @@ func (wf *csWorkflows) loadReviewSnapshot(
 }
 
 // finalizeActivity runs the clean-pass tail of an attempt (constructionManager.md §6.3
-// steps 5a-6a): relay the architecture +1, record the change reviewed, and perform the
-// gated merge (interventionEngine is the App-only-merge authority). The git-forward steps
-// are no-ops when the slice is unwired.
+// steps 5a-6a): relay the architecture +1 and perform the gated merge (interventionEngine
+// is the App-only-merge authority). The git-forward steps are no-ops when the slice is
+// unwired.
+//
+// STEP 6 — "record the change reviewed" — IS GONE (dct Plan 4 Task 3, which deleted
+// constructionTransitionAccess.RecordChangeReviewed). The review is the ROUND the gate
+// decided on the execution ledger (DecideReviewRound); the retired verb had been reduced to
+// birthing a row that OpenActivity had already born, so it wrote nothing but a version.
 //
 // STEPS 8/8a — THE BINARY EXIT — LEFT THIS FUNCTION (wedge #6). They are recordBinaryExit's
 // now, and finalizeWalk calls it LAST, after commitDesignArtifacts; deferExit is false only
@@ -5150,7 +5132,6 @@ func (wf *csWorkflows) finalizeActivity(
 	gf *gitForward,
 	headVersion *projectstate.Version,
 	state *constructState,
-	gitOn bool,
 	startedCred railCredEnvelope,
 	preserveKinds []projectstate.ArtifactKind,
 	deferExit bool,
@@ -5160,13 +5141,6 @@ func (wf *csWorkflows) finalizeActivity(
 		return err
 	}
 
-	// --- Step 6: record the change reviewed (head-state). ---
-	v, e := wf.recordChangeReviewed(ctx, in, state, *headVersion, startedCred)
-	if e != nil {
-		return e
-	}
-	*headVersion = v
-
 	// --- Step 6a: perform the gated merge and record it (git-forward). ---
 	if err := wf.mergeAndRecord(ctx, in, gf, preserveKinds, headVersion); err != nil {
 		return err
@@ -5175,7 +5149,7 @@ func (wf *csWorkflows) finalizeActivity(
 	if deferExit {
 		return nil
 	}
-	return wf.recordBinaryExit(ctx, in, headVersion, state, gitOn, startedCred)
+	return wf.recordBinaryExit(ctx, in, headVersion, state, startedCred)
 }
 
 // recordBinaryExit is step 8 (and 8a): the activity's BINARY EXIT, and it is the LAST main
@@ -5194,37 +5168,26 @@ func (wf *csWorkflows) finalizeActivity(
 // in AwaitingReview would put the pump into construction against a plan nobody committed."
 // This is the same rule one level down — the activity's exit instead of the phase's advance.
 //
-// Behind the fence RecordActivityOutcome is the fold of the exited + completed pair below:
-// both stamped the SAME write-once CompletedAt, which is the whole of an exit now that the
-// coarse roll-up is derived, so the two calls became one.
+// RecordActivityOutcome is the fold of the retired exited + completed pair: both stamped the
+// SAME write-once CompletedAt, which is the whole of an exit now that the coarse roll-up is
+// derived, so the two calls became one.
+//
+// THERE IS NO PRE-LEDGER ARM ANY MORE (dct Plan 4 Task 3). The exit used to branch on the
+// execution-ledger fence, the old arm writing constructionTransitionAccess.RecordActivityExited
+// and gitActivityStatusAccess.RecordActivityCompleted. constructionTransitionAccess is
+// deleted, and the arm only ever served an execution that recorded no ledger marker: there
+// are none (no production usage — the founder's ruling the pump's fence discharge in stage
+// 4b3 rests on), and no live replay fixture holds such a history.
 func (wf *csWorkflows) recordBinaryExit(
 	ctx workflow.Context,
 	in constructActivityInput,
 	headVersion *projectstate.Version,
 	state *constructState,
-	gitOn bool,
 	startedCred railCredEnvelope,
 ) error {
-	if state.executionLedger {
-		if err := wf.recordExecutionOutcome(ctx, in, state, headVersion, startedCred,
-			projectstate.ActivityOutcomeCompleted, projectstate.FailureReasonUnknown, ""); err != nil {
-			return err
-		}
-	} else {
-		v2, e2 := wf.recordActivityExited(ctx, in, *headVersion, projectstate.ActivityOutcomeCompleted, startedCred)
-		if e2 != nil {
-			return e2
-		}
-		*headVersion = v2
-
-		// --- Step 8a: record the per-activity construction COMPLETED (Task 3). Flip the
-		// activity to Done so the pump's eligibility selection unblocks its dependents on
-		// the next tick. Dormant (no-op) when the git slice is unwired. ---
-		if gitOn {
-			if err := wf.recordActivityCompleted(ctx, in, startedCred, headVersion); err != nil {
-				return err
-			}
-		}
+	if err := wf.recordExecutionOutcome(ctx, in, state, headVersion, startedCred,
+		projectstate.ActivityOutcomeCompleted, projectstate.FailureReasonUnknown, ""); err != nil {
+		return err
 	}
 
 	state.stage = StageExited
@@ -5632,15 +5595,15 @@ func (wf *csWorkflows) recordOperatorNote(
 		Comments: noteComments(fb.comments),
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ConstructionTransitionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), note, cred.toProjectState())
+		return wf.Acts.ActivityExecutionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID), note, "", cred.toProjectState())
 	})
 	if err != nil {
 		return err
 	}
 	*headVersion = v
-	// A retired-facet write onto the row, fenced on note delivery rather than on the
-	// execution ledger, so it lands on a ledger-on run too (see rowAdvanced).
+	// A transition on the row under its per-activity CAS, so the run's copy of the row
+	// version follows it (see rowAdvanced).
 	state.rowAdvanced()
 	recorded := projectstate.OperatorNote{
 		NoteID: note.NoteID, Kind: note.Kind, Gate: note.Gate, Text: note.Text, Comments: note.Comments,
@@ -5698,7 +5661,7 @@ func (wf *csWorkflows) submitCarryingNotes(
 			delivered[n.NoteID] = true
 			continue
 		}
-		if wf.stampNoteDelivered(ctx, in, state, n.NoteID, attemptID, gf, headVersion) {
+		if wf.stampNoteDelivered(ctx, in, state, n, attemptID, gf, headVersion) {
 			delivered[n.NoteID] = true
 		}
 	}
@@ -5716,15 +5679,24 @@ func (wf *csWorkflows) submitCarryingNotes(
 	return handle, nil
 }
 
-// stampNoteDelivered records noteID delivered to attemptID and reports whether the store
-// now says so. It never fails the run: the job is already dispatched. A stamp that still
-// fails after its retry window leaves the note pending (at-least-once); a stamp the store
-// refuses because the note was already delivered to another attempt means it is no
+// stampNoteDelivered records the note n delivered to attemptID and reports whether the
+// store now says so. It never fails the run: the job is already dispatched. A stamp that
+// still fails after its retry window leaves the note pending (at-least-once); a stamp the
+// store refuses because the note was already delivered to another attempt means it is no
 // longer pending, so that reads as delivered.
-func (wf *csWorkflows) stampNoteDelivered(ctx workflow.Context, in constructActivityInput, state *constructState, noteID, attemptID string, gf *gitForward, headVersion *projectstate.Version) bool {
+//
+// THE STAMP IS A RE-RECORD OF THE NOTE carrying the attempt (activityExecutionAccess's
+// RecordOperatorNote — the fold of the retired note/delivery pair, dct Plan 4 Task 3), so
+// it sends the note's own content back: the store matches it by id AND content, exactly as
+// it does any re-record. It rides stampActs, which keeps M4's bounded envelope on THIS call
+// while the same verb's gate-time record keeps the record preset.
+func (wf *csWorkflows) stampNoteDelivered(ctx workflow.Context, in constructActivityInput, state *constructState, n projectstate.OperatorNote, attemptID string, gf *gitForward, headVersion *projectstate.Version) bool {
+	noteID := n.NoteID
+	note := projectstate.OperatorNoteInput{NoteID: n.NoteID, Kind: n.Kind, Gate: n.Gate, Text: n.Text, Comments: n.Comments}
+	acts := wf.stampActs()
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ConstructionTransitionRecordOperatorNoteDelivered(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), noteID, attemptID, gf.cred.toProjectState())
+		return acts.ActivityExecutionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID), note, attemptID, gf.cred.toProjectState())
 	})
 	if err == nil {
 		*headVersion = v
@@ -5833,32 +5805,6 @@ func (wf *csWorkflows) runMergePipeline(ctx workflow.Context, in constructActivi
 		_ = workflow.Sleep(ctx, observeInterval(poll))
 	}
 	return csPipelineObservation{Phase: PipelineFailed, Diagnostic: "merge pipeline did not reach a terminal phase within the poll budget"}, nil
-}
-
-// recordChangeReviewed applies the head-state transition with the Conflict loop. The
-// Manager-minted cred is threaded into the write (empty/zero in dev/dry-run).
-//
-// Another retired-facet verb that writes the row unfenced (see recordPhaseStarted): it
-// lands between the gate's last round write and the outcome the ledger records, so the
-// run's copy of the row version follows its stamp.
-func (wf *csWorkflows) recordChangeReviewed(ctx workflow.Context, in constructActivityInput, state *constructState, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
-	v, err := wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ConstructionTransitionRecordChangeReviewed(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), cred.toProjectState())
-	})
-	if err != nil {
-		return 0, err
-	}
-	state.rowAdvanced()
-	return v, nil
-}
-
-// recordActivityExited applies the binary-exit head-state transition.
-func (wf *csWorkflows) recordActivityExited(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, outcome projectstate.ActivityOutcome, cred railCredEnvelope) (projectstate.Version, error) {
-	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ConstructionTransitionRecordActivityExited(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), outcome, cred.toProjectState())
-	})
 }
 
 // Shared workflow-context helper (used by 2 csWorkflows); lives in its first caller's file per the file-layout standard.
