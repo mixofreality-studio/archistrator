@@ -57701,6 +57701,270 @@
           }
         ]
       },
+      "mcpClientBilling": {
+        "component": "mcpClientBilling",
+        "bindings": [
+          {
+            "scenario": "onboard-a-new-customer-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BillingOnboardPaymentIntegration",
+                "inputs": [
+                  {
+                    "name": "deployedAppID",
+                    "value": "0b1a0000-0000-4000-8000-000000000301",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000301\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-gateway-bound",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000301",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0b1a0000-0000-4000-8000-000000000301\",\"Registered\":true,\"GatewayBound\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "obj-schedule-registered",
+                    "component": "messageBus",
+                    "operation": "DescribeSchedule",
+                    "inputs": [
+                      {
+                        "name": "scheduleID",
+                        "value": "closeBillingCycle:0b1a0000-0000-4000-8000-000000000301",
+                        "schemaRef": "#/$defs/ScheduleID"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Registered\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "onboard-a-new-customer-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BillingOnboardPaymentIntegration",
+                "inputs": [
+                  {
+                    "name": "deployedAppID",
+                    "value": "0b1a0000-0000-4000-8000-000000000302",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "FailedPrecondition"
+                },
+                "probes": [
+                  {
+                    "for": "registered",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000302",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Registered\":false,\"GatewayBound\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "BillingRegisterCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b1a0000-0000-4000-8000-000000000302",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-instrument-validated",
+                    "component": "merchantGatewayAccess",
+                    "operation": "ReadStoredInstrument",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000302",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Validated\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "obj-customer-registered",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000302",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0b1a0000-0000-4000-8000-000000000302\",\"Registered\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-a-billing-cycle-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BillingGetBillingCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b1a0000-0000-4000-8000-000000000501",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycleID",
+                    "value": "2026-10",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000501\",\"cycleId\":\"2026-10\",\"closed\":false,\"routed\":0,\"escalated\":false}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "send-cycle-open",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000501",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-10",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-10\",\"Settled\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-a-billing-cycle-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BillingGetBillingCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b1a0000-0000-4000-8000-000000000502",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycleID",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000502\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "send-cycle-settlement",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000502",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
+      },
       "merchantGatewayAccess": {
         "component": "merchantGatewayAccess",
         "bindings": []
