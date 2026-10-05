@@ -58,11 +58,14 @@ const resultsIndexFile = "results.json"
 // capture.
 type testRunSink func(projectstate.TestRun) error
 
-// runRecordTestRun parses the flags, reads DIR/<contract>/results.json for every
-// contract of --component (resultContracts), assembles one TestRun per contract and
-// hands each to sink (the checkout write when nil). A component with several
-// contracts records one run per contract, its id suffixed "-<contract>".
-func runRecordTestRun(args []string, sink testRunSink) error {
+// recordTestRunArgs are record-test-run's flags, trimmed and checked.
+type recordTestRunArgs struct {
+	activity, component, runID, artifact, results, revision string
+}
+
+// parseRecordTestRunArgs parses and checks the flags; the revision falls back to
+// AIARCH_REVISION, and one of the two is required.
+func parseRecordTestRunArgs(args []string) (recordTestRunArgs, error) {
 	flags := flag.NewFlagSet("record-test-run", flag.ContinueOnError)
 	activity := flags.String("activity", "", "activity id the tests belong to (e.g. C-BG)")
 	component := flags.String("component", "", "the activity's component (kebab or contract name); every contract of it with a DIR/<contract>/results.json is recorded")
@@ -71,59 +74,63 @@ func runRecordTestRun(args []string, sink testRunSink) error {
 	results := flags.String("results", "", "the test-results directory the scenario host flushed into")
 	revision := flags.String("revision", "", "the integration attempt the run was produced under (default: $"+envRevision+", which the dispatch stamps)")
 	if err := flags.Parse(args); err != nil {
-		return err
+		return recordTestRunArgs{}, err
+	}
+	a := recordTestRunArgs{
+		activity:  strings.TrimSpace(*activity),
+		component: strings.TrimSpace(*component),
+		runID:     strings.TrimSpace(*runID),
+		artifact:  strings.TrimSpace(*artifact),
+		results:   strings.TrimSpace(*results),
+		revision:  strings.TrimSpace(*revision),
 	}
 	for _, f := range []struct{ name, value string }{
-		{"activity", *activity}, {"component", *component}, {"run-id", *runID}, {"artifact", *artifact}, {"results", *results},
+		{"activity", a.activity}, {"component", a.component}, {"run-id", a.runID}, {"artifact", a.artifact}, {"results", a.results},
 	} {
-		if strings.TrimSpace(f.value) == "" {
-			return fmt.Errorf("--%s is required", f.name)
+		if f.value == "" {
+			return recordTestRunArgs{}, fmt.Errorf("--%s is required", f.name)
 		}
 	}
-	rev := strings.TrimSpace(*revision)
-	if rev == "" {
-		rev = strings.TrimSpace(os.Getenv(envRevision))
+	if a.revision == "" {
+		a.revision = strings.TrimSpace(os.Getenv(envRevision))
 	}
-	if rev == "" {
-		return fmt.Errorf("--revision is required when %s is unset: a run without the integration attempt it was produced under can never satisfy the testing gate", envRevision)
+	if a.revision == "" {
+		return recordTestRunArgs{}, fmt.Errorf("--revision is required when %s is unset: a run without the integration attempt it was produced under can never satisfy the testing gate", envRevision)
 	}
+	return a, nil
+}
 
-	if !anyResultsIndex(*results) {
-		return fmt.Errorf("no %s under %s: the scenario host wrote nothing — the tests did not run, refusing to record an empty run", resultsIndexFile, *results)
+// runRecordTestRun parses the flags, reads DIR/<contract>/results.json for every
+// contract of --component (resultContracts), assembles one TestRun per contract and
+// hands each to sink (the checkout write when nil). A component with several
+// contracts records one run per contract, its id suffixed "-<contract>".
+func runRecordTestRun(args []string, sink testRunSink) error {
+	a, err := parseRecordTestRunArgs(args)
+	if err != nil {
+		return err
 	}
-	var (
-		proj  *projectstate.Project
-		write testRunSink = sink
-	)
-	if sink == nil {
-		s, err := constructSessionFromEnv()
-		if err != nil {
-			return err
-		}
-		p, _, err := s.readProject()
-		if err != nil {
-			return err
-		}
-		proj = &p
-		write = func(run projectstate.TestRun) error { return recordTestRunInSession(s, run) }
+	if !anyResultsIndex(a.results) {
+		return fmt.Errorf("no %s under %s: the scenario host wrote nothing — the tests did not run, refusing to record an empty run", resultsIndexFile, a.results)
 	}
-	contracts, err := resultContracts(*results, strings.TrimSpace(*component), proj)
+	proj, write, err := testRunWriter(sink)
+	if err != nil {
+		return err
+	}
+	contracts, err := resultContracts(a.results, a.component, proj)
 	if err != nil {
 		return err
 	}
 	runs := make([]projectstate.TestRun, 0, len(contracts))
 	for _, contract := range contracts {
-		run, err := buildTestRun(*results, contract)
+		run, err := buildTestRun(a.results, contract)
 		if err != nil {
 			return err
 		}
-		run.ID = strings.TrimSpace(*runID)
+		run.ID = a.runID
 		if len(contracts) > 1 {
 			run.ID += "-" + contract
 		}
-		run.Activity = strings.TrimSpace(*activity)
-		run.Revision = rev
-		run.Artifact = strings.TrimSpace(*artifact)
+		run.Activity, run.Revision, run.Artifact = a.activity, a.revision, a.artifact
 		runs = append(runs, run)
 	}
 	for _, run := range runs {
@@ -132,6 +139,25 @@ func runRecordTestRun(args []string, sink testRunSink) error {
 		}
 	}
 	return nil
+}
+
+// testRunWriter is where the runs go: an injected sink as is (no project — the
+// contracts then resolve from the results directory alone), or, for nil, the
+// ambient construct session's checkout write, together with the committed project
+// that lets a component's facets resolve.
+func testRunWriter(sink testRunSink) (*projectstate.Project, testRunSink, error) {
+	if sink != nil {
+		return nil, sink, nil
+	}
+	s, err := constructSessionFromEnv()
+	if err != nil {
+		return nil, nil, err
+	}
+	p, _, err := s.readProject()
+	if err != nil {
+		return nil, nil, err
+	}
+	return &p, func(run projectstate.TestRun) error { return recordTestRunInSession(s, run) }, nil
 }
 
 // anyResultsIndex reports whether some DIR/<contract>/results.json exists — checked
