@@ -45372,7 +45372,404 @@
       },
       "billingEngine": {
         "component": "billingEngine",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "bill-the-user-for-usage-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeNet",
+                "inputs": [
+                  {
+                    "name": "revenue",
+                    "value": "{\"GrossInbound\":{\"minorUnits\":15000,\"currency\":\"USD\"},\"EventCount\":42}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "usage",
+                    "value": "{\"ComputeUnitSeconds\":50000,\"StorageBytesMonths\":3.5,\"EgressBytes\":1048576}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "terms",
+                    "value": "{\"computeCost\":1,\"computeMarkupPercent\":20,\"schedule\":1}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"SignedNet\":{\"minorUnits\":-45000,\"currency\":\"USD\"},\"RoutingDirective\":2,\"ComputeCostApplied\":{\"minorUnits\":60000,\"currency\":\"USD\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeNet",
+                "inputs": [
+                  {
+                    "name": "revenue",
+                    "value": "{\"GrossInbound\":{\"minorUnits\":346,\"currency\":\"USD\"},\"EventCount\":7}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "usage",
+                    "value": "{\"ComputeUnitSeconds\":12345.5,\"StorageBytesMonths\":0,\"EgressBytes\":0}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "terms",
+                    "value": "{\"computeCost\":1,\"computeMarkupPercent\":0,\"schedule\":2}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"SignedNet\":{\"minorUnits\":-12000,\"currency\":\"USD\"},\"RoutingDirective\":2,\"ComputeCostApplied\":{\"minorUnits\":12346,\"currency\":\"USD\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ComputeNet",
+                "inputs": [
+                  {
+                    "name": "revenue",
+                    "value": "{\"GrossInbound\":{\"minorUnits\":1000,\"currency\":\"EUR\"},\"EventCount\":3}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "usage",
+                    "value": "{\"ComputeUnitSeconds\":8000,\"StorageBytesMonths\":0.25,\"EgressBytes\":2048}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "terms",
+                    "value": "{\"computeCost\":2,\"computeMarkupPercent\":12.5,\"schedule\":3}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"SignedNet\":{\"minorUnits\":-8000,\"currency\":\"EUR\"},\"RoutingDirective\":2,\"ComputeCostApplied\":{\"minorUnits\":9000,\"currency\":\"EUR\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"normal\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":20,\"schedule\":1}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":20}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "present-sdp-review"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"decompressed-normal\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":15.5,\"schedule\":2}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":15.5}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "present-sdp-review"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"compressed\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":0,\"schedule\":3}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":0}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "present-sdp-review"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"normal\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":20,\"schedule\":1}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":20}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"normal\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":7.25,\"schedule\":1}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":7.25}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"decompressed-normal\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":0,\"schedule\":2}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":0}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"compressed\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":100,\"schedule\":3}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":100}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"normal\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":33.5,\"schedule\":1}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":33.5}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"decompressed-normal\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":250,\"schedule\":2}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":250}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"compressed\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":5,\"schedule\":3}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":5}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"normal-rev2\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":10,\"schedule\":1}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":10}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"normal-rev2\",\"Terms\":{\"computeCost\":1,\"computeMarkupPercent\":25,\"schedule\":2}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":25}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "billingManager": {
         "component": "billingManager",
