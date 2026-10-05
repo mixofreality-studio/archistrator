@@ -37,6 +37,11 @@ export interface ActivityNodeView {
    * scenario proves (spec §2.2). Undefined for every other kind.
    */
   inState?: string;
+  /**
+   * A `note`'s anchor — the node it annotates (spec §2.2); drawn as UML's dashed
+   * note connector. Undefined for an unanchored note and every other kind.
+   */
+  anchor?: string;
 }
 
 export interface ActivityEdgeView {
@@ -86,6 +91,7 @@ export function toUseCaseView(decision: UseCaseDecision): UseCaseView {
       lane: n.roleName.length > 0 ? n.roleName : 'Machine',
       ...(n.decidedBy != null && n.decidedBy.length > 0 ? { decidedBy: n.decidedBy } : {}),
       ...(n.inState !== undefined && n.inState.length > 0 ? { inState: n.inState } : {}),
+      ...(n.anchor !== undefined && n.anchor.length > 0 ? { anchor: n.anchor } : {}),
     })
   );
   const edges = rawEdges.map(

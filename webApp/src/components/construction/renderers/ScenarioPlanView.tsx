@@ -1,9 +1,11 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { ArtifactRendererProps } from '../artifactRenderers';
+import { scenarioModels } from '../../../contracts/adapters';
 import { ScenarioBrowser } from './ScenarioBrowser';
+import { planKeyFor, type ScenarioContext } from './scenarioPresentation';
 import { scenarioPlanState } from './scenarioSelection.ts';
 
 /**
@@ -17,8 +19,23 @@ import { scenarioPlanState } from './scenarioSelection.ts';
  * Read through `testing.scenarios` (the `scenarios` project view), fetched by
  * the container — never from the row.
  */
-export function ScenarioPlanView({ t, testing }: ArtifactRendererProps): ReactNode {
+export function ScenarioPlanView({
+  t,
+  testing,
+  project,
+  systemEnvelope,
+  useCasesEnvelope,
+}: ArtifactRendererProps): ReactNode {
   const q = testing?.scenarios;
+  // What each scenario is read against: the use cases (name, trigger, actors,
+  // diagram), the system (real callers, layers, call chain), the contracts (params).
+  const context: ScenarioContext = useMemo(
+    () => ({
+      ...scenarioModels(systemEnvelope, useCasesEnvelope),
+      contracts: project?.serviceContracts,
+    }),
+    [systemEnvelope, useCasesEnvelope, project?.serviceContracts]
+  );
   const state = q === undefined ? 'loading' : scenarioPlanState(q);
   if (q === undefined || state === 'loading') {
     return (
@@ -95,13 +112,19 @@ export function ScenarioPlanView({ t, testing }: ArtifactRendererProps): ReactNo
       </Typography>
       <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, lineHeight: 1.4 }}>
         Each scenario is one path through a core use case, projected onto this component: the
-        stimuli that reach it, in order, and what must be observable after each. The plan binds
-        concrete inputs and an expectation to every stimulus; the generated test replays exactly
-        that, and the testing gate passes only when every scenario runs green at the current
-        revision.
+        stimuli that reach it, in order, from their real callers, and what must be observable after
+        each. The plan binds concrete inputs, an expectation and a probe for every expected state;
+        the generated test replays exactly that, and the testing gate passes only when every
+        scenario runs green at the current revision.
       </Typography>
       {/* The plan's own browser follows the `sc` deep link (scenarioLink.ts). */}
-      <ScenarioBrowser linked component={testing?.component ?? ''} scenarios={scenarios} t={t} />
+      <ScenarioBrowser
+        linked
+        component={planKeyFor(project?.serviceContracts, testing?.component ?? '')}
+        context={context}
+        scenarios={scenarios}
+        t={t}
+      />
     </Box>
   );
 }

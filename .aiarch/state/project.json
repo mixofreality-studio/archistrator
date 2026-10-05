@@ -23403,6 +23403,16 @@
             },
             "guard": {
               "type": "string"
+            },
+            "via": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "description": "The alternative callers when an alt group's calls into the component collapse to this one stimulus (Amendment A4); empty when the stimulus has a single caller.",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
@@ -23411,7 +23421,8 @@
             "to",
             "op",
             "call",
-            "guard"
+            "guard",
+            "via"
           ],
           "additionalProperties": false
         },
@@ -29594,6 +29605,16 @@
             },
             "guard": {
               "type": "string"
+            },
+            "via": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "description": "The alternative callers when an alt group's calls into the component collapse to this one stimulus (Amendment A4); empty when the stimulus has a single caller.",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
@@ -29602,7 +29623,8 @@
             "to",
             "op",
             "call",
-            "guard"
+            "guard",
+            "via"
           ],
           "additionalProperties": false
         },
@@ -38528,7 +38550,7 @@
       "component": "webClient",
       "layer": "Client",
       "title": "webClient contract",
-      "notes": "The web client's activity and review actions (the Activity Experience). One op per user action a use case names; its one param `action` is {kind, target data-testid, value?} and its result the observation (spec §12 B1). Anchors (UI_IDENTIFIERS): OpenActivity Plan.row/Plan.tile -> Activity.SCREEN, then the task on the lifecycle strip ActivityLifecycle.node (every task reachable at any width: ActivityLifecycle.SCROLLER scrolls the selected task into view, ActivityLifecycle.LENS_SCROLL/LENS_FIT switch lenses, ActivityLifecycle.WRAP is the fit lens wrapped at phone width); DecideReview ActivityLifecycle.node (the review task), GatePanel.APPROVE / DesignExperience.SUBMIT_BAR_PRIMARY; SendBackWithComments Margin.COMPOSER, DesignExperience.SUBMIT_BAR_PRIMARY; ReviewRedraft DesignExperience.ARTIFACT_RENDER, Margin.card; AskReviewQuestions Chat.TYPE_QUESTION, Chat.ADDRESSEE_PM/ADDRESSEE_ARCHITECT, Chat.INPUT, Chat.SEND; AmendArtifact Activity.AMEND_OPEN, DesignExperience.AMEND_COMPOSER/AMEND_RATIONALE/AMEND_SUBMIT (a committed design slot), Activity.AMEND_ARCHITECTURE (from M0); MarkReviewedUnaffected DesignExperience.STALE_MARK_REVIEWED/STALE_ACK_NOTE/STALE_ACK_CONFIRM; SteerActivity Activity.STEER, Activity.OVERRIDE_NOTE; OpenFailedActivity Episodes.PANEL, Episodes.TIMELINE; RequeueActivity Activity.REOPEN, Activity.OVERRIDE_NOTE.",
+      "notes": "The web client's activity and review actions (the Activity Experience). One op per user action a use case names; its one param `action` is {kind, target data-testid, value?} and its result the observation (spec §12 B1). Anchors (UI_IDENTIFIERS): OpenActivity Plan.row/Plan.tile -> Activity.SCREEN, then the task on the lifecycle strip ActivityLifecycle.node (every task reachable at any width: ActivityLifecycle.SCROLLER scrolls the selected task into view, ActivityLifecycle.LENS_SCROLL/LENS_FIT switch lenses, ActivityLifecycle.WRAP is the fit lens wrapped at phone width); DecideReview ActivityLifecycle.node (the review task), GatePanel.APPROVE / DesignExperience.SUBMIT_BAR_PRIMARY; on the test-plan review the scenario plan reads each scenario whole: Construction.SCENARIO_PICKER (use case name, guards), Construction.SCENARIO_HEADER (trigger, actors, guards taken), Construction.SCENARIO_STIMULUS (one per stimulus, data-seq: caller -> component.op, inputs, expectation, probes), Construction.SCENARIO_MISSING (binding fields owed), Construction.SCENARIO_PATH (the path on the use case's activity diagram), Construction.SCENARIO_CHAIN (the call chain, real callers in their layers); SendBackWithComments Margin.COMPOSER, DesignExperience.SUBMIT_BAR_PRIMARY; ReviewRedraft DesignExperience.ARTIFACT_RENDER, Margin.card; AskReviewQuestions Chat.TYPE_QUESTION, Chat.ADDRESSEE_PM/ADDRESSEE_ARCHITECT, Chat.INPUT, Chat.SEND; AmendArtifact Activity.AMEND_OPEN, DesignExperience.AMEND_COMPOSER/AMEND_RATIONALE/AMEND_SUBMIT (a committed design slot), Activity.AMEND_ARCHITECTURE (from M0); MarkReviewedUnaffected DesignExperience.STALE_MARK_REVIEWED/STALE_ACK_NOTE/STALE_ACK_CONFIRM; SteerActivity Activity.STEER, Activity.OVERRIDE_NOTE; OpenFailedActivity Episodes.PANEL, Episodes.TIMELINE; RequeueActivity Activity.REOPEN, Activity.OVERRIDE_NOTE.",
       "$defs": {
         "UIAction": {
           "type": "object",

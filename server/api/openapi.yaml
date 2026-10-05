@@ -2164,6 +2164,13 @@ components:
                     type: string
                 to:
                     type: string
+                via:
+                    description: The alternative callers when an alt group's calls into the component collapse to this one stimulus (Amendment A4); empty when the stimulus has a single caller.
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
             required:
                 - kind
                 - from
@@ -2171,6 +2178,7 @@ components:
                 - op
                 - call
                 - guard
+                - via
             type: object
         DeliveryScenarioOutcomeView:
             additionalProperties: false
