@@ -64736,7 +64736,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":2,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":4,\"InFlight\":true}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -64783,7 +64783,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":2,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":4,\"InFlight\":true}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -64805,7 +64805,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3,\"RecentEvents\":[{\"From\":2,\"To\":3}]}",
+                      "result": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -64817,12 +64817,12 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
                         "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]",
+                      "result": "[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -64874,7 +64874,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3,\"RecentEvents\":[{\"From\":2,\"To\":3}]}",
+                      "result": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -64886,12 +64886,12 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
                         "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]",
+                      "result": "[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -64930,7 +64930,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":3,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":5,\"InFlight\":true}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -65189,12 +65189,12 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
                         "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]",
+                      "result": "[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -65368,12 +65368,12 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                        "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
                         "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]",
+                      "result": "[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]",
                       "errorExpected": false,
                       "errorCode": ""
                     }
