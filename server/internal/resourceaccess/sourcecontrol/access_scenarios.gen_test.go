@@ -4,9 +4,935 @@
 package sourcecontrol_test
 
 import (
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "sourceControlAccess") }
+
+// inputAskAClarifyingQuestionDuringReviewP1S1 is step 1's parameters of ReadManagedFile, decoded from the binding's inputs.
+type inputAskAClarifyingQuestionDuringReviewP1S1 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Path string                       `json:"path"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_ask_a_clarifying_question_during_review_P1 — Ask a Clarifying Question During Review — [yes: session branch] · [yes] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → append-session-branch → thread-open-on-session-branch → merge-recorded → dispatch-answer-job → answer-ran → record-answers → question-answered → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ask_a_clarifying_question_during_review_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "ask-a-clarifying-question-during-review-P1", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: ReadManagedFile (node dispatch-answer-job; guards artifact-state=[yes: session branch], answer-ran=[yes])
+		var in1 inputAskAClarifyingQuestionDuringReviewP1S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-acq-p1","path":".claude/.method-assets-manifest.json","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepAskAClarifyingQuestionDuringReviewP1S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P1", 1, out1, err1, `{"result":"{\"Found\":true,\"Content\":\"eyJ2ZXJzaW9uIjoidjAuMTAuMSJ9\"}","errorExpected":false}`)
+	})
+}
+
+// inputAskAClarifyingQuestionDuringReviewP2S1 is step 1's parameters of ReadManagedFile, decoded from the binding's inputs.
+type inputAskAClarifyingQuestionDuringReviewP2S1 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Path string                       `json:"path"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_ask_a_clarifying_question_during_review_P2 — Ask a Clarifying Question During Review — [yes: session branch] · [no: dispatch miss] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → append-session-branch → thread-open-on-session-branch → merge-recorded → dispatch-answer-job → answer-ran → remain-open → question-still-open → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ask_a_clarifying_question_during_review_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "ask-a-clarifying-question-during-review-P2", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: ReadManagedFile (node dispatch-answer-job; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
+		var in1 inputAskAClarifyingQuestionDuringReviewP2S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-acq-p2","path":".claude/.method-assets-manifest.json","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.ReadManagedFile(callContext(t, h, "1"), in1.Repo, in1.Path, in1.Cred)
+		expect(t, "ask-a-clarifying-question-during-review-P2", 1, out1, err1, `{"result":"{\"Found\":false}","errorExpected":false}`)
+	})
+}
+
+// inputAskAClarifyingQuestionDuringReviewP3S1 is step 1's parameters of ReadManagedFile, decoded from the binding's inputs.
+type inputAskAClarifyingQuestionDuringReviewP3S1 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Path string                       `json:"path"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_ask_a_clarifying_question_during_review_P3 — Ask a Clarifying Question During Review — [no: committed] · [yes] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → seed-main-thread → thread-seeded-on-main → merge-recorded → dispatch-answer-job → answer-ran → record-answers → question-answered → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ask_a_clarifying_question_during_review_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "ask-a-clarifying-question-during-review-P3", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: ReadManagedFile (node dispatch-answer-job; guards artifact-state=[no: committed], answer-ran=[yes])
+		var in1 inputAskAClarifyingQuestionDuringReviewP3S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-acq-p3","path":".claude/.method-assets-manifest.json","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepAskAClarifyingQuestionDuringReviewP3S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P3", 1, out1, err1, `{"result":"{\"Found\":true,\"Content\":\"eyJ2ZXJzaW9uIjoidjAuMTAuMSJ9\"}","errorExpected":false}`)
+	})
+}
+
+// inputAskAClarifyingQuestionDuringReviewP4S1 is step 1's parameters of ReadManagedFile, decoded from the binding's inputs.
+type inputAskAClarifyingQuestionDuringReviewP4S1 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Path string                       `json:"path"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_ask_a_clarifying_question_during_review_P4 — Ask a Clarifying Question During Review — [no: committed] · [no: dispatch miss] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → seed-main-thread → thread-seeded-on-main → merge-recorded → dispatch-answer-job → answer-ran → remain-open → question-still-open → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ask_a_clarifying_question_during_review_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "ask-a-clarifying-question-during-review-P4", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: ReadManagedFile (node dispatch-answer-job; guards artifact-state=[no: committed], answer-ran=[no: dispatch miss])
+		var in1 inputAskAClarifyingQuestionDuringReviewP4S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-acq-p4","path":".claude/.method-assets-manifest.json","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.ReadManagedFile(callContext(t, h, "1"), in1.Repo, in1.Path, in1.Cred)
+		expect(t, "ask-a-clarifying-question-during-review-P4", 1, out1, err1, `{"result":"{\"Found\":false}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP1S1 is step 1's parameters of GetInstallationToken, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP1S1 struct {
+	Repo sourcecontrol.RepoRef `json:"repo"`
+}
+
+// inputExecuteAProjectActivityP1S2 is step 2's parameters of OpenBranch, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP1S2 struct {
+	Repo   sourcecontrol.RepoRef        `json:"repo"`
+	Branch sourcecontrol.BranchName     `json:"branch"`
+	Cred   sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP1S3 is step 3's parameters of OpenPullRequest, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP1S3 struct {
+	Repo sourcecontrol.RepoRef         `json:"repo"`
+	Spec sourcecontrol.PullRequestSpec `json:"spec"`
+	Cred sourcecontrol.RepoCredential  `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP1S4 is step 4's parameters of GetPullRequestStatus, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP1S4 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Pr   sourcecontrol.PullRequestRef `json:"pr"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "execute-a-project-activity-P1", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: GetInstallationToken (node dispatch-task; guards task-kind=dispatch, exit-met=yes)
+		var in1 inputExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.GetInstallationToken(callContext(t, h, "1"), in1.Repo)
+		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}","errorExpected":false}`)
+		// step 2: OpenBranch (node dispatch-task; guards task-kind=dispatch, exit-met=yes)
+		var in2 inputExecuteAProjectActivityP1S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p1","branch":"activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.OpenBranch(callContext(t, h, "2"), in2.Repo, in2.Branch, in2.Cred)
+		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"activity/C-SCA","errorExpected":false}`)
+		// step 3: OpenPullRequest (node dispatch-task; guards task-kind=dispatch, exit-met=yes)
+		var in3 inputExecuteAProjectActivityP1S3
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p1","spec":{"Head":"activity/C-SCA","Base":"main","Title":"C-SCA: construction","Body":"Activity C-SCA output for review.","Hints":""},"cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.OpenPullRequest(callContext(t, h, "3"), in3.Repo, in3.Spec, in3.Cred)
+		expect(t, "execute-a-project-activity-P1", 3, out3, err3, `{"result":"local#activity/C-SCA","errorExpected":false}`)
+		// step 4: GetPullRequestStatus (node observe-validate; guards task-kind=dispatch, exit-met=yes)
+		var in4 inputExecuteAProjectActivityP1S4
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p1","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.GetPullRequestStatus(callContext(t, h, "4"), in4.Repo, in4.Pr, in4.Cred)
+		expect(t, "execute-a-project-activity-P1", 4, out4, err4, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP2S1 is step 1's parameters of GetInstallationToken, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP2S1 struct {
+	Repo sourcecontrol.RepoRef `json:"repo"`
+}
+
+// inputExecuteAProjectActivityP2S2 is step 2's parameters of OpenBranch, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP2S2 struct {
+	Repo   sourcecontrol.RepoRef        `json:"repo"`
+	Branch sourcecontrol.BranchName     `json:"branch"`
+	Cred   sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP2S3 is step 3's parameters of OpenPullRequest, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP2S3 struct {
+	Repo sourcecontrol.RepoRef         `json:"repo"`
+	Spec sourcecontrol.PullRequestSpec `json:"spec"`
+	Cred sourcecontrol.RepoCredential  `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP2S4 is step 4's parameters of GetPullRequestStatus, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP2S4 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Pr   sourcecontrol.PullRequestRef `json:"pr"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "execute-a-project-activity-P2", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: GetInstallationToken (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in1 inputExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.GetInstallationToken(callContext(t, h, "1"), in1.Repo)
+		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}","errorExpected":false}`)
+		// step 2: OpenBranch (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in2 inputExecuteAProjectActivityP2S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p2","branch":"activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.OpenBranch(callContext(t, h, "2"), in2.Repo, in2.Branch, in2.Cred)
+		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"activity/C-SCA","errorExpected":false}`)
+		// step 3: OpenPullRequest (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in3 inputExecuteAProjectActivityP2S3
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p2","spec":{"Head":"activity/C-SCA","Base":"main","Title":"C-SCA: construction","Body":"Activity C-SCA output for review.","Hints":""},"cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.OpenPullRequest(callContext(t, h, "3"), in3.Repo, in3.Spec, in3.Cred)
+		expect(t, "execute-a-project-activity-P2", 3, out3, err3, `{"result":"local#activity/C-SCA","errorExpected":false}`)
+		// step 4: GetPullRequestStatus (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in4 inputExecuteAProjectActivityP2S4
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p2","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.GetPullRequestStatus(callContext(t, h, "4"), in4.Repo, in4.Pr, in4.Cred)
+		expect(t, "execute-a-project-activity-P2", 4, out4, err4, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP3S1 is step 1's parameters of PostReview, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP3S1 struct {
+	Repo   sourcecontrol.RepoRef          `json:"repo"`
+	Pr     sourcecontrol.PullRequestRef   `json:"pr"`
+	Review sourcecontrol.ReviewSubmission `json:"review"`
+	Cred   sourcecontrol.RepoCredential   `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP3S2 is step 2's parameters of GetPullRequestStatus, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP3S2 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Pr   sourcecontrol.PullRequestRef `json:"pr"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP3S3 is step 3's parameters of MergePullRequest, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP3S3 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Pr   sourcecontrol.PullRequestRef `json:"pr"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "execute-a-project-activity-P3", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: PostReview (node commit-artifact; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in1 inputExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p3","pr":"local#activity/C-SCA","review":{"Verdict":0,"Body":"Approved: C-SCA output meets its exit criteria."},"cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepExecuteAProjectActivityP3S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"errorExpected":false}`)
+		// step 2: GetPullRequestStatus (node commit-artifact; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in2 inputExecuteAProjectActivityP3S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p3","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.GetPullRequestStatus(callContext(t, h, "2"), in2.Repo, in2.Pr, in2.Cred)
+		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+		// step 3: MergePullRequest (node commit-artifact; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in3 inputExecuteAProjectActivityP3S3
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p3","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.MergePullRequest(callContext(t, h, "3"), in3.Repo, in3.Pr, in3.Cred)
+		expect(t, "execute-a-project-activity-P3", 3, out3, err3, `{"result":"{\"Merged\":true}","errorExpected":false}`)
+		// probe 3.1: designSessionAccess.ReadProjectOnBranch for artifact-committed
+		var pout3_1 any
+		var perr3_1 error
+		pout3_1, perr3_1 = probeExecuteAProjectActivityP3S3N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"id\":\"stp-sca-eapa-p3\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\"}}}}","errorExpected":false}`)
+		// probe 3.2: sourceControlAccess.GetPullRequestStatus for review-pr-merged
+		var pout3_2 any
+		var perr3_2 error
+		var probe3_2 struct {
+			Repo sourcecontrol.RepoRef        `json:"repo"`
+			Pr   sourcecontrol.PullRequestRef `json:"pr"`
+			Cred sourcecontrol.RepoCredential `json:"cred"`
+		}
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p3","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &probe3_2)
+		pout3_2, perr3_2 = subject.GetPullRequestStatus(callContext(t, h, "3.2"), probe3_2.Repo, probe3_2.Pr, probe3_2.Cred)
+		expect(t, "execute-a-project-activity-P3 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"CheckRollup\":1,\"Mergeable\":false}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP4S1 is step 1's parameters of PostReview, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP4S1 struct {
+	Repo   sourcecontrol.RepoRef          `json:"repo"`
+	Pr     sourcecontrol.PullRequestRef   `json:"pr"`
+	Review sourcecontrol.ReviewSubmission `json:"review"`
+	Cred   sourcecontrol.RepoCredential   `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP4S2 is step 2's parameters of GetPullRequestStatus, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP4S2 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Pr   sourcecontrol.PullRequestRef `json:"pr"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP4S3 is step 3's parameters of MergePullRequest, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP4S3 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Pr   sourcecontrol.PullRequestRef `json:"pr"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "execute-a-project-activity-P4", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: PostReview (node commit-artifact; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in1 inputExecuteAProjectActivityP4S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p4","pr":"local#activity/C-SCA","review":{"Verdict":0,"Body":"Approved: C-SCA output meets its exit criteria."},"cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepExecuteAProjectActivityP4S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"errorExpected":false}`)
+		// step 2: GetPullRequestStatus (node commit-artifact; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in2 inputExecuteAProjectActivityP4S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p4","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.GetPullRequestStatus(callContext(t, h, "2"), in2.Repo, in2.Pr, in2.Cred)
+		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+		// step 3: MergePullRequest (node commit-artifact; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in3 inputExecuteAProjectActivityP4S3
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p4","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.MergePullRequest(callContext(t, h, "3"), in3.Repo, in3.Pr, in3.Cred)
+		expect(t, "execute-a-project-activity-P4", 3, out3, err3, `{"result":"{\"Merged\":true}","errorExpected":false}`)
+		// probe 3.1: designSessionAccess.ReadProjectOnBranch for artifact-committed
+		var pout3_1 any
+		var perr3_1 error
+		pout3_1, perr3_1 = probeExecuteAProjectActivityP4S3N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P4 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"id\":\"stp-sca-eapa-p4\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\"}}}}","errorExpected":false}`)
+		// probe 3.2: sourceControlAccess.GetPullRequestStatus for review-pr-merged
+		var pout3_2 any
+		var perr3_2 error
+		var probe3_2 struct {
+			Repo sourcecontrol.RepoRef        `json:"repo"`
+			Pr   sourcecontrol.PullRequestRef `json:"pr"`
+			Cred sourcecontrol.RepoCredential `json:"cred"`
+		}
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p4","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &probe3_2)
+		pout3_2, perr3_2 = subject.GetPullRequestStatus(callContext(t, h, "3.2"), probe3_2.Repo, probe3_2.Pr, probe3_2.Cred)
+		expect(t, "execute-a-project-activity-P4 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"CheckRollup\":1,\"Mergeable\":false}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP5S1 is step 1's parameters of GetInstallationToken, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S1 struct {
+	Repo sourcecontrol.RepoRef `json:"repo"`
+}
+
+// inputExecuteAProjectActivityP5S2 is step 2's parameters of OpenBranch, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S2 struct {
+	Repo   sourcecontrol.RepoRef        `json:"repo"`
+	Branch sourcecontrol.BranchName     `json:"branch"`
+	Cred   sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP5S3 is step 3's parameters of OpenPullRequest, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S3 struct {
+	Repo sourcecontrol.RepoRef         `json:"repo"`
+	Spec sourcecontrol.PullRequestSpec `json:"spec"`
+	Cred sourcecontrol.RepoCredential  `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP5S4 is step 4's parameters of GetPullRequestStatus, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S4 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Pr   sourcecontrol.PullRequestRef `json:"pr"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP5S5 is step 5's parameters of GetInstallationToken, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S5 struct {
+	Repo sourcecontrol.RepoRef `json:"repo"`
+}
+
+// inputExecuteAProjectActivityP5S6 is step 6's parameters of OpenBranch, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S6 struct {
+	Repo   sourcecontrol.RepoRef        `json:"repo"`
+	Branch sourcecontrol.BranchName     `json:"branch"`
+	Cred   sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP5S7 is step 7's parameters of OpenPullRequest, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S7 struct {
+	Repo sourcecontrol.RepoRef         `json:"repo"`
+	Spec sourcecontrol.PullRequestSpec `json:"spec"`
+	Cred sourcecontrol.RepoCredential  `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP5S8 is step 8's parameters of GetPullRequestStatus, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S8 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Pr   sourcecontrol.PullRequestRef `json:"pr"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "execute-a-project-activity-P5", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: GetInstallationToken (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in1 inputExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p5"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.GetInstallationToken(callContext(t, h, "1"), in1.Repo)
+		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}","errorExpected":false}`)
+		// step 2: OpenBranch (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in2 inputExecuteAProjectActivityP5S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p5","branch":"activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.OpenBranch(callContext(t, h, "2"), in2.Repo, in2.Branch, in2.Cred)
+		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"activity/C-SCA","errorExpected":false}`)
+		// step 3: OpenPullRequest (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in3 inputExecuteAProjectActivityP5S3
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p5","spec":{"Head":"activity/C-SCA","Base":"main","Title":"C-SCA: construction","Body":"Activity C-SCA output for review.","Hints":""},"cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.OpenPullRequest(callContext(t, h, "3"), in3.Repo, in3.Spec, in3.Cred)
+		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"result":"local#activity/C-SCA","errorExpected":false}`)
+		// step 4: GetPullRequestStatus (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in4 inputExecuteAProjectActivityP5S4
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p5","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.GetPullRequestStatus(callContext(t, h, "4"), in4.Repo, in4.Pr, in4.Cred)
+		expect(t, "execute-a-project-activity-P5", 4, out4, err4, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+		// step 5: GetInstallationToken (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in5 inputExecuteAProjectActivityP5S5
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p5"}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.GetInstallationToken(callContext(t, h, "5"), in5.Repo)
+		expect(t, "execute-a-project-activity-P5", 5, out5, err5, `{"result":"{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}","errorExpected":false}`)
+		// step 6: OpenBranch (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in6 inputExecuteAProjectActivityP5S6
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p5","branch":"activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in6)
+		var out6 any
+		var err6 error
+		out6, err6 = subject.OpenBranch(callContext(t, h, "6"), in6.Repo, in6.Branch, in6.Cred)
+		expect(t, "execute-a-project-activity-P5", 6, out6, err6, `{"result":"activity/C-SCA","errorExpected":false}`)
+		// step 7: OpenPullRequest (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in7 inputExecuteAProjectActivityP5S7
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p5","spec":{"Head":"activity/C-SCA","Base":"main","Title":"C-SCA: construction","Body":"Activity C-SCA output for review.","Hints":""},"cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in7)
+		var out7 any
+		var err7 error
+		out7, err7 = subject.OpenPullRequest(callContext(t, h, "7"), in7.Repo, in7.Spec, in7.Cred)
+		expect(t, "execute-a-project-activity-P5", 7, out7, err7, `{"result":"local#activity/C-SCA","errorExpected":false}`)
+		// step 8: GetPullRequestStatus (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in8 inputExecuteAProjectActivityP5S8
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p5","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in8)
+		var out8 any
+		var err8 error
+		out8, err8 = subject.GetPullRequestStatus(callContext(t, h, "8"), in8.Repo, in8.Pr, in8.Cred)
+		expect(t, "execute-a-project-activity-P5", 8, out8, err8, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP6S1 is step 1's parameters of GetInstallationToken, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP6S1 struct {
+	Repo sourcecontrol.RepoRef `json:"repo"`
+}
+
+// inputExecuteAProjectActivityP6S2 is step 2's parameters of OpenBranch, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP6S2 struct {
+	Repo   sourcecontrol.RepoRef        `json:"repo"`
+	Branch sourcecontrol.BranchName     `json:"branch"`
+	Cred   sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP6S3 is step 3's parameters of OpenPullRequest, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP6S3 struct {
+	Repo sourcecontrol.RepoRef         `json:"repo"`
+	Spec sourcecontrol.PullRequestSpec `json:"spec"`
+	Cred sourcecontrol.RepoCredential  `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP6S4 is step 4's parameters of GetPullRequestStatus, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP6S4 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Pr   sourcecontrol.PullRequestRef `json:"pr"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P6(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "execute-a-project-activity-P6", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: GetInstallationToken (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in1 inputExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p6"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.GetInstallationToken(callContext(t, h, "1"), in1.Repo)
+		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}","errorExpected":false}`)
+		// step 2: OpenBranch (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in2 inputExecuteAProjectActivityP6S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p6","branch":"activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.OpenBranch(callContext(t, h, "2"), in2.Repo, in2.Branch, in2.Cred)
+		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"activity/C-SCA","errorExpected":false}`)
+		// step 3: OpenPullRequest (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in3 inputExecuteAProjectActivityP6S3
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p6","spec":{"Head":"activity/C-SCA","Base":"main","Title":"C-SCA: construction","Body":"Activity C-SCA output for review.","Hints":""},"cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.OpenPullRequest(callContext(t, h, "3"), in3.Repo, in3.Spec, in3.Cred)
+		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"result":"local#activity/C-SCA","errorExpected":false}`)
+		// step 4: GetPullRequestStatus (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in4 inputExecuteAProjectActivityP6S4
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p6","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.GetPullRequestStatus(callContext(t, h, "4"), in4.Repo, in4.Pr, in4.Cred)
+		expect(t, "execute-a-project-activity-P6", 4, out4, err4, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP7S1 is step 1's parameters of GetInstallationToken, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S1 struct {
+	Repo sourcecontrol.RepoRef `json:"repo"`
+}
+
+// inputExecuteAProjectActivityP7S2 is step 2's parameters of OpenBranch, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S2 struct {
+	Repo   sourcecontrol.RepoRef        `json:"repo"`
+	Branch sourcecontrol.BranchName     `json:"branch"`
+	Cred   sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP7S3 is step 3's parameters of OpenPullRequest, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S3 struct {
+	Repo sourcecontrol.RepoRef         `json:"repo"`
+	Spec sourcecontrol.PullRequestSpec `json:"spec"`
+	Cred sourcecontrol.RepoCredential  `json:"cred"`
+}
+
+// inputExecuteAProjectActivityP7S4 is step 4's parameters of GetPullRequestStatus, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S4 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Pr   sourcecontrol.PullRequestRef `json:"pr"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P7(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "execute-a-project-activity-P7", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: GetInstallationToken (node dispatch-task; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in1 inputExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p7"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.GetInstallationToken(callContext(t, h, "1"), in1.Repo)
+		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}","errorExpected":false}`)
+		// step 2: OpenBranch (node dispatch-task; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in2 inputExecuteAProjectActivityP7S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p7","branch":"activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.OpenBranch(callContext(t, h, "2"), in2.Repo, in2.Branch, in2.Cred)
+		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"activity/C-SCA","errorExpected":false}`)
+		// step 3: OpenPullRequest (node dispatch-task; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in3 inputExecuteAProjectActivityP7S3
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p7","spec":{"Head":"activity/C-SCA","Base":"main","Title":"C-SCA: construction","Body":"Activity C-SCA output for review.","Hints":""},"cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.OpenPullRequest(callContext(t, h, "3"), in3.Repo, in3.Spec, in3.Cred)
+		expect(t, "execute-a-project-activity-P7", 3, out3, err3, `{"result":"local#activity/C-SCA","errorExpected":false}`)
+		// step 4: GetPullRequestStatus (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in4 inputExecuteAProjectActivityP7S4
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-eapa-p7","pr":"local#activity/C-SCA","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.GetPullRequestStatus(callContext(t, h, "4"), in4.Repo, in4.Pr, in4.Cred)
+		expect(t, "execute-a-project-activity-P7", 4, out4, err4, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+	})
+}
+
+// inputManageProjectsP1S1 is step 1's parameters of AdoptProjectRepo, decoded from the binding's inputs.
+type inputManageProjectsP1S1 struct {
+	Spec sourcecontrol.RepoAdoptionSpec `json:"spec"`
+}
+
+// inputManageProjectsP1S2 is step 2's parameters of CommitManagedFiles, decoded from the binding's inputs.
+type inputManageProjectsP1S2 struct {
+	Repo  sourcecontrol.RepoRef        `json:"repo"`
+	Files []sourcecontrol.ManagedFile  `json:"files"`
+	Cred  sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputManageProjectsP1S3 is step 3's parameters of SyncManagedScaffold, decoded from the binding's inputs.
+type inputManageProjectsP1S3 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+func TestScenario_manage_projects_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "manage-projects-P1", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: AdoptProjectRepo (node adopt-repo; guards operating-model=[no: self-operated])
+		var in1 inputManageProjectsP1S1
+		mustUnmarshal(t, `{"spec":{"RepoName":"stp-sca-mp-p1","Account":"local","Title":"STP sourceControlAccess manage-projects P1","Hints":""}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.AdoptProjectRepo(callContext(t, h, "1"), in1.Spec)
+		expect(t, "manage-projects-P1", 1, out1, err1, `{"result":"local|local/stp-sca-mp-p1","errorExpected":false}`)
+		// step 2: CommitManagedFiles (node adopt-repo; guards operating-model=[no: self-operated])
+		var in2 inputManageProjectsP1S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-mp-p1","files":[{"Path":".github/workflows/aiarch-design.yml","Content":"bmFtZTogYWlhcmNoLWRlc2lnbgo="}],"cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.CommitManagedFiles(callContext(t, h, "2"), in2.Repo, in2.Files, in2.Cred)
+		expect(t, "manage-projects-P1", 2, out2, err2, `{"errorExpected":false}`)
+		// step 3: SyncManagedScaffold (node adopt-repo; guards operating-model=[no: self-operated])
+		var in3 inputManageProjectsP1S3
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-mp-p1","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.SyncManagedScaffold(callContext(t, h, "3"), in3.Repo, in3.Cred)
+		expect(t, "manage-projects-P1", 3, out3, err3, `{"result":"false","errorExpected":false}`)
+		// probe 3.1: sourceControlAccess.ReadManagedFile for obj-project-repo-adopted
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			Repo sourcecontrol.RepoRef        `json:"repo"`
+			Path string                       `json:"path"`
+			Cred sourcecontrol.RepoCredential `json:"cred"`
+		}
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-mp-p1","path":".github/workflows/aiarch-design.yml","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadManagedFile(callContext(t, h, "3.1"), probe3_1.Repo, probe3_1.Path, probe3_1.Cred)
+		expect(t, "manage-projects-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"Found\":true,\"Content\":\"bmFtZTogYWlhcmNoLWRlc2lnbgo=\"}","errorExpected":false}`)
+		// probe 3.2: sourceControlAccess.ReadManagedFile for adopt-repo
+		var pout3_2 any
+		var perr3_2 error
+		var probe3_2 struct {
+			Repo sourcecontrol.RepoRef        `json:"repo"`
+			Path string                       `json:"path"`
+			Cred sourcecontrol.RepoCredential `json:"cred"`
+		}
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-mp-p1","path":".github/workflows/aiarch-design.yml","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &probe3_2)
+		pout3_2, perr3_2 = subject.ReadManagedFile(callContext(t, h, "3.2"), probe3_2.Repo, probe3_2.Path, probe3_2.Cred)
+		expect(t, "manage-projects-P1 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"Found\":true}","errorExpected":false}`)
+	})
+}
+
+// inputManageProjectsP2S1 is step 1's parameters of AdoptProjectRepo, decoded from the binding's inputs.
+type inputManageProjectsP2S1 struct {
+	Spec sourcecontrol.RepoAdoptionSpec `json:"spec"`
+}
+
+// inputManageProjectsP2S2 is step 2's parameters of CommitManagedFiles, decoded from the binding's inputs.
+type inputManageProjectsP2S2 struct {
+	Repo  sourcecontrol.RepoRef        `json:"repo"`
+	Files []sourcecontrol.ManagedFile  `json:"files"`
+	Cred  sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// inputManageProjectsP2S3 is step 3's parameters of SyncManagedScaffold, decoded from the binding's inputs.
+type inputManageProjectsP2S3 struct {
+	Repo sourcecontrol.RepoRef        `json:"repo"`
+	Cred sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_manage_projects_P2 — Manage Projects — [yes] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → record-operated → obj-operating-model-operated → note-operating-model-values → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+func TestScenario_manage_projects_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "manage-projects-P2", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: AdoptProjectRepo (node adopt-repo; guards operating-model=[yes])
+		var in1 inputManageProjectsP2S1
+		mustUnmarshal(t, `{"spec":{"RepoName":"stp-sca-mp-p2","Account":"local","Title":"STP sourceControlAccess manage-projects P2","Hints":""}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.AdoptProjectRepo(callContext(t, h, "1"), in1.Spec)
+		expect(t, "manage-projects-P2", 1, out1, err1, `{"result":"local|local/stp-sca-mp-p2","errorExpected":false}`)
+		// step 2: CommitManagedFiles (node adopt-repo; guards operating-model=[yes])
+		var in2 inputManageProjectsP2S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-mp-p2","files":[{"Path":".github/workflows/aiarch-design.yml","Content":"bmFtZTogYWlhcmNoLWRlc2lnbgo="}],"cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.CommitManagedFiles(callContext(t, h, "2"), in2.Repo, in2.Files, in2.Cred)
+		expect(t, "manage-projects-P2", 2, out2, err2, `{"errorExpected":false}`)
+		// step 3: SyncManagedScaffold (node adopt-repo; guards operating-model=[yes])
+		var in3 inputManageProjectsP2S3
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-mp-p2","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.SyncManagedScaffold(callContext(t, h, "3"), in3.Repo, in3.Cred)
+		expect(t, "manage-projects-P2", 3, out3, err3, `{"result":"false","errorExpected":false}`)
+		// probe 3.1: sourceControlAccess.ReadManagedFile for obj-project-repo-adopted
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			Repo sourcecontrol.RepoRef        `json:"repo"`
+			Path string                       `json:"path"`
+			Cred sourcecontrol.RepoCredential `json:"cred"`
+		}
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-mp-p2","path":".github/workflows/aiarch-design.yml","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadManagedFile(callContext(t, h, "3.1"), probe3_1.Repo, probe3_1.Path, probe3_1.Cred)
+		expect(t, "manage-projects-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"Found\":true,\"Content\":\"bmFtZTogYWlhcmNoLWRlc2lnbgo=\"}","errorExpected":false}`)
+		// probe 3.2: sourceControlAccess.ReadManagedFile for adopt-repo
+		var pout3_2 any
+		var perr3_2 error
+		var probe3_2 struct {
+			Repo sourcecontrol.RepoRef        `json:"repo"`
+			Path string                       `json:"path"`
+			Cred sourcecontrol.RepoCredential `json:"cred"`
+		}
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-mp-p2","path":".github/workflows/aiarch-design.yml","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &probe3_2)
+		pout3_2, perr3_2 = subject.ReadManagedFile(callContext(t, h, "3.2"), probe3_2.Repo, probe3_2.Path, probe3_2.Cred)
+		expect(t, "manage-projects-P2 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"Found\":true}","errorExpected":false}`)
+	})
+}
+
+// inputReplanUnderScopeChangeP2S1 is step 1's parameters of GetInstallationToken, decoded from the binding's inputs.
+type inputReplanUnderScopeChangeP2S1 struct {
+	Repo sourcecontrol.RepoRef `json:"repo"`
+}
+
+// inputReplanUnderScopeChangeP2S2 is step 2's parameters of OpenBranch, decoded from the binding's inputs.
+type inputReplanUnderScopeChangeP2S2 struct {
+	Repo   sourcecontrol.RepoRef        `json:"repo"`
+	Branch sourcecontrol.BranchName     `json:"branch"`
+	Cred   sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_replan_under_scope_change_P2 — Replan Under Scope Change — [no: scope change] · [accept] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → adopt → sdp-revision-adopted → committed-network-revised → merge-end → end).
+func TestScenario_replan_under_scope_change_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "replan-under-scope-change-P2", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: GetInstallationToken (node reenter; guards classify=[no: scope change], mgmt=[accept])
+		var in1 inputReplanUnderScopeChangeP2S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-rusc-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.GetInstallationToken(callContext(t, h, "1"), in1.Repo)
+		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"result":"{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}","errorExpected":false}`)
+		// step 2: OpenBranch (node reenter; guards classify=[no: scope change], mgmt=[accept])
+		var in2 inputReplanUnderScopeChangeP2S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-rusc-p2","branch":"aiarch/session/amendment-1","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.OpenBranch(callContext(t, h, "2"), in2.Repo, in2.Branch, in2.Cred)
+		expect(t, "replan-under-scope-change-P2", 2, out2, err2, `{"result":"aiarch/session/amendment-1","errorExpected":false}`)
+		// probe 2.1: sourceControlAccess.GetPullRequestStatus for
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			Repo sourcecontrol.RepoRef        `json:"repo"`
+			Pr   sourcecontrol.PullRequestRef `json:"pr"`
+			Cred sourcecontrol.RepoCredential `json:"cred"`
+		}
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-rusc-p2","pr":"local#aiarch/session/amendment-1","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &probe2_1)
+		pout2_1, perr2_1 = subject.GetPullRequestStatus(callContext(t, h, "2.1"), probe2_1.Repo, probe2_1.Pr, probe2_1.Cred)
+		expect(t, "replan-under-scope-change-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+	})
+}
+
+// inputReplanUnderScopeChangeP3S1 is step 1's parameters of GetInstallationToken, decoded from the binding's inputs.
+type inputReplanUnderScopeChangeP3S1 struct {
+	Repo sourcecontrol.RepoRef `json:"repo"`
+}
+
+// inputReplanUnderScopeChangeP3S2 is step 2's parameters of OpenBranch, decoded from the binding's inputs.
+type inputReplanUnderScopeChangeP3S2 struct {
+	Repo   sourcecontrol.RepoRef        `json:"repo"`
+	Branch sourcecontrol.BranchName     `json:"branch"`
+	Cred   sourcecontrol.RepoCredential `json:"cred"`
+}
+
+// TestScenario_replan_under_scope_change_P3 — Replan Under Scope Change — [no: scope change] · [reject] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → record-reject → sdp-revision-rejected → merge-end → end).
+func TestScenario_replan_under_scope_change_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "sourceControlAccess", "replan-under-scope-change-P3", func(t *testing.T) {
+		var subject sourcecontrol.SourceControlAccess = newSubject(t, h)
+		// step 1: GetInstallationToken (node reenter; guards classify=[no: scope change], mgmt=[reject])
+		var in1 inputReplanUnderScopeChangeP3S1
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-rusc-p3"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.GetInstallationToken(callContext(t, h, "1"), in1.Repo)
+		expect(t, "replan-under-scope-change-P3", 1, out1, err1, `{"result":"{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}","errorExpected":false}`)
+		// step 2: OpenBranch (node reenter; guards classify=[no: scope change], mgmt=[reject])
+		var in2 inputReplanUnderScopeChangeP3S2
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-rusc-p3","branch":"aiarch/session/amendment-1","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.OpenBranch(callContext(t, h, "2"), in2.Repo, in2.Branch, in2.Cred)
+		expect(t, "replan-under-scope-change-P3", 2, out2, err2, `{"result":"aiarch/session/amendment-1","errorExpected":false}`)
+		// probe 2.1: sourceControlAccess.GetPullRequestStatus for
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			Repo sourcecontrol.RepoRef        `json:"repo"`
+			Pr   sourcecontrol.PullRequestRef `json:"pr"`
+			Cred sourcecontrol.RepoCredential `json:"cred"`
+		}
+		mustUnmarshal(t, `{"repo":"local|local/stp-sca-rusc-p3","pr":"local#aiarch/session/amendment-1","cred":{"Bytes":"bG9jYWw=","ExpiresAt":"9999-12-31T00:00:00Z"}}`, &probe2_1)
+		pout2_1, perr2_1 = subject.GetPullRequestStatus(callContext(t, h, "2.1"), probe2_1.Repo, probe2_1.Pr, probe2_1.Cred)
+		expect(t, "replan-under-scope-change-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+	})
+}
+
+// callContext is the fwra call context a generated step calls the subject with:
+// the test's own context, a zero principal and, on an idempotent layer, a key
+// unique to the step. A step that needs an identity is a Hook:true step.
+func callContext(t *testing.T, h *scenariohost.Host, step string) fwra.Context {
+	t.Helper()
+	_ = step
+	return fwra.Context{Context: h.Context(t), IdempotencyKey: fwra.IdempotencyKey(t.Name() + "/" + step)}
+}
+
+func mustUnmarshal(t *testing.T, raw string, into any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(raw), into); err != nil {
+		t.Fatalf("testgen: decode %s: %v", raw, err)
+	}
+}
+
+// expect checks one step's outcome against its binding's expectation: an
+// expected error must arrive (carrying the expected code, when one is named);
+// an unexpected error fails; a named result must be a JSON subset of the
+// marshalled outcome.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	var want struct {
+		Result        string `json:"result"`
+		ErrorExpected bool   `json:"errorExpected"`
+		ErrorCode     string `json:"errorCode"`
+	}
+	mustUnmarshal(t, expectJSON, &want)
+	if want.ErrorExpected {
+		if err == nil {
+			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+		}
+		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
+			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+	}
+	if want.Result != "" && !resultMatches(want.Result, out) {
+		got, _ := json.Marshal(out)
+		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+	}
+}
+
+// errorHasCode matches the layer error's kind name, or the code as a substring
+// of the error text for a component-specific code.
+func errorHasCode(err error, code string) bool {
+	var le *fwra.Error
+	if errors.As(err, &le) && le.Kind.String() == code {
+		return true
+	}
+	return strings.Contains(err.Error(), code)
+}
+
+// resultMatches decodes the expectation (a JSON document, or a bare string)
+// and the marshalled outcome, and compares them as a subset.
+func resultMatches(wantRaw string, got any) bool {
+	var want any
+	if json.Unmarshal([]byte(wantRaw), &want) != nil {
+		want = wantRaw
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		return false
+	}
+	var g any
+	if json.Unmarshal(raw, &g) != nil {
+		return false
+	}
+	return subset(want, g)
+}
+
+// subset: every key of an expected object is present and matches; an expected
+// array matches element-wise; a scalar must be equal.
+func subset(want, got any) bool {
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			return false
+		}
+		for k, wv := range w {
+			gv, ok := g[k]
+			if !ok || !subset(wv, gv) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		g, ok := got.([]any)
+		if !ok || len(g) != len(w) {
+			return false
+		}
+		for i := range w {
+			if !subset(w[i], g[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(want, got)
+	}
+}
