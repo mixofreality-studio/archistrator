@@ -42,7 +42,7 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P2(t *testing
 		var out1 any
 		var err1 error
 		out1, err1 = stepEnforceCustomerDelinquencyOnOperatedSystemsP2S1(t, h, subject, in1)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P2", 1, out1, err1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":1}]","errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2", 1, out1, err1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":2}]","errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadInFlightOperatedApps for read-customer-systems
 		var pout1_1 any
 		var perr1_1 error
@@ -51,14 +51,14 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P2(t *testing
 		}
 		mustUnmarshal(t, `{"scope":{"AppIDs":[],"CustomerID":"0c5ac000-0000-4000-8000-000000000001"}}`, &probe1_1)
 		pout1_1, perr1_1 = subject.ReadInFlightOperatedApps(callContext(t, h, "1.1"), probe1_1.Scope)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":1}]","errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":2}]","errorExpected":false}`)
 		// step 2: RecordDelinquencyAction (node record-delinquency; guards directive-named=[yes], action-kind=[pause])
 		var in2 inputEnforceCustomerDelinquencyOnOperatedSystemsP2S2
-		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000001","expectedVersion":1,"action":1,"idempotencyKey":"stp-osa-delinq-1-2"}`, &in2)
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000001","expectedVersion":2,"action":1,"idempotencyKey":"stp-osa-delinq-1-2"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.RecordDelinquencyAction(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.Action, in2.IdempotencyKey)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P2", 2, out2, err2, `{"result":"2","errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2", 2, out2, err2, `{"result":"3","errorExpected":false}`)
 		// probe 2.1: operatedSystemStateAccess.ReadOperatedSystem for record-delinquency
 		var pout2_1 any
 		var perr2_1 error
@@ -67,7 +67,7 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P2(t *testing
 		}
 		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000001"}`, &probe2_1)
 		pout2_1, perr2_1 = subject.ReadOperatedSystem(callContext(t, h, "2.1"), probe2_1.OperatedAppID)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":2}","errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":3}","errorExpected":false}`)
 		// probe 2.2: operatedSystemStateAccess.ReadOperatedSystem for system-delinquency-recorded
 		var pout2_2 any
 		var perr2_2 error
@@ -76,7 +76,7 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P2(t *testing
 		}
 		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000001"}`, &probe2_2)
 		pout2_2, perr2_2 = subject.ReadOperatedSystem(callContext(t, h, "2.2"), probe2_2.OperatedAppID)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":2}","errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":3}","errorExpected":false}`)
 	})
 }
 
@@ -104,7 +104,7 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P3(t *testing
 		var out1 any
 		var err1 error
 		out1, err1 = stepEnforceCustomerDelinquencyOnOperatedSystemsP3S1(t, h, subject, in1)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, out1, err1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":1}]","errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, out1, err1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":2}]","errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadInFlightOperatedApps for read-customer-systems
 		var pout1_1 any
 		var perr1_1 error
@@ -113,14 +113,14 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P3(t *testing
 		}
 		mustUnmarshal(t, `{"scope":{"AppIDs":[],"CustomerID":"0c5ac000-0000-4000-8000-000000000002"}}`, &probe1_1)
 		pout1_1, perr1_1 = subject.ReadInFlightOperatedApps(callContext(t, h, "1.1"), probe1_1.Scope)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":1}]","errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":2}]","errorExpected":false}`)
 		// step 2: RecordDelinquencyAction (node record-delinquency; guards directive-named=[yes], action-kind=[withdraw])
 		var in2 inputEnforceCustomerDelinquencyOnOperatedSystemsP3S2
-		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000002","expectedVersion":1,"action":2,"idempotencyKey":"stp-osa-delinq-2-2"}`, &in2)
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000002","expectedVersion":2,"action":2,"idempotencyKey":"stp-osa-delinq-2-2"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.RecordDelinquencyAction(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.Action, in2.IdempotencyKey)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 2, out2, err2, `{"result":"2","errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 2, out2, err2, `{"result":"3","errorExpected":false}`)
 		// probe 2.1: operatedSystemStateAccess.ReadOperatedSystem for record-delinquency
 		var pout2_1 any
 		var perr2_1 error
@@ -129,7 +129,7 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P3(t *testing
 		}
 		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000002"}`, &probe2_1)
 		pout2_1, perr2_1 = subject.ReadOperatedSystem(callContext(t, h, "2.1"), probe2_1.OperatedAppID)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":2}","errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":3}","errorExpected":false}`)
 		// probe 2.2: operatedSystemStateAccess.ReadOperatedSystem for system-delinquency-recorded
 		var pout2_2 any
 		var perr2_2 error
@@ -138,7 +138,7 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P3(t *testing
 		}
 		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000002"}`, &probe2_2)
 		pout2_2, perr2_2 = subject.ReadOperatedSystem(callContext(t, h, "2.2"), probe2_2.OperatedAppID)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":2}","errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":3}","errorExpected":false}`)
 	})
 }
 
@@ -167,14 +167,14 @@ func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 		var out1 any
 		var err1 error
 		out1, err1 = stepOperateADeliveredSystemP1S1(t, h, subject, in1)
-		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":1,\"InFlight\":true,\"DeployableBundleRef\":\"bundle-osa-0003\"}","errorExpected":false}`)
+		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true,\"DeployableBundleRef\":\"bundle-osa-0003\"}","errorExpected":false}`)
 		// step 2: PublishDesiredState (node record-published-a)
 		var in2 inputOperateADeliveredSystemP1S2
-		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003","expectedVersion":1,"reason":2,"idempotencyKey":"stp-osa-op-P1-2"}`, &in2)
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003","expectedVersion":2,"reason":2,"idempotencyKey":"stp-osa-op-P1-2"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.PublishDesiredState(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.Reason, in2.Decision, in2.IdempotencyKey)
-		expect(t, "operate-a-delivered-system-P1", 2, out2, err2, `{"result":"2","errorExpected":false}`)
+		expect(t, "operate-a-delivered-system-P1", 2, out2, err2, `{"result":"3","errorExpected":false}`)
 		// probe 2.1: operatedSystemStateAccess.ReadOperatedSystem for record-published-a
 		var pout2_1 any
 		var perr2_1 error
@@ -183,7 +183,7 @@ func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003"}`, &probe2_1)
 		pout2_1, perr2_1 = subject.ReadOperatedSystem(callContext(t, h, "2.1"), probe2_1.OperatedAppID)
-		expect(t, "operate-a-delivered-system-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true}","errorExpected":false}`)
+		expect(t, "operate-a-delivered-system-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true}","errorExpected":false}`)
 		// probe 2.2: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-a
 		var pout2_2 any
 		var perr2_2 error
@@ -192,7 +192,7 @@ func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003"}`, &probe2_2)
 		pout2_2, perr2_2 = subject.ReadOperatedSystem(callContext(t, h, "2.2"), probe2_2.OperatedAppID)
-		expect(t, "operate-a-delivered-system-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true}","errorExpected":false}`)
+		expect(t, "operate-a-delivered-system-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true}","errorExpected":false}`)
 	})
 }
 
