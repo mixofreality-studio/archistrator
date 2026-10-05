@@ -401,6 +401,16 @@ export const UI_IDENTIFIERS = {
     SCENARIO_BINDING_CHIP: 'construction-scenario-binding-chip',
     /** The plain statement under an unbound scenario's step-through. */
     SCENARIO_UNBOUND: 'construction-scenario-unbound',
+    /** The selected scenario's header: use case, trigger, actors, guards taken. */
+    SCENARIO_HEADER: 'construction-scenario-header',
+    /** One stimulus row (data-seq): caller → component.op, inputs, expectations, proofs. */
+    SCENARIO_STIMULUS: 'construction-scenario-stimulus',
+    /** A stimulus row's binding fields still owed. */
+    SCENARIO_MISSING: 'construction-scenario-missing',
+    /** The scenario's path drawn on its use case's activity diagram. */
+    SCENARIO_PATH: 'construction-scenario-path',
+    /** The scenario's call chain: real callers, real layers, stimulus edges marked. */
+    SCENARIO_CHAIN: 'construction-scenario-chain',
     TEST_RUN_PANEL: 'construction-test-run-panel',
     /** The venue artifact has expired (GitHub 410): re-run integration. */
     TEST_RUN_EXPIRED: 'construction-test-run-expired',

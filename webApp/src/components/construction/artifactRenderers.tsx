@@ -51,6 +51,9 @@ export interface ArtifactRendererProps {
   vm: ArtifactActivityVM;
   project?: ProjectStateWithGit | undefined;
   systemEnvelope?: ArtifactModelEnvelope | undefined;
+  /** The committed core use cases — the scenario plan reads each scenario's
+   *  use case (name, trigger, actors, activity diagram) off it. */
+  useCasesEnvelope?: ArtifactModelEnvelope | undefined;
   t: Tokens;
   /**
    * The lifecycle phase the task under review belongs to. A `service` or

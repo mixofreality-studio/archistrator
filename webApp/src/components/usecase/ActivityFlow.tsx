@@ -57,6 +57,10 @@ const FIT_PADDING = 0.1;
 // from / to, and the adjacent lanes) stays on-canvas and legible — a "zoom to this
 // step" move, not a claustrophobic crop.
 const FOCUS_ZOOM = 0.95;
+// `focusFirst` opens AT a node with no overview behind it, so it stands back a
+// little further: the node plus the steps around it (a scenario's stimulus in its
+// path's neighbourhood).
+const FIRST_FOCUS_ZOOM = 0.7;
 const FOCUS_DURATION = 500;
 
 /**
@@ -167,7 +171,38 @@ function build(
     };
   });
 
-  return { nodes: [...laneNodes, ...activityNodes], edges };
+  // UML note attachment: a dashed, arrowless connector from an anchored note to
+  // the node it annotates (spec §2.2 `note.anchor` — the hint rides that node).
+  const ids = new Set(uc.nodes.map((n) => n.id));
+  const noteLinks: Edge[] = uc.nodes
+    .filter((n) => n.kind === 'note' && n.anchor !== undefined && ids.has(n.anchor))
+    .map((n) => {
+      const anchor = n.anchor ?? '';
+      const id = `${n.id}-${anchor}`;
+      const onPath = hl?.visitedEdges.has(id) ?? false;
+      const dim = hl !== undefined && !onPath;
+      const s = nodeCenter(layout, n.id, 'note');
+      const tgt = nodeCenter(layout, anchor, kindOf.get(anchor) ?? 'action');
+      const { sourceHandle, targetHandle } = edgeHandles(s, tgt, false);
+      return {
+        id,
+        source: n.id,
+        target: anchor,
+        sourceHandle,
+        targetHandle,
+        type: 'activity',
+        data: { label: '', dim, onPath },
+        zIndex: 2,
+        style: {
+          stroke: onPath ? t.accent : t.muted,
+          strokeWidth: 1.25,
+          strokeDasharray: '3 3',
+          opacity: dim ? 0.2 : 1,
+        },
+      };
+    });
+
+  return { nodes: [...laneNodes, ...activityNodes], edges: [...edges, ...noteLinks] };
 }
 
 /**
@@ -181,14 +216,23 @@ function build(
  *    guarantees the entire graph — every lane, start, terminal — is framed. This is
  *    the initial frame in BOTH modes and the ONLY camera move in the static view.
  *
- *  • Per-step focus (walkthrough only) — when the current step's node (`focusId`)
+ *  • Per-step focus (walkthrough, or `focusFirst`) — when the current step's node (`focusId`)
  *    changes, glide the camera to center on it at FOCUS_ZOOM (the founder-loved
  *    "zoom to next item"). The first step of a freshly-mounted graph is skipped so
  *    the initial whole-graph fit stands; every advance/back/rewind after that
  *    re-centers on the new current node. The ring + dim still carry "you are here";
  *    the camera move makes the current step readable without hunting for the ring.
  */
-function AutoFit({ fitToken, focusId }: { fitToken: string; focusId: string | undefined }): null {
+function AutoFit({
+  fitToken,
+  focusId,
+  focusFirst,
+}: {
+  fitToken: string;
+  focusId: string | undefined;
+  /** Land on `focusId` from the first frame (no whole-graph fit while one is set). */
+  focusFirst: boolean;
+}): null {
   const initialized = useNodesInitialized();
   const { fitView, getNode, setCenter } = useReactFlow();
   // The fitToken whose whole-graph fit has run — re-fit once per use case.
@@ -205,6 +249,7 @@ function AutoFit({ fitToken, focusId }: { fitToken: string; focusId: string | un
   // static (non-walkthrough) view.
   useEffect(() => {
     if (!initialized) return undefined;
+    if (focusFirst && focusId !== undefined && focusId.length > 0) return undefined;
     if (fittedToken.current === fitToken) return undefined;
     fittedToken.current = fitToken;
     const raf = requestAnimationFrame(() => {
@@ -213,7 +258,7 @@ function AutoFit({ fitToken, focusId }: { fitToken: string; focusId: string | un
     return (): void => {
       cancelAnimationFrame(raf);
     };
-  }, [initialized, fitToken, fitView]);
+  }, [initialized, fitToken, fitView, focusFirst, focusId]);
 
   // Per-step focus in walkthrough mode: glide the camera onto the current step's
   // node. Driven purely off `focusId` (NOT `useNodesInitialized`, which does not
@@ -223,11 +268,14 @@ function AutoFit({ fitToken, focusId }: { fitToken: string; focusId: string | un
     if (focusId === undefined || focusId.length === 0) return undefined;
     // Record and skip the initial step (already framed by the whole-graph fit) so the
     // overview stands on mount; re-runs on the same step are skipped by value too.
-    if (initialFocus.current?.token !== fitToken) {
-      initialFocus.current = { token: fitToken, id: focusId };
-      return undefined;
+    // `focusFirst` has no overview to keep: it lands on the initial step as well.
+    if (!focusFirst) {
+      if (initialFocus.current?.token !== fitToken) {
+        initialFocus.current = { token: fitToken, id: focusId };
+        return undefined;
+      }
+      if (initialFocus.current.id === focusId) return undefined;
     }
-    if (initialFocus.current.id === focusId) return undefined;
     // The nodes array is rebuilt every step; the target node may not be in the store
     // in the first frame after the click, so retry across a few frames. The you-are-
     // here map's nodes are not always MEASURED (useNodesInitialized never resolves),
@@ -245,7 +293,7 @@ function AutoFit({ fitToken, focusId }: { fitToken: string; focusId: string | un
       const w = node.measured?.width ?? node.width ?? dim.w;
       const h = node.measured?.height ?? node.height ?? dim.h;
       void setCenter(node.position.x + w / 2, node.position.y + h / 2, {
-        zoom: FOCUS_ZOOM,
+        zoom: focusFirst ? FIRST_FOCUS_ZOOM : FOCUS_ZOOM,
         duration: prefersReducedMotion() ? 0 : FOCUS_DURATION,
       });
     };
@@ -253,7 +301,7 @@ function AutoFit({ fitToken, focusId }: { fitToken: string; focusId: string | un
     return (): void => {
       cancelAnimationFrame(raf);
     };
-  }, [fitToken, focusId, getNode, setCenter]);
+  }, [fitToken, focusId, focusFirst, getNode, setCenter]);
 
   return null;
 }
@@ -263,6 +311,7 @@ export function ActivityFlow({
   useCaseIndex,
   height = 560,
   highlight,
+  focusFirst = false,
 }: {
   uc: UseCaseView;
   useCaseIndex: number;
@@ -272,6 +321,11 @@ export function ActivityFlow({
   height?: number | string;
   /** When set, the diagram renders as a walkthrough "you-are-here" map. */
   highlight?: ActivityHighlight;
+  /** Land the camera on `highlight.current` from the first frame instead of the
+   *  whole-graph fit (then glide as it changes). For a diagram too tall to read
+   *  whole in its frame — a test scenario opens AT its stimulus; the reader pans
+   *  or uses the fit control for the overview. */
+  focusFirst?: boolean;
 }): ReactNode {
   const t = useTokens();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -300,9 +354,11 @@ export function ActivityFlow({
     >
       <ReactFlow
         elementsSelectable
-        fitView
         edgeTypes={edgeTypes}
         edges={edges}
+        // `focusFirst` owns the first frame (AutoFit centres on the current node);
+        // React-Flow's own init fit would land after it and undo it.
+        fitView={!(focusFirst && (highlight?.current ?? '').length > 0)}
         fitViewOptions={{ padding: FIT_PADDING }}
         key={uc.id}
         maxZoom={1.4}
@@ -324,7 +380,7 @@ export function ActivityFlow({
       >
         <Background color={t.line} gap={22} size={1} />
         <Controls showInteractive={false} />
-        <AutoFit fitToken={uc.id} focusId={highlight?.current} />
+        <AutoFit fitToken={uc.id} focusFirst={focusFirst} focusId={highlight?.current} />
       </ReactFlow>
     </Box>
   );

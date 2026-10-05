@@ -823,12 +823,13 @@ type ScenarioGuardView struct {
 }
 
 type ScenarioInputView struct {
-	Kind  string `json:"kind"`
-	From  string `json:"from"`
-	To    string `json:"to"`
-	Op    string `json:"op"`
-	Call  string `json:"call"`
-	Guard string `json:"guard"`
+	Kind  string   `json:"kind"`
+	From  string   `json:"from"`
+	To    string   `json:"to"`
+	Op    string   `json:"op"`
+	Call  string   `json:"call"`
+	Guard string   `json:"guard"`
+	Via   []string `json:"via"`
 }
 
 type ScenarioOutcomeView struct {

@@ -1102,6 +1102,8 @@ export interface components {
       kind: string;
       op: string;
       to: string;
+      /** @description The alternative callers when an alt group's calls into the component collapse to this one stimulus (Amendment A4); empty when the stimulus has a single caller. */
+      via: null | string[];
     };
     DeliveryScenarioOutcomeView: {
       expectedOutputs: null | components['schemas']['DeliveryScenarioOutputView'][];

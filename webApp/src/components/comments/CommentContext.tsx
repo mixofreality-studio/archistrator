@@ -67,6 +67,16 @@ export type { Anchor, PostedComment, PostOptions, PendingQuestion, CommentCtx };
 
 const Ctx = createContext<CommentCtx | null>(null);
 
+/**
+ * Commenting OFF for a borrowed view of ANOTHER artifact — the use case's own
+ * activity diagram drawn inside a test-plan review, say. Its affordances would
+ * arm anchors that point into a document this review is not about, so the
+ * subtree reads the disabled context instead of the review's provider.
+ */
+export function CommentsOff({ children }: { children: ReactNode }): ReactNode {
+  return <Ctx.Provider value={DISABLED_COMMENT_CTX}>{children}</Ctx.Provider>;
+}
+
 export function useComments(): CommentCtx {
   const c = useContext(Ctx);
   if (c === null) {

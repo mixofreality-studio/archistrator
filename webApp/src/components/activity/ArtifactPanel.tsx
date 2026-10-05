@@ -249,6 +249,7 @@ export function ArtifactPanel({
             systemEnvelope={systemEnvelope}
             t={t}
             testing={testing}
+            useCasesEnvelope={slotEnvelope(slots, 'coreUseCases')}
             vm={vm}
           />
         );

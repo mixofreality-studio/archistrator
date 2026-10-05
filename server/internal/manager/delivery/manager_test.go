@@ -32154,13 +32154,16 @@ func testRunFixtureProject() projectstate.Project {
 }
 
 // testRunProjection is the hand projection the fixture joins against: three scenarios
-// for billingManager, in canonical order.
+// for billingManager, in canonical order. Like the production projector it reads the
+// component by its normalized id (an activity names it kebab, a contract camel).
 func testRunProjection(_ *projectstate.Project, component string) ([]scenario.Scenario, error) {
-	if component != "billingManager" {
+	if scenario.Normalize(component) != "billingmanager" {
 		return nil, fmt.Errorf("unexpected component %q", component)
 	}
 	return []scenario.Scenario{
-		{ID: "bill-the-user-for-usage-P1", UseCase: "bill-the-user-for-usage", Title: "Bill the user for usage"},
+		{ID: "bill-the-user-for-usage-P1", UseCase: "bill-the-user-for-usage", Title: "Bill the user for usage",
+			Stimuli: []scenario.Stimulus{{Seq: 1, Node: "register", Input: scenario.InputEv{Kind: "action", From: "web-client",
+				To: "billingmanager", Op: "ChargeUsage", Call: "bill-the-user-for-usage/register/0", Via: []string{"web-client", "mcp-client"}}}}},
 		{ID: "bill-the-user-for-usage-P2", UseCase: "bill-the-user-for-usage", Title: "Bill the user for usage [card declined]",
 			Guards: []scenario.Guard{{At: "d1", Guard: "card declined"}}},
 		{ID: "bill-the-user-for-usage-P3", UseCase: "bill-the-user-for-usage", Title: "Bill the user for usage [no usage]",
@@ -32352,6 +32355,32 @@ func TestQueryScenariosView_JoinsTheCommittedBindings(t *testing.T) {
 	}
 	if _, err := m.QueryProjectView(bgRC(), ProjectViewQuery{Kind: ProjectViewScenarios, ProjectID: &pid}); err == nil {
 		t.Fatal("the scenarios view needs a componentId")
+	}
+}
+
+// The activity names its component kebab ("billing-manager") while the plan is keyed
+// by the contract ("billingManager"): the binding still joins, so the plan view never
+// reads a bound scenario as unbound. And an alt group's alternative callers ride the
+// stimulus (Amendment A4).
+func TestQueryScenariosView_JoinsAKebabComponentAndCarriesVia(t *testing.T) {
+	proj := testRunFixtureProject()
+	proj.PhaseArtifacts = &projectstate.PhaseArtifacts{TestPlan: map[string]projectstate.TestPlanRecord{
+		"billingManager": {Component: "billingManager", Bindings: []projectstate.ScenarioBinding{
+			{Scenario: "bill-the-user-for-usage-P1", Steps: []projectstate.StepBinding{{Seq: 1, Operation: "ChargeUsage"}}},
+		}},
+	}}
+	m := testRunManager(proj, &artifactfake.FakeArtifactAccess{})
+	pid, kebab := "p", "billing-manager"
+	out, err := m.QueryProjectView(bgRC(), ProjectViewQuery{Kind: ProjectViewScenarios, ProjectID: &pid, ComponentID: &kebab})
+	if err != nil || len(out.Scenarios) != 3 {
+		t.Fatalf("scenarios view: %v %+v", err, out.Scenarios)
+	}
+	p1 := out.Scenarios[0]
+	if p1.Binding == nil || p1.Binding.Steps[0].Operation != "ChargeUsage" {
+		t.Errorf("a kebab component id joins the contract-keyed plan: %+v", p1.Binding)
+	}
+	if len(p1.Stimuli) != 1 || !slices.Equal(p1.Stimuli[0].Input.Via, []string{"web-client", "mcp-client"}) {
+		t.Errorf("P1 stimulus via: %+v", p1.Stimuli)
 	}
 }
 

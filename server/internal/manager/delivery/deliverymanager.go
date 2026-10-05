@@ -14165,6 +14165,19 @@ func testPlanBindings(proj *projectstate.Project, component string) map[string]p
 	}
 	rec, ok := proj.PhaseArtifacts.TestPlan[component]
 	if !ok {
+		// The plan is keyed by the contract ("billingManager"); an activity names its
+		// component kebab ("billing-manager"). Join the way the projection reads the
+		// component — normalized — so the plan view never reads a bound scenario as
+		// unbound. Keys are visited in order so a (malformed) double key is stable.
+		want := scenario.Normalize(component)
+		for _, key := range slices.Sorted(maps.Keys(proj.PhaseArtifacts.TestPlan)) {
+			if scenario.Normalize(key) == want {
+				rec, ok = proj.PhaseArtifacts.TestPlan[key], true
+				break
+			}
+		}
+	}
+	if !ok {
 		return nil
 	}
 	out := make(map[string]projectstate.ScenarioBinding, len(rec.Bindings))
@@ -14195,6 +14208,7 @@ func scenariosToContract(projected []scenario.Scenario, bindings map[string]proj
 				Input: ScenarioInputView{
 					Kind: st.Input.Kind, From: st.Input.From, To: st.Input.To,
 					Op: st.Input.Op, Call: st.Input.Call, Guard: st.Input.Guard,
+					Via: nonNilStrings(st.Input.Via),
 				},
 				Outcome: outcomeToContract(st.Outcome),
 			})

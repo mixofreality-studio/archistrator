@@ -482,6 +482,9 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"attemptId": "The gate attempt this verdict was given at.",
 		"summary":   "The reviewer's one-line reason, verbatim.",
 	},
+	reflect.TypeFor[mgr.ScenarioInputView](): {
+		"via": "The alternative callers when an alt group's calls into the component collapse to this one stimulus (Amendment A4); empty when the stimulus has a single caller.",
+	},
 	reflect.TypeFor[mgr.TaskAttempt](): {
 		"detail": "The attempt's own render-ready sentence, verbatim. Absent where the attempt recorded none.",
 	},

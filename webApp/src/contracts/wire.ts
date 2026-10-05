@@ -861,6 +861,7 @@ export function mapScenarioView(w: Schemas['DeliveryScenarioView']): ScenarioVie
         op: st.input.op,
         call: st.input.call,
         guard: st.input.guard,
+        via: arr(st.input.via),
       },
       outcome: mapScenarioOutcome(st.outcome),
     })),

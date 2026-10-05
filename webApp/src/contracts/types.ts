@@ -1092,6 +1092,9 @@ export interface ScenarioInputView {
   op: string;
   call: string;
   guard: string;
+  /** The alternative callers when an alt group's calls into `to` collapse to
+   *  this one stimulus (Amendment A4); empty for a single caller. */
+  via: string[];
 }
 
 export interface ScenarioOutputView {
