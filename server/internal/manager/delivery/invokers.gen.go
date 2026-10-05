@@ -114,6 +114,20 @@ func (i genInvokers) ProjectStateRecordReviewPolicy(ctx workflow.Context, projec
 	return out, err
 }
 
+// ProjectStateRecordSdpReviewOutcome invokes activity "projectStateAccess.recordSdpReviewOutcome".
+func (i genInvokers) ProjectStateRecordSdpReviewOutcome(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, outcome projectstate.ArtifactReviewStatus, feedback string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordSdpReviewOutcome"), "projectStateAccess.recordSdpReviewOutcome", projectID, expectedVersion, outcome, feedback).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordTrackingPoint invokes activity "projectStateAccess.recordTrackingPoint".
+func (i genInvokers) ProjectStateRecordTrackingPoint(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, point projectstate.EvPoint) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordTrackingPoint"), "projectStateAccess.recordTrackingPoint", projectID, expectedVersion, point).Get(ctx, &out)
+	return out, err
+}
+
 // ProjectStateSetOperatingModel invokes activity "projectStateAccess.setOperatingModel".
 func (i genInvokers) ProjectStateSetOperatingModel(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
 	var out projectstate.Version

@@ -806,10 +806,9 @@ func applyHeadState(summary *ProjectSummary, p Project, docUpdatedAt time.Time) 
 // an activity the plan no longer holds veto completion. A listed activity with no row
 // has not started. A row that is merely Done-but-not-integrated (the Skipped/TakenOver
 // shape RecordActivityExited leaves) or still Running/Failed keeps the project
-// incomplete: Phase alone is not sufficient. The fixture corpus at
-// testdata/operating_fixtures.json is shared byte-identically with the webApp TS side
-// (contracts/operating.ts deriveOperating), which applies the same list-driven rule
-// over the view-model's already-resolved rows. Unexported: only ListProjects (same
+// incomplete: Phase alone is not sufficient. The webApp TS side
+// (contracts/operating.ts deriveOperating) applies the same list-driven rule over the
+// view-model's already-resolved rows. Unexported: only ListProjects (same
 // package) calls it today.
 //
 // THE PHASE CLAUSE IS NOW THE ONLY GUARD, and that is worth saying out loud. "has a
@@ -1814,6 +1813,26 @@ func (a *projectStateGitAdapter) RecordOperatorPaused(rc fwra.Context, projectID
 	return a.store.recordOperatorPaused(rc, projectID, expectedVersion, reason, cred, idempotencyKey)
 }
 
+// RecordSdpReviewOutcome records an M0 reject-all or grace-window revoke (see
+// GitStore.recordSdpReviewOutcome). The cred is minted just-in-time.
+func (a *projectStateGitAdapter) RecordSdpReviewOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, outcome ArtifactReviewStatus, feedback string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	cred, err := a.minter.CredentialFor(rc.Context, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordSdpReviewOutcome(rc, projectID, expectedVersion, outcome, feedback, cred, idempotencyKey)
+}
+
+// RecordTrackingPoint records one week's tracking point (see
+// GitStore.recordTrackingPoint). The cred is minted just-in-time.
+func (a *projectStateGitAdapter) RecordTrackingPoint(rc fwra.Context, projectID ProjectID, expectedVersion Version, point EvPoint, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	cred, err := a.minter.CredentialFor(rc.Context, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordTrackingPoint(rc, projectID, expectedVersion, point, cred, idempotencyKey)
+}
+
 // RecordOperatorResumed clears the recorded pause (plan B1.7). The cred is minted
 // just-in-time.
 func (a *projectStateGitAdapter) RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error) {
@@ -2034,6 +2053,94 @@ func (s *GitStore) recordOperatorPaused(rc fwra.Context, projectID ProjectID, ex
 	})
 }
 
+// recordSdpReviewOutcome records the M0 gate's two NON-commit outcomes on the SDP review
+// slot (use case commit-to-a-project-option; DCT §12 B7 — the use case stands):
+//
+//   - ReviewRejected (reject-all + feedback): no presented option is acceptable; the slot
+//     reads rejected with the feedback on its review thread, and the project stays in (or
+//     returns to) project design for a fresh set of options. Feedback is required.
+//   - ReviewWithdrawn (the grace-window revoke): a COMMITTED option is withdrawn; the slot
+//     reads withdrawn and the project returns to project design to await a new decision
+//     (construction rows already opened stay as history; the pump's M0 fence holds them).
+//
+// A commit is NOT recorded here — it is CommitArtifactWithProvenance + AdvancePhase. Any
+// other outcome, a reject without feedback, a reject of an SDP review not awaiting review,
+// and a revoke of one not committed are ContractMisuse. Whether a revoke is still inside
+// its grace window is the Manager's policy, not this store's.
+func (s *GitStore) recordSdpReviewOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, outcome ArtifactReviewStatus, feedback string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	const verb = "projectstate.RecordSdpReviewOutcome"
+	switch outcome {
+	case ReviewRejected:
+		if strings.TrimSpace(feedback) == "" {
+			return 0, fwra.New(fwra.ContractMisuse, verb+": a reject-all carries the architect's feedback; got none")
+		}
+	case ReviewWithdrawn:
+	case ReviewNone, ReviewAwaitingReview, ReviewCommitted:
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: outcome %d is not an M0 outcome this verb records (rejected or withdrawn; a commit is CommitArtifactWithProvenance)", verb, int(outcome)))
+	default:
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: unknown outcome %d", verb, int(outcome)))
+	}
+	return s.applyMutation(rc.Context, "RecordSdpReviewOutcome", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		slot, ok := slotPtr(p, KindSdpReview)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, verb+": the project has no SDP review slot")
+		}
+		switch outcome {
+		case ReviewRejected:
+			if slot.Status != ReviewAwaitingReview {
+				return fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: reject-all needs an SDP review awaiting review; it is %d", verb, int(slot.Status)))
+			}
+		case ReviewWithdrawn:
+			if slot.Status != ReviewCommitted {
+				return fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: only a committed SDP review can be revoked; it is %d", verb, int(slot.Status)))
+			}
+		case ReviewNone, ReviewAwaitingReview, ReviewCommitted:
+			// refused above
+		}
+		slot.Status = outcome
+		p.Phase = PhaseProjectDesign
+		if strings.TrimSpace(feedback) != "" {
+			round := max(slot.Revisions, 1)
+			slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, []ReviewComment{{
+				Text: feedback, AuthorRole: gateReviewerRole, Type: ReviewCommentTypeChangeRequest,
+			}})
+		}
+		return nil
+	})
+}
+
+// gateReviewerRole is the author of an M0 gate's feedback: the human at the gate. It is
+// not an agent role (isReviewerRole), so the feedback reads as the reviewer's.
+const gateReviewerRole = "operator"
+
+// recordTrackingPoint records one week's point on the durable construction progress
+// record (use case track-weekly-project-progress, Righting Software Appendix A): the
+// earned-value and planned-value percentages of that week, and its note — "no trend"
+// before four points exist, or the corrective-action / replan-trigger note. One point per
+// week: re-recording a week (the corrective note recorded after the point) replaces it;
+// points stay in week order. A week below 1, or a project with no construction progress
+// record (not in construction), is ContractMisuse.
+func (s *GitStore) recordTrackingPoint(rc fwra.Context, projectID ProjectID, expectedVersion Version, point EvPoint, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	const verb = "projectstate.RecordTrackingPoint"
+	if point.Week < 1 {
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: week %d; tracking weeks start at 1", verb, point.Week))
+	}
+	return s.applyMutation(rc.Context, "RecordTrackingPoint", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		if p.ConstructionProgress == nil {
+			return fwra.New(fwra.ContractMisuse, verb+": the project has no construction progress record; it is not in construction")
+		}
+		pts := p.ConstructionProgress.Points
+		i := sort.Search(len(pts), func(i int) bool { return pts[i].Week >= point.Week })
+		if i < len(pts) && pts[i].Week == point.Week {
+			pts[i] = point
+		} else {
+			pts = slices.Insert(pts, i, point)
+		}
+		p.ConstructionProgress.Points = pts
+		return nil
+	})
+}
+
 // recordOperatorResumed records the operator-resumed head-state transition (plan B1.7):
 // it clears Project.OperatorPaused and Project.PauseReason, so the project reads — and
 // encodes, both fields being omitempty — exactly as one that was never paused. Resuming a
@@ -2074,11 +2181,18 @@ func applyPhaseArtifactPayload(p *Project, mapKey string, payload PhaseArtifactP
 }
 
 // applyPhaseArtifactsPayload routes the PhaseArtifacts-group fields (keyed by
-// mapKey) from the payload into p.PhaseArtifacts, lazy-allocating as needed.
-// Split into two halves to keep each helper under the funlen threshold.
+// mapKey) from the payload into p.PhaseArtifacts, lazy-allocating as needed. Each
+// field is one putPhaseRecord: a nil payload field leaves its map untouched.
 func applyPhaseArtifactsPayload(p *Project, mapKey string, payload PhaseArtifactPayload) {
-	applyPhaseArtifactsSpecDesign(p, mapKey, payload)
-	applyPhaseArtifactsDeployDoc(p, mapKey, payload)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]SRSRecord { return &pa.SRS }, mapKey, payload.SRS)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]TestPlanRecord { return &pa.TestPlan }, mapKey, payload.TestPlan)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]IntegrationNoteRecord { return &pa.IntegrationNote }, mapKey, payload.IntegrationNote)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]UXRequirementsRecord { return &pa.UXRequirements }, mapKey, payload.UXRequirements)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]UIDesignRecord { return &pa.UIDesign }, mapKey, payload.UIDesign)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]ProvisioningSpecRecord { return &pa.ProvisioningSpec }, mapKey, payload.ProvisioningSpec)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DeployNoteRecord { return &pa.DeployNote }, mapKey, payload.DeployNote)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DocOutlineRecord { return &pa.DocOutline }, mapKey, payload.DocOutline)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DocNoteRecord { return &pa.DocNote }, mapKey, payload.DocNote)
 }
 
 // ensurePhaseArtifacts lazy-inits p.PhaseArtifacts and returns it.
@@ -2089,77 +2203,18 @@ func ensurePhaseArtifacts(p *Project) *PhaseArtifacts {
 	return p.PhaseArtifacts
 }
 
-// applyPhaseArtifactsSpecDesign handles the spec/design half of PhaseArtifacts
-// fields: SRS, TestPlan, IntegrationNote, UXRequirements, UIDesign.
-func applyPhaseArtifactsSpecDesign(p *Project, mapKey string, payload PhaseArtifactPayload) { //nolint:gocyclo // exhaustive nil-check per phase artifact field
-	if payload.SRS != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.SRS == nil {
-			pa.SRS = make(map[string]SRSRecord)
-		}
-		pa.SRS[mapKey] = *payload.SRS
+// putPhaseRecord stores rec under mapKey in the PhaseArtifacts map field selects,
+// lazy-allocating PhaseArtifacts and the map. A nil rec is a no-op (the payload did
+// not carry that artifact).
+func putPhaseRecord[T any](p *Project, field func(*PhaseArtifacts) *map[string]T, mapKey string, rec *T) {
+	if rec == nil {
+		return
 	}
-	if payload.TestPlan != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.TestPlan == nil {
-			pa.TestPlan = make(map[string]TestPlanRecord)
-		}
-		pa.TestPlan[mapKey] = *payload.TestPlan
+	m := field(ensurePhaseArtifacts(p))
+	if *m == nil {
+		*m = make(map[string]T)
 	}
-	if payload.IntegrationNote != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.IntegrationNote == nil {
-			pa.IntegrationNote = make(map[string]IntegrationNoteRecord)
-		}
-		pa.IntegrationNote[mapKey] = *payload.IntegrationNote
-	}
-	if payload.UXRequirements != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.UXRequirements == nil {
-			pa.UXRequirements = make(map[string]UXRequirementsRecord)
-		}
-		pa.UXRequirements[mapKey] = *payload.UXRequirements
-	}
-	if payload.UIDesign != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.UIDesign == nil {
-			pa.UIDesign = make(map[string]UIDesignRecord)
-		}
-		pa.UIDesign[mapKey] = *payload.UIDesign
-	}
-}
-
-// applyPhaseArtifactsDeployDoc handles the infra/doc half of PhaseArtifacts
-// fields: ProvisioningSpec, DeployNote, DocOutline, DocNote.
-func applyPhaseArtifactsDeployDoc(p *Project, mapKey string, payload PhaseArtifactPayload) {
-	if payload.ProvisioningSpec != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.ProvisioningSpec == nil {
-			pa.ProvisioningSpec = make(map[string]ProvisioningSpecRecord)
-		}
-		pa.ProvisioningSpec[mapKey] = *payload.ProvisioningSpec
-	}
-	if payload.DeployNote != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.DeployNote == nil {
-			pa.DeployNote = make(map[string]DeployNoteRecord)
-		}
-		pa.DeployNote[mapKey] = *payload.DeployNote
-	}
-	if payload.DocOutline != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.DocOutline == nil {
-			pa.DocOutline = make(map[string]DocOutlineRecord)
-		}
-		pa.DocOutline[mapKey] = *payload.DocOutline
-	}
-	if payload.DocNote != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.DocNote == nil {
-			pa.DocNote = make(map[string]DocNoteRecord)
-		}
-		pa.DocNote[mapKey] = *payload.DocNote
-	}
+	(*m)[mapKey] = *rec
 }
 
 // applyTestingStatePayload routes the TestingState-group fields (project-level
@@ -2893,7 +2948,7 @@ func (s *designSessionAccess) ReadProjectOnBranch(rc fwra.Context, projectID Pro
 // activity surfaced: fwmanager.MapError passes non-layer errors through untagged, so
 // the Temporal error type/retryability is unchanged.
 func (s *designSessionAccess) StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ModelEnvelope, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	decoded, err := model.Decode()
+	decoded, err := requireStagedModel("StageArtifactForReview", model)
 	if err != nil {
 		return 0, err
 	}
@@ -3008,15 +3063,45 @@ func EncodeModel(model ArtifactModel) (ModelEnvelope, error) {
 	return ModelEnvelope{Kind: model.Kind(), Model: raw}, nil
 }
 
-// Decode reconstructs the concrete typed model from its envelope.
+// HasModel reports whether the envelope carries a model. An empty payload IS the
+// documented "no model yet" state (a slot that has never been drafted); callers that
+// accept that state ask HasModel first and keep a nil model, and Decode refuses it.
+func (e ModelEnvelope) HasModel() bool {
+	return len(e.Model) > 0
+}
+
+// requireStagedModel is the stage writes' half of the read-back-parity invariant: a
+// model staged on a branch must satisfy the SAME required-field strictness the branch's
+// read-back (decodeSlotsMap) applies, or the stage succeeds and every later read of that
+// branch fails to decode — the write and the read disagreeing about what a valid model
+// is. A refusal is ContractMisuse: the caller sent a model its own reader would reject.
+func requireStagedModel(verb string, model ModelEnvelope) (ArtifactModel, error) {
+	if !model.HasModel() {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": empty model envelope")
+	}
+	if err := RequireModelFields(model.Kind, model.Model); err != nil {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": "+err.Error())
+	}
+	decoded, err := model.Decode()
+	if err != nil {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": undecodable model envelope: "+err.Error())
+	}
+	return decoded, nil
+}
+
+// Decode reconstructs the concrete typed model from its envelope. An empty envelope
+// is an error (ask HasModel first where "no model yet" is a legitimate value).
+//
+// Decode is STRUCTURAL only. It runs inside workflow code (ProjectEnvelope.Decode on a
+// read activity's result), so a semantic rule here would change what an already
+// recorded history decodes to the day the rule changes — a replay break — and would
+// refuse documents the read activity already accepted. Required-field strictness
+// (RequireModelFields) lives at the boundaries that must agree byte-for-byte: the
+// stage writes (requireStagedModel), putDraftModel, and the read-back codec
+// (decodeSlotsMap).
 func (e ModelEnvelope) Decode() (ArtifactModel, error) {
-	if len(e.Model) == 0 {
-		// Not an error: an empty payload IS the documented "no model yet" state
-		// (e.g. a slot that has never been drafted). Every call site checks err
-		// first, then uses a nil model as a legitimate value — a typed sentinel
-		// error would force every caller to unwrap-and-ignore it, which is exactly
-		// what returning a plain nil model already achieves.
-		return nil, nil //nolint:nilnil // (nil model, nil err) is the documented "no model yet" value; see the block comment above.
+	if !e.HasModel() {
+		return nil, fmt.Errorf("decode model %s: empty envelope (no model)", e.Kind)
 	}
 	model, ok := NewModelForKind(e.Kind)
 	if !ok {
@@ -3122,10 +3207,12 @@ func (s ArtifactSlot) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// decodeArtifactModelWireField decodes artifactSlotWire.Model's raw bytes into an
-// ArtifactModel, distinguishing three cases: (1) absent/JSON-null — no model yet,
-// (nil, nil); (2) a well-formed {"kind":...,"model":...} envelope — decoded via
-// ModelEnvelope.Decode; (3) anything else (a bare/flattened object with no "kind"
+// parseArtifactModelWireField parses artifactSlotWire.Model's raw bytes into its
+// {kind, model} ModelEnvelope, distinguishing three cases: (1) absent/JSON-null — the
+// zero envelope, whose HasModel is false ("no model yet"); (2) a well-formed
+// {"kind":...,"model":...} envelope — returned for ModelEnvelope.Decode (an envelope
+// with a kind but no model, which is how MarshalJSON writes a nil model, also has
+// HasModel false); (3) anything else (a bare/flattened object with no "kind"
 // discriminator, e.g. a producer that wrote json.Marshal(concreteModel) directly
 // instead of through EncodeModel) — an explicit error rather than silently
 // discarding the model (review finding: silent data loss is the wrong failure
@@ -3134,37 +3221,46 @@ func (s ArtifactSlot) MarshalJSON() ([]byte, error) {
 // the DECODED Kind value, because ArtifactKind's zero value (KindMission) is a
 // real kind — an absent key and a genuine Mission envelope are NOT
 // distinguishable after decoding into ModelEnvelope, only before.
-func decodeArtifactModelWireField(raw json.RawMessage) (ArtifactModel, error) {
+func parseArtifactModelWireField(raw json.RawMessage) (ModelEnvelope, error) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil //nolint:nilnil // absent/null IS the documented "no model yet" value.
+		return ModelEnvelope{}, nil
 	}
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &probe); err != nil {
-		return nil, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
+		return ModelEnvelope{}, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
 	}
 	if _, hasKind := probe["kind"]; !hasKind {
-		return nil, fmt.Errorf("decode ArtifactSlot.Model: present but not a {kind,model} envelope (no \"kind\" discriminator) — refusing to silently drop it")
+		return ModelEnvelope{}, fmt.Errorf("decode ArtifactSlot.Model: present but not a {kind,model} envelope (no \"kind\" discriminator) — refusing to silently drop it")
 	}
 	var env ModelEnvelope
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
+		return ModelEnvelope{}, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
 	}
-	return env.Decode()
+	return env, nil
 }
 
 // UnmarshalJSON is MarshalJSON's inverse: decode into the wire shadow, then
 // reconstruct the concrete ArtifactModel from its raw Model bytes
-// (decodeArtifactModelWireField, which dispatches on the envelope's own Kind —
-// the same NewModelForKind lookup decodeSlotsMap uses, just driven by the
-// envelope's kind field instead of an out-of-band map key).
+// (parseArtifactModelWireField + ModelEnvelope.Decode, which dispatches on the
+// envelope's own Kind — the same NewModelForKind lookup decodeSlotsMap uses, just
+// driven by the envelope's kind field instead of an out-of-band map key). An
+// envelope without a model leaves Model nil ("no model yet").
 func (s *ArtifactSlot) UnmarshalJSON(data []byte) error {
 	var w artifactSlotWire
 	if err := json.Unmarshal(data, &w); err != nil {
 		return err
 	}
-	model, err := decodeArtifactModelWireField(w.Model)
+	env, err := parseArtifactModelWireField(w.Model)
 	if err != nil {
 		return err
+	}
+	var model ArtifactModel
+	if env.HasModel() {
+		decoded, err := env.Decode()
+		if err != nil {
+			return err
+		}
+		model = decoded
 	}
 	s.Status = w.Status
 	s.Model = model
@@ -3376,9 +3472,13 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 		p.ReviewPolicy = *e.ReviewPolicy
 	}
 	for kind, se := range e.Slots {
-		model, err := se.Model.Decode()
-		if err != nil {
-			return Project{}, err
+		var model ArtifactModel
+		if se.Model.HasModel() {
+			decoded, err := se.Model.Decode()
+			if err != nil {
+				return Project{}, err
+			}
+			model = decoded
 		}
 		slot, ok := slotPtr(&p, kind)
 		if !ok {
@@ -8674,16 +8774,6 @@ var conditionalTasks = map[MethodTask]ActivityMethodPhase{
 // GateTaskFor returns the task whose success IS the phase's binary exit criterion.
 func GateTaskFor(p ActivityMethodPhase) MethodTask { return lifecyclePhaseTasks[p].gate }
 
-// isGateTask reports whether a task is some lifecycle phase's binary exit criterion.
-func isGateTask(t MethodTask) bool {
-	for _, pair := range lifecyclePhaseTasks {
-		if pair.gate == t {
-			return true
-		}
-	}
-	return false
-}
-
 // AgentTaskFor returns the phase's single AI-WORK task: the task an agent is dispatched
 // to do, which the phase's gate then reviews. "" for a phase outside the vocabulary, for
 // which no attribution is possible at all.
@@ -9014,8 +9104,10 @@ func appendReviewComments(thread []ReviewComment, round int64, comments []Review
 			AuthorRole: c.AuthorRole,
 			Round:      round,
 			Status:     ReviewCommentOpen,
-			Replies:    nil,
-			Reopened:   false,
+			// Born with an EMPTY reply list, not a nil one: the contract's ReviewComment
+			// requires "replies" as an array, and nil encodes as JSON null.
+			Replies:  []ReviewCommentReply{},
+			Reopened: false,
 			// Carry the caller-supplied type/addressee (question-comments): a seeded
 			// question keeps its "question" type + addressee; a reject/amendment comment
 			// leaves them "" (a change-request, the migration-safe default).
@@ -9707,12 +9799,12 @@ func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID Pro
 		return StagedRef{}, execMisuse("StageTaskOutput", "empty activityID")
 	case taskID == "":
 		return StagedRef{}, execMisuse("StageTaskOutput", "empty taskID")
-	case len(model.Model) == 0:
+	case !model.HasModel():
 		return StagedRef{}, execMisuse("StageTaskOutput", "empty model envelope — there is nothing to stage (construction's output is staged on the branch and cited as attempt evidence)")
 	}
-	decoded, err := model.Decode()
+	decoded, err := requireStagedModel("StageTaskOutput", model)
 	if err != nil {
-		return StagedRef{}, execMisuse("StageTaskOutput", "undecodable model envelope: "+err.Error())
+		return StagedRef{}, err
 	}
 	v, err := a.store.stageArtifactForReviewOnBranch(rc.Context, projectID, expectedVersion, branch, decoded, cred, idempotencyKey)
 	if err != nil {
@@ -9943,8 +10035,11 @@ func applyRoundReviewBatch(thread []ReviewComment, round int64, comments []Revie
 			AuthorRole: c.AuthorRole,
 			Round:      round,
 			Status:     ReviewCommentOpen,
-			Type:       c.Type,
-			Addressee:  c.Addressee,
+			// Born with an EMPTY reply list, not a nil one: the contract's ReviewComment
+			// requires "replies" as an array, and nil encodes as JSON null.
+			Replies:   []ReviewCommentReply{},
+			Type:      c.Type,
+			Addressee: c.Addressee,
 		})
 	}
 	for _, r := range replies {

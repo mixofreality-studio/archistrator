@@ -4,9 +4,732 @@
 package operatedsystemstate_test
 
 import (
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 )
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "operatedSystemStateAccess") }
+
+// inputEnforceCustomerDelinquencyOnOperatedSystemsP2S1 is step 1's parameters of ReadInFlightOperatedApps, decoded from the binding's inputs.
+type inputEnforceCustomerDelinquencyOnOperatedSystemsP2S1 struct {
+	Scope operatedsystemstate.InFlightScope `json:"scope"`
+}
+
+// inputEnforceCustomerDelinquencyOnOperatedSystemsP2S2 is step 2's parameters of RecordDelinquencyAction, decoded from the binding's inputs.
+type inputEnforceCustomerDelinquencyOnOperatedSystemsP2S2 struct {
+	OperatedAppID   uuid.UUID                             `json:"operatedAppID"`
+	ExpectedVersion operatedsystemstate.Version           `json:"expectedVersion"`
+	Action          operatedsystemstate.DelinquencyAction `json:"action"`
+	IdempotencyKey  fwra.IdempotencyKey                   `json:"idempotencyKey"`
+}
+
+// TestScenario_enforce_customer_delinquency_on_operated_systems_P2 — Enforce Customer Delinquency on Operated Systems — [yes] · [pause] (use case enforce-customer-delinquency-on-operated-systems; path delinquency-arrives → directive-named → read-customer-systems → action-kind → note-pause-gap → merge-action → record-delinquency → system-delinquency-recorded → note-per-system → end).
+func TestScenario_enforce_customer_delinquency_on_operated_systems_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "enforce-customer-delinquency-on-operated-systems-P2", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadInFlightOperatedApps (node read-customer-systems; guards directive-named=[yes], action-kind=[pause])
+		var in1 inputEnforceCustomerDelinquencyOnOperatedSystemsP2S1
+		mustUnmarshal(t, `{"scope":{"AppIDs":[],"CustomerID":"0c5ac000-0000-4000-8000-000000000001"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepEnforceCustomerDelinquencyOnOperatedSystemsP2S1(t, h, subject, in1)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2", 1, out1, err1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":2}]","errorExpected":false}`)
+		// probe 1.1: operatedSystemStateAccess.ReadInFlightOperatedApps for read-customer-systems
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Scope operatedsystemstate.InFlightScope `json:"scope"`
+		}
+		mustUnmarshal(t, `{"scope":{"AppIDs":[],"CustomerID":"0c5ac000-0000-4000-8000-000000000001"}}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadInFlightOperatedApps(callContext(t, h, "1.1"), probe1_1.Scope)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":2}]","errorExpected":false}`)
+		// step 2: RecordDelinquencyAction (node record-delinquency; guards directive-named=[yes], action-kind=[pause])
+		var in2 inputEnforceCustomerDelinquencyOnOperatedSystemsP2S2
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000001","expectedVersion":2,"action":1,"idempotencyKey":"stp-osa-delinq-1-2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.RecordDelinquencyAction(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.Action, in2.IdempotencyKey)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2", 2, out2, err2, `{"result":"3","errorExpected":false}`)
+		// probe 2.1: operatedSystemStateAccess.ReadOperatedSystem for record-delinquency
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000001"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadOperatedSystem(callContext(t, h, "2.1"), probe2_1.OperatedAppID)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":3}","errorExpected":false}`)
+		// probe 2.2: operatedSystemStateAccess.ReadOperatedSystem for system-delinquency-recorded
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000001"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadOperatedSystem(callContext(t, h, "2.2"), probe2_2.OperatedAppID)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":3}","errorExpected":false}`)
+	})
+}
+
+// inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1 is step 1's parameters of ReadInFlightOperatedApps, decoded from the binding's inputs.
+type inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1 struct {
+	Scope operatedsystemstate.InFlightScope `json:"scope"`
+}
+
+// inputEnforceCustomerDelinquencyOnOperatedSystemsP3S2 is step 2's parameters of RecordDelinquencyAction, decoded from the binding's inputs.
+type inputEnforceCustomerDelinquencyOnOperatedSystemsP3S2 struct {
+	OperatedAppID   uuid.UUID                             `json:"operatedAppID"`
+	ExpectedVersion operatedsystemstate.Version           `json:"expectedVersion"`
+	Action          operatedsystemstate.DelinquencyAction `json:"action"`
+	IdempotencyKey  fwra.IdempotencyKey                   `json:"idempotencyKey"`
+}
+
+// TestScenario_enforce_customer_delinquency_on_operated_systems_P3 — Enforce Customer Delinquency on Operated Systems — [yes] · [withdraw] (use case enforce-customer-delinquency-on-operated-systems; path delinquency-arrives → directive-named → read-customer-systems → action-kind → remove-runtime → merge-action → record-delinquency → system-delinquency-recorded → note-per-system → end).
+func TestScenario_enforce_customer_delinquency_on_operated_systems_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "enforce-customer-delinquency-on-operated-systems-P3", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadInFlightOperatedApps (node read-customer-systems; guards directive-named=[yes], action-kind=[withdraw])
+		var in1 inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1
+		mustUnmarshal(t, `{"scope":{"AppIDs":[],"CustomerID":"0c5ac000-0000-4000-8000-000000000002"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepEnforceCustomerDelinquencyOnOperatedSystemsP3S1(t, h, subject, in1)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, out1, err1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":2}]","errorExpected":false}`)
+		// probe 1.1: operatedSystemStateAccess.ReadInFlightOperatedApps for read-customer-systems
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Scope operatedsystemstate.InFlightScope `json:"scope"`
+		}
+		mustUnmarshal(t, `{"scope":{"AppIDs":[],"CustomerID":"0c5ac000-0000-4000-8000-000000000002"}}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadInFlightOperatedApps(callContext(t, h, "1.1"), probe1_1.Scope)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":2}]","errorExpected":false}`)
+		// step 2: RecordDelinquencyAction (node record-delinquency; guards directive-named=[yes], action-kind=[withdraw])
+		var in2 inputEnforceCustomerDelinquencyOnOperatedSystemsP3S2
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000002","expectedVersion":2,"action":2,"idempotencyKey":"stp-osa-delinq-2-2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.RecordDelinquencyAction(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.Action, in2.IdempotencyKey)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 2, out2, err2, `{"result":"3","errorExpected":false}`)
+		// probe 2.1: operatedSystemStateAccess.ReadOperatedSystem for record-delinquency
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000002"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadOperatedSystem(callContext(t, h, "2.1"), probe2_1.OperatedAppID)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":3}","errorExpected":false}`)
+		// probe 2.2: operatedSystemStateAccess.ReadOperatedSystem for system-delinquency-recorded
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000002"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadOperatedSystem(callContext(t, h, "2.2"), probe2_2.OperatedAppID)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":3}","errorExpected":false}`)
+	})
+}
+
+// inputOperateADeliveredSystemP1S1 is step 1's parameters of ReadOperatedSystem, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP1S1 struct {
+	OperatedAppID uuid.UUID `json:"operatedAppID"`
+}
+
+// inputOperateADeliveredSystemP1S2 is step 2's parameters of PublishDesiredState, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP1S2 struct {
+	OperatedAppID   uuid.UUID                              `json:"operatedAppID"`
+	ExpectedVersion operatedsystemstate.Version            `json:"expectedVersion"`
+	Reason          operatedsystemstate.DesiredStateReason `json:"reason"`
+	Decision        *operatedsystemstate.AutoscaleDecision `json:"decision"`
+	IdempotencyKey  fwra.IdempotencyKey                    `json:"idempotencyKey"`
+}
+
+// TestScenario_operate_a_delivered_system_P1 — Operate a Delivered System (use case operate-a-delivered-system; path start → publish-trigger → render-manifests-a → publish-a → desired-state-published-a → record-published-a → operated-system-recorded-a → publication-reason-note-a → end-a).
+func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "operate-a-delivered-system-P1", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadOperatedSystem (node render-manifests-a)
+		var in1 inputOperateADeliveredSystemP1S1
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOperateADeliveredSystemP1S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true,\"DeployableBundleRef\":\"bundle-osa-0003\"}","errorExpected":false}`)
+		// step 2: PublishDesiredState (node record-published-a)
+		var in2 inputOperateADeliveredSystemP1S2
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003","expectedVersion":2,"reason":2,"idempotencyKey":"stp-osa-op-P1-2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.PublishDesiredState(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.Reason, in2.Decision, in2.IdempotencyKey)
+		expect(t, "operate-a-delivered-system-P1", 2, out2, err2, `{"result":"3","errorExpected":false}`)
+		// probe 2.1: operatedSystemStateAccess.ReadOperatedSystem for record-published-a
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadOperatedSystem(callContext(t, h, "2.1"), probe2_1.OperatedAppID)
+		expect(t, "operate-a-delivered-system-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true}","errorExpected":false}`)
+		// probe 2.2: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-a
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadOperatedSystem(callContext(t, h, "2.2"), probe2_2.OperatedAppID)
+		expect(t, "operate-a-delivered-system-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true}","errorExpected":false}`)
+	})
+}
+
+// inputOperateADeliveredSystemP2S1 is step 1's parameters of ReadInFlightOperatedApps, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP2S1 struct {
+	Scope operatedsystemstate.InFlightScope `json:"scope"`
+}
+
+// TestScenario_operate_a_delivered_system_P2 — Operate a Delivered System — [no] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "operate-a-delivered-system-P2", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadInFlightOperatedApps (node read-app-set; guards state-transition=[no], decision-nochange=[yes])
+		var in1 inputOperateADeliveredSystemP2S1
+		mustUnmarshal(t, `{"scope":{"AppIDs":["0c5a0000-0000-4000-8000-000000000004"]}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOperateADeliveredSystemP2S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P2", 1, out1, err1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000004\",\"Version\":1}]","errorExpected":false}`)
+	})
+}
+
+// inputOperateADeliveredSystemP3S1 is step 1's parameters of ReadInFlightOperatedApps, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP3S1 struct {
+	Scope operatedsystemstate.InFlightScope `json:"scope"`
+}
+
+// inputOperateADeliveredSystemP3S2 is step 2's parameters of ReadOperatedSystem, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP3S2 struct {
+	OperatedAppID uuid.UUID `json:"operatedAppID"`
+}
+
+// inputOperateADeliveredSystemP3S3 is step 3's parameters of PublishDesiredState, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP3S3 struct {
+	OperatedAppID   uuid.UUID                              `json:"operatedAppID"`
+	ExpectedVersion operatedsystemstate.Version            `json:"expectedVersion"`
+	Reason          operatedsystemstate.DesiredStateReason `json:"reason"`
+	Decision        *operatedsystemstate.AutoscaleDecision `json:"decision"`
+	IdempotencyKey  fwra.IdempotencyKey                    `json:"idempotencyKey"`
+}
+
+// TestScenario_operate_a_delivered_system_P3 — Operate a Delivered System — [no] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "operate-a-delivered-system-P3", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadInFlightOperatedApps (node read-app-set; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
+		var in1 inputOperateADeliveredSystemP3S1
+		mustUnmarshal(t, `{"scope":{"AppIDs":["0c5a0000-0000-4000-8000-000000000005"]}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOperateADeliveredSystemP3S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P3", 1, out1, err1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":1}]","errorExpected":false}`)
+		// step 2: ReadOperatedSystem (node render-manifests-c; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
+		var in2 inputOperateADeliveredSystemP3S2
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000005"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadOperatedSystem(callContext(t, h, "2"), in2.OperatedAppID)
+		expect(t, "operate-a-delivered-system-P3", 2, out2, err2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":1,\"InFlight\":true}","errorExpected":false}`)
+		// step 3: PublishDesiredState (node record-published-c; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
+		var in3 inputOperateADeliveredSystemP3S3
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000005","expectedVersion":1,"reason":3,"decision":{"Action":1,"Delta":1,"ToBaseline":0},"idempotencyKey":"stp-osa-op-P3-3"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.PublishDesiredState(callContext(t, h, "3"), in3.OperatedAppID, in3.ExpectedVersion, in3.Reason, in3.Decision, in3.IdempotencyKey)
+		expect(t, "operate-a-delivered-system-P3", 3, out3, err3, `{"result":"2","errorExpected":false}`)
+		// probe 3.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-c
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000005"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadOperatedSystem(callContext(t, h, "3.1"), probe3_1.OperatedAppID)
+		expect(t, "operate-a-delivered-system-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":2,\"InFlight\":true}","errorExpected":false}`)
+	})
+}
+
+// inputOperateADeliveredSystemP4S1 is step 1's parameters of ReadInFlightOperatedApps, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP4S1 struct {
+	Scope operatedsystemstate.InFlightScope `json:"scope"`
+}
+
+// inputOperateADeliveredSystemP4S2 is step 2's parameters of RecordRuntimeStatusChange, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP4S2 struct {
+	OperatedAppID   uuid.UUID                         `json:"operatedAppID"`
+	ExpectedVersion operatedsystemstate.Version       `json:"expectedVersion"`
+	Status          operatedsystemstate.RuntimeStatus `json:"status"`
+	IdempotencyKey  fwra.IdempotencyKey               `json:"idempotencyKey"`
+}
+
+// TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "operate-a-delivered-system-P4", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadInFlightOperatedApps (node read-app-set; guards state-transition=[yes], decision-nochange=[yes])
+		var in1 inputOperateADeliveredSystemP4S1
+		mustUnmarshal(t, `{"scope":{"AppIDs":["0c5a0000-0000-4000-8000-000000000006"]}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOperateADeliveredSystemP4S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000006\",\"Version\":1}]","errorExpected":false}`)
+		// step 2: RecordRuntimeStatusChange (node record-status; guards state-transition=[yes], decision-nochange=[yes])
+		var in2 inputOperateADeliveredSystemP4S2
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000006","expectedVersion":1,"status":3,"idempotencyKey":"stp-osa-op-P4-2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.RecordRuntimeStatusChange(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.Status, in2.IdempotencyKey)
+		expect(t, "operate-a-delivered-system-P4", 2, out2, err2, `{"result":"2","errorExpected":false}`)
+		// probe 2.1: operatedSystemStateAccess.ReadOperatedSystem for record-status
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000006"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadOperatedSystem(callContext(t, h, "2.1"), probe2_1.OperatedAppID)
+		expect(t, "operate-a-delivered-system-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000006\",\"Version\":2,\"Status\":3,\"InFlight\":true}","errorExpected":false}`)
+	})
+}
+
+// inputOperateADeliveredSystemP5S1 is step 1's parameters of ReadInFlightOperatedApps, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP5S1 struct {
+	Scope operatedsystemstate.InFlightScope `json:"scope"`
+}
+
+// inputOperateADeliveredSystemP5S2 is step 2's parameters of RecordRuntimeStatusChange, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP5S2 struct {
+	OperatedAppID   uuid.UUID                         `json:"operatedAppID"`
+	ExpectedVersion operatedsystemstate.Version       `json:"expectedVersion"`
+	Status          operatedsystemstate.RuntimeStatus `json:"status"`
+	IdempotencyKey  fwra.IdempotencyKey               `json:"idempotencyKey"`
+}
+
+// inputOperateADeliveredSystemP5S3 is step 3's parameters of ReadOperatedSystem, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP5S3 struct {
+	OperatedAppID uuid.UUID `json:"operatedAppID"`
+}
+
+// inputOperateADeliveredSystemP5S4 is step 4's parameters of PublishDesiredState, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP5S4 struct {
+	OperatedAppID   uuid.UUID                              `json:"operatedAppID"`
+	ExpectedVersion operatedsystemstate.Version            `json:"expectedVersion"`
+	Reason          operatedsystemstate.DesiredStateReason `json:"reason"`
+	Decision        *operatedsystemstate.AutoscaleDecision `json:"decision"`
+	IdempotencyKey  fwra.IdempotencyKey                    `json:"idempotencyKey"`
+}
+
+// TestScenario_operate_a_delivered_system_P5 — Operate a Delivered System — [yes] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "operate-a-delivered-system-P5", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadInFlightOperatedApps (node read-app-set; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
+		var in1 inputOperateADeliveredSystemP5S1
+		mustUnmarshal(t, `{"scope":{"AppIDs":["0c5a0000-0000-4000-8000-000000000007"]}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOperateADeliveredSystemP5S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":1}]","errorExpected":false}`)
+		// step 2: RecordRuntimeStatusChange (node record-status; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
+		var in2 inputOperateADeliveredSystemP5S2
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000007","expectedVersion":1,"status":3,"idempotencyKey":"stp-osa-op-P5-2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.RecordRuntimeStatusChange(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.Status, in2.IdempotencyKey)
+		expect(t, "operate-a-delivered-system-P5", 2, out2, err2, `{"result":"2","errorExpected":false}`)
+		// probe 2.1: operatedSystemStateAccess.ReadOperatedSystem for record-status
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000007"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadOperatedSystem(callContext(t, h, "2.1"), probe2_1.OperatedAppID)
+		expect(t, "operate-a-delivered-system-P5 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":2,\"Status\":3}","errorExpected":false}`)
+		// step 3: ReadOperatedSystem (node render-manifests-c; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
+		var in3 inputOperateADeliveredSystemP5S3
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000007"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.ReadOperatedSystem(callContext(t, h, "3"), in3.OperatedAppID)
+		expect(t, "operate-a-delivered-system-P5", 3, out3, err3, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":2,\"Status\":3,\"InFlight\":true}","errorExpected":false}`)
+		// step 4: PublishDesiredState (node record-published-c; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
+		var in4 inputOperateADeliveredSystemP5S4
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000007","expectedVersion":2,"reason":3,"decision":{"Action":2,"Delta":1,"ToBaseline":0},"idempotencyKey":"stp-osa-op-P5-4"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.PublishDesiredState(callContext(t, h, "4"), in4.OperatedAppID, in4.ExpectedVersion, in4.Reason, in4.Decision, in4.IdempotencyKey)
+		expect(t, "operate-a-delivered-system-P5", 4, out4, err4, `{"result":"3","errorExpected":false}`)
+		// probe 4.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-c
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000007"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadOperatedSystem(callContext(t, h, "4.1"), probe4_1.OperatedAppID)
+		expect(t, "operate-a-delivered-system-P5 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":3,\"Status\":3,\"InFlight\":true}","errorExpected":false}`)
+	})
+}
+
+// inputRegisterADeliveredSystemForOperationP1S1 is step 1's parameters of RegisterOperatedSystem, decoded from the binding's inputs.
+type inputRegisterADeliveredSystemForOperationP1S1 struct {
+	OperatedAppID       uuid.UUID           `json:"operatedAppID"`
+	CustomerID          uuid.UUID           `json:"customerID"`
+	ProjectRef          string              `json:"projectRef"`
+	DeployableBundleRef string              `json:"deployableBundleRef"`
+	IdempotencyKey      fwra.IdempotencyKey `json:"idempotencyKey"`
+}
+
+// TestScenario_register_a_delivered_system_for_operation_P1 — Register a Delivered System for Operation (use case register-a-delivered-system-for-operation; path start → request-registration → seed-head-state → system-registered → note-register-once → confirm-registered → end).
+func TestScenario_register_a_delivered_system_for_operation_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "register-a-delivered-system-for-operation-P1", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: RegisterOperatedSystem (node seed-head-state)
+		var in1 inputRegisterADeliveredSystemForOperationP1S1
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000008","customerID":"0c5ac000-0000-4000-8000-000000000008","projectRef":"proj-osa-0008","deployableBundleRef":"bundle-osa-0008","idempotencyKey":"stp-osa-reg-P1-1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.RegisterOperatedSystem(callContext(t, h, "1"), in1.OperatedAppID, in1.CustomerID, in1.ProjectRef, in1.DeployableBundleRef, in1.IdempotencyKey)
+		expect(t, "register-a-delivered-system-for-operation-P1", 1, out1, err1, `{"result":"1","errorExpected":false}`)
+		// unobservable: confirm-registered
+		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for seed-head-state
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000008"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadOperatedSystem(callContext(t, h, "1.1"), probe1_1.OperatedAppID)
+		expect(t, "register-a-delivered-system-for-operation-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"proj-osa-0008\",\"DeployableBundleRef\":\"bundle-osa-0008\"}","errorExpected":false}`)
+		// probe 1.2: operatedSystemStateAccess.ReadOperatedSystem for system-registered
+		var pout1_2 any
+		var perr1_2 error
+		var probe1_2 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000008"}`, &probe1_2)
+		pout1_2, perr1_2 = subject.ReadOperatedSystem(callContext(t, h, "1.2"), probe1_2.OperatedAppID)
+		expect(t, "register-a-delivered-system-for-operation-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"proj-osa-0008\",\"DeployableBundleRef\":\"bundle-osa-0008\"}","errorExpected":false}`)
+		// probe 1.3: operatedSystemStateAccess.ReadInFlightOperatedApps for
+		var pout1_3 any
+		var perr1_3 error
+		var probe1_3 struct {
+			Scope operatedsystemstate.InFlightScope `json:"scope"`
+		}
+		mustUnmarshal(t, `{"scope":{"AppIDs":[],"CustomerID":"0c5ac000-0000-4000-8000-000000000008"}}`, &probe1_3)
+		pout1_3, perr1_3 = subject.ReadInFlightOperatedApps(callContext(t, h, "1.3"), probe1_3.Scope)
+		expect(t, "register-a-delivered-system-for-operation-P1 probe 1.3", 1, pout1_3, perr1_3, `{"result":"[]","errorExpected":false}`)
+	})
+}
+
+// inputViewLiveDeploymentHealthP1S1 is step 1's parameters of ReadOperatedSystem, decoded from the binding's inputs.
+type inputViewLiveDeploymentHealthP1S1 struct {
+	OperatedAppID uuid.UUID `json:"operatedAppID"`
+}
+
+// TestScenario_view_live_deployment_health_P1 — View Live Deployment Health — [yes] (use case view-live-deployment-health; path start → open-deployment-diagram → request-health → anything-deployed → resolve-deployment → read-live-health → note-neutral-nodes → send-deployment-health → end).
+func TestScenario_view_live_deployment_health_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "view-live-deployment-health-P1", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadOperatedSystem (node request-health; guards anything-deployed=[yes])
+		var in1 inputViewLiveDeploymentHealthP1S1
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000009"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepViewLiveDeploymentHealthP1S1(t, h, subject, in1)
+		expect(t, "view-live-deployment-health-P1", 1, out1, err1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000009\",\"InFlight\":true,\"ProjectRef\":\"proj-osa-0009\",\"DeployableBundleRef\":\"bundle-osa-0009\"}","errorExpected":false}`)
+	})
+}
+
+// inputViewLiveDeploymentHealthP2S1 is step 1's parameters of ReadOperatedSystem, decoded from the binding's inputs.
+type inputViewLiveDeploymentHealthP2S1 struct {
+	OperatedAppID uuid.UUID `json:"operatedAppID"`
+}
+
+// TestScenario_view_live_deployment_health_P2 — View Live Deployment Health — [no: no deployable bundle] (use case view-live-deployment-health; path start → open-deployment-diagram → request-health → anything-deployed → send-nothing-deployed → end).
+func TestScenario_view_live_deployment_health_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "view-live-deployment-health-P2", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadOperatedSystem (node request-health; guards anything-deployed=[no: no deployable bundle])
+		var in1 inputViewLiveDeploymentHealthP2S1
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-00000000000a"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepViewLiveDeploymentHealthP2S1(t, h, subject, in1)
+		expect(t, "view-live-deployment-health-P2", 1, out1, err1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-00000000000a\",\"ProjectRef\":\"proj-osa-000a\",\"DeployableBundleRef\":\"\"}","errorExpected":false}`)
+		// unobservable: send-nothing-deployed
+	})
+}
+
+// inputViewOperatingCostProjectionP1S1 is step 1's parameters of ReadOperatedSystem, decoded from the binding's inputs.
+type inputViewOperatingCostProjectionP1S1 struct {
+	OperatedAppID uuid.UUID `json:"operatedAppID"`
+}
+
+// inputViewOperatingCostProjectionP1S2 is step 2's parameters of ReadInFlightOperatedApps, decoded from the binding's inputs.
+type inputViewOperatingCostProjectionP1S2 struct {
+	Scope operatedsystemstate.InFlightScope `json:"scope"`
+}
+
+// TestScenario_view_operating_cost_projection_P1 — View Operating-Cost Projection for a Deployed App — [yes] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → read-usage → project-costs → render → send-cost-projection → end).
+func TestScenario_view_operating_cost_projection_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "view-operating-cost-projection-P1", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadOperatedSystem (node request-projection; guards app-known=[yes])
+		var in1 inputViewOperatingCostProjectionP1S1
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-00000000000b"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepViewOperatingCostProjectionP1S1(t, h, subject, in1)
+		expect(t, "view-operating-cost-projection-P1", 1, out1, err1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-00000000000b\",\"Version\":1,\"InFlight\":true}","errorExpected":false}`)
+		// step 2: ReadInFlightOperatedApps (node render; guards app-known=[yes])
+		var in2 inputViewOperatingCostProjectionP1S2
+		mustUnmarshal(t, `{"scope":{"AppIDs":["0c5a0000-0000-4000-8000-00000000000b"]}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadInFlightOperatedApps(callContext(t, h, "2"), in2.Scope)
+		expect(t, "view-operating-cost-projection-P1", 2, out2, err2, `{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-00000000000b\",\"Version\":1}]","errorExpected":false}`)
+		// unobservable: send-cost-projection
+	})
+}
+
+// inputViewOperatingCostProjectionP2S1 is step 1's parameters of ReadOperatedSystem, decoded from the binding's inputs.
+type inputViewOperatingCostProjectionP2S1 struct {
+	OperatedAppID uuid.UUID `json:"operatedAppID"`
+}
+
+// TestScenario_view_operating_cost_projection_P2 — View Operating-Cost Projection for a Deployed App — [no] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → report-unknown → send-app-not-operated → end).
+func TestScenario_view_operating_cost_projection_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "view-operating-cost-projection-P2", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadOperatedSystem (node request-projection; guards app-known=[no])
+		var in1 inputViewOperatingCostProjectionP2S1
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-00000000000c"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.ReadOperatedSystem(callContext(t, h, "1"), in1.OperatedAppID)
+		expect(t, "view-operating-cost-projection-P2", 1, out1, err1, `{"errorExpected":true,"errorCode":"NotFound"}`)
+		// unobservable: send-app-not-operated
+	})
+}
+
+// inputWithdrawADeliveredSystemP1S1 is step 1's parameters of ReadOperatedSystem, decoded from the binding's inputs.
+type inputWithdrawADeliveredSystemP1S1 struct {
+	OperatedAppID uuid.UUID `json:"operatedAppID"`
+}
+
+// TestScenario_withdraw_a_delivered_system_P1 — Withdraw a Delivered System — [yes] (use case withdraw-a-delivered-system; path start → request-withdraw → already-withdrawn → note-idempotent-withdraw → merge-out → send-withdrawn → end).
+func TestScenario_withdraw_a_delivered_system_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "withdraw-a-delivered-system-P1", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadOperatedSystem (node request-withdraw; guards already-withdrawn=[yes])
+		var in1 inputWithdrawADeliveredSystemP1S1
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-00000000000d"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepWithdrawADeliveredSystemP1S1(t, h, subject, in1)
+		expect(t, "withdraw-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-00000000000d\",\"Version\":2,\"Status\":4,\"InFlight\":false}","errorExpected":false}`)
+		// unobservable: send-withdrawn
+	})
+}
+
+// inputWithdrawADeliveredSystemP2S1 is step 1's parameters of ReadOperatedSystem, decoded from the binding's inputs.
+type inputWithdrawADeliveredSystemP2S1 struct {
+	OperatedAppID uuid.UUID `json:"operatedAppID"`
+}
+
+// inputWithdrawADeliveredSystemP2S2 is step 2's parameters of WithdrawSystem, decoded from the binding's inputs.
+type inputWithdrawADeliveredSystemP2S2 struct {
+	OperatedAppID   uuid.UUID                   `json:"operatedAppID"`
+	ExpectedVersion operatedsystemstate.Version `json:"expectedVersion"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_withdraw_a_delivered_system_P2 — Withdraw a Delivered System — [no: in flight] (use case withdraw-a-delivered-system; path start → request-withdraw → already-withdrawn → tear-down-runtime → record-final-usage → compute-usage-final → record-withdrawn → operated-system-withdrawn → merge-out → send-withdrawn → end).
+func TestScenario_withdraw_a_delivered_system_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "operatedSystemStateAccess", "withdraw-a-delivered-system-P2", func(t *testing.T) {
+		var subject operatedsystemstate.OperatedSystemStateAccess = newSubject(t, h)
+		// step 1: ReadOperatedSystem (node request-withdraw; guards already-withdrawn=[no: in flight])
+		var in1 inputWithdrawADeliveredSystemP2S1
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-00000000000e"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepWithdrawADeliveredSystemP2S1(t, h, subject, in1)
+		expect(t, "withdraw-a-delivered-system-P2", 1, out1, err1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-00000000000e\",\"Version\":1,\"InFlight\":true}","errorExpected":false}`)
+		// step 2: WithdrawSystem (node record-withdrawn; guards already-withdrawn=[no: in flight])
+		var in2 inputWithdrawADeliveredSystemP2S2
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-00000000000e","expectedVersion":1,"idempotencyKey":"stp-osa-wd-P2-2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.WithdrawSystem(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.IdempotencyKey)
+		expect(t, "withdraw-a-delivered-system-P2", 2, out2, err2, `{"result":"2","errorExpected":false}`)
+		// unobservable: send-withdrawn
+		// probe 2.1: operatedSystemStateAccess.ReadOperatedSystem for record-withdrawn
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-00000000000e"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadOperatedSystem(callContext(t, h, "2.1"), probe2_1.OperatedAppID)
+		expect(t, "withdraw-a-delivered-system-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-00000000000e\",\"Version\":2,\"Status\":4,\"InFlight\":false}","errorExpected":false}`)
+		// probe 2.2: operatedSystemStateAccess.ReadOperatedSystem for operated-system-withdrawn
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			OperatedAppID uuid.UUID `json:"operatedAppID"`
+		}
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-00000000000e"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadOperatedSystem(callContext(t, h, "2.2"), probe2_2.OperatedAppID)
+		expect(t, "withdraw-a-delivered-system-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-00000000000e\",\"Version\":2,\"Status\":4,\"InFlight\":false}","errorExpected":false}`)
+		// probe 2.3: operatedSystemStateAccess.ReadInFlightOperatedApps for
+		var pout2_3 any
+		var perr2_3 error
+		var probe2_3 struct {
+			Scope operatedsystemstate.InFlightScope `json:"scope"`
+		}
+		mustUnmarshal(t, `{"scope":{"AppIDs":["0c5a0000-0000-4000-8000-00000000000e"]}}`, &probe2_3)
+		pout2_3, perr2_3 = subject.ReadInFlightOperatedApps(callContext(t, h, "2.3"), probe2_3.Scope)
+		expect(t, "withdraw-a-delivered-system-P2 probe 2.3", 2, pout2_3, perr2_3, `{"result":"[]","errorExpected":false}`)
+	})
+}
+
+// callContext is the fwra call context a generated step calls the subject with:
+// the test's own context, a zero principal and, on an idempotent layer, a key
+// unique to the step. A step that needs an identity is a Hook:true step.
+func callContext(t *testing.T, h *scenariohost.Host, step string) fwra.Context {
+	t.Helper()
+	_ = step
+	return fwra.Context{Context: h.Context(t), IdempotencyKey: fwra.IdempotencyKey(t.Name() + "/" + step)}
+}
+
+func mustUnmarshal(t *testing.T, raw string, into any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(raw), into); err != nil {
+		t.Fatalf("testgen: decode %s: %v", raw, err)
+	}
+}
+
+// expect checks one step's outcome against its binding's expectation: an
+// expected error must arrive (carrying the expected code, when one is named);
+// an unexpected error fails; a named result must be a JSON subset of the
+// marshalled outcome.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	var want struct {
+		Result        string `json:"result"`
+		ErrorExpected bool   `json:"errorExpected"`
+		ErrorCode     string `json:"errorCode"`
+	}
+	mustUnmarshal(t, expectJSON, &want)
+	if want.ErrorExpected {
+		if err == nil {
+			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+		}
+		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
+			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+	}
+	if want.Result != "" && !resultMatches(want.Result, out) {
+		got, _ := json.Marshal(out)
+		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+	}
+}
+
+// errorHasCode matches the layer error's kind name, or the code as a substring
+// of the error text for a component-specific code.
+func errorHasCode(err error, code string) bool {
+	var le *fwra.Error
+	if errors.As(err, &le) && le.Kind.String() == code {
+		return true
+	}
+	return strings.Contains(err.Error(), code)
+}
+
+// resultMatches decodes the expectation (a JSON document, or a bare string)
+// and the marshalled outcome, and compares them as a subset.
+func resultMatches(wantRaw string, got any) bool {
+	var want any
+	if json.Unmarshal([]byte(wantRaw), &want) != nil {
+		want = wantRaw
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		return false
+	}
+	var g any
+	if json.Unmarshal(raw, &g) != nil {
+		return false
+	}
+	return subset(want, g)
+}
+
+// subset: every key of an expected object is present and matches; an expected
+// array matches element-wise; a scalar must be equal.
+func subset(want, got any) bool {
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			return false
+		}
+		for k, wv := range w {
+			gv, ok := g[k]
+			if !ok || !subset(wv, gv) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		g, ok := got.([]any)
+		if !ok || len(g) != len(w) {
+			return false
+		}
+		for i := range w {
+			if !subset(w[i], g[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(want, got)
+	}
+}

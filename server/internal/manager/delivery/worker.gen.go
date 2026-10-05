@@ -72,6 +72,8 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.ProjectStateRecordOperatorPaused, activity.RegisterOptions{Name: "projectStateAccess.recordOperatorPaused"})
 	w.RegisterActivityWithOptions(acts.ProjectStateRecordOperatorResumed, activity.RegisterOptions{Name: "projectStateAccess.recordOperatorResumed"})
 	w.RegisterActivityWithOptions(acts.ProjectStateRecordReviewPolicy, activity.RegisterOptions{Name: "projectStateAccess.recordReviewPolicy"})
+	w.RegisterActivityWithOptions(acts.ProjectStateRecordSdpReviewOutcome, activity.RegisterOptions{Name: "projectStateAccess.recordSdpReviewOutcome"})
+	w.RegisterActivityWithOptions(acts.ProjectStateRecordTrackingPoint, activity.RegisterOptions{Name: "projectStateAccess.recordTrackingPoint"})
 	w.RegisterActivityWithOptions(acts.ProjectStateSetOperatingModel, activity.RegisterOptions{Name: "projectStateAccess.setOperatingModel"})
 	w.RegisterActivityWithOptions(acts.ProjectStateSetResearchInput, activity.RegisterOptions{Name: "projectStateAccess.setResearchInput"})
 	w.RegisterActivityWithOptions(acts.RailAdoptProjectRepo, activity.RegisterOptions{Name: "sourceControlAccess.adoptProjectRepo"})

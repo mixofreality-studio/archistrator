@@ -11,13 +11,11 @@
  * `deriveOperating` is the ONE TS authority for this derivation and mirrors the
  * server's unexported `isConstructionComplete`
  * (server/internal/resourceaccess/projectstate/projectstateaccess.go) bit for
- * bit: same fixture corpus, same result. It is deliberately typed over RAW
- * ordinals (not the app-mapped ConstructionRow shape used elsewhere in
- * constructionAdapters.ts) so its own test can iterate the shared fixture file
- * with zero reshaping — see operating.test.ts and
- * testdata/operating_fixtures.json (shared byte-identically with the Go side's
- * server/internal/resourceaccess/projectstate/testdata/operating_fixtures.json —
- * keep both in sync; see that file's own sync comment). The single real call
+ * bit. It is deliberately typed over RAW ordinals (not the app-mapped
+ * ConstructionRow shape used elsewhere in constructionAdapters.ts). The Go
+ * side's fixture corpus is gone (DCT T2: only generated scenarios test a
+ * component), so the two are held together by the scenarios that render
+ * operating state, not by a shared fixture file. The single real call
  * site is wire.ts's mapProjectState, which adapts the raw
  * SystemDesignActivityConstructionStatus map into this shape once, at the wire
  * boundary, and threads the resulting boolean down as ProjectStateWithGit.operating

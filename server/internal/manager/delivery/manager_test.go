@@ -298,6 +298,14 @@ func (f *renderFakeProjectState) WithdrawArtifact(fwra.Context, projectstate.Pro
 	panic("renderFakeProjectState.WithdrawArtifact must not be called by these façade-precondition tests")
 }
 
+func (f *renderFakeProjectState) RecordSdpReviewOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactReviewStatus, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.RecordSdpReviewOutcome must not be called by these façade-precondition tests")
+}
+
+func (f *renderFakeProjectState) RecordTrackingPoint(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.EvPoint, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.RecordTrackingPoint must not be called by these façade-precondition tests")
+}
+
 func (f *renderFakeProjectState) AdvancePhase(fwra.Context, projectstate.ProjectID, projectstate.Version) (projectstate.Version, error) {
 	panic("renderFakeProjectState.AdvancePhase must not be called by these façade-precondition tests")
 }
@@ -495,6 +503,18 @@ func (f *fakeProjectState) WithdrawArtifact(_ fwra.Context, _ projectstate.Proje
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.withdrawn = append(f.withdrawn, kind)
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordSdpReviewOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactReviewStatus, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordTrackingPoint(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.EvPoint, fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.bump(), nil
 }
 
@@ -1594,6 +1614,12 @@ func (f *fakeProjectStateAccess) RecordReviewPolicy(_ fwra.Context, _ projectsta
 	return 0, nil
 }
 
+func (f *fakeProjectStateAccess) RecordSdpReviewOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactReviewStatus, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) RecordTrackingPoint(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.EvPoint, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
 func (f *fakeProjectStateAccess) AdvancePhase(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version) (projectstate.Version, error) {
 	return 0, nil
 }
@@ -2697,6 +2723,14 @@ func (f *setResearchFakeState) RejectArtifact(fwra.Context, projectstate.Project
 
 func (f *setResearchFakeState) WithdrawArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string) (projectstate.Version, error) {
 	panic("setResearchFakeState.WithdrawArtifact must not be called by SetResearchInput")
+}
+
+func (f *setResearchFakeState) RecordSdpReviewOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactReviewStatus, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.RecordSdpReviewOutcome: not on the SetResearchInput path")
+}
+
+func (f *setResearchFakeState) RecordTrackingPoint(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.EvPoint, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.RecordTrackingPoint: not on the SetResearchInput path")
 }
 
 func (f *setResearchFakeState) AdvancePhase(fwra.Context, projectstate.ProjectID, projectstate.Version) (projectstate.Version, error) {
@@ -4696,6 +4730,14 @@ func (f *pdFakeProjectState) WithdrawArtifact(_ fwra.Context, _ projectstate.Pro
 	defer f.mu.Unlock()
 	f.withdrawn = append(f.withdrawn, kind)
 	return f.bump(), nil
+}
+
+func (*pdFakeProjectState) RecordSdpReviewOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactReviewStatus, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("pdFakeProjectState.RecordSdpReviewOutcome: not on this test's path")
+}
+
+func (*pdFakeProjectState) RecordTrackingPoint(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.EvPoint, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("pdFakeProjectState.RecordTrackingPoint: not on this test's path")
 }
 
 func (f *pdFakeProjectState) AdvancePhase(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version) (projectstate.Version, error) {
@@ -11492,6 +11534,14 @@ func (fakeFullProjectState) AcknowledgeStaleBasis(fwra.Context, projectstate.Pro
 // AdvancePhase MOVES the phase rather than merely counting, because the M0 seal's
 // idempotence guard re-reads it: a fake that counted and left the phase alone would let a
 // double advance pass.
+func (fakeFullProjectState) RecordSdpReviewOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactReviewStatus, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("fakeFullProjectState.RecordSdpReviewOutcome: not on this test's path")
+}
+
+func (fakeFullProjectState) RecordTrackingPoint(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.EvPoint, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("fakeFullProjectState.RecordTrackingPoint: not on this test's path")
+}
+
 func (f fakeFullProjectState) AdvancePhase(fwra.Context, projectstate.ProjectID, projectstate.Version) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -27993,6 +28043,14 @@ func committedProject(pid ProjectID, committed ...ArtifactKind) projectstate.Pro
 type sealRaceFakeProjectState struct {
 	renderFakeProjectState
 	advanced int
+}
+
+func (*sealRaceFakeProjectState) RecordSdpReviewOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactReviewStatus, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("sealRaceFakeProjectState.RecordSdpReviewOutcome: not on this test's path")
+}
+
+func (*sealRaceFakeProjectState) RecordTrackingPoint(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.EvPoint, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("sealRaceFakeProjectState.RecordTrackingPoint: not on this test's path")
 }
 
 func (f *sealRaceFakeProjectState) AdvancePhase(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version) (projectstate.Version, error) {

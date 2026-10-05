@@ -1122,6 +1122,8 @@ type ProjectStateAccess interface {
 	RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordSdpReviewOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, outcome ArtifactReviewStatus, feedback string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordTrackingPoint(rc fwra.Context, projectID ProjectID, expectedVersion Version, point EvPoint, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetOperatingModel(rc fwra.Context, projectID ProjectID, expectedVersion Version, model OperatingModel) (Version, error)
 	SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error)
 }

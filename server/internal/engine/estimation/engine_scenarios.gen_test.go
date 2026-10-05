@@ -66,18 +66,31 @@ type inputExecuteAProjectActivityP1S1 struct {
 	CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
 }
 
-// TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "estimationEngine", "execute-a-project-activity-P1", func(t *testing.T) {
 		var subject estimation.EstimationEngine = newSubject(t, h)
-		// step 1: ComputeEarnedValue (node record-exit; guards task-kind=dispatch, exit-met=yes)
+		// step 1: ComputeEarnedValue (node recompute-ev; guards task-kind=dispatch, exit-met=yes)
 		var in1 inputExecuteAProjectActivityP1S1
 		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ComputeEarnedValue(callContext(t, h, "1"), in1.Activities, in1.Network, in1.Integrated, in1.TotalWeeks, in1.CalendarDaysPerWeek)
 		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"{\"spi\":0.75}","errorExpected":false}`)
+		// probe 1.1: estimationEngine.ComputeEarnedValue for earned-value-recomputed
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Activities          estimation.ActivityList `json:"activities"`
+			Network             estimation.Network      `json:"network"`
+			Integrated          []string                `json:"integrated"`
+			TotalWeeks          int64                   `json:"totalWeeks"`
+			CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
+		}
+		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ComputeEarnedValue(callContext(t, h, "1.1"), probe1_1.Activities, probe1_1.Network, probe1_1.Integrated, probe1_1.TotalWeeks, probe1_1.CalendarDaysPerWeek)
+		expect(t, "execute-a-project-activity-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"spi\":0.75}","errorExpected":false}`)
 	})
 }
 
@@ -90,18 +103,31 @@ type inputExecuteAProjectActivityP2S1 struct {
 	CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
 }
 
-// TestScenario_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "estimationEngine", "execute-a-project-activity-P2", func(t *testing.T) {
 		var subject estimation.EstimationEngine = newSubject(t, h)
-		// step 1: ComputeEarnedValue (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		// step 1: ComputeEarnedValue (node recompute-ev; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
 		var in1 inputExecuteAProjectActivityP2S1
 		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access","C-orders-manager"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ComputeEarnedValue(callContext(t, h, "1"), in1.Activities, in1.Network, in1.Integrated, in1.TotalWeeks, in1.CalendarDaysPerWeek)
 		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"{\"spi\":1}","errorExpected":false}`)
+		// probe 1.1: estimationEngine.ComputeEarnedValue for earned-value-recomputed
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Activities          estimation.ActivityList `json:"activities"`
+			Network             estimation.Network      `json:"network"`
+			Integrated          []string                `json:"integrated"`
+			TotalWeeks          int64                   `json:"totalWeeks"`
+			CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
+		}
+		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access","C-orders-manager"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ComputeEarnedValue(callContext(t, h, "1.1"), probe1_1.Activities, probe1_1.Network, probe1_1.Integrated, probe1_1.TotalWeeks, probe1_1.CalendarDaysPerWeek)
+		expect(t, "execute-a-project-activity-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"spi\":1}","errorExpected":false}`)
 	})
 }
 
@@ -114,18 +140,31 @@ type inputExecuteAProjectActivityP3S1 struct {
 	CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
 }
 
-// TestScenario_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "estimationEngine", "execute-a-project-activity-P3", func(t *testing.T) {
 		var subject estimation.EstimationEngine = newSubject(t, h)
-		// step 1: ComputeEarnedValue (node record-exit; guards task-kind=review, requires-human=agents only, verdict=approve)
+		// step 1: ComputeEarnedValue (node recompute-ev; guards task-kind=review, requires-human=agents only, verdict=approve)
 		var in1 inputExecuteAProjectActivityP3S1
 		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ComputeEarnedValue(callContext(t, h, "1"), in1.Activities, in1.Network, in1.Integrated, in1.TotalWeeks, in1.CalendarDaysPerWeek)
 		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"{\"spi\":0.75}","errorExpected":false}`)
+		// probe 1.1: estimationEngine.ComputeEarnedValue for earned-value-recomputed
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Activities          estimation.ActivityList `json:"activities"`
+			Network             estimation.Network      `json:"network"`
+			Integrated          []string                `json:"integrated"`
+			TotalWeeks          int64                   `json:"totalWeeks"`
+			CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
+		}
+		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ComputeEarnedValue(callContext(t, h, "1.1"), probe1_1.Activities, probe1_1.Network, probe1_1.Integrated, probe1_1.TotalWeeks, probe1_1.CalendarDaysPerWeek)
+		expect(t, "execute-a-project-activity-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"spi\":0.75}","errorExpected":false}`)
 	})
 }
 
@@ -138,18 +177,31 @@ type inputExecuteAProjectActivityP4S1 struct {
 	CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
 }
 
-// TestScenario_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "estimationEngine", "execute-a-project-activity-P4", func(t *testing.T) {
 		var subject estimation.EstimationEngine = newSubject(t, h)
-		// step 1: ComputeEarnedValue (node record-exit; guards task-kind=review, requires-human=human required, verdict=approve)
+		// step 1: ComputeEarnedValue (node recompute-ev; guards task-kind=review, requires-human=human required, verdict=approve)
 		var in1 inputExecuteAProjectActivityP4S1
 		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access","C-orders-manager"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ComputeEarnedValue(callContext(t, h, "1"), in1.Activities, in1.Network, in1.Integrated, in1.TotalWeeks, in1.CalendarDaysPerWeek)
 		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"{\"spi\":1}","errorExpected":false}`)
+		// probe 1.1: estimationEngine.ComputeEarnedValue for earned-value-recomputed
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Activities          estimation.ActivityList `json:"activities"`
+			Network             estimation.Network      `json:"network"`
+			Integrated          []string                `json:"integrated"`
+			TotalWeeks          int64                   `json:"totalWeeks"`
+			CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
+		}
+		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access","C-orders-manager"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ComputeEarnedValue(callContext(t, h, "1.1"), probe1_1.Activities, probe1_1.Network, probe1_1.Integrated, probe1_1.TotalWeeks, probe1_1.CalendarDaysPerWeek)
+		expect(t, "execute-a-project-activity-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"spi\":1}","errorExpected":false}`)
 	})
 }
 
@@ -162,18 +214,31 @@ type inputExecuteAProjectActivityP5S1 struct {
 	CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
 }
 
-// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "estimationEngine", "execute-a-project-activity-P5", func(t *testing.T) {
 		var subject estimation.EstimationEngine = newSubject(t, h)
-		// step 1: ComputeEarnedValue (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		// step 1: ComputeEarnedValue (node recompute-ev; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var in1 inputExecuteAProjectActivityP5S1
 		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ComputeEarnedValue(callContext(t, h, "1"), in1.Activities, in1.Network, in1.Integrated, in1.TotalWeeks, in1.CalendarDaysPerWeek)
 		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"{\"spi\":0.75}","errorExpected":false}`)
+		// probe 1.1: estimationEngine.ComputeEarnedValue for earned-value-recomputed
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Activities          estimation.ActivityList `json:"activities"`
+			Network             estimation.Network      `json:"network"`
+			Integrated          []string                `json:"integrated"`
+			TotalWeeks          int64                   `json:"totalWeeks"`
+			CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
+		}
+		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ComputeEarnedValue(callContext(t, h, "1.1"), probe1_1.Activities, probe1_1.Network, probe1_1.Integrated, probe1_1.TotalWeeks, probe1_1.CalendarDaysPerWeek)
+		expect(t, "execute-a-project-activity-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"spi\":0.75}","errorExpected":false}`)
 	})
 }
 
@@ -186,18 +251,31 @@ type inputExecuteAProjectActivityP6S1 struct {
 	CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
 }
 
-// TestScenario_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "estimationEngine", "execute-a-project-activity-P6", func(t *testing.T) {
 		var subject estimation.EstimationEngine = newSubject(t, h)
-		// step 1: ComputeEarnedValue (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		// step 1: ComputeEarnedValue (node recompute-ev; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
 		var in1 inputExecuteAProjectActivityP6S1
 		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access","C-orders-manager"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ComputeEarnedValue(callContext(t, h, "1"), in1.Activities, in1.Network, in1.Integrated, in1.TotalWeeks, in1.CalendarDaysPerWeek)
 		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"{\"spi\":1}","errorExpected":false}`)
+		// probe 1.1: estimationEngine.ComputeEarnedValue for earned-value-recomputed
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Activities          estimation.ActivityList `json:"activities"`
+			Network             estimation.Network      `json:"network"`
+			Integrated          []string                `json:"integrated"`
+			TotalWeeks          int64                   `json:"totalWeeks"`
+			CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
+		}
+		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access","C-orders-manager"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ComputeEarnedValue(callContext(t, h, "1.1"), probe1_1.Activities, probe1_1.Network, probe1_1.Integrated, probe1_1.TotalWeeks, probe1_1.CalendarDaysPerWeek)
+		expect(t, "execute-a-project-activity-P6 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"spi\":1}","errorExpected":false}`)
 	})
 }
 
@@ -210,18 +288,31 @@ type inputExecuteAProjectActivityP7S1 struct {
 	CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
 }
 
-// TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "estimationEngine", "execute-a-project-activity-P7", func(t *testing.T) {
 		var subject estimation.EstimationEngine = newSubject(t, h)
-		// step 1: ComputeEarnedValue (node record-exit; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		// step 1: ComputeEarnedValue (node recompute-ev; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
 		var in1 inputExecuteAProjectActivityP7S1
 		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ComputeEarnedValue(callContext(t, h, "1"), in1.Activities, in1.Network, in1.Integrated, in1.TotalWeeks, in1.CalendarDaysPerWeek)
 		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"{\"spi\":0.75}","errorExpected":false}`)
+		// probe 1.1: estimationEngine.ComputeEarnedValue for earned-value-recomputed
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Activities          estimation.ActivityList `json:"activities"`
+			Network             estimation.Network      `json:"network"`
+			Integrated          []string                `json:"integrated"`
+			TotalWeeks          int64                   `json:"totalWeeks"`
+			CalendarDaysPerWeek int64                   `json:"calendarDaysPerWeek"`
+		}
+		mustUnmarshal(t, `{"activities":{"activities":[{"name":"C-orders-access","effortDays":3},{"name":"C-orders-manager","effortDays":1}]},"network":{"dependencies":[{"activity":"C-orders-access","dependsOn":[]},{"activity":"C-orders-manager","dependsOn":["C-orders-access"]}],"milestones":null},"integrated":["C-orders-access"],"totalWeeks":1,"calendarDaysPerWeek":5}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ComputeEarnedValue(callContext(t, h, "1.1"), probe1_1.Activities, probe1_1.Network, probe1_1.Integrated, probe1_1.TotalWeeks, probe1_1.CalendarDaysPerWeek)
+		expect(t, "execute-a-project-activity-P7 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"spi\":0.75}","errorExpected":false}`)
 	})
 }
 

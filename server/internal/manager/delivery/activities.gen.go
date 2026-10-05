@@ -108,6 +108,20 @@ func (a *genActivities) ProjectStateRecordReviewPolicy(ctx context.Context, proj
 	return v, fwmanager.MapError(err)
 }
 
+// ProjectStateRecordSdpReviewOutcome wraps projectStateAccess.recordSdpReviewOutcome.
+// Registered as "projectStateAccess.recordSdpReviewOutcome".
+func (a *genActivities) ProjectStateRecordSdpReviewOutcome(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, outcome projectstate.ArtifactReviewStatus, feedback string) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordSdpReviewOutcome(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, outcome, feedback, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordTrackingPoint wraps projectStateAccess.recordTrackingPoint.
+// Registered as "projectStateAccess.recordTrackingPoint".
+func (a *genActivities) ProjectStateRecordTrackingPoint(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, point projectstate.EvPoint) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordTrackingPoint(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, point, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
 // ProjectStateSetOperatingModel wraps projectStateAccess.setOperatingModel.
 // Registered as "projectStateAccess.setOperatingModel".
 func (a *genActivities) ProjectStateSetOperatingModel(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
