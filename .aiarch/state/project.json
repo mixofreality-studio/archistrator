@@ -69156,6 +69156,296 @@
             ]
           }
         ]
+      },
+      "webClientOperations": {
+        "component": "webClientOperations",
+        "bindings": [
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DeployOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operations-tab-deployments\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operations-deploy\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"operations-deployments-tab\"},{\"visible\":\"operations-deploy\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "register-a-delivered-system-for-operation-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RegisterDeliveredSystem",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a3\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operations-register\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"operations-register-customer-id\",\"value\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"operations-register-project-ref\",\"value\":\"archistrator\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"operations-register-bundle-ref\",\"value\":\"archistrator-bundle-v1\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operations-register-submit\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"operations-register-form\"},{\"target\":\"operations-register-result\",\"text\":\"Registered · head-state version 1\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenDeploymentDiagram",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/project/archistrator/activity/architecture\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"architecture-view\"},{\"visible\":\"arch-view-switch\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-live-deployment-health-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenDeploymentDiagram",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/project/archistrator/activity/architecture\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"architecture-view\"},{\"visible\":\"arch-view-switch\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-operating-cost-projection-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenOperationsConsole",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"operations-console\"},{\"visible\":\"operations-tab-scaling\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "RequestCostProjection",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operations-tab-scaling\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"operations-scaling-tab\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-operating-cost-projection-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenOperationsConsole",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a9\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"operations-console\"},{\"visible\":\"operations-tab-scaling\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "RequestCostProjection",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operations-tab-scaling\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"operations-awaiting\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "WithdrawOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a2\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operations-tab-deployments\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operations-withdraw\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"operations-console\"},{\"visible\":\"operations-deployments-tab\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "WithdrawOperatedSystem",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a4\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operations-tab-deployments\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operations-withdraw\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"operations-console\"},{\"visible\":\"operations-deployments-tab\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
       }
     }
   },
