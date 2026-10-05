@@ -1758,7 +1758,9 @@ func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug string,
 //     NOTHING pushed (the manager's F80c reconcile + re-approve path then applies).
 //   - SyncManagedScaffold → (false, nil) no-op (the local executor seats .claude itself).
 //   - Birth ops (CreateProject, rail non-nil): AdoptProjectRepo returns the deterministic
-//     local RepoRef (the shared repo already exists); CommitManagedFiles is a no-op.
+//     local RepoRef (the shared repo already exists); CommitManagedFiles seats the managed
+//     files onto main in one commit (idempotent: a converged bundle writes nothing), so a
+//     ReadManagedFile reads back what the birth seated, as on GitHub.
 //
 // DUPLICATED GIT HELPERS: the tiny `git` subprocess plumbing below is deliberately
 // re-implemented rather than shared with agenticjob (an RA may not import a
@@ -1781,10 +1783,6 @@ const (
 	// GetInstallationToken returns. It is never presented to any real service — local git
 	// auth is the filesystem — but must be non-empty so RepoCredentialIsZero is false.
 	gitLocalCredentialToken = "local"
-	// gitLocalScaffoldSentinel is the sentinel CommitRef CommitManagedFiles returns: the
-	// local executor seats the managed scaffold (.claude) itself, so there is nothing to
-	// commit here, but the contract wants a non-zero CommitRef.
-	gitLocalScaffoldSentinel = "local-scaffold-noop"
 )
 
 // gitLocalFarExpiry is the ExpiresAt on the dummy credential — deliberately far in the
@@ -1852,20 +1850,91 @@ func (a *gitLocalAccess) AdoptProjectRepo(_ fwra.Context, spec RepoAdoptionSpec)
 	return GitLocalRepoRefForProject(ProjectID(name)), nil
 }
 
-// CommitManagedFiles is a no-op success returning a sentinel CommitRef. The managed
-// scaffold (.claude prompt surface) is seated by the agenticjob local executor at
-// dispatch time, not committed to the repo, so there is nothing to commit here.
-func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, _ []ManagedFile, _ RepoCredential) (CommitRef, error) {
+// CommitManagedFiles seats the managed files onto the shared repo's main in ONE commit
+// (throwaway clone + commit + push) — the local twin of the GitHub realisation's atomic
+// trees-API seat, honouring the same contract: the same allowlist gatekeeper rejects the
+// whole bundle before any write, the commit carries the same birth-seat message, and a
+// bundle already byte-identical on main writes nothing and returns main's tip (an
+// idempotent re-seat). The returned CommitRef is the resulting (or converged) tip SHA.
+//
+// The writes go through an os.Root over the clone, so a path that rides the allowlist's
+// .github/workflows/ prefix with a ".." segment cannot escape the working tree. A push
+// rejected because main moved under the clone is the seam's one retryable Conflict
+// (retry re-reads main), exactly as the GitHub ref race is.
+func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, files []ManagedFile, _ RepoCredential) (CommitRef, error) {
 	if RepoRefIsZero(repo) {
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal CommitManagedFiles: zero RepoRef")
 	}
-	return CommitRef(gitLocalScaffoldSentinel), nil
+	if len(files) == 0 {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal CommitManagedFiles: empty fileset")
+	}
+	if err := validateManagedFileSet(files); err != nil {
+		return "", err
+	}
+	a.gitMu.Lock()
+	defer a.gitMu.Unlock()
+	cloneDir, cleanup, err := a.cloneMain()
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+
+	if err := writeManagedFiles(cloneDir, files); err != nil {
+		return "", err
+	}
+	addArgs := []string{"add", "--"}
+	for _, f := range files {
+		addArgs = append(addArgs, f.Path)
+	}
+	if out, aerr := gitLocalRun(cloneDir, addArgs...); aerr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, aerr, "gitlocal CommitManagedFiles: stage failed: "+strings.TrimSpace(out))
+	}
+	// Converged: nothing staged differs from main → no commit; main's tip is the handle.
+	if _, derr := gitLocalRun(cloneDir, "diff", "--cached", "--quiet"); derr == nil {
+		sha, herr := gitLocalHeadSHA(cloneDir)
+		return CommitRef(sha), herr
+	}
+	if out, cerr := gitLocalRun(cloneDir, "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"commit", "-m", ManagedCommitMessage); cerr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, cerr, "gitlocal CommitManagedFiles: commit failed: "+strings.TrimSpace(out))
+	}
+	if out, perr := gitLocalRun(cloneDir, "push", "origin", gitLocalMainBranch); perr != nil {
+		if strings.Contains(out, "[rejected]") {
+			fe := fwra.New(fwra.Conflict, "gitlocal CommitManagedFiles: "+gitLocalMainBranch+" moved during the seat; nothing pushed")
+			fe.Retryable = true
+			return "", fe
+		}
+		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal CommitManagedFiles: push failed: "+strings.TrimSpace(out))
+	}
+	sha, err := gitLocalHeadSHA(cloneDir)
+	return CommitRef(sha), err
+}
+
+// writeManagedFiles writes every allowlist-validated managed file into the clone,
+// confined to it by an os.Root.
+func writeManagedFiles(cloneDir string, files []ManagedFile) error {
+	root, err := os.OpenRoot(cloneDir)
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "gitlocal CommitManagedFiles: open clone")
+	}
+	defer func() { _ = root.Close() }()
+	for _, f := range files {
+		if dir := path.Dir(f.Path); dir != "." {
+			if err := root.MkdirAll(dir, 0o750); err != nil {
+				return fwra.Wrap(fwra.ContractMisuse, err, "gitlocal CommitManagedFiles: "+f.Path)
+			}
+		}
+		if err := root.WriteFile(f.Path, f.Content, 0o600); err != nil {
+			return fwra.Wrap(fwra.ContractMisuse, err, "gitlocal CommitManagedFiles: "+f.Path)
+		}
+	}
+	return nil
 }
 
 // ReadManagedFile reads one aiarch-managed file off the shared repo's main, in a
-// throwaway clone. The local executor seats the .claude prompt surface itself, so a
-// managed file is usually absent here: Found=false, not an error. The same allowlist
-// gatekeeper as the GitHub variant guards the path.
+// throwaway clone. A file nothing seated (the local executor materialises the .claude
+// prompt surface into its worktree, never onto main) is Found=false, not an error. The
+// same allowlist gatekeeper as the GitHub variant guards the path.
 func (a *gitLocalAccess) ReadManagedFile(_ fwra.Context, repo RepoRef, p string, _ RepoCredential) (ManagedFileRead, error) {
 	if RepoRefIsZero(repo) {
 		return ManagedFileRead{}, fwra.New(fwra.ContractMisuse, "gitlocal ReadManagedFile: zero RepoRef")
