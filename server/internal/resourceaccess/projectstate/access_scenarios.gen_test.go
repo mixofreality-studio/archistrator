@@ -2,13 +2,5073 @@
 // Source: project.json .phaseArtifacts.testPlan.activityExecutionAccess × scenario.ForComponent("activityExecutionAccess")
 // Source: project.json .phaseArtifacts.testPlan.designSessionAccess × scenario.ForComponent("designSessionAccess")
 // Source: project.json .phaseArtifacts.testPlan.gitActivityStatusAccess × scenario.ForComponent("gitActivityStatusAccess")
+// Source: project.json .phaseArtifacts.testPlan.projectStateAccess × scenario.ForComponent("projectStateAccess")
 
 package projectstate_test
 
 import (
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-func TestMain(m *testing.M) { scenariohost.Main(m, "activityExecutionAccess") }
+func TestMain(m *testing.M) {
+	scenariohost.Main(m, "activityExecutionAccess", "designSessionAccess", "gitActivityStatusAccess", "projectStateAccess")
+}
+
+// inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP1S1 is step 1's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP1S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project_P1 — Add a Use Case to an In-Flight Project — [variation] · [no] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → merge-out → end).
+func TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "add-a-use-case-to-an-in-flight-project-P1", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: StageTaskOutput (node redraft-review; guards core-check=[variation], replan-check=[no])
+		var in1 inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP1S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-auc-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"coreUseCasesDraft","branch":"activity/D-REQ","model":{"kind":"coreUseCases","model":{"decisions":[{"useCase":{"id":"stp-added-use-case","name":"STP Added Use Case","actors":[{"id":"architect-user","role":"Architect User"}],"trigger":"clientAction","classification":"nonCore","variationOf":"view-the-project-state-log","activity":{"nodes":[{"id":"start","kind":"start","label":""},{"id":"export-audit-trail","kind":"action","label":"Download every state commit with its operation name as one archive","roleName":"Architect User","linkedActorId":"architect-user"},{"id":"end","kind":"end","label":""}],"edges":[{"from":"start","to":"export-audit-trail","kind":"controlFlow","guard":""},{"from":"export-audit-trail","to":"end","kind":"controlFlow","guard":""}]}},"essenceRationale":"Amendment staged for review by the test plan.","rejectionReason":""}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-auc-p1:stage:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessAddAUseCaseToAnInFlightProjectP1S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 1, out1, err1, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"coreUseCasesDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeActivityExecutionAccessAddAUseCaseToAnInFlightProjectP1S1N1(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aea-auc-p1\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP2S1 is step 1's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP2S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project_P2 — Add a Use Case to an In-Flight Project — [variation] · [yes] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → replan → replan-trigger-recorded → replan-async-note → merge-out → end).
+func TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "add-a-use-case-to-an-in-flight-project-P2", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: StageTaskOutput (node redraft-review; guards core-check=[variation], replan-check=[yes])
+		var in1 inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP2S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-auc-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"coreUseCasesDraft","branch":"activity/D-REQ","model":{"kind":"coreUseCases","model":{"decisions":[{"useCase":{"id":"stp-added-use-case","name":"STP Added Use Case","actors":[{"id":"architect-user","role":"Architect User"}],"trigger":"clientAction","classification":"nonCore","variationOf":"view-the-project-state-log","activity":{"nodes":[{"id":"start","kind":"start","label":""},{"id":"export-audit-trail","kind":"action","label":"Download every state commit with its operation name as one archive","roleName":"Architect User","linkedActorId":"architect-user"},{"id":"end","kind":"end","label":""}],"edges":[{"from":"start","to":"export-audit-trail","kind":"controlFlow","guard":""},{"from":"export-audit-trail","to":"end","kind":"controlFlow","guard":""}]}},"essenceRationale":"Amendment staged for review by the test plan.","rejectionReason":""}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-auc-p2:stage:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessAddAUseCaseToAnInFlightProjectP2S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 1, out1, err1, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"coreUseCasesDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeActivityExecutionAccessAddAUseCaseToAnInFlightProjectP2S1N1(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aea-auc-p2\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP3S1 is step 1's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP3S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project_P3 — Add a Use Case to an In-Flight Project — [core: rare] · [no] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → revalidate → design-health-findings-signal → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → merge-out → end).
+func TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "add-a-use-case-to-an-in-flight-project-P3", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: StageTaskOutput (node redraft-review; guards core-check=[core: rare], replan-check=[no])
+		var in1 inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP3S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-auc-p3","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"coreUseCasesDraft","branch":"activity/D-REQ","model":{"kind":"coreUseCases","model":{"decisions":[{"useCase":{"id":"stp-added-use-case","name":"STP Added Use Case","actors":[{"id":"architect-user","role":"Architect User"}],"trigger":"clientAction","classification":"nonCore","variationOf":"view-the-project-state-log","activity":{"nodes":[{"id":"start","kind":"start","label":""},{"id":"export-audit-trail","kind":"action","label":"Download every state commit with its operation name as one archive","roleName":"Architect User","linkedActorId":"architect-user"},{"id":"end","kind":"end","label":""}],"edges":[{"from":"start","to":"export-audit-trail","kind":"controlFlow","guard":""},{"from":"export-audit-trail","to":"end","kind":"controlFlow","guard":""}]}},"essenceRationale":"Amendment staged for review by the test plan.","rejectionReason":""}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-auc-p3:stage:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessAddAUseCaseToAnInFlightProjectP3S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 1, out1, err1, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"coreUseCasesDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeActivityExecutionAccessAddAUseCaseToAnInFlightProjectP3S1N1(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aea-auc-p3\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP4S1 is step 1's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP4S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project_P4 — Add a Use Case to an In-Flight Project — [core: rare] · [yes] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → revalidate → design-health-findings-signal → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → replan → replan-trigger-recorded → replan-async-note → merge-out → end).
+func TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "add-a-use-case-to-an-in-flight-project-P4", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: StageTaskOutput (node redraft-review; guards core-check=[core: rare], replan-check=[yes])
+		var in1 inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP4S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-auc-p4","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"coreUseCasesDraft","branch":"activity/D-REQ","model":{"kind":"coreUseCases","model":{"decisions":[{"useCase":{"id":"stp-added-use-case","name":"STP Added Use Case","actors":[{"id":"architect-user","role":"Architect User"}],"trigger":"clientAction","classification":"nonCore","variationOf":"view-the-project-state-log","activity":{"nodes":[{"id":"start","kind":"start","label":""},{"id":"export-audit-trail","kind":"action","label":"Download every state commit with its operation name as one archive","roleName":"Architect User","linkedActorId":"architect-user"},{"id":"end","kind":"end","label":""}],"edges":[{"from":"start","to":"export-audit-trail","kind":"controlFlow","guard":""},{"from":"export-audit-trail","to":"end","kind":"controlFlow","guard":""}]}},"essenceRationale":"Amendment staged for review by the test plan.","rejectionReason":""}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-auc-p4:stage:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessAddAUseCaseToAnInFlightProjectP4S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 1, out1, err1, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"coreUseCasesDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeActivityExecutionAccessAddAUseCaseToAnInFlightProjectP4S1N1(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aea-auc-p4\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S2 is step 2's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S2 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_review_P1 — Ask a Clarifying Question During Review — [yes: session branch] · [yes] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → append-session-branch → thread-open-on-session-branch → merge-recorded → dispatch-answer-job → answer-ran → record-answers → question-answered → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_review_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "ask-a-clarifying-question-during-review-P1", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: AppendReviewVerdict (node append-session-branch; guards artifact-state=[yes: session branch], answer-ran=[yes])
+		var in1 inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"operator","actor":"operator","verdict":"abstain","summary":"Clarifying questions before a verdict.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"q-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Does 'operated' include billing the customer?","authorRole":"operator","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"question","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p1:verdict:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P1", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for thread-open-on-session-branch
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p1","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "ask-a-clarifying-question-during-review-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}","errorExpected":false}`)
+		// step 2: AppendReviewVerdict (node record-answers; guards artifact-state=[yes: session branch], answer-ran=[yes])
+		var in2 inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p1","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"agent","verdict":"abstain","summary":"Answers to the reviewer's questions.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[{"commentId":"r1c1","authorRole":"architect","text":"Yes: operating the system includes billing the customer for it.","at":""}],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p1:answer:1"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.AppendReviewVerdict(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedVersion, in2.ExpectedActivityVersion, in2.ActivityID, in2.RoundID, in2.Verdict, in2.Comments, in2.Replies, in2.Cred, in2.IdempotencyKey)
+		expect(t, "ask-a-clarifying-question-during-review-P1", 2, out2, err2, `{"errorExpected":false}`)
+		// probe 2.1: activityExecutionAccess.ReadActivityExecution for question-answered
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p1","activityID":"D-REQ"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadActivityExecution(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		expect(t, "ask-a-clarifying-question-during-review-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"answered\"}]}]}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_review_P2 — Ask a Clarifying Question During Review — [yes: session branch] · [no: dispatch miss] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → append-session-branch → thread-open-on-session-branch → merge-recorded → dispatch-answer-job → answer-ran → remain-open → question-still-open → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_review_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "ask-a-clarifying-question-during-review-P2", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: AppendReviewVerdict (node append-session-branch; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
+		var in1 inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"operator","actor":"operator","verdict":"abstain","summary":"Clarifying questions before a verdict.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"q-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Does 'operated' include billing the customer?","authorRole":"operator","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"question","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p2:verdict:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P2", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for thread-open-on-session-branch
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "ask-a-clarifying-question-during-review-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_review_P3 — Ask a Clarifying Question During Review — [no: committed] · [yes] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → seed-main-thread → thread-seeded-on-main → merge-recorded → dispatch-answer-job → answer-ran → record-answers → question-answered → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_review_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "ask-a-clarifying-question-during-review-P3", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: AppendReviewVerdict (node record-answers; guards artifact-state=[no: committed], answer-ran=[yes])
+		var in1 inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p3","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"agent","verdict":"abstain","summary":"Answers to the reviewer's questions.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[{"commentId":"r1c1","authorRole":"architect","text":"Yes: operating the system includes billing the customer for it.","at":""}],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p3:answer:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P3", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for question-answered
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p3","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "ask-a-clarifying-question-during-review-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"answered\"}]}]}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP1S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP1S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP1S2 is step 2's parameters of ReadActivityExecution, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP1S2 struct {
+	ProjectID  projectstate.ProjectID `json:"projectID"`
+	ActivityID string                 `json:"activityID"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP1S3 is step 3's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP1S3 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP1S4 is step 4's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP1S4 struct {
+	ProjectID               projectstate.ProjectID        `json:"projectID"`
+	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
+	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+	ActivityID              string                        `json:"activityID"`
+	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
+	Cred                    projectstate.RepoCredential   `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP1S5 is step 5's parameters of RecordActivityOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP1S5 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
+	Reason                  projectstate.FailureReason   `json:"reason"`
+	Detail                  string                       `json:"detail"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "execute-a-project-activity-P1", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node activity-eligible; guards task-kind=dispatch, exit-met=yes)
+		var in1 inputActivityExecutionAccessExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p1:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP1S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for activity-lifecycle-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "execute-a-project-activity-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 2: ReadActivityExecution (node next-task; guards task-kind=dispatch, exit-met=yes)
+		var in2 inputActivityExecutionAccessExecuteAProjectActivityP1S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","activityID":"D-REQ"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadActivityExecution(callContext(t, h, "2"), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 3: StageTaskOutput (node observe-validate; guards task-kind=dispatch, exit-met=yes)
+		var in3 inputActivityExecutionAccessExecuteAProjectActivityP1S3
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"missionDraft","branch":"activity/D-REQ","model":{"kind":"mission","model":{"vision":"Predictably engineered software, delivered and operated on the customer's behalf.","mission":"Deliver predictably engineered software.","objectives":[{"number":1,"statement":"Customers receive a duration, cost and risk estimate before any code is written."}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p1:stage:1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepActivityExecutionAccessExecuteAProjectActivityP1S3(t, h, subject, in3)
+		expect(t, "execute-a-project-activity-P1", 3, out3, err3, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// step 4: RecordAttemptOutcome (node observe-validate; guards task-kind=dispatch, exit-met=yes)
+		var in4 inputActivityExecutionAccessExecuteAProjectActivityP1S4
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"passed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p1-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p1:attempt:1"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P1", 4, out4, err4, `{"errorExpected":false}`)
+		// probe 4.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
+		var pout4_1 any
+		var perr4_1 error
+		pout4_1, perr4_1 = probeActivityExecutionAccessExecuteAProjectActivityP1S4N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P1 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"id\":\"stp-aea-epa-p1\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software.\"}}}}}","errorExpected":false}`)
+		// probe 4.2: designSessionAccess.ReadProjectOnBranch for observe-validate
+		var pout4_2 any
+		var perr4_2 error
+		pout4_2, perr4_2 = probeActivityExecutionAccessExecuteAProjectActivityP1S4N2(t, h, subject)
+		expect(t, "execute-a-project-activity-P1 probe 4.2", 4, pout4_2, perr4_2, `{"result":"{\"id\":\"stp-aea-epa-p1\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software.\"}}}}}","errorExpected":false}`)
+		// probe 4.3: activityExecutionAccess.ReadActivityExecution for attempt-episode
+		var pout4_3 any
+		var perr4_3 error
+		var probe4_3 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","activityID":"D-REQ"}`, &probe4_3)
+		pout4_3, perr4_3 = subject.ReadActivityExecution(callContext(t, h, "4.3"), probe4_3.ProjectID, probe4_3.ActivityID)
+		expect(t, "execute-a-project-activity-P1 probe 4.3", 4, pout4_3, perr4_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"passed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p1-missionDraft-1\"}}]}","errorExpected":false}`)
+		// step 5: RecordActivityOutcome (node record-exit; guards task-kind=dispatch, exit-met=yes)
+		var in5 inputActivityExecutionAccessExecuteAProjectActivityP1S5
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p1:exit"}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.RecordActivityOutcome(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.Outcome, in5.Reason, in5.Detail, in5.Cred, in5.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P1", 5, out5, err5, `{"errorExpected":false}`)
+		// probe 5.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","activityID":"D-REQ"}`, &probe5_1)
+		pout5_1, perr5_1 = subject.ReadActivityExecution(callContext(t, h, "5.1"), probe5_1.ProjectID, probe5_1.ActivityID)
+		expect(t, "execute-a-project-activity-P1 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"activityID\":\"D-REQ\",\"version\":3}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP2S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP2S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP2S2 is step 2's parameters of ReadActivityExecution, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP2S2 struct {
+	ProjectID  projectstate.ProjectID `json:"projectID"`
+	ActivityID string                 `json:"activityID"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP2S3 is step 3's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP2S3 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP2S4 is step 4's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP2S4 struct {
+	ProjectID               projectstate.ProjectID        `json:"projectID"`
+	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
+	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+	ActivityID              string                        `json:"activityID"`
+	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
+	Cred                    projectstate.RepoCredential   `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP2S5 is step 5's parameters of RecordOperatorNote, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP2S5 struct {
+	ProjectID               projectstate.ProjectID         `json:"projectID"`
+	ExpectedVersion         projectstate.Version           `json:"expectedVersion"`
+	ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
+	ActivityID              string                         `json:"activityID"`
+	Note                    projectstate.OperatorNoteInput `json:"note"`
+	DeliveredToAttemptID    string                         `json:"deliveredToAttemptID"`
+	Cred                    projectstate.RepoCredential    `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey            `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP2S6 is step 6's parameters of RecordActivityOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP2S6 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
+	Reason                  projectstate.FailureReason   `json:"reason"`
+	Detail                  string                       `json:"detail"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "execute-a-project-activity-P2", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in1 inputActivityExecutionAccessExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP2S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for activity-lifecycle-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "execute-a-project-activity-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 2: ReadActivityExecution (node next-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in2 inputActivityExecutionAccessExecuteAProjectActivityP2S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","activityID":"D-REQ"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadActivityExecution(callContext(t, h, "2"), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 3: StageTaskOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in3 inputActivityExecutionAccessExecuteAProjectActivityP2S3
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"missionDraft","branch":"activity/D-REQ","model":{"kind":"mission","model":{"vision":"Predictably engineered software, delivered and operated on the customer's behalf.","mission":"Draft that misses the exit criterion.","objectives":[{"number":1,"statement":"Customers receive a duration, cost and risk estimate before any code is written."}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:stage:1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepActivityExecutionAccessExecuteAProjectActivityP2S3(t, h, subject, in3)
+		expect(t, "execute-a-project-activity-P2", 3, out3, err3, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// step 4: RecordAttemptOutcome (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in4 inputActivityExecutionAccessExecuteAProjectActivityP2S4
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"failed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p2-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:attempt:1"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P2", 4, out4, err4, `{"errorExpected":false}`)
+		// probe 4.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
+		var pout4_1 any
+		var perr4_1 error
+		pout4_1, perr4_1 = probeActivityExecutionAccessExecuteAProjectActivityP2S4N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"id\":\"stp-aea-epa-p2\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Draft that misses the exit criterion.\"}}}}}","errorExpected":false}`)
+		// probe 4.2: designSessionAccess.ReadProjectOnBranch for observe-validate
+		var pout4_2 any
+		var perr4_2 error
+		pout4_2, perr4_2 = probeActivityExecutionAccessExecuteAProjectActivityP2S4N2(t, h, subject)
+		expect(t, "execute-a-project-activity-P2 probe 4.2", 4, pout4_2, perr4_2, `{"result":"{\"id\":\"stp-aea-epa-p2\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Draft that misses the exit criterion.\"}}}}}","errorExpected":false}`)
+		// probe 4.3: activityExecutionAccess.ReadActivityExecution for attempt-episode
+		var pout4_3 any
+		var perr4_3 error
+		var probe4_3 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","activityID":"D-REQ"}`, &probe4_3)
+		pout4_3, perr4_3 = subject.ReadActivityExecution(callContext(t, h, "4.3"), probe4_3.ProjectID, probe4_3.ActivityID)
+		expect(t, "execute-a-project-activity-P2 probe 4.3", 4, pout4_3, perr4_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p2-missionDraft-1\"}}]}","errorExpected":false}`)
+		// step 5: RecordOperatorNote (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in5 inputActivityExecutionAccessExecuteAProjectActivityP2S5
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"stp-aea-epa-p2:takeover:mission","kind":3,"gate":"mission","text":"Taking this task over: the agent cannot meet the exit criterion.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:note:1"}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.RecordOperatorNote(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.Note, in5.DeliveredToAttemptID, in5.Cred, in5.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P2", 5, out5, err5, `{"errorExpected":false}`)
+		// probe 5.1: activityExecutionAccess.ReadActivityExecution for operator-note-recorded
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","activityID":"D-REQ"}`, &probe5_1)
+		pout5_1, perr5_1 = subject.ReadActivityExecution(callContext(t, h, "5.1"), probe5_1.ProjectID, probe5_1.ActivityID)
+		expect(t, "execute-a-project-activity-P2 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"noteId\":\"stp-aea-epa-p2:takeover:mission\",\"kind\":3,\"gate\":\"mission\",\"text\":\"Taking this task over: the agent cannot meet the exit criterion.\"}]}","errorExpected":false}`)
+		// step 6: RecordActivityOutcome (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in6 inputActivityExecutionAccessExecuteAProjectActivityP2S6
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":3,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:exit"}`, &in6)
+		var out6 any
+		var err6 error
+		out6, err6 = subject.RecordActivityOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.ExpectedActivityVersion, in6.ActivityID, in6.Outcome, in6.Reason, in6.Detail, in6.Cred, in6.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P2", 6, out6, err6, `{"errorExpected":false}`)
+		// probe 6.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
+		var pout6_1 any
+		var perr6_1 error
+		var probe6_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","activityID":"D-REQ"}`, &probe6_1)
+		pout6_1, perr6_1 = subject.ReadActivityExecution(callContext(t, h, "6.1"), probe6_1.ProjectID, probe6_1.ActivityID)
+		expect(t, "execute-a-project-activity-P2 probe 6.1", 6, pout6_1, perr6_1, `{"result":"{\"activityID\":\"D-REQ\",\"version\":4}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP3S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP3S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP3S2 is step 2's parameters of ReadActivityExecution, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP3S2 struct {
+	ProjectID  projectstate.ProjectID `json:"projectID"`
+	ActivityID string                 `json:"activityID"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP3S3 is step 3's parameters of OpenReviewRound, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP3S3 struct {
+	ProjectID               projectstate.ProjectID        `json:"projectID"`
+	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
+	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+	ActivityID              string                        `json:"activityID"`
+	Round                   projectstate.ReviewRoundInput `json:"round"`
+	Cred                    projectstate.RepoCredential   `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP3S4 is step 4's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP3S4 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP3S5 is step 5's parameters of DecideReviewRound, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP3S5 struct {
+	ProjectID               projectstate.ProjectID          `json:"projectID"`
+	ExpectedVersion         projectstate.Version            `json:"expectedVersion"`
+	ExpectedActivityVersion int64                           `json:"expectedActivityVersion"`
+	ActivityID              string                          `json:"activityID"`
+	RoundID                 string                          `json:"roundID"`
+	Outcome                 projectstate.ReviewRoundOutcome `json:"outcome"`
+	DecidedBy               string                          `json:"decidedBy"`
+	Cred                    projectstate.RepoCredential     `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey             `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP3S6 is step 6's parameters of RecordActivityOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP3S6 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
+	Reason                  projectstate.FailureReason   `json:"reason"`
+	Detail                  string                       `json:"detail"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "execute-a-project-activity-P3", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node activity-eligible; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in1 inputActivityExecutionAccessExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP3S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for activity-lifecycle-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "execute-a-project-activity-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 2: ReadActivityExecution (node next-task; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in2 inputActivityExecutionAccessExecuteAProjectActivityP3S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","activityID":"D-REQ"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadActivityExecution(callContext(t, h, "2"), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 3: OpenReviewRound (node propose-reviews; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in3 inputActivityExecutionAccessExecuteAProjectActivityP3S3
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","round":{"roundId":"D-REQ:missionReview:mission:1","taskId":"missionReview","reviews":"missionDraft","artifactKind":"mission","round":1,"subjectRef":{"kind":"pullRequest","ref":"stp-aea-epa-p3#pr-1"},"reviewers":[{"role":"productManager","actor":"agent:product-manager","required":true}]},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:round:1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.OpenReviewRound(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.ExpectedActivityVersion, in3.ActivityID, in3.Round, in3.Cred, in3.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P3", 3, out3, err3, `{"errorExpected":false}`)
+		// probe 3.1: activityExecutionAccess.ReadActivityExecution for review-pr-open
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","activityID":"D-REQ"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadActivityExecution(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		expect(t, "execute-a-project-activity-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p3#pr-1\"},\"outcome\":\"pending\"}]}","errorExpected":false}`)
+		// step 4: AppendReviewVerdict (node dispatch-reviewers; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in4 inputActivityExecutionAccessExecuteAProjectActivityP3S4
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"productManager","actor":"agent:product-manager","verdict":"approve","summary":"Mission meets the exit criterion.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:verdict:1"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.AppendReviewVerdict(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.RoundID, in4.Verdict, in4.Comments, in4.Replies, in4.Cred, in4.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P3", 4, out4, err4, `{"errorExpected":false}`)
+		// probe 4.1: activityExecutionAccess.ReadActivityExecution for
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","activityID":"D-REQ"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadActivityExecution(callContext(t, h, "4.1"), probe4_1.ProjectID, probe4_1.ActivityID)
+		expect(t, "execute-a-project-activity-P3 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"reviewerRole\":\"productManager\",\"actor\":\"agent:product-manager\",\"verdict\":\"approve\"}]}]}","errorExpected":false}`)
+		// step 5: DecideReviewRound (node verdict; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in5 inputActivityExecutionAccessExecuteAProjectActivityP3S5
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","outcome":"passed","decidedBy":"delivery-manager","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:decide:1"}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.DecideReviewRound(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.Outcome, in5.DecidedBy, in5.Cred, in5.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P3", 5, out5, err5, `{"errorExpected":false}`)
+		// probe 5.1: activityExecutionAccess.ReadActivityExecution for
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","activityID":"D-REQ"}`, &probe5_1)
+		pout5_1, perr5_1 = subject.ReadActivityExecution(callContext(t, h, "5.1"), probe5_1.ProjectID, probe5_1.ActivityID)
+		expect(t, "execute-a-project-activity-P3 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"passed\",\"decidedBy\":\"delivery-manager\"}]}","errorExpected":false}`)
+		// step 6: RecordActivityOutcome (node record-exit; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in6 inputActivityExecutionAccessExecuteAProjectActivityP3S6
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedVersion":4,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:exit"}`, &in6)
+		var out6 any
+		var err6 error
+		out6, err6 = subject.RecordActivityOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.ExpectedActivityVersion, in6.ActivityID, in6.Outcome, in6.Reason, in6.Detail, in6.Cred, in6.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P3", 6, out6, err6, `{"errorExpected":false}`)
+		// probe 6.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
+		var pout6_1 any
+		var perr6_1 error
+		var probe6_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","activityID":"D-REQ"}`, &probe6_1)
+		pout6_1, perr6_1 = subject.ReadActivityExecution(callContext(t, h, "6.1"), probe6_1.ProjectID, probe6_1.ActivityID)
+		expect(t, "execute-a-project-activity-P3 probe 6.1", 6, pout6_1, perr6_1, `{"result":"{\"activityID\":\"D-REQ\",\"version\":5}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP4S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP4S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP4S2 is step 2's parameters of ReadActivityExecution, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP4S2 struct {
+	ProjectID  projectstate.ProjectID `json:"projectID"`
+	ActivityID string                 `json:"activityID"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP4S3 is step 3's parameters of OpenReviewRound, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP4S3 struct {
+	ProjectID               projectstate.ProjectID        `json:"projectID"`
+	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
+	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+	ActivityID              string                        `json:"activityID"`
+	Round                   projectstate.ReviewRoundInput `json:"round"`
+	Cred                    projectstate.RepoCredential   `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP4S4 is step 4's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP4S4 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP4S5 is step 5's parameters of DecideReviewRound, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP4S5 struct {
+	ProjectID               projectstate.ProjectID          `json:"projectID"`
+	ExpectedVersion         projectstate.Version            `json:"expectedVersion"`
+	ExpectedActivityVersion int64                           `json:"expectedActivityVersion"`
+	ActivityID              string                          `json:"activityID"`
+	RoundID                 string                          `json:"roundID"`
+	Outcome                 projectstate.ReviewRoundOutcome `json:"outcome"`
+	DecidedBy               string                          `json:"decidedBy"`
+	Cred                    projectstate.RepoCredential     `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey             `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP4S6 is step 6's parameters of RecordActivityOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP4S6 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
+	Reason                  projectstate.FailureReason   `json:"reason"`
+	Detail                  string                       `json:"detail"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "execute-a-project-activity-P4", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node activity-eligible; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in1 inputActivityExecutionAccessExecuteAProjectActivityP4S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP4S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for activity-lifecycle-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "execute-a-project-activity-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 2: ReadActivityExecution (node next-task; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in2 inputActivityExecutionAccessExecuteAProjectActivityP4S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","activityID":"D-REQ"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadActivityExecution(callContext(t, h, "2"), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 3: OpenReviewRound (node propose-reviews; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in3 inputActivityExecutionAccessExecuteAProjectActivityP4S3
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","round":{"roundId":"D-REQ:missionReview:mission:1","taskId":"missionReview","reviews":"missionDraft","artifactKind":"mission","round":1,"subjectRef":{"kind":"pullRequest","ref":"stp-aea-epa-p4#pr-1"},"reviewers":[{"role":"productManager","actor":"agent:product-manager","required":true},{"role":"architect","actor":"architect-user","required":true}]},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:round:1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.OpenReviewRound(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.ExpectedActivityVersion, in3.ActivityID, in3.Round, in3.Cred, in3.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P4", 3, out3, err3, `{"errorExpected":false}`)
+		// probe 3.1: activityExecutionAccess.ReadActivityExecution for review-pr-open
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","activityID":"D-REQ"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadActivityExecution(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		expect(t, "execute-a-project-activity-P4 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p4#pr-1\"},\"outcome\":\"pending\"}]}","errorExpected":false}`)
+		// step 4: AppendReviewVerdict (node human-decision; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in4 inputActivityExecutionAccessExecuteAProjectActivityP4S4
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"approve","summary":"Approved by the architect.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:verdict:1"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.AppendReviewVerdict(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.RoundID, in4.Verdict, in4.Comments, in4.Replies, in4.Cred, in4.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P4", 4, out4, err4, `{"errorExpected":false}`)
+		// probe 4.1: activityExecutionAccess.ReadActivityExecution for
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","activityID":"D-REQ"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadActivityExecution(callContext(t, h, "4.1"), probe4_1.ProjectID, probe4_1.ActivityID)
+		expect(t, "execute-a-project-activity-P4 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"approve\"}]}]}","errorExpected":false}`)
+		// step 5: DecideReviewRound (node verdict; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in5 inputActivityExecutionAccessExecuteAProjectActivityP4S5
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","outcome":"passed","decidedBy":"architect-user","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:decide:1"}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.DecideReviewRound(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.Outcome, in5.DecidedBy, in5.Cred, in5.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P4", 5, out5, err5, `{"errorExpected":false}`)
+		// probe 5.1: activityExecutionAccess.ReadActivityExecution for
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","activityID":"D-REQ"}`, &probe5_1)
+		pout5_1, perr5_1 = subject.ReadActivityExecution(callContext(t, h, "5.1"), probe5_1.ProjectID, probe5_1.ActivityID)
+		expect(t, "execute-a-project-activity-P4 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"passed\",\"decidedBy\":\"architect-user\"}]}","errorExpected":false}`)
+		// step 6: RecordActivityOutcome (node record-exit; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in6 inputActivityExecutionAccessExecuteAProjectActivityP4S6
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedVersion":4,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:exit"}`, &in6)
+		var out6 any
+		var err6 error
+		out6, err6 = subject.RecordActivityOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.ExpectedActivityVersion, in6.ActivityID, in6.Outcome, in6.Reason, in6.Detail, in6.Cred, in6.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P4", 6, out6, err6, `{"errorExpected":false}`)
+		// probe 6.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
+		var pout6_1 any
+		var perr6_1 error
+		var probe6_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","activityID":"D-REQ"}`, &probe6_1)
+		pout6_1, perr6_1 = subject.ReadActivityExecution(callContext(t, h, "6.1"), probe6_1.ProjectID, probe6_1.ActivityID)
+		expect(t, "execute-a-project-activity-P4 probe 6.1", 6, pout6_1, perr6_1, `{"result":"{\"activityID\":\"D-REQ\",\"version\":5}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP5S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP5S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP5S2 is step 2's parameters of ReadActivityExecution, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP5S2 struct {
+	ProjectID  projectstate.ProjectID `json:"projectID"`
+	ActivityID string                 `json:"activityID"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP5S3 is step 3's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP5S3 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP5S4 is step 4's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP5S4 struct {
+	ProjectID               projectstate.ProjectID        `json:"projectID"`
+	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
+	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+	ActivityID              string                        `json:"activityID"`
+	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
+	Cred                    projectstate.RepoCredential   `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP5S5 is step 5's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP5S5 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP5S6 is step 6's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP5S6 struct {
+	ProjectID               projectstate.ProjectID        `json:"projectID"`
+	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
+	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+	ActivityID              string                        `json:"activityID"`
+	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
+	Cred                    projectstate.RepoCredential   `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP5S7 is step 7's parameters of RecordActivityOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP5S7 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
+	Reason                  projectstate.FailureReason   `json:"reason"`
+	Detail                  string                       `json:"detail"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "execute-a-project-activity-P5", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in1 inputActivityExecutionAccessExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP5S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for activity-lifecycle-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "execute-a-project-activity-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 2: ReadActivityExecution (node next-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in2 inputActivityExecutionAccessExecuteAProjectActivityP5S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","activityID":"D-REQ"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadActivityExecution(callContext(t, h, "2"), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 3: StageTaskOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in3 inputActivityExecutionAccessExecuteAProjectActivityP5S3
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"missionDraft","branch":"activity/D-REQ","model":{"kind":"mission","model":{"vision":"Predictably engineered software, delivered and operated on the customer's behalf.","mission":"First draft that misses the exit criterion.","objectives":[{"number":1,"statement":"Customers receive a duration, cost and risk estimate before any code is written."}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:stage:1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepActivityExecutionAccessExecuteAProjectActivityP5S3(t, h, subject, in3)
+		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// step 4: RecordAttemptOutcome (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in4 inputActivityExecutionAccessExecuteAProjectActivityP5S4
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"failed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p5-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:attempt:1"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P5", 4, out4, err4, `{"errorExpected":false}`)
+		// probe 4.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
+		var pout4_1 any
+		var perr4_1 error
+		pout4_1, perr4_1 = probeActivityExecutionAccessExecuteAProjectActivityP5S4N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P5 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"id\":\"stp-aea-epa-p5\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"First draft that misses the exit criterion.\"}}}}}","errorExpected":false}`)
+		// probe 4.2: designSessionAccess.ReadProjectOnBranch for observe-validate
+		var pout4_2 any
+		var perr4_2 error
+		pout4_2, perr4_2 = probeActivityExecutionAccessExecuteAProjectActivityP5S4N2(t, h, subject)
+		expect(t, "execute-a-project-activity-P5 probe 4.2", 4, pout4_2, perr4_2, `{"result":"{\"id\":\"stp-aea-epa-p5\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"First draft that misses the exit criterion.\"}}}}}","errorExpected":false}`)
+		// probe 4.3: activityExecutionAccess.ReadActivityExecution for attempt-episode
+		var pout4_3 any
+		var perr4_3 error
+		var probe4_3 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","activityID":"D-REQ"}`, &probe4_3)
+		pout4_3, perr4_3 = subject.ReadActivityExecution(callContext(t, h, "4.3"), probe4_3.ProjectID, probe4_3.ActivityID)
+		expect(t, "execute-a-project-activity-P5 probe 4.3", 4, pout4_3, perr4_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p5-missionDraft-1\"}}]}","errorExpected":false}`)
+		// step 5: StageTaskOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in5 inputActivityExecutionAccessExecuteAProjectActivityP5S5
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"missionDraft","branch":"activity/D-REQ","model":{"kind":"mission","model":{"vision":"Predictably engineered software, delivered and operated on the customer's behalf.","mission":"Deliver predictably engineered software, retried.","objectives":[{"number":1,"statement":"Customers receive a duration, cost and risk estimate before any code is written."}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:stage:2"}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.StageTaskOutput(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.TaskID, in5.Branch, in5.Model, in5.Cred, in5.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P5", 5, out5, err5, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// step 6: RecordAttemptOutcome (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in6 inputActivityExecutionAccessExecuteAProjectActivityP5S6
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:2","taskId":"missionDraft","attempt":2,"actor":"agent","outcome":"passed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p5-missionDraft-2","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:attempt:2"}`, &in6)
+		var out6 any
+		var err6 error
+		out6, err6 = subject.RecordAttemptOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.ExpectedActivityVersion, in6.ActivityID, in6.Attempt, in6.Cred, in6.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P5", 6, out6, err6, `{"errorExpected":false}`)
+		// probe 6.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
+		var pout6_1 any
+		var perr6_1 error
+		pout6_1, perr6_1 = probeActivityExecutionAccessExecuteAProjectActivityP5S6N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P5 probe 6.1", 6, pout6_1, perr6_1, `{"result":"{\"id\":\"stp-aea-epa-p5\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software, retried.\"}}}}}","errorExpected":false}`)
+		// probe 6.2: designSessionAccess.ReadProjectOnBranch for observe-validate
+		var pout6_2 any
+		var perr6_2 error
+		pout6_2, perr6_2 = probeActivityExecutionAccessExecuteAProjectActivityP5S6N2(t, h, subject)
+		expect(t, "execute-a-project-activity-P5 probe 6.2", 6, pout6_2, perr6_2, `{"result":"{\"id\":\"stp-aea-epa-p5\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software, retried.\"}}}}}","errorExpected":false}`)
+		// probe 6.3: activityExecutionAccess.ReadActivityExecution for attempt-episode
+		var pout6_3 any
+		var perr6_3 error
+		var probe6_3 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","activityID":"D-REQ"}`, &probe6_3)
+		pout6_3, perr6_3 = subject.ReadActivityExecution(callContext(t, h, "6.3"), probe6_3.ProjectID, probe6_3.ActivityID)
+		expect(t, "execute-a-project-activity-P5 probe 6.3", 6, pout6_3, perr6_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p5-missionDraft-1\"}},{\"attemptId\":\"D-REQ:missionDraft:2\",\"attempt\":2,\"outcome\":\"passed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p5-missionDraft-2\"}}]}","errorExpected":false}`)
+		// step 7: RecordActivityOutcome (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in7 inputActivityExecutionAccessExecuteAProjectActivityP5S7
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:exit"}`, &in7)
+		var out7 any
+		var err7 error
+		out7, err7 = subject.RecordActivityOutcome(callContext(t, h, "7"), in7.ProjectID, in7.ExpectedVersion, in7.ExpectedActivityVersion, in7.ActivityID, in7.Outcome, in7.Reason, in7.Detail, in7.Cred, in7.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P5", 7, out7, err7, `{"errorExpected":false}`)
+		// probe 7.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
+		var pout7_1 any
+		var perr7_1 error
+		var probe7_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","activityID":"D-REQ"}`, &probe7_1)
+		pout7_1, perr7_1 = subject.ReadActivityExecution(callContext(t, h, "7.1"), probe7_1.ProjectID, probe7_1.ActivityID)
+		expect(t, "execute-a-project-activity-P5 probe 7.1", 7, pout7_1, perr7_1, `{"result":"{\"activityID\":\"D-REQ\",\"version\":4}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP6S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP6S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP6S2 is step 2's parameters of ReadActivityExecution, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP6S2 struct {
+	ProjectID  projectstate.ProjectID `json:"projectID"`
+	ActivityID string                 `json:"activityID"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP6S3 is step 3's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP6S3 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP6S4 is step 4's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP6S4 struct {
+	ProjectID               projectstate.ProjectID        `json:"projectID"`
+	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
+	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+	ActivityID              string                        `json:"activityID"`
+	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
+	Cred                    projectstate.RepoCredential   `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP6S5 is step 5's parameters of RecordOperatorNote, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP6S5 struct {
+	ProjectID               projectstate.ProjectID         `json:"projectID"`
+	ExpectedVersion         projectstate.Version           `json:"expectedVersion"`
+	ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
+	ActivityID              string                         `json:"activityID"`
+	Note                    projectstate.OperatorNoteInput `json:"note"`
+	DeliveredToAttemptID    string                         `json:"deliveredToAttemptID"`
+	Cred                    projectstate.RepoCredential    `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey            `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP6S6 is step 6's parameters of RecordOperatorNote, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP6S6 struct {
+	ProjectID               projectstate.ProjectID         `json:"projectID"`
+	ExpectedVersion         projectstate.Version           `json:"expectedVersion"`
+	ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
+	ActivityID              string                         `json:"activityID"`
+	Note                    projectstate.OperatorNoteInput `json:"note"`
+	DeliveredToAttemptID    string                         `json:"deliveredToAttemptID"`
+	Cred                    projectstate.RepoCredential    `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey            `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP6S7 is step 7's parameters of RecordActivityOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP6S7 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
+	Reason                  projectstate.FailureReason   `json:"reason"`
+	Detail                  string                       `json:"detail"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P6(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "execute-a-project-activity-P6", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in1 inputActivityExecutionAccessExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP6S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for activity-lifecycle-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "execute-a-project-activity-P6 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 2: ReadActivityExecution (node next-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in2 inputActivityExecutionAccessExecuteAProjectActivityP6S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","activityID":"D-REQ"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadActivityExecution(callContext(t, h, "2"), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 3: StageTaskOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in3 inputActivityExecutionAccessExecuteAProjectActivityP6S3
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"missionDraft","branch":"activity/D-REQ","model":{"kind":"mission","model":{"vision":"Predictably engineered software, delivered and operated on the customer's behalf.","mission":"Draft that misses the exit criterion.","objectives":[{"number":1,"statement":"Customers receive a duration, cost and risk estimate before any code is written."}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:stage:1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepActivityExecutionAccessExecuteAProjectActivityP6S3(t, h, subject, in3)
+		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// step 4: RecordAttemptOutcome (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in4 inputActivityExecutionAccessExecuteAProjectActivityP6S4
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"failed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p6-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:attempt:1"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P6", 4, out4, err4, `{"errorExpected":false}`)
+		// probe 4.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
+		var pout4_1 any
+		var perr4_1 error
+		pout4_1, perr4_1 = probeActivityExecutionAccessExecuteAProjectActivityP6S4N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P6 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"id\":\"stp-aea-epa-p6\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Draft that misses the exit criterion.\"}}}}}","errorExpected":false}`)
+		// probe 4.2: designSessionAccess.ReadProjectOnBranch for observe-validate
+		var pout4_2 any
+		var perr4_2 error
+		pout4_2, perr4_2 = probeActivityExecutionAccessExecuteAProjectActivityP6S4N2(t, h, subject)
+		expect(t, "execute-a-project-activity-P6 probe 4.2", 4, pout4_2, perr4_2, `{"result":"{\"id\":\"stp-aea-epa-p6\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Draft that misses the exit criterion.\"}}}}}","errorExpected":false}`)
+		// probe 4.3: activityExecutionAccess.ReadActivityExecution for attempt-episode
+		var pout4_3 any
+		var perr4_3 error
+		var probe4_3 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","activityID":"D-REQ"}`, &probe4_3)
+		pout4_3, perr4_3 = subject.ReadActivityExecution(callContext(t, h, "4.3"), probe4_3.ProjectID, probe4_3.ActivityID)
+		expect(t, "execute-a-project-activity-P6 probe 4.3", 4, pout4_3, perr4_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p6-missionDraft-1\"}}]}","errorExpected":false}`)
+		// step 5: RecordOperatorNote (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in5 inputActivityExecutionAccessExecuteAProjectActivityP6S5
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"stp-aea-epa-p6:reassign:mission","kind":4,"gate":"mission","text":"Reassigning to a second worker while the escalation stays open.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:note:1"}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.RecordOperatorNote(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.Note, in5.DeliveredToAttemptID, in5.Cred, in5.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P6", 5, out5, err5, `{"errorExpected":false}`)
+		// probe 5.1: activityExecutionAccess.ReadActivityExecution for operator-note-recorded
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","activityID":"D-REQ"}`, &probe5_1)
+		pout5_1, perr5_1 = subject.ReadActivityExecution(callContext(t, h, "5.1"), probe5_1.ProjectID, probe5_1.ActivityID)
+		expect(t, "execute-a-project-activity-P6 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"noteId\":\"stp-aea-epa-p6:reassign:mission\",\"kind\":4,\"gate\":\"mission\",\"text\":\"Reassigning to a second worker while the escalation stays open.\"}]}","errorExpected":false}`)
+		// step 6: RecordOperatorNote (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in6 inputActivityExecutionAccessExecuteAProjectActivityP6S6
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"stp-aea-epa-p6:takeover:mission","kind":3,"gate":"mission","text":"Taking this task over after the escalation window.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:note:2"}`, &in6)
+		var out6 any
+		var err6 error
+		out6, err6 = subject.RecordOperatorNote(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.ExpectedActivityVersion, in6.ActivityID, in6.Note, in6.DeliveredToAttemptID, in6.Cred, in6.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P6", 6, out6, err6, `{"errorExpected":false}`)
+		// probe 6.1: activityExecutionAccess.ReadActivityExecution for operator-note-recorded
+		var pout6_1 any
+		var perr6_1 error
+		var probe6_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","activityID":"D-REQ"}`, &probe6_1)
+		pout6_1, perr6_1 = subject.ReadActivityExecution(callContext(t, h, "6.1"), probe6_1.ProjectID, probe6_1.ActivityID)
+		expect(t, "execute-a-project-activity-P6 probe 6.1", 6, pout6_1, perr6_1, `{"result":"{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"noteId\":\"stp-aea-epa-p6:reassign:mission\",\"kind\":4,\"gate\":\"mission\",\"text\":\"Reassigning to a second worker while the escalation stays open.\"},{\"noteId\":\"stp-aea-epa-p6:takeover:mission\",\"kind\":3,\"gate\":\"mission\",\"text\":\"Taking this task over after the escalation window.\"}]}","errorExpected":false}`)
+		// step 7: RecordActivityOutcome (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in7 inputActivityExecutionAccessExecuteAProjectActivityP6S7
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":4,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":3,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:exit"}`, &in7)
+		var out7 any
+		var err7 error
+		out7, err7 = subject.RecordActivityOutcome(callContext(t, h, "7"), in7.ProjectID, in7.ExpectedVersion, in7.ExpectedActivityVersion, in7.ActivityID, in7.Outcome, in7.Reason, in7.Detail, in7.Cred, in7.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P6", 7, out7, err7, `{"errorExpected":false}`)
+		// probe 7.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
+		var pout7_1 any
+		var perr7_1 error
+		var probe7_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","activityID":"D-REQ"}`, &probe7_1)
+		pout7_1, perr7_1 = subject.ReadActivityExecution(callContext(t, h, "7.1"), probe7_1.ProjectID, probe7_1.ActivityID)
+		expect(t, "execute-a-project-activity-P6 probe 7.1", 7, pout7_1, perr7_1, `{"result":"{\"activityID\":\"D-REQ\",\"version\":5}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP7S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP7S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP7S2 is step 2's parameters of ReadActivityExecution, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP7S2 struct {
+	ProjectID  projectstate.ProjectID `json:"projectID"`
+	ActivityID string                 `json:"activityID"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP7S3 is step 3's parameters of OpenReviewRound, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP7S3 struct {
+	ProjectID               projectstate.ProjectID        `json:"projectID"`
+	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
+	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+	ActivityID              string                        `json:"activityID"`
+	Round                   projectstate.ReviewRoundInput `json:"round"`
+	Cred                    projectstate.RepoCredential   `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP7S4 is step 4's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP7S4 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP7S5 is step 5's parameters of DecideReviewRound, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP7S5 struct {
+	ProjectID               projectstate.ProjectID          `json:"projectID"`
+	ExpectedVersion         projectstate.Version            `json:"expectedVersion"`
+	ExpectedActivityVersion int64                           `json:"expectedActivityVersion"`
+	ActivityID              string                          `json:"activityID"`
+	RoundID                 string                          `json:"roundID"`
+	Outcome                 projectstate.ReviewRoundOutcome `json:"outcome"`
+	DecidedBy               string                          `json:"decidedBy"`
+	Cred                    projectstate.RepoCredential     `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey             `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP7S6 is step 6's parameters of ReadActivityExecution, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP7S6 struct {
+	ProjectID  projectstate.ProjectID `json:"projectID"`
+	ActivityID string                 `json:"activityID"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP7S7 is step 7's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP7S7 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP7S8 is step 8's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP7S8 struct {
+	ProjectID               projectstate.ProjectID        `json:"projectID"`
+	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
+	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+	ActivityID              string                        `json:"activityID"`
+	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
+	Cred                    projectstate.RepoCredential   `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessExecuteAProjectActivityP7S9 is step 9's parameters of RecordActivityOutcome, decoded from the binding's inputs.
+type inputActivityExecutionAccessExecuteAProjectActivityP7S9 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
+	Reason                  projectstate.FailureReason   `json:"reason"`
+	Detail                  string                       `json:"detail"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P7(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "execute-a-project-activity-P7", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node activity-eligible; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in1 inputActivityExecutionAccessExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP7S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for activity-lifecycle-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "execute-a-project-activity-P7 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 2: ReadActivityExecution (node next-task; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in2 inputActivityExecutionAccessExecuteAProjectActivityP7S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","activityID":"D-REQ"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadActivityExecution(callContext(t, h, "2"), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		// step 3: OpenReviewRound (node propose-reviews; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in3 inputActivityExecutionAccessExecuteAProjectActivityP7S3
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","round":{"roundId":"D-REQ:missionReview:mission:1","taskId":"missionReview","reviews":"missionDraft","artifactKind":"mission","round":1,"subjectRef":{"kind":"pullRequest","ref":"stp-aea-epa-p7#pr-1"},"reviewers":[{"role":"productManager","actor":"agent:product-manager","required":true}]},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:round:1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.OpenReviewRound(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.ExpectedActivityVersion, in3.ActivityID, in3.Round, in3.Cred, in3.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P7", 3, out3, err3, `{"errorExpected":false}`)
+		// probe 3.1: activityExecutionAccess.ReadActivityExecution for review-pr-open
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","activityID":"D-REQ"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadActivityExecution(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		expect(t, "execute-a-project-activity-P7 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p7#pr-1\"},\"outcome\":\"pending\"}]}","errorExpected":false}`)
+		// step 4: AppendReviewVerdict (node dispatch-reviewers; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in4 inputActivityExecutionAccessExecuteAProjectActivityP7S4
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"productManager","actor":"agent:product-manager","verdict":"sendBack","summary":"The mission names no customer outcome.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:verdict:1"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.AppendReviewVerdict(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.RoundID, in4.Verdict, in4.Comments, in4.Replies, in4.Cred, in4.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P7", 4, out4, err4, `{"errorExpected":false}`)
+		// probe 4.1: activityExecutionAccess.ReadActivityExecution for
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","activityID":"D-REQ"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadActivityExecution(callContext(t, h, "4.1"), probe4_1.ProjectID, probe4_1.ActivityID)
+		expect(t, "execute-a-project-activity-P7 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"reviewerRole\":\"productManager\",\"actor\":\"agent:product-manager\",\"verdict\":\"sendBack\"}]}]}","errorExpected":false}`)
+		// step 5: DecideReviewRound (node verdict; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in5 inputActivityExecutionAccessExecuteAProjectActivityP7S5
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","outcome":"sentBack","decidedBy":"delivery-manager","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:decide:1"}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.DecideReviewRound(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.Outcome, in5.DecidedBy, in5.Cred, in5.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P7", 5, out5, err5, `{"errorExpected":false}`)
+		// probe 5.1: activityExecutionAccess.ReadActivityExecution for
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","activityID":"D-REQ"}`, &probe5_1)
+		pout5_1, perr5_1 = subject.ReadActivityExecution(callContext(t, h, "5.1"), probe5_1.ProjectID, probe5_1.ActivityID)
+		expect(t, "execute-a-project-activity-P7 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"sentBack\",\"decidedBy\":\"delivery-manager\"}]}","errorExpected":false}`)
+		// step 6: ReadActivityExecution (node next-task; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in6 inputActivityExecutionAccessExecuteAProjectActivityP7S6
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","activityID":"D-REQ"}`, &in6)
+		var out6 any
+		var err6 error
+		out6, err6 = subject.ReadActivityExecution(callContext(t, h, "6"), in6.ProjectID, in6.ActivityID)
+		expect(t, "execute-a-project-activity-P7", 6, out6, err6, `{"result":"{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"sentBack\"}]}","errorExpected":false}`)
+		// step 7: StageTaskOutput (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in7 inputActivityExecutionAccessExecuteAProjectActivityP7S7
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":4,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"missionDraft","branch":"activity/D-REQ","model":{"kind":"mission","model":{"vision":"Predictably engineered software, delivered and operated on the customer's behalf.","mission":"Deliver predictably engineered software (revision 2).","objectives":[{"number":1,"statement":"Customers receive a duration, cost and risk estimate before any code is written."}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:stage:2"}`, &in7)
+		var out7 any
+		var err7 error
+		out7, err7 = stepActivityExecutionAccessExecuteAProjectActivityP7S7(t, h, subject, in7)
+		expect(t, "execute-a-project-activity-P7", 7, out7, err7, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// step 8: RecordAttemptOutcome (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in8 inputActivityExecutionAccessExecuteAProjectActivityP7S8
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":4,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:2","taskId":"missionDraft","attempt":2,"actor":"agent","outcome":"passed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p7-missionDraft-2","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:attempt:2"}`, &in8)
+		var out8 any
+		var err8 error
+		out8, err8 = subject.RecordAttemptOutcome(callContext(t, h, "8"), in8.ProjectID, in8.ExpectedVersion, in8.ExpectedActivityVersion, in8.ActivityID, in8.Attempt, in8.Cred, in8.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P7", 8, out8, err8, `{"errorExpected":false}`)
+		// probe 8.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
+		var pout8_1 any
+		var perr8_1 error
+		pout8_1, perr8_1 = probeActivityExecutionAccessExecuteAProjectActivityP7S8N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P7 probe 8.1", 8, pout8_1, perr8_1, `{"result":"{\"id\":\"stp-aea-epa-p7\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software (revision 2).\"}}}}}","errorExpected":false}`)
+		// probe 8.2: designSessionAccess.ReadProjectOnBranch for observe-validate
+		var pout8_2 any
+		var perr8_2 error
+		pout8_2, perr8_2 = probeActivityExecutionAccessExecuteAProjectActivityP7S8N2(t, h, subject)
+		expect(t, "execute-a-project-activity-P7 probe 8.2", 8, pout8_2, perr8_2, `{"result":"{\"id\":\"stp-aea-epa-p7\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software (revision 2).\"}}}}}","errorExpected":false}`)
+		// probe 8.3: activityExecutionAccess.ReadActivityExecution for attempt-episode
+		var pout8_3 any
+		var perr8_3 error
+		var probe8_3 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","activityID":"D-REQ"}`, &probe8_3)
+		pout8_3, perr8_3 = subject.ReadActivityExecution(callContext(t, h, "8.3"), probe8_3.ProjectID, probe8_3.ActivityID)
+		expect(t, "execute-a-project-activity-P7 probe 8.3", 8, pout8_3, perr8_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:2\",\"attempt\":2,\"outcome\":\"passed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p7-missionDraft-2\"}}]}","errorExpected":false}`)
+		// step 9: RecordActivityOutcome (node record-exit; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in9 inputActivityExecutionAccessExecuteAProjectActivityP7S9
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":5,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:exit"}`, &in9)
+		var out9 any
+		var err9 error
+		out9, err9 = subject.RecordActivityOutcome(callContext(t, h, "9"), in9.ProjectID, in9.ExpectedVersion, in9.ExpectedActivityVersion, in9.ActivityID, in9.Outcome, in9.Reason, in9.Detail, in9.Cred, in9.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P7", 9, out9, err9, `{"errorExpected":false}`)
+		// probe 9.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
+		var pout9_1 any
+		var perr9_1 error
+		var probe9_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","activityID":"D-REQ"}`, &probe9_1)
+		pout9_1, perr9_1 = subject.ReadActivityExecution(callContext(t, h, "9.1"), probe9_1.ProjectID, probe9_1.ActivityID)
+		expect(t, "execute-a-project-activity-P7 probe 9.1", 9, pout9_1, perr9_1, `{"result":"{\"activityID\":\"D-REQ\",\"version\":6}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessReplanUnderScopeChangeP2S1 is step 1's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessReplanUnderScopeChangeP2S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessReplanUnderScopeChangeP2S2 is step 2's parameters of DecideReviewRound, decoded from the binding's inputs.
+type inputActivityExecutionAccessReplanUnderScopeChangeP2S2 struct {
+	ProjectID               projectstate.ProjectID          `json:"projectID"`
+	ExpectedVersion         projectstate.Version            `json:"expectedVersion"`
+	ExpectedActivityVersion int64                           `json:"expectedActivityVersion"`
+	ActivityID              string                          `json:"activityID"`
+	RoundID                 string                          `json:"roundID"`
+	Outcome                 projectstate.ReviewRoundOutcome `json:"outcome"`
+	DecidedBy               string                          `json:"decidedBy"`
+	Cred                    projectstate.RepoCredential     `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey             `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_replan_under_scope_change_P2 — Replan Under Scope Change — [no: scope change] · [accept] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → adopt → sdp-revision-adopted → committed-network-revised → merge-end → end).
+func TestScenario_ActivityExecutionAccess_replan_under_scope_change_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "replan-under-scope-change-P2", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: StageTaskOutput (node present; guards classify=[no: scope change], mgmt=[accept])
+		var in1 inputActivityExecutionAccessReplanUnderScopeChangeP2S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-rp-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-PD","taskID":"sdpReview","branch":"activity/D-PD","model":{"kind":"sdpReview","model":{"options":[{"optionId":"opt-normal","solutionKind":"normalSolution","durationDays":120,"buildCost":{"minorUnits":1200000,"currency":"USD"},"compositeRisk":0.62,"projectedMonthlyCost":{"minorUnits":80000,"currency":"USD"},"expectedPerCycleNet":{"minorUnits":12000,"currency":"USD"}}],"recommendation":"opt-normal","rationale":"Revised for the added use case: one more service activity."}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rp-p2:stage:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessReplanUnderScopeChangeP2S1(t, h, subject, in1)
+		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"result":"{\"activityId\":\"D-PD\",\"taskId\":\"sdpReview\",\"branch\":\"activity/D-PD\"}","errorExpected":false}`)
+		// unobservable: signal-sdp-revision-ready
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for sdp-revision-staged
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeActivityExecutionAccessReplanUnderScopeChangeP2S1N1(t, h, subject)
+		expect(t, "replan-under-scope-change-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aea-rp-p2\",\"slots\":{\"16\":{\"model\":{\"kind\":\"sdpReview\",\"model\":{\"recommendation\":\"opt-normal\",\"rationale\":\"Revised for the added use case: one more service activity.\"}}}}}","errorExpected":false}`)
+		// step 2: DecideReviewRound (node adopt; guards classify=[no: scope change], mgmt=[accept])
+		var in2 inputActivityExecutionAccessReplanUnderScopeChangeP2S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-rp-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-PD","roundID":"D-PD:sdpReview:sdpReview:2","outcome":"passed","decidedBy":"architect-user","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rp-p2:decide:1"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepActivityExecutionAccessReplanUnderScopeChangeP2S2(t, h, subject, in2)
+		expect(t, "replan-under-scope-change-P2", 2, out2, err2, `{"errorExpected":false}`)
+		// probe 2.1: activityExecutionAccess.ReadActivityExecution for
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-rp-p2","activityID":"D-PD"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadActivityExecution(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		expect(t, "replan-under-scope-change-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityID\":\"D-PD\",\"reviews\":[{\"roundId\":\"D-PD:sdpReview:sdpReview:2\",\"taskId\":\"sdpReview\",\"outcome\":\"passed\",\"decidedBy\":\"architect-user\"}]}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessReplanUnderScopeChangeP3S1 is step 1's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessReplanUnderScopeChangeP3S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessReplanUnderScopeChangeP3S2 is step 2's parameters of DecideReviewRound, decoded from the binding's inputs.
+type inputActivityExecutionAccessReplanUnderScopeChangeP3S2 struct {
+	ProjectID               projectstate.ProjectID          `json:"projectID"`
+	ExpectedVersion         projectstate.Version            `json:"expectedVersion"`
+	ExpectedActivityVersion int64                           `json:"expectedActivityVersion"`
+	ActivityID              string                          `json:"activityID"`
+	RoundID                 string                          `json:"roundID"`
+	Outcome                 projectstate.ReviewRoundOutcome `json:"outcome"`
+	DecidedBy               string                          `json:"decidedBy"`
+	Cred                    projectstate.RepoCredential     `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey             `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_replan_under_scope_change_P3 — Replan Under Scope Change — [no: scope change] · [reject] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → record-reject → sdp-revision-rejected → merge-end → end).
+func TestScenario_ActivityExecutionAccess_replan_under_scope_change_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "replan-under-scope-change-P3", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: StageTaskOutput (node present; guards classify=[no: scope change], mgmt=[reject])
+		var in1 inputActivityExecutionAccessReplanUnderScopeChangeP3S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-rp-p3","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-PD","taskID":"sdpReview","branch":"activity/D-PD","model":{"kind":"sdpReview","model":{"options":[{"optionId":"opt-normal","solutionKind":"normalSolution","durationDays":120,"buildCost":{"minorUnits":1200000,"currency":"USD"},"compositeRisk":0.62,"projectedMonthlyCost":{"minorUnits":80000,"currency":"USD"},"expectedPerCycleNet":{"minorUnits":12000,"currency":"USD"}}],"recommendation":"opt-normal","rationale":"Revised for the added use case: one more service activity."}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rp-p3:stage:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessReplanUnderScopeChangeP3S1(t, h, subject, in1)
+		expect(t, "replan-under-scope-change-P3", 1, out1, err1, `{"result":"{\"activityId\":\"D-PD\",\"taskId\":\"sdpReview\",\"branch\":\"activity/D-PD\"}","errorExpected":false}`)
+		// unobservable: signal-sdp-revision-ready
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for sdp-revision-staged
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeActivityExecutionAccessReplanUnderScopeChangeP3S1N1(t, h, subject)
+		expect(t, "replan-under-scope-change-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aea-rp-p3\",\"slots\":{\"16\":{\"model\":{\"kind\":\"sdpReview\",\"model\":{\"recommendation\":\"opt-normal\",\"rationale\":\"Revised for the added use case: one more service activity.\"}}}}}","errorExpected":false}`)
+		// step 2: DecideReviewRound (node record-reject; guards classify=[no: scope change], mgmt=[reject])
+		var in2 inputActivityExecutionAccessReplanUnderScopeChangeP3S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-rp-p3","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-PD","roundID":"D-PD:sdpReview:sdpReview:2","outcome":"sentBack","decidedBy":"architect-user","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rp-p3:decide:1"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepActivityExecutionAccessReplanUnderScopeChangeP3S2(t, h, subject, in2)
+		expect(t, "replan-under-scope-change-P3", 2, out2, err2, `{"errorExpected":false}`)
+		// probe 2.1: activityExecutionAccess.ReadActivityExecution for sdp-revision-rejected
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-rp-p3","activityID":"D-PD"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadActivityExecution(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		expect(t, "replan-under-scope-change-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityID\":\"D-PD\",\"reviews\":[{\"roundId\":\"D-PD:sdpReview:sdpReview:2\",\"taskId\":\"sdpReview\",\"outcome\":\"sentBack\",\"decidedBy\":\"architect-user\"}]}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S1 is step 1's parameters of RecordOperatorNote, decoded from the binding's inputs.
+type inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S1 struct {
+	ProjectID               projectstate.ProjectID         `json:"projectID"`
+	ExpectedVersion         projectstate.Version           `json:"expectedVersion"`
+	ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
+	ActivityID              string                         `json:"activityID"`
+	Note                    projectstate.OperatorNoteInput `json:"note"`
+	DeliveredToAttemptID    string                         `json:"deliveredToAttemptID"`
+	Cred                    projectstate.RepoCredential    `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey            `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S2 is step 2's parameters of RecordOperatorNote, decoded from the binding's inputs.
+type inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S2 struct {
+	ProjectID               projectstate.ProjectID         `json:"projectID"`
+	ExpectedVersion         projectstate.Version           `json:"expectedVersion"`
+	ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
+	ActivityID              string                         `json:"activityID"`
+	Note                    projectstate.OperatorNoteInput `json:"note"`
+	DeliveredToAttemptID    string                         `json:"deliveredToAttemptID"`
+	Cred                    projectstate.RepoCredential    `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey            `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_requeue_a_failed_construction_activity_P1 — Re-queue a Failed Construction Activity (use case requeue-a-failed-construction-activity; path start → review-failure → read-attempts → read-failed-trace → show-failure-evidence → write-change → record-reopen → activity-reopened-state → failed-attempt-kept-state → requeue-note-pending-state → requeue-note-binding-hint → pump-fires → resume-activity → activity-resumed-state → requeue-note-delivered-state → resume-binding-hint → end).
+func TestScenario_ActivityExecutionAccess_requeue_a_failed_construction_activity_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "requeue-a-failed-construction-activity-P1", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: RecordOperatorNote (node record-reopen)
+		var in1 inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"requeue:D-REQ:2026-10-01T12:00:00Z","kind":6,"gate":"reopen","text":"Re-queue after the upstream fix landed.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rq-p1:note:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessRequeueAFailedConstructionActivityP1S1(t, h, subject, in1)
+		expect(t, "requeue-a-failed-construction-activity-P1", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for activity-reopened-state
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "requeue-a-failed-construction-activity-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"},\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}","errorExpected":false}`)
+		// probe 1.2: activityExecutionAccess.ReadActivityExecution for failed-attempt-kept-state
+		var pout1_2 any
+		var perr1_2 error
+		var probe1_2 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","activityID":"D-REQ"}`, &probe1_2)
+		pout1_2, perr1_2 = subject.ReadActivityExecution(callContext(t, h, "1.2"), probe1_2.ProjectID, probe1_2.ActivityID)
+		expect(t, "requeue-a-failed-construction-activity-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-rq-p1-missionDraft-1\"}}]}","errorExpected":false}`)
+		// probe 1.3: activityExecutionAccess.ReadActivityExecution for requeue-note-pending-state
+		var pout1_3 any
+		var perr1_3 error
+		var probe1_3 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","activityID":"D-REQ"}`, &probe1_3)
+		pout1_3, perr1_3 = subject.ReadActivityExecution(callContext(t, h, "1.3"), probe1_3.ProjectID, probe1_3.ActivityID)
+		expect(t, "requeue-a-failed-construction-activity-P1 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}","errorExpected":false}`)
+		// step 2: RecordOperatorNote (node resume-activity)
+		var in2 inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"requeue:D-REQ:2026-10-01T12:00:00Z","kind":6,"gate":"reopen","text":"Re-queue after the upstream fix landed.","comments":null},"deliveredToAttemptID":"D-REQ:missionDraft:2","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rq-p1:note:2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepActivityExecutionAccessRequeueAFailedConstructionActivityP1S2(t, h, subject, in2)
+		expect(t, "requeue-a-failed-construction-activity-P1", 2, out2, err2, `{"errorExpected":false}`)
+		// probe 2.1: activityExecutionAccess.ReadActivityExecution for activity-resumed-state
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","activityID":"D-REQ"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadActivityExecution(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		expect(t, "requeue-a-failed-construction-activity-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-rq-p1-missionDraft-1\"}},{\"attemptId\":\"D-REQ:missionDraft:2\",\"attempt\":2}]}","errorExpected":false}`)
+		// probe 2.2: activityExecutionAccess.ReadActivityExecution for requeue-note-delivered-state
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","activityID":"D-REQ"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadActivityExecution(callContext(t, h, "2.2"), probe2_2.ProjectID, probe2_2.ActivityID)
+		expect(t, "requeue-a-failed-construction-activity-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\",\"deliveredToAttemptId\":\"D-REQ:missionDraft:2\"}]}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessResumePausedConstructionP1S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessResumePausedConstructionP1S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_resume_paused_construction_P1 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → pause-settled → record-resume → run-state-running → pump-fires → continue → activity-started → end).
+func TestScenario_ActivityExecutionAccess_resume_paused_construction_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "resume-paused-construction-P1", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node continue; guards pause-settled=[yes])
+		var in1 inputActivityExecutionAccessResumePausedConstructionP1S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-rs-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-ARCH","typ":8,"variant":0,"pin":{"typeKey":"architecture","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rs-p1:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessResumePausedConstructionP1S1(t, h, subject, in1)
+		expect(t, "resume-paused-construction-P1", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for activity-started
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-rs-p1","activityID":"D-ARCH"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "resume-paused-construction-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S2 is step 2's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S2 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S3 is step 3's parameters of SetReviewCommentStatus, decoded from the binding's inputs.
+type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S3 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	RoundID                 string                      `json:"roundID"`
+	CommentID               string                      `json:"commentID"`
+	Status                  string                      `json:"status"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_send_back_change_requests_for_a_redraft_P1 — Send Back Change Requests for a Redraft — [yes] (use case send-back-change-requests-for-a-redraft; path start → anchor-comments → note-comment-anchor → send-back → obj-draft-sent-back → retain-thread → obj-thread-open → redraft → respond-per-comment → obj-thread-answered → restage → obj-draft-restaged → signal-present-amended-draft → re-review → resolved → close-comments → obj-thread-resolved → end).
+func TestScenario_ActivityExecutionAccess_send_back_change_requests_for_a_redraft_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "send-back-change-requests-for-a-redraft-P1", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: AppendReviewVerdict (node retain-thread; guards resolved=[yes])
+		var in1 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"sendBack","summary":"Change requests attached.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"cr-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Name the customer outcome the mission commits to.","authorRole":"architect","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"changeRequest","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p1:verdict:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1(t, h, subject, in1)
+		expect(t, "send-back-change-requests-for-a-redraft-P1", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for obj-thread-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p1","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "send-back-change-requests-for-a-redraft-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}","errorExpected":false}`)
+		// step 2: StageTaskOutput (node restage; guards resolved=[yes])
+		var in2 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"missionDraft","branch":"activity/D-REQ","model":{"kind":"mission","model":{"vision":"Predictably engineered software, delivered and operated on the customer's behalf.","mission":"Deliver predictably engineered software so customers know cost before code.","objectives":[{"number":1,"statement":"Customers receive a duration, cost and risk estimate before any code is written."}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p1:stage:1"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.StageTaskOutput(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedVersion, in2.ExpectedActivityVersion, in2.ActivityID, in2.TaskID, in2.Branch, in2.Model, in2.Cred, in2.IdempotencyKey)
+		expect(t, "send-back-change-requests-for-a-redraft-P1", 2, out2, err2, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// unobservable: signal-present-amended-draft
+		// probe 2.1: designSessionAccess.ReadProjectOnBranch for obj-draft-restaged
+		var pout2_1 any
+		var perr2_1 error
+		pout2_1, perr2_1 = probeActivityExecutionAccessSendBackChangeRequestsForARedraftP1S2N1(t, h, subject)
+		expect(t, "send-back-change-requests-for-a-redraft-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-aea-sb-p1\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software so customers know cost before code.\"}}}}}","errorExpected":false}`)
+		// step 3: SetReviewCommentStatus (node close-comments; guards resolved=[yes])
+		var in3 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S3
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p1","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","commentID":"r1c1","status":"resolved","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p1:close:1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.SetReviewCommentStatus(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.ExpectedActivityVersion, in3.ActivityID, in3.RoundID, in3.CommentID, in3.Status, in3.Cred, in3.IdempotencyKey)
+		expect(t, "send-back-change-requests-for-a-redraft-P1", 3, out3, err3, `{"errorExpected":false}`)
+		// probe 3.1: activityExecutionAccess.ReadActivityExecution for obj-thread-resolved
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p1","activityID":"D-REQ"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadActivityExecution(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		expect(t, "send-back-change-requests-for-a-redraft-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"resolved\"}]}]}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S2 is step 2's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S2 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S3 is step 3's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S3 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S4 is step 4's parameters of StageTaskOutput, decoded from the binding's inputs.
+type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S4 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	TaskID                  string                      `json:"taskID"`
+	Branch                  string                      `json:"branch"`
+	Model                   projectstate.ModelEnvelope  `json:"model"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S5 is step 5's parameters of SetReviewCommentStatus, decoded from the binding's inputs.
+type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S5 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	RoundID                 string                      `json:"roundID"`
+	CommentID               string                      `json:"commentID"`
+	Status                  string                      `json:"status"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_send_back_change_requests_for_a_redraft_P2 — Send Back Change Requests for a Redraft — [no: iterate] · [yes] (use case send-back-change-requests-for-a-redraft; path start → anchor-comments → note-comment-anchor → send-back → obj-draft-sent-back → retain-thread → obj-thread-open → redraft → respond-per-comment → obj-thread-answered → restage → obj-draft-restaged → signal-present-amended-draft → re-review → resolved → anchor-comments → note-comment-anchor → send-back → obj-draft-sent-back → retain-thread → obj-thread-open → redraft → respond-per-comment → obj-thread-answered → restage → obj-draft-restaged → signal-present-amended-draft → re-review → resolved → close-comments → obj-thread-resolved → end).
+func TestScenario_ActivityExecutionAccess_send_back_change_requests_for_a_redraft_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "send-back-change-requests-for-a-redraft-P2", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: AppendReviewVerdict (node retain-thread; guards resolved=[no: iterate], resolved=[yes])
+		var in1 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"sendBack","summary":"Change requests attached.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"cr-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Name the customer outcome the mission commits to.","authorRole":"architect","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"changeRequest","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:verdict:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1(t, h, subject, in1)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for obj-thread-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","activityID":"D-REQ"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}","errorExpected":false}`)
+		// step 2: StageTaskOutput (node restage; guards resolved=[no: iterate], resolved=[yes])
+		var in2 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S2
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"missionDraft","branch":"activity/D-REQ","model":{"kind":"mission","model":{"vision":"Predictably engineered software, delivered and operated on the customer's behalf.","mission":"Redraft one: customers know cost before code.","objectives":[{"number":1,"statement":"Customers receive a duration, cost and risk estimate before any code is written."}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:stage:1"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.StageTaskOutput(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedVersion, in2.ExpectedActivityVersion, in2.ActivityID, in2.TaskID, in2.Branch, in2.Model, in2.Cred, in2.IdempotencyKey)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 2, out2, err2, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// unobservable: signal-present-amended-draft
+		// probe 2.1: designSessionAccess.ReadProjectOnBranch for obj-draft-restaged
+		var pout2_1 any
+		var perr2_1 error
+		pout2_1, perr2_1 = probeActivityExecutionAccessSendBackChangeRequestsForARedraftP2S2N1(t, h, subject)
+		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-aea-sb-p2\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Redraft one: customers know cost before code.\"}}}}}","errorExpected":false}`)
+		// step 3: AppendReviewVerdict (node retain-thread; guards resolved=[no: iterate], resolved=[yes])
+		var in3 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S3
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"sendBack","summary":"Still no measurable outcome.","attemptId":"D-REQ:missionDraft:2","at":""},"comments":[],"replies":[{"commentId":"r1c1","authorRole":"architect-user","text":"Still no measurable outcome.","at":""}],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:verdict:2"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.AppendReviewVerdict(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.ExpectedActivityVersion, in3.ActivityID, in3.RoundID, in3.Verdict, in3.Comments, in3.Replies, in3.Cred, in3.IdempotencyKey)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 3, out3, err3, `{"errorExpected":false}`)
+		// probe 3.1: activityExecutionAccess.ReadActivityExecution for obj-thread-open
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","activityID":"D-REQ"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadActivityExecution(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"},{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}","errorExpected":false}`)
+		// step 4: StageTaskOutput (node restage; guards resolved=[no: iterate], resolved=[yes])
+		var in4 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S4
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","taskID":"missionDraft","branch":"activity/D-REQ","model":{"kind":"mission","model":{"vision":"Predictably engineered software, delivered and operated on the customer's behalf.","mission":"Redraft two: customers know duration, cost and risk before code.","objectives":[{"number":1,"statement":"Customers receive a duration, cost and risk estimate before any code is written."}]}},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:stage:2"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.StageTaskOutput(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.TaskID, in4.Branch, in4.Model, in4.Cred, in4.IdempotencyKey)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 4, out4, err4, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
+		// unobservable: signal-present-amended-draft
+		// probe 4.1: designSessionAccess.ReadProjectOnBranch for obj-draft-restaged
+		var pout4_1 any
+		var perr4_1 error
+		pout4_1, perr4_1 = probeActivityExecutionAccessSendBackChangeRequestsForARedraftP2S4N1(t, h, subject)
+		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"id\":\"stp-aea-sb-p2\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Redraft two: customers know duration, cost and risk before code.\"}}}}}","errorExpected":false}`)
+		// step 5: SetReviewCommentStatus (node close-comments; guards resolved=[no: iterate], resolved=[yes])
+		var in5 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S5
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","commentID":"r1c1","status":"resolved","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:close:1"}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.SetReviewCommentStatus(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.CommentID, in5.Status, in5.Cred, in5.IdempotencyKey)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 5, out5, err5, `{"errorExpected":false}`)
+		// probe 5.1: activityExecutionAccess.ReadActivityExecution for obj-thread-resolved
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","activityID":"D-REQ"}`, &probe5_1)
+		pout5_1, perr5_1 = subject.ReadActivityExecution(callContext(t, h, "5.1"), probe5_1.ProjectID, probe5_1.ActivityID)
+		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"resolved\"}]}]}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP1S1 is step 1's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP1S1 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// TestScenario_DesignSessionAccess_add_a_use_case_to_an_in_flight_project_P1 — Add a Use Case to an In-Flight Project — [variation] · [no] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → merge-out → end).
+func TestScenario_DesignSessionAccess_add_a_use_case_to_an_in_flight_project_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "add-a-use-case-to-an-in-flight-project-P1", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: CommitArtifactWithProvenance (node commit-stale; guards core-check=[variation], replan-check=[no])
+		var in1 inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP1S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-auc-p1","expectedVersion":20,"kind":4,"approvedBy":"founder@stp.test","draftedBy":"architect"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessAddAUseCaseToAnInFlightProjectP1S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 1, out1, err1, `{"result":"21","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for use-case-model-recommitted
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP1S1N1(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-dsa-auc-p1\",\"CoreUseCases\":{\"Status\":2,\"Revisions\":2,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"architect\"}}}","errorExpected":false}`)
+		// probe 1.2: projectStateAccess.ReadProject for downstream-artifacts-stale
+		var pout1_2 any
+		var perr1_2 error
+		pout1_2, perr1_2 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP1S1N2(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"SystemDesign\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}}}","errorExpected":false}`)
+		// probe 1.3: projectStateAccess.ReadProject for commit-stale
+		var pout1_3 any
+		var perr1_3 error
+		pout1_3, perr1_3 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP1S1N3(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"Version\":21,\"CoreUseCases\":{\"Revisions\":2},\"SystemDesign\":{\"StaleBasis\":true}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP2S1 is step 1's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP2S1 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// TestScenario_DesignSessionAccess_add_a_use_case_to_an_in_flight_project_P2 — Add a Use Case to an In-Flight Project — [variation] · [yes] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → replan → replan-trigger-recorded → replan-async-note → merge-out → end).
+func TestScenario_DesignSessionAccess_add_a_use_case_to_an_in_flight_project_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "add-a-use-case-to-an-in-flight-project-P2", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: CommitArtifactWithProvenance (node commit-stale; guards core-check=[variation], replan-check=[yes])
+		var in1 inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP2S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-auc-p2","expectedVersion":20,"kind":4,"approvedBy":"founder@stp.test","draftedBy":"architect"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessAddAUseCaseToAnInFlightProjectP2S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 1, out1, err1, `{"result":"21","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for use-case-model-recommitted
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP2S1N1(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-dsa-auc-p2\",\"CoreUseCases\":{\"Status\":2,\"Revisions\":2,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"architect\"}}}","errorExpected":false}`)
+		// probe 1.2: projectStateAccess.ReadProject for downstream-artifacts-stale
+		var pout1_2 any
+		var perr1_2 error
+		pout1_2, perr1_2 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP2S1N2(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"SystemDesign\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}}}","errorExpected":false}`)
+		// probe 1.3: projectStateAccess.ReadProject for commit-stale
+		var pout1_3 any
+		var perr1_3 error
+		pout1_3, perr1_3 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP2S1N3(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"Version\":21,\"CoreUseCases\":{\"Revisions\":2},\"SystemDesign\":{\"StaleBasis\":true}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP3S1 is step 1's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP3S1 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// TestScenario_DesignSessionAccess_add_a_use_case_to_an_in_flight_project_P3 — Add a Use Case to an In-Flight Project — [core: rare] · [no] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → revalidate → design-health-findings-signal → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → merge-out → end).
+func TestScenario_DesignSessionAccess_add_a_use_case_to_an_in_flight_project_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "add-a-use-case-to-an-in-flight-project-P3", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: CommitArtifactWithProvenance (node commit-stale; guards core-check=[core: rare], replan-check=[no])
+		var in1 inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP3S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-auc-p3","expectedVersion":20,"kind":4,"approvedBy":"founder@stp.test","draftedBy":"architect"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessAddAUseCaseToAnInFlightProjectP3S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 1, out1, err1, `{"result":"21","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for use-case-model-recommitted
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP3S1N1(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-dsa-auc-p3\",\"CoreUseCases\":{\"Status\":2,\"Revisions\":2,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"architect\"}}}","errorExpected":false}`)
+		// probe 1.2: projectStateAccess.ReadProject for downstream-artifacts-stale
+		var pout1_2 any
+		var perr1_2 error
+		pout1_2, perr1_2 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP3S1N2(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"SystemDesign\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}}}","errorExpected":false}`)
+		// probe 1.3: projectStateAccess.ReadProject for commit-stale
+		var pout1_3 any
+		var perr1_3 error
+		pout1_3, perr1_3 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP3S1N3(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"Version\":21,\"CoreUseCases\":{\"Revisions\":2},\"SystemDesign\":{\"StaleBasis\":true}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP4S1 is step 1's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP4S1 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// TestScenario_DesignSessionAccess_add_a_use_case_to_an_in_flight_project_P4 — Add a Use Case to an In-Flight Project — [core: rare] · [yes] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → revalidate → design-health-findings-signal → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → replan → replan-trigger-recorded → replan-async-note → merge-out → end).
+func TestScenario_DesignSessionAccess_add_a_use_case_to_an_in_flight_project_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "add-a-use-case-to-an-in-flight-project-P4", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: CommitArtifactWithProvenance (node commit-stale; guards core-check=[core: rare], replan-check=[yes])
+		var in1 inputDesignSessionAccessAddAUseCaseToAnInFlightProjectP4S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-auc-p4","expectedVersion":20,"kind":4,"approvedBy":"founder@stp.test","draftedBy":"architect"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessAddAUseCaseToAnInFlightProjectP4S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 1, out1, err1, `{"result":"21","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for use-case-model-recommitted
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP4S1N1(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-dsa-auc-p4\",\"CoreUseCases\":{\"Status\":2,\"Revisions\":2,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"architect\"}}}","errorExpected":false}`)
+		// probe 1.2: projectStateAccess.ReadProject for downstream-artifacts-stale
+		var pout1_2 any
+		var perr1_2 error
+		pout1_2, perr1_2 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP4S1N2(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"SystemDesign\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}}}","errorExpected":false}`)
+		// probe 1.3: projectStateAccess.ReadProject for commit-stale
+		var pout1_3 any
+		var perr1_3 error
+		pout1_3, perr1_3 = probeDesignSessionAccessAddAUseCaseToAnInFlightProjectP4S1N3(t, h, subject)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"Version\":21,\"CoreUseCases\":{\"Revisions\":2},\"SystemDesign\":{\"StaleBasis\":true}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessAskAClarifyingQuestionDuringReviewP3S1 is step 1's parameters of SeedReviewCommentsOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessAskAClarifyingQuestionDuringReviewP3S1 struct {
+	ProjectID       projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion projectstate.Version         `json:"expectedVersion"`
+	Branch          string                       `json:"branch"`
+	Kind            projectstate.ArtifactKind    `json:"kind"`
+	Round           int64                        `json:"round"`
+	Comments        []projectstate.ReviewComment `json:"comments"`
+	Replies         []projectstate.ReviewReply   `json:"replies"`
+	IdempotencyKey  fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_DesignSessionAccess_ask_a_clarifying_question_during_review_P3 — Ask a Clarifying Question During Review — [no: committed] · [yes] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → seed-main-thread → thread-seeded-on-main → merge-recorded → dispatch-answer-job → answer-ran → record-answers → question-answered → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_DesignSessionAccess_ask_a_clarifying_question_during_review_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "ask-a-clarifying-question-during-review-P3", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: SeedReviewCommentsOnBranch (node seed-main-thread; guards artifact-state=[no: committed], answer-ran=[yes])
+		var in1 inputDesignSessionAccessAskAClarifyingQuestionDuringReviewP3S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-acq-p3","expectedVersion":40,"branch":"","kind":5,"round":1,"comments":[{"id":"","anchor":"components.designSessionAccess","anchorText":"designSessionAccess","text":"Why does ReconcileBranchFromMain live on the design-session facet rather than sourceControlAccess?","authorRole":"founder","round":1,"status":"open","replies":[],"reopened":false,"type":"question","addressee":"architect"}],"replies":[],"idempotencyKey":"stp-dsa-acq-p3:seed:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessAskAClarifyingQuestionDuringReviewP3S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P3", 1, out1, err1, `{"result":"41","errorExpected":false}`)
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for thread-seeded-on-main
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-acq-p3","branch":""}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProjectOnBranch(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.Branch)
+		expect(t, "ask-a-clarifying-question-during-review-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"slots\":{\"5\":{\"status\":2,\"reviewThread\":[{\"id\":\"r1c1\",\"round\":1,\"type\":\"question\",\"addressee\":\"architect\",\"status\":\"open\",\"authorRole\":\"founder\",\"replies\":[]}]}},\"id\":\"stp-dsa-acq-p3\",\"version\":41}","errorExpected":false}`)
+		// probe 1.2: projectStateAccess.ReadProject for seed-main-thread
+		var pout1_2 any
+		var perr1_2 error
+		pout1_2, perr1_2 = probeDesignSessionAccessAskAClarifyingQuestionDuringReviewP3S1N2(t, h, subject)
+		expect(t, "ask-a-clarifying-question-during-review-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"SystemDesign\":{\"Status\":2,\"reviewThread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessAskAClarifyingQuestionDuringReviewP4S1 is step 1's parameters of SeedReviewCommentsOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessAskAClarifyingQuestionDuringReviewP4S1 struct {
+	ProjectID       projectstate.ProjectID       `json:"projectID"`
+	ExpectedVersion projectstate.Version         `json:"expectedVersion"`
+	Branch          string                       `json:"branch"`
+	Kind            projectstate.ArtifactKind    `json:"kind"`
+	Round           int64                        `json:"round"`
+	Comments        []projectstate.ReviewComment `json:"comments"`
+	Replies         []projectstate.ReviewReply   `json:"replies"`
+	IdempotencyKey  fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
+// TestScenario_DesignSessionAccess_ask_a_clarifying_question_during_review_P4 — Ask a Clarifying Question During Review — [no: committed] · [no: dispatch miss] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → seed-main-thread → thread-seeded-on-main → merge-recorded → dispatch-answer-job → answer-ran → remain-open → question-still-open → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_DesignSessionAccess_ask_a_clarifying_question_during_review_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "ask-a-clarifying-question-during-review-P4", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: SeedReviewCommentsOnBranch (node seed-main-thread; guards artifact-state=[no: committed], answer-ran=[no: dispatch miss])
+		var in1 inputDesignSessionAccessAskAClarifyingQuestionDuringReviewP4S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-acq-p4","expectedVersion":40,"branch":"","kind":5,"round":1,"comments":[{"id":"","anchor":"components.designSessionAccess","anchorText":"designSessionAccess","text":"Why does ReconcileBranchFromMain live on the design-session facet rather than sourceControlAccess?","authorRole":"founder","round":1,"status":"open","replies":[],"reopened":false,"type":"question","addressee":"architect"}],"replies":[],"idempotencyKey":"stp-dsa-acq-p4:seed:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessAskAClarifyingQuestionDuringReviewP4S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P4", 1, out1, err1, `{"result":"41","errorExpected":false}`)
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for thread-seeded-on-main
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-acq-p4","branch":""}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProjectOnBranch(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.Branch)
+		expect(t, "ask-a-clarifying-question-during-review-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"slots\":{\"5\":{\"status\":2,\"reviewThread\":[{\"id\":\"r1c1\",\"round\":1,\"type\":\"question\",\"addressee\":\"architect\",\"status\":\"open\",\"authorRole\":\"founder\",\"replies\":[]}]}},\"id\":\"stp-dsa-acq-p4\",\"version\":41}","errorExpected":false}`)
+		// probe 1.2: projectStateAccess.ReadProject for seed-main-thread
+		var pout1_2 any
+		var perr1_2 error
+		pout1_2, perr1_2 = probeDesignSessionAccessAskAClarifyingQuestionDuringReviewP4S1N2(t, h, subject)
+		expect(t, "ask-a-clarifying-question-during-review-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"SystemDesign\":{\"Status\":2,\"reviewThread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP1S1 is step 1's parameters of ReadProjectOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+	Branch    string                 `json:"branch"`
+}
+
+// TestScenario_DesignSessionAccess_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_DesignSessionAccess_execute_a_project_activity_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "execute-a-project-activity-P1", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: ReadProjectOnBranch (node observe-validate; guards task-kind=dispatch, exit-met=yes)
+		var in1 inputDesignSessionAccessExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p1","branch":"activity/requirements"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessExecuteAProjectActivityP1S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"{\"id\":\"stp-dsa-eapa-p1\",\"version\":11,\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Drafted by the dispatched job; read back for the exit criterion.\",\"rejectionReason\":\"\"}]}}}}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP2S1 is step 1's parameters of ReadProjectOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+	Branch    string                 `json:"branch"`
+}
+
+// TestScenario_DesignSessionAccess_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_DesignSessionAccess_execute_a_project_activity_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "execute-a-project-activity-P2", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: ReadProjectOnBranch (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in1 inputDesignSessionAccessExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p2","branch":"activity/requirements"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessExecuteAProjectActivityP2S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"{\"id\":\"stp-dsa-eapa-p2\",\"version\":10}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP3S1 is step 1's parameters of StageArtifactForReviewOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP3S1 struct {
+	ProjectID       projectstate.ProjectID     `json:"projectID"`
+	ExpectedVersion projectstate.Version       `json:"expectedVersion"`
+	Branch          string                     `json:"branch"`
+	Model           projectstate.ModelEnvelope `json:"model"`
+	IdempotencyKey  fwra.IdempotencyKey        `json:"idempotencyKey"`
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP3S2 is step 2's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP3S2 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP3S3 is step 3's parameters of ReconcileBranchFromMain, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP3S3 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	Branch          string                      `json:"branch"`
+	Kinds           []projectstate.ArtifactKind `json:"kinds"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_DesignSessionAccess_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_DesignSessionAccess_execute_a_project_activity_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "execute-a-project-activity-P3", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: StageArtifactForReviewOnBranch (node commit-artifact; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in1 inputDesignSessionAccessExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p3","expectedVersion":30,"branch":"","model":{"kind":"network","model":{"dependencies":[{"activity":"architecture","dependsOn":["requirements"]},{"activity":"projectDesign","dependsOn":["architecture"]}],"criticalPath":["architecture","projectDesign","requirements"]}},"idempotencyKey":"stp-dsa-eapa-p3:m0:stage:network"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessExecuteAProjectActivityP3S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"31","errorExpected":false}`)
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p3","branch":""}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProjectOnBranch(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.Branch)
+		expect(t, "execute-a-project-activity-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-dsa-eapa-p3\",\"version\":31,\"slots\":{\"10\":{\"status\":1,\"model\":{\"kind\":\"network\"}}}}","errorExpected":false}`)
+		// step 2: CommitArtifactWithProvenance (node commit-artifact; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in2 inputDesignSessionAccessExecuteAProjectActivityP3S2
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p3","expectedVersion":31,"kind":10,"approvedBy":"founder@stp.test","draftedBy":"platform:estimation-engine"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.CommitArtifactWithProvenance(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedVersion, in2.Kind, in2.ApprovedBy, in2.DraftedBy)
+		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"32","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for
+		var pout2_1 any
+		var perr2_1 error
+		pout2_1, perr2_1 = probeDesignSessionAccessExecuteAProjectActivityP3S2N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Version\":32,\"Network\":{\"Status\":2,\"Revisions\":1,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"platform:estimation-engine\"}}}","errorExpected":false}`)
+		// step 3: ReconcileBranchFromMain (node commit-artifact; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in3 inputDesignSessionAccessExecuteAProjectActivityP3S3
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p3","expectedVersion":31,"branch":"activity/projectDesign","kinds":[8],"idempotencyKey":"stp-dsa-eapa-p3:reconcile:1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.ReconcileBranchFromMain(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.Branch, in3.Kinds, in3.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P3", 3, out3, err3, `{"result":"32","errorExpected":false}`)
+		// probe 3.1: designSessionAccess.ReadProjectOnBranch for
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p3","branch":"activity/projectDesign"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProjectOnBranch(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.Branch)
+		expect(t, "execute-a-project-activity-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"id\":\"stp-dsa-eapa-p3\",\"version\":32,\"slots\":{\"8\":{\"status\":1},\"10\":{\"status\":2,\"model\":{\"kind\":\"network\"}}}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP4S1 is step 1's parameters of StageArtifactForReviewOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP4S1 struct {
+	ProjectID       projectstate.ProjectID     `json:"projectID"`
+	ExpectedVersion projectstate.Version       `json:"expectedVersion"`
+	Branch          string                     `json:"branch"`
+	Model           projectstate.ModelEnvelope `json:"model"`
+	IdempotencyKey  fwra.IdempotencyKey        `json:"idempotencyKey"`
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP4S2 is step 2's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP4S2 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP4S3 is step 3's parameters of ReconcileBranchFromMain, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP4S3 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	Branch          string                      `json:"branch"`
+	Kinds           []projectstate.ArtifactKind `json:"kinds"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_DesignSessionAccess_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_DesignSessionAccess_execute_a_project_activity_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "execute-a-project-activity-P4", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: StageArtifactForReviewOnBranch (node commit-artifact; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in1 inputDesignSessionAccessExecuteAProjectActivityP4S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p4","expectedVersion":30,"branch":"","model":{"kind":"network","model":{"dependencies":[{"activity":"architecture","dependsOn":["requirements"]},{"activity":"projectDesign","dependsOn":["architecture"]}],"criticalPath":["architecture","projectDesign","requirements"]}},"idempotencyKey":"stp-dsa-eapa-p4:m0:stage:network"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessExecuteAProjectActivityP4S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"31","errorExpected":false}`)
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p4","branch":""}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProjectOnBranch(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.Branch)
+		expect(t, "execute-a-project-activity-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-dsa-eapa-p4\",\"version\":31,\"slots\":{\"10\":{\"status\":1,\"model\":{\"kind\":\"network\"}}}}","errorExpected":false}`)
+		// step 2: CommitArtifactWithProvenance (node commit-artifact; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in2 inputDesignSessionAccessExecuteAProjectActivityP4S2
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p4","expectedVersion":31,"kind":10,"approvedBy":"founder@stp.test","draftedBy":"platform:estimation-engine"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.CommitArtifactWithProvenance(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedVersion, in2.Kind, in2.ApprovedBy, in2.DraftedBy)
+		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"32","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for
+		var pout2_1 any
+		var perr2_1 error
+		pout2_1, perr2_1 = probeDesignSessionAccessExecuteAProjectActivityP4S2N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Version\":32,\"Network\":{\"Status\":2,\"Revisions\":1,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"platform:estimation-engine\"}}}","errorExpected":false}`)
+		// step 3: ReconcileBranchFromMain (node commit-artifact; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in3 inputDesignSessionAccessExecuteAProjectActivityP4S3
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p4","expectedVersion":31,"branch":"activity/projectDesign","kinds":[8],"idempotencyKey":"stp-dsa-eapa-p4:reconcile:1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.ReconcileBranchFromMain(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.Branch, in3.Kinds, in3.IdempotencyKey)
+		expect(t, "execute-a-project-activity-P4", 3, out3, err3, `{"result":"32","errorExpected":false}`)
+		// probe 3.1: designSessionAccess.ReadProjectOnBranch for
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p4","branch":"activity/projectDesign"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProjectOnBranch(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.Branch)
+		expect(t, "execute-a-project-activity-P4 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"id\":\"stp-dsa-eapa-p4\",\"version\":32,\"slots\":{\"8\":{\"status\":1},\"10\":{\"status\":2,\"model\":{\"kind\":\"network\"}}}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP5S1 is step 1's parameters of ReadProjectOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP5S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+	Branch    string                 `json:"branch"`
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP5S2 is step 2's parameters of ReadProjectOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP5S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+	Branch    string                 `json:"branch"`
+}
+
+// TestScenario_DesignSessionAccess_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_DesignSessionAccess_execute_a_project_activity_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "execute-a-project-activity-P5", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: ReadProjectOnBranch (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in1 inputDesignSessionAccessExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p5","branch":"activity/requirements"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessExecuteAProjectActivityP5S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"{\"id\":\"stp-dsa-eapa-p5\",\"version\":10}","errorExpected":false}`)
+		// step 2: ReadProjectOnBranch (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in2 inputDesignSessionAccessExecuteAProjectActivityP5S2
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p5","branch":"activity/requirements"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepDesignSessionAccessExecuteAProjectActivityP5S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"{\"id\":\"stp-dsa-eapa-p5\",\"version\":11,\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Drafted by the dispatched job; read back for the exit criterion.\",\"rejectionReason\":\"\"}]}}}}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP6S1 is step 1's parameters of ReadProjectOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP6S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+	Branch    string                 `json:"branch"`
+}
+
+// TestScenario_DesignSessionAccess_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_DesignSessionAccess_execute_a_project_activity_P6(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "execute-a-project-activity-P6", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: ReadProjectOnBranch (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in1 inputDesignSessionAccessExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p6","branch":"activity/requirements"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessExecuteAProjectActivityP6S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"{\"id\":\"stp-dsa-eapa-p6\",\"version\":10}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessExecuteAProjectActivityP7S1 is step 1's parameters of ReadProjectOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessExecuteAProjectActivityP7S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+	Branch    string                 `json:"branch"`
+}
+
+// TestScenario_DesignSessionAccess_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_DesignSessionAccess_execute_a_project_activity_P7(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "execute-a-project-activity-P7", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: ReadProjectOnBranch (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in1 inputDesignSessionAccessExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-eapa-p7","branch":"activity/requirements"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessExecuteAProjectActivityP7S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"{\"id\":\"stp-dsa-eapa-p7\",\"version\":12,\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-revised-use-case\",\"name\":\"STP Revised Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Revision n+1 after the reviewer's sendBack.\",\"rejectionReason\":\"\"}]}}}}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessManageProjectsP1S1 is step 1's parameters of StageArtifactForReviewOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessManageProjectsP1S1 struct {
+	ProjectID       projectstate.ProjectID     `json:"projectID"`
+	ExpectedVersion projectstate.Version       `json:"expectedVersion"`
+	Branch          string                     `json:"branch"`
+	Model           projectstate.ModelEnvelope `json:"model"`
+	IdempotencyKey  fwra.IdempotencyKey        `json:"idempotencyKey"`
+}
+
+// inputDesignSessionAccessManageProjectsP1S2 is step 2's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessManageProjectsP1S2 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// TestScenario_DesignSessionAccess_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+func TestScenario_DesignSessionAccess_manage_projects_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "manage-projects-P1", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: StageArtifactForReviewOnBranch (node create-head-state; guards operating-model=[no: self-operated])
+		var in1 inputDesignSessionAccessManageProjectsP1S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-mp-p1","expectedVersion":1,"branch":"","model":{"kind":"activityList","model":{"activities":[{"name":"requirements","title":"Requirements","effortDays":5,"workerClass":"system-architect","coding":false,"riskBucket":2},{"name":"architecture","title":"Architecture","effortDays":5,"workerClass":"system-architect","coding":false,"riskBucket":2},{"name":"projectDesign","title":"Project Design","effortDays":5,"workerClass":"project-manager","coding":false,"riskBucket":2}]}},"idempotencyKey":"stp-dsa-mp-p1:birth:stage:activityList"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessManageProjectsP1S1(t, h, subject, in1)
+		expect(t, "manage-projects-P1", 1, out1, err1, `{"result":"2","errorExpected":false}`)
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-mp-p1","branch":""}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProjectOnBranch(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.Branch)
+		expect(t, "manage-projects-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-dsa-mp-p1\",\"version\":2,\"slots\":{\"9\":{\"status\":1,\"model\":{\"kind\":\"activityList\"}}}}","errorExpected":false}`)
+		// step 2: CommitArtifactWithProvenance (node create-head-state; guards operating-model=[no: self-operated])
+		var in2 inputDesignSessionAccessManageProjectsP1S2
+		mustUnmarshal(t, `{"projectID":"stp-dsa-mp-p1","expectedVersion":2,"kind":9,"approvedBy":"platform:project-birth","draftedBy":"platform:design-prefix-derivation"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.CommitArtifactWithProvenance(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedVersion, in2.Kind, in2.ApprovedBy, in2.DraftedBy)
+		expect(t, "manage-projects-P1", 2, out2, err2, `{"result":"3","errorExpected":false}`)
+		// probe 2.1: designSessionAccess.ReadProjectOnBranch for obj-project-head-state-created
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-mp-p1","branch":""}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProjectOnBranch(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.Branch)
+		expect(t, "manage-projects-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-dsa-mp-p1\",\"version\":3,\"slots\":{\"9\":{\"status\":2,\"model\":{\"kind\":\"activityList\",\"model\":{\"activities\":[{\"name\":\"requirements\",\"title\":\"Requirements\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"architecture\",\"title\":\"Architecture\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"projectDesign\",\"title\":\"Project Design\",\"effortDays\":5,\"workerClass\":\"project-manager\",\"coding\":false,\"riskBucket\":2}]}}}}}","errorExpected":false}`)
+		// probe 2.2: projectStateAccess.ReadProject for create-head-state
+		var pout2_2 any
+		var perr2_2 error
+		pout2_2, perr2_2 = probeDesignSessionAccessManageProjectsP1S2N2(t, h, subject)
+		expect(t, "manage-projects-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"stp-dsa-mp-p1\",\"ActivityList\":{\"Status\":2,\"Revisions\":1,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"platform:project-birth\",\"draftedBy\":\"platform:design-prefix-derivation\"}}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessManageProjectsP2S1 is step 1's parameters of StageArtifactForReviewOnBranch, decoded from the binding's inputs.
+type inputDesignSessionAccessManageProjectsP2S1 struct {
+	ProjectID       projectstate.ProjectID     `json:"projectID"`
+	ExpectedVersion projectstate.Version       `json:"expectedVersion"`
+	Branch          string                     `json:"branch"`
+	Model           projectstate.ModelEnvelope `json:"model"`
+	IdempotencyKey  fwra.IdempotencyKey        `json:"idempotencyKey"`
+}
+
+// inputDesignSessionAccessManageProjectsP2S2 is step 2's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessManageProjectsP2S2 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// TestScenario_DesignSessionAccess_manage_projects_P2 — Manage Projects — [yes] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → record-operated → obj-operating-model-operated → note-operating-model-values → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+func TestScenario_DesignSessionAccess_manage_projects_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "manage-projects-P2", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: StageArtifactForReviewOnBranch (node create-head-state; guards operating-model=[yes])
+		var in1 inputDesignSessionAccessManageProjectsP2S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-mp-p2","expectedVersion":1,"branch":"","model":{"kind":"activityList","model":{"activities":[{"name":"requirements","title":"Requirements","effortDays":5,"workerClass":"system-architect","coding":false,"riskBucket":2},{"name":"architecture","title":"Architecture","effortDays":5,"workerClass":"system-architect","coding":false,"riskBucket":2},{"name":"projectDesign","title":"Project Design","effortDays":5,"workerClass":"project-manager","coding":false,"riskBucket":2}]}},"idempotencyKey":"stp-dsa-mp-p2:birth:stage:activityList"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessManageProjectsP2S1(t, h, subject, in1)
+		expect(t, "manage-projects-P2", 1, out1, err1, `{"result":"2","errorExpected":false}`)
+		// probe 1.1: designSessionAccess.ReadProjectOnBranch for
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-mp-p2","branch":""}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProjectOnBranch(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.Branch)
+		expect(t, "manage-projects-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-dsa-mp-p2\",\"version\":2,\"slots\":{\"9\":{\"status\":1,\"model\":{\"kind\":\"activityList\"}}}}","errorExpected":false}`)
+		// step 2: CommitArtifactWithProvenance (node create-head-state; guards operating-model=[yes])
+		var in2 inputDesignSessionAccessManageProjectsP2S2
+		mustUnmarshal(t, `{"projectID":"stp-dsa-mp-p2","expectedVersion":2,"kind":9,"approvedBy":"platform:project-birth","draftedBy":"platform:design-prefix-derivation"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.CommitArtifactWithProvenance(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedVersion, in2.Kind, in2.ApprovedBy, in2.DraftedBy)
+		expect(t, "manage-projects-P2", 2, out2, err2, `{"result":"3","errorExpected":false}`)
+		// probe 2.1: designSessionAccess.ReadProjectOnBranch for obj-project-head-state-created
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-mp-p2","branch":""}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProjectOnBranch(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.Branch)
+		expect(t, "manage-projects-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-dsa-mp-p2\",\"version\":3,\"slots\":{\"9\":{\"status\":2,\"model\":{\"kind\":\"activityList\",\"model\":{\"activities\":[{\"name\":\"requirements\",\"title\":\"Requirements\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"architecture\",\"title\":\"Architecture\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"projectDesign\",\"title\":\"Project Design\",\"effortDays\":5,\"workerClass\":\"project-manager\",\"coding\":false,\"riskBucket\":2}]}}}}}","errorExpected":false}`)
+		// probe 2.2: projectStateAccess.ReadProject for create-head-state
+		var pout2_2 any
+		var perr2_2 error
+		pout2_2, perr2_2 = probeDesignSessionAccessManageProjectsP2S2N2(t, h, subject)
+		expect(t, "manage-projects-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"stp-dsa-mp-p2\",\"ActivityList\":{\"Status\":2,\"Revisions\":1,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"platform:project-birth\",\"draftedBy\":\"platform:design-prefix-derivation\"}}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessReplanUnderScopeChangeP2S1 is step 1's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessReplanUnderScopeChangeP2S1 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// TestScenario_DesignSessionAccess_replan_under_scope_change_P2 — Replan Under Scope Change — [no: scope change] · [accept] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → adopt → sdp-revision-adopted → committed-network-revised → merge-end → end).
+func TestScenario_DesignSessionAccess_replan_under_scope_change_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "replan-under-scope-change-P2", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: CommitArtifactWithProvenance (node adopt; guards classify=[no: scope change], mgmt=[accept])
+		var in1 inputDesignSessionAccessReplanUnderScopeChangeP2S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-rusc-p2","expectedVersion":50,"kind":16,"approvedBy":"founder@stp.test","draftedBy":"project-manager"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessReplanUnderScopeChangeP2S1(t, h, subject, in1)
+		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"result":"51","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for sdp-revision-adopted
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeDesignSessionAccessReplanUnderScopeChangeP2S1N1(t, h, subject)
+		expect(t, "replan-under-scope-change-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-dsa-rusc-p2\",\"SdpReview\":{\"Status\":2,\"Revisions\":2,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}","errorExpected":false}`)
+		// probe 1.2: designSessionAccess.ReadProjectOnBranch for committed-network-revised
+		var pout1_2 any
+		var perr1_2 error
+		var probe1_2 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+			Branch    string                 `json:"branch"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-dsa-rusc-p2","branch":""}`, &probe1_2)
+		pout1_2, perr1_2 = subject.ReadProjectOnBranch(callContext(t, h, "1.2"), probe1_2.ProjectID, probe1_2.Branch)
+		expect(t, "replan-under-scope-change-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"id\":\"stp-dsa-rusc-p2\",\"version\":51,\"slots\":{\"16\":{\"status\":2,\"model\":{\"kind\":\"sdpReview\",\"model\":{\"recommendation\":\"opt-compressed\"}}}}}","errorExpected":false}`)
+		// probe 1.3: projectStateAccess.ReadProject for adopt
+		var pout1_3 any
+		var perr1_3 error
+		pout1_3, perr1_3 = probeDesignSessionAccessReplanUnderScopeChangeP2S1N3(t, h, subject)
+		expect(t, "replan-under-scope-change-P2 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"Version\":51,\"SdpReview\":{\"Status\":2,\"Revisions\":2}}","errorExpected":false}`)
+	})
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP1S1 is step 1's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP1S1 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Branch          string                      `json:"branch"`
+	BranchRef       string                      `json:"branchRef"`
+	PrRef           string                      `json:"prRef"`
+	CrLabel         string                      `json:"crLabel"`
+	IsRevert        bool                        `json:"isRevert"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP1S2 is step 2's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP1S2 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Ci              projectstate.CICheckState   `json:"ci"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_GitActivityStatusAccess_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "gitActivityStatusAccess", "execute-a-project-activity-P1", func(t *testing.T) {
+		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
+		// step 1: RecordActivityBranchOpened (node dispatch-task; guards task-kind=dispatch, exit-met=yes)
+		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"projectID":"stp-gas-P1","expectedVersion":12,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/101","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P1-s1-branch-opened"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP1S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"13","errorExpected":false}`)
+		// step 2: RecordActivityCIObserved (node observe-validate; guards task-kind=dispatch, exit-met=yes)
+		var in2 inputGitActivityStatusAccessExecuteAProjectActivityP1S2
+		mustUnmarshal(t, `{"projectID":"stp-gas-P1","expectedVersion":13,"activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P1-s2-ci-success"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepGitActivityStatusAccessExecuteAProjectActivityP1S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"14","errorExpected":false}`)
+	})
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP2S1 is step 1's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP2S1 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Branch          string                      `json:"branch"`
+	BranchRef       string                      `json:"branchRef"`
+	PrRef           string                      `json:"prRef"`
+	CrLabel         string                      `json:"crLabel"`
+	IsRevert        bool                        `json:"isRevert"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP2S2 is step 2's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP2S2 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Ci              projectstate.CICheckState   `json:"ci"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_GitActivityStatusAccess_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "gitActivityStatusAccess", "execute-a-project-activity-P2", func(t *testing.T) {
+		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
+		// step 1: RecordActivityBranchOpened (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"projectID":"stp-gas-P2","expectedVersion":12,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/102","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P2-s1-branch-opened"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP2S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"13","errorExpected":false}`)
+		// step 2: RecordActivityCIObserved (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in2 inputGitActivityStatusAccessExecuteAProjectActivityP2S2
+		mustUnmarshal(t, `{"projectID":"stp-gas-P2","expectedVersion":13,"activityID":"C-DM","ci":2,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P2-s2-ci-failure"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepGitActivityStatusAccessExecuteAProjectActivityP2S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"14","errorExpected":false}`)
+	})
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP3S1 is step 1's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP3S1 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Ci              projectstate.CICheckState   `json:"ci"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_GitActivityStatusAccess_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "gitActivityStatusAccess", "execute-a-project-activity-P3", func(t *testing.T) {
+		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
+		// step 1: RecordActivityCIObserved (node commit-artifact; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"projectID":"stp-gas-P3","expectedVersion":12,"activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P3-s1-ci-success"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP3S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"13","errorExpected":false}`)
+	})
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP4S1 is step 1's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP4S1 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Ci              projectstate.CICheckState   `json:"ci"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_GitActivityStatusAccess_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "gitActivityStatusAccess", "execute-a-project-activity-P4", func(t *testing.T) {
+		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
+		// step 1: RecordActivityCIObserved (node commit-artifact; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP4S1
+		mustUnmarshal(t, `{"projectID":"stp-gas-P4","expectedVersion":12,"activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P4-s1-ci-success"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP4S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"13","errorExpected":false}`)
+	})
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP5S1 is step 1's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP5S1 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Branch          string                      `json:"branch"`
+	BranchRef       string                      `json:"branchRef"`
+	PrRef           string                      `json:"prRef"`
+	CrLabel         string                      `json:"crLabel"`
+	IsRevert        bool                        `json:"isRevert"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP5S2 is step 2's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP5S2 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Ci              projectstate.CICheckState   `json:"ci"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP5S3 is step 3's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP5S3 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Branch          string                      `json:"branch"`
+	BranchRef       string                      `json:"branchRef"`
+	PrRef           string                      `json:"prRef"`
+	CrLabel         string                      `json:"crLabel"`
+	IsRevert        bool                        `json:"isRevert"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP5S4 is step 4's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP5S4 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Ci              projectstate.CICheckState   `json:"ci"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_GitActivityStatusAccess_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "gitActivityStatusAccess", "execute-a-project-activity-P5", func(t *testing.T) {
+		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
+		// step 1: RecordActivityBranchOpened (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"projectID":"stp-gas-P5","expectedVersion":12,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/105","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s1-branch-opened"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP5S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"13","errorExpected":false}`)
+		// step 2: RecordActivityCIObserved (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in2 inputGitActivityStatusAccessExecuteAProjectActivityP5S2
+		mustUnmarshal(t, `{"projectID":"stp-gas-P5","expectedVersion":13,"activityID":"C-DM","ci":2,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s2-ci-failure"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepGitActivityStatusAccessExecuteAProjectActivityP5S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"14","errorExpected":false}`)
+		// step 3: RecordActivityBranchOpened (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in3 inputGitActivityStatusAccessExecuteAProjectActivityP5S3
+		mustUnmarshal(t, `{"projectID":"stp-gas-P5","expectedVersion":14,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/105","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s3-branch-opened"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepGitActivityStatusAccessExecuteAProjectActivityP5S3(t, h, subject, in3)
+		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"result":"15","errorExpected":false}`)
+		// step 4: RecordActivityCIObserved (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in4 inputGitActivityStatusAccessExecuteAProjectActivityP5S4
+		mustUnmarshal(t, `{"projectID":"stp-gas-P5","expectedVersion":15,"activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s4-ci-success"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = stepGitActivityStatusAccessExecuteAProjectActivityP5S4(t, h, subject, in4)
+		expect(t, "execute-a-project-activity-P5", 4, out4, err4, `{"result":"16","errorExpected":false}`)
+	})
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP6S1 is step 1's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP6S1 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Branch          string                      `json:"branch"`
+	BranchRef       string                      `json:"branchRef"`
+	PrRef           string                      `json:"prRef"`
+	CrLabel         string                      `json:"crLabel"`
+	IsRevert        bool                        `json:"isRevert"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP6S2 is step 2's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP6S2 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Ci              projectstate.CICheckState   `json:"ci"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_GitActivityStatusAccess_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P6(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "gitActivityStatusAccess", "execute-a-project-activity-P6", func(t *testing.T) {
+		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
+		// step 1: RecordActivityBranchOpened (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"projectID":"stp-gas-P6","expectedVersion":12,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/106","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P6-s1-branch-opened"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP6S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"13","errorExpected":false}`)
+		// step 2: RecordActivityCIObserved (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in2 inputGitActivityStatusAccessExecuteAProjectActivityP6S2
+		mustUnmarshal(t, `{"projectID":"stp-gas-P6","expectedVersion":13,"activityID":"C-DM","ci":2,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P6-s2-ci-failure"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepGitActivityStatusAccessExecuteAProjectActivityP6S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"14","errorExpected":false}`)
+	})
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP7S1 is step 1's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP7S1 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Branch          string                      `json:"branch"`
+	BranchRef       string                      `json:"branchRef"`
+	PrRef           string                      `json:"prRef"`
+	CrLabel         string                      `json:"crLabel"`
+	IsRevert        bool                        `json:"isRevert"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// inputGitActivityStatusAccessExecuteAProjectActivityP7S2 is step 2's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
+type inputGitActivityStatusAccessExecuteAProjectActivityP7S2 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	ActivityID      string                      `json:"activityID"`
+	Ci              projectstate.CICheckState   `json:"ci"`
+	Cred            projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_GitActivityStatusAccess_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P7(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "gitActivityStatusAccess", "execute-a-project-activity-P7", func(t *testing.T) {
+		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
+		// step 1: RecordActivityBranchOpened (node dispatch-task; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"projectID":"stp-gas-P7","expectedVersion":12,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/107","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P7-s1-branch-opened"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP7S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"13","errorExpected":false}`)
+		// step 2: RecordActivityCIObserved (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in2 inputGitActivityStatusAccessExecuteAProjectActivityP7S2
+		mustUnmarshal(t, `{"projectID":"stp-gas-P7","expectedVersion":13,"activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P7-s2-ci-success"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepGitActivityStatusAccessExecuteAProjectActivityP7S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"14","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP1S2 is step 2's parameters of AcknowledgeStaleBasis, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP1S2 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	Note            string                    `json:"note"`
+	IdempotencyKey  fwra.IdempotencyKey       `json:"idempotencyKey"`
+}
+
+// TestScenario_ProjectStateAccess_add_a_use_case_to_an_in_flight_project_P1 — Add a Use Case to an In-Flight Project — [variation] · [no] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → merge-out → end).
+func TestScenario_ProjectStateAccess_add_a_use_case_to_an_in_flight_project_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "add-a-use-case-to-an-in-flight-project-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node reopen-slot; guards core-check=[variation], replan-check=[no])
+		var in1 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessAddAUseCaseToAnInFlightProjectP1S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-auc-p1\",\"Version\":10,\"CoreUseCases\":{\"Status\":2}}","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for use-case-model-amendment-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p1"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProject(callContext(t, h, "1.1"), probe1_1.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"CoreUseCases\":{\"Status\":2,\"StaleBasis\":false}}","errorExpected":false}`)
+		// step 2: AcknowledgeStaleBasis (node reconcile; guards core-check=[variation], replan-check=[no])
+		var in2 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP1S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p1","expectedVersion":11,"kind":5,"note":"reviewed — unaffected","idempotencyKey":"stp-psa-auc-p1:ack:system"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessAddAUseCaseToAnInFlightProjectP1S2(t, h, subject, in2)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 2, out2, err2, `{"result":"12","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for stale-artifacts-reconciled
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p1"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"Reviewed — unaffected: reviewed — unaffected\"}]}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP2S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP2S2 is step 2's parameters of AcknowledgeStaleBasis, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP2S2 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	Note            string                    `json:"note"`
+	IdempotencyKey  fwra.IdempotencyKey       `json:"idempotencyKey"`
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP2S3 is step 3's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP2S3 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_add_a_use_case_to_an_in_flight_project_P2 — Add a Use Case to an In-Flight Project — [variation] · [yes] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → replan → replan-trigger-recorded → replan-async-note → merge-out → end).
+func TestScenario_ProjectStateAccess_add_a_use_case_to_an_in_flight_project_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "add-a-use-case-to-an-in-flight-project-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node reopen-slot; guards core-check=[variation], replan-check=[yes])
+		var in1 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessAddAUseCaseToAnInFlightProjectP2S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-auc-p2\",\"Version\":10,\"CoreUseCases\":{\"Status\":2}}","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for use-case-model-amendment-open
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p2"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProject(callContext(t, h, "1.1"), probe1_1.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"CoreUseCases\":{\"Status\":2,\"StaleBasis\":false}}","errorExpected":false}`)
+		// step 2: AcknowledgeStaleBasis (node reconcile; guards core-check=[variation], replan-check=[yes])
+		var in2 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP2S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p2","expectedVersion":11,"kind":5,"note":"reviewed — unaffected","idempotencyKey":"stp-psa-auc-p2:ack:system"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessAddAUseCaseToAnInFlightProjectP2S2(t, h, subject, in2)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 2, out2, err2, `{"result":"12","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for stale-artifacts-reconciled
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p2"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"Reviewed — unaffected: reviewed — unaffected\"}]}}","errorExpected":false}`)
+		// step 3: ReadProject (node replan; guards core-check=[variation], replan-check=[yes])
+		var in3 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP2S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p2"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepProjectStateAccessAddAUseCaseToAnInFlightProjectP2S3(t, h, subject, in3)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 3, out3, err3, `{"result":"{\"ID\":\"stp-psa-auc-p2\",\"Version\":12}","errorExpected":false}`)
+		// probe 3.1: projectStateAccess.ReadProject for replan-trigger-recorded
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p2"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProject(callContext(t, h, "3.1"), probe3_1.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"ActivityList\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\"}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\"}}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP3S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP3S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP3S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP3S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP3S3 is step 3's parameters of AcknowledgeStaleBasis, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP3S3 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	Note            string                    `json:"note"`
+	IdempotencyKey  fwra.IdempotencyKey       `json:"idempotencyKey"`
+}
+
+// TestScenario_ProjectStateAccess_add_a_use_case_to_an_in_flight_project_P3 — Add a Use Case to an In-Flight Project — [core: rare] · [no] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → revalidate → design-health-findings-signal → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → merge-out → end).
+func TestScenario_ProjectStateAccess_add_a_use_case_to_an_in_flight_project_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "add-a-use-case-to-an-in-flight-project-P3", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node revalidate; guards core-check=[core: rare], replan-check=[no])
+		var in1 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP3S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p3"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessAddAUseCaseToAnInFlightProjectP3S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-auc-p3\",\"Version\":10,\"Phase\":2,\"Volatilities\":{\"Status\":2},\"SystemDesign\":{\"Status\":2}}","errorExpected":false}`)
+		// step 2: ReadProject (node reopen-slot; guards core-check=[core: rare], replan-check=[no])
+		var in2 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP3S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p3"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadProject(callContext(t, h, "2"), in2.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 2, out2, err2, `{"result":"{\"ID\":\"stp-psa-auc-p3\",\"Version\":10,\"CoreUseCases\":{\"Status\":2}}","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for use-case-model-amendment-open
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p3"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"CoreUseCases\":{\"Status\":2,\"StaleBasis\":false}}","errorExpected":false}`)
+		// step 3: AcknowledgeStaleBasis (node reconcile; guards core-check=[core: rare], replan-check=[no])
+		var in3 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP3S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p3","expectedVersion":11,"kind":5,"note":"reviewed — unaffected","idempotencyKey":"stp-psa-auc-p3:ack:system"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepProjectStateAccessAddAUseCaseToAnInFlightProjectP3S3(t, h, subject, in3)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 3, out3, err3, `{"result":"12","errorExpected":false}`)
+		// probe 3.1: projectStateAccess.ReadProject for stale-artifacts-reconciled
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p3"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProject(callContext(t, h, "3.1"), probe3_1.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"Reviewed — unaffected: reviewed — unaffected\"}]}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S3 is step 3's parameters of AcknowledgeStaleBasis, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S3 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	Note            string                    `json:"note"`
+	IdempotencyKey  fwra.IdempotencyKey       `json:"idempotencyKey"`
+}
+
+// inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S4 is step 4's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S4 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_add_a_use_case_to_an_in_flight_project_P4 — Add a Use Case to an In-Flight Project — [core: rare] · [yes] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → revalidate → design-health-findings-signal → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → replan → replan-trigger-recorded → replan-async-note → merge-out → end).
+func TestScenario_ProjectStateAccess_add_a_use_case_to_an_in_flight_project_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "add-a-use-case-to-an-in-flight-project-P4", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node revalidate; guards core-check=[core: rare], replan-check=[yes])
+		var in1 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p4"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessAddAUseCaseToAnInFlightProjectP4S1(t, h, subject, in1)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-auc-p4\",\"Version\":10,\"Phase\":2,\"Volatilities\":{\"Status\":2},\"SystemDesign\":{\"Status\":2}}","errorExpected":false}`)
+		// step 2: ReadProject (node reopen-slot; guards core-check=[core: rare], replan-check=[yes])
+		var in2 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p4"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadProject(callContext(t, h, "2"), in2.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 2, out2, err2, `{"result":"{\"ID\":\"stp-psa-auc-p4\",\"Version\":10,\"CoreUseCases\":{\"Status\":2}}","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for use-case-model-amendment-open
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p4"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"CoreUseCases\":{\"Status\":2,\"StaleBasis\":false}}","errorExpected":false}`)
+		// step 3: AcknowledgeStaleBasis (node reconcile; guards core-check=[core: rare], replan-check=[yes])
+		var in3 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p4","expectedVersion":11,"kind":5,"note":"reviewed — unaffected","idempotencyKey":"stp-psa-auc-p4:ack:system"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepProjectStateAccessAddAUseCaseToAnInFlightProjectP4S3(t, h, subject, in3)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 3, out3, err3, `{"result":"12","errorExpected":false}`)
+		// probe 3.1: projectStateAccess.ReadProject for stale-artifacts-reconciled
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p4"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProject(callContext(t, h, "3.1"), probe3_1.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"Reviewed — unaffected: reviewed — unaffected\"}]}}","errorExpected":false}`)
+		// step 4: ReadProject (node replan; guards core-check=[core: rare], replan-check=[yes])
+		var in4 inputProjectStateAccessAddAUseCaseToAnInFlightProjectP4S4
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p4"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = stepProjectStateAccessAddAUseCaseToAnInFlightProjectP4S4(t, h, subject, in4)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 4, out4, err4, `{"result":"{\"ID\":\"stp-psa-auc-p4\",\"Version\":12}","errorExpected":false}`)
+		// probe 4.1: projectStateAccess.ReadProject for replan-trigger-recorded
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-auc-p4"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadProject(callContext(t, h, "4.1"), probe4_1.ProjectID)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"ActivityList\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\"}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\"}}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessAskAClarifyingQuestionDuringReviewP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAskAClarifyingQuestionDuringReviewP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAskAClarifyingQuestionDuringReviewP1S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAskAClarifyingQuestionDuringReviewP1S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_ask_a_clarifying_question_during_review_P1 — Ask a Clarifying Question During Review — [yes: session branch] · [yes] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → append-session-branch → thread-open-on-session-branch → merge-recorded → dispatch-answer-job → answer-ran → record-answers → question-answered → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ProjectStateAccess_ask_a_clarifying_question_during_review_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "ask-a-clarifying-question-during-review-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node write-questions; guards artifact-state=[yes: session branch], answer-ran=[yes])
+		var in1 inputProjectStateAccessAskAClarifyingQuestionDuringReviewP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessAskAClarifyingQuestionDuringReviewP1S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-acq-p1\",\"Version\":6,\"Phase\":0,\"Mission\":{\"Status\":0}}","errorExpected":false}`)
+		// step 2: ReadProject (node approve-unblocked; guards artifact-state=[yes: session branch], answer-ran=[yes])
+		var in2 inputProjectStateAccessAskAClarifyingQuestionDuringReviewP1S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p1"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadProject(callContext(t, h, "2"), in2.ProjectID)
+		expect(t, "ask-a-clarifying-question-during-review-P1", 2, out2, err2, `{"result":"{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"answered\",\"addressee\":\"system-architect\"}]}]}}}","errorExpected":false}`)
+		// unobservable: warn-open-questions
+	})
+}
+
+// inputProjectStateAccessAskAClarifyingQuestionDuringReviewP2S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAskAClarifyingQuestionDuringReviewP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAskAClarifyingQuestionDuringReviewP2S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAskAClarifyingQuestionDuringReviewP2S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAskAClarifyingQuestionDuringReviewP2S3 is step 3's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAskAClarifyingQuestionDuringReviewP2S3 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_ask_a_clarifying_question_during_review_P2 — Ask a Clarifying Question During Review — [yes: session branch] · [no: dispatch miss] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → append-session-branch → thread-open-on-session-branch → merge-recorded → dispatch-answer-job → answer-ran → remain-open → question-still-open → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ProjectStateAccess_ask_a_clarifying_question_during_review_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "ask-a-clarifying-question-during-review-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node write-questions; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
+		var in1 inputProjectStateAccessAskAClarifyingQuestionDuringReviewP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessAskAClarifyingQuestionDuringReviewP2S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P2", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-acq-p2\",\"Version\":6,\"Phase\":0,\"Mission\":{\"Status\":0}}","errorExpected":false}`)
+		// step 2: ReadProject (node remain-open; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
+		var in2 inputProjectStateAccessAskAClarifyingQuestionDuringReviewP2S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadProject(callContext(t, h, "2"), in2.ProjectID)
+		expect(t, "ask-a-clarifying-question-during-review-P2", 2, out2, err2, `{"result":"{\"ID\":\"stp-psa-acq-p2\",\"Version\":6}","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for question-still-open
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p2"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "ask-a-clarifying-question-during-review-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\",\"addressee\":\"system-architect\"}]}]}}}","errorExpected":false}`)
+		// step 3: ReadProject (node approve-unblocked; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
+		var in3 inputProjectStateAccessAskAClarifyingQuestionDuringReviewP2S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p2"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.ReadProject(callContext(t, h, "3"), in3.ProjectID)
+		expect(t, "ask-a-clarifying-question-during-review-P2", 3, out3, err3, `{"result":"{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\",\"addressee\":\"system-architect\"}]}]}}}","errorExpected":false}`)
+		// unobservable: warn-open-questions
+	})
+}
+
+// inputProjectStateAccessAskAClarifyingQuestionDuringReviewP3S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAskAClarifyingQuestionDuringReviewP3S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAskAClarifyingQuestionDuringReviewP3S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAskAClarifyingQuestionDuringReviewP3S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_ask_a_clarifying_question_during_review_P3 — Ask a Clarifying Question During Review — [no: committed] · [yes] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → seed-main-thread → thread-seeded-on-main → merge-recorded → dispatch-answer-job → answer-ran → record-answers → question-answered → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ProjectStateAccess_ask_a_clarifying_question_during_review_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "ask-a-clarifying-question-during-review-P3", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node write-questions; guards artifact-state=[no: committed], answer-ran=[yes])
+		var in1 inputProjectStateAccessAskAClarifyingQuestionDuringReviewP3S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p3"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessAskAClarifyingQuestionDuringReviewP3S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P3", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-acq-p3\",\"Version\":6,\"Phase\":0,\"Mission\":{\"Status\":2}}","errorExpected":false}`)
+		// step 2: ReadProject (node approve-unblocked; guards artifact-state=[no: committed], answer-ran=[yes])
+		var in2 inputProjectStateAccessAskAClarifyingQuestionDuringReviewP3S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p3"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadProject(callContext(t, h, "2"), in2.ProjectID)
+		expect(t, "ask-a-clarifying-question-during-review-P3", 2, out2, err2, `{"result":"{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"answered\",\"addressee\":\"system-architect\"}]}]}}}","errorExpected":false}`)
+		// unobservable: warn-open-questions
+	})
+}
+
+// inputProjectStateAccessAskAClarifyingQuestionDuringReviewP4S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAskAClarifyingQuestionDuringReviewP4S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAskAClarifyingQuestionDuringReviewP4S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAskAClarifyingQuestionDuringReviewP4S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessAskAClarifyingQuestionDuringReviewP4S3 is step 3's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessAskAClarifyingQuestionDuringReviewP4S3 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_ask_a_clarifying_question_during_review_P4 — Ask a Clarifying Question During Review — [no: committed] · [no: dispatch miss] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → seed-main-thread → thread-seeded-on-main → merge-recorded → dispatch-answer-job → answer-ran → remain-open → question-still-open → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
+func TestScenario_ProjectStateAccess_ask_a_clarifying_question_during_review_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "ask-a-clarifying-question-during-review-P4", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node write-questions; guards artifact-state=[no: committed], answer-ran=[no: dispatch miss])
+		var in1 inputProjectStateAccessAskAClarifyingQuestionDuringReviewP4S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p4"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessAskAClarifyingQuestionDuringReviewP4S1(t, h, subject, in1)
+		expect(t, "ask-a-clarifying-question-during-review-P4", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-acq-p4\",\"Version\":6,\"Phase\":0,\"Mission\":{\"Status\":2}}","errorExpected":false}`)
+		// step 2: ReadProject (node remain-open; guards artifact-state=[no: committed], answer-ran=[no: dispatch miss])
+		var in2 inputProjectStateAccessAskAClarifyingQuestionDuringReviewP4S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p4"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadProject(callContext(t, h, "2"), in2.ProjectID)
+		expect(t, "ask-a-clarifying-question-during-review-P4", 2, out2, err2, `{"result":"{\"ID\":\"stp-psa-acq-p4\",\"Version\":6}","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for question-still-open
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p4"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "ask-a-clarifying-question-during-review-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\",\"addressee\":\"system-architect\"}]}]}}}","errorExpected":false}`)
+		// step 3: ReadProject (node approve-unblocked; guards artifact-state=[no: committed], answer-ran=[no: dispatch miss])
+		var in3 inputProjectStateAccessAskAClarifyingQuestionDuringReviewP4S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-acq-p4"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.ReadProject(callContext(t, h, "3"), in3.ProjectID)
+		expect(t, "ask-a-clarifying-question-during-review-P4", 3, out3, err3, `{"result":"{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\",\"addressee\":\"system-architect\"}]}]}}}","errorExpected":false}`)
+		// unobservable: warn-open-questions
+	})
+}
+
+// inputProjectStateAccessCommitToAProjectOptionP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessCommitToAProjectOptionP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessCommitToAProjectOptionP1S2 is step 2's parameters of AdvancePhase, decoded from the binding's inputs.
+type inputProjectStateAccessCommitToAProjectOptionP1S2 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+}
+
+// inputProjectStateAccessCommitToAProjectOptionP1S3 is step 3's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessCommitToAProjectOptionP1S3 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_commit_to_a_project_option_P1 — Commit to a Project Option — [commit] · [no] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → merge → end).
+func TestScenario_ProjectStateAccess_commit_to_a_project_option_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "commit-to-a-project-option-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node await-decision; guards decision=[commit], revoke-window=[no])
+		var in1 inputProjectStateAccessCommitToAProjectOptionP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessCommitToAProjectOptionP1S1(t, h, subject, in1)
+		expect(t, "commit-to-a-project-option-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-cpo-p1\",\"Version\":20,\"Phase\":1,\"SdpReview\":{\"Status\":1}}","errorExpected":false}`)
+		// step 2: AdvancePhase (node commit-option; guards decision=[commit], revoke-window=[no])
+		var in2 inputProjectStateAccessCommitToAProjectOptionP1S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p1","expectedVersion":21}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessCommitToAProjectOptionP1S2(t, h, subject, in2)
+		expect(t, "commit-to-a-project-option-P1", 2, out2, err2, `{"result":"22","errorExpected":false}`)
+		// step 3: ReadProject (node commit-option; guards decision=[commit], revoke-window=[no])
+		var in3 inputProjectStateAccessCommitToAProjectOptionP1S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepProjectStateAccessCommitToAProjectOptionP1S3(t, h, subject, in3)
+		expect(t, "commit-to-a-project-option-P1", 3, out3, err3, `{"result":"{\"ID\":\"stp-psa-cpo-p1\",\"Phase\":2}","errorExpected":false}`)
+		// probe 3.1: projectStateAccess.ReadProject for sdp-review-committed
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p1"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProject(callContext(t, h, "3.1"), probe3_1.ProjectID)
+		expect(t, "commit-to-a-project-option-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
+		// probe 3.2: activityExecutionAccess.ReadActivityExecution for construction-work-items-opened
+		var pout3_2 any
+		var perr3_2 error
+		pout3_2, perr3_2 = probeProjectStateAccessCommitToAProjectOptionP1S3N2(t, h, subject)
+		expect(t, "commit-to-a-project-option-P1 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}`)
+		// probe 3.3: projectStateAccess.ReadProject for commit-option
+		var pout3_3 any
+		var perr3_3 error
+		var probe3_3 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p1"}`, &probe3_3)
+		pout3_3, perr3_3 = subject.ReadProject(callContext(t, h, "3.3"), probe3_3.ProjectID)
+		expect(t, "commit-to-a-project-option-P1 probe 3.3", 3, pout3_3, perr3_3, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessCommitToAProjectOptionP2S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessCommitToAProjectOptionP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessCommitToAProjectOptionP2S2 is step 2's parameters of AdvancePhase, decoded from the binding's inputs.
+type inputProjectStateAccessCommitToAProjectOptionP2S2 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+}
+
+// inputProjectStateAccessCommitToAProjectOptionP2S3 is step 3's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessCommitToAProjectOptionP2S3 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessCommitToAProjectOptionP2S4 is step 4's parameters of RecordSdpReviewOutcome, decoded from the binding's inputs.
+type inputProjectStateAccessCommitToAProjectOptionP2S4 struct {
+	ProjectID       projectstate.ProjectID            `json:"projectID"`
+	ExpectedVersion projectstate.Version              `json:"expectedVersion"`
+	Outcome         projectstate.ArtifactReviewStatus `json:"outcome"`
+	Feedback        string                            `json:"feedback"`
+	IdempotencyKey  fwra.IdempotencyKey               `json:"idempotencyKey"`
+}
+
+// TestScenario_ProjectStateAccess_commit_to_a_project_option_P2 — Commit to a Project Option — [commit] · [yes] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → revoke → sdp-review-revoked → merge → end).
+func TestScenario_ProjectStateAccess_commit_to_a_project_option_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "commit-to-a-project-option-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node await-decision; guards decision=[commit], revoke-window=[yes])
+		var in1 inputProjectStateAccessCommitToAProjectOptionP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessCommitToAProjectOptionP2S1(t, h, subject, in1)
+		expect(t, "commit-to-a-project-option-P2", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-cpo-p2\",\"Version\":20,\"Phase\":1,\"SdpReview\":{\"Status\":1}}","errorExpected":false}`)
+		// step 2: AdvancePhase (node commit-option; guards decision=[commit], revoke-window=[yes])
+		var in2 inputProjectStateAccessCommitToAProjectOptionP2S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2","expectedVersion":21}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessCommitToAProjectOptionP2S2(t, h, subject, in2)
+		expect(t, "commit-to-a-project-option-P2", 2, out2, err2, `{"result":"22","errorExpected":false}`)
+		// step 3: ReadProject (node commit-option; guards decision=[commit], revoke-window=[yes])
+		var in3 inputProjectStateAccessCommitToAProjectOptionP2S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepProjectStateAccessCommitToAProjectOptionP2S3(t, h, subject, in3)
+		expect(t, "commit-to-a-project-option-P2", 3, out3, err3, `{"result":"{\"ID\":\"stp-psa-cpo-p2\",\"Phase\":2}","errorExpected":false}`)
+		// probe 3.1: projectStateAccess.ReadProject for sdp-review-committed
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProject(callContext(t, h, "3.1"), probe3_1.ProjectID)
+		expect(t, "commit-to-a-project-option-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
+		// probe 3.2: activityExecutionAccess.ReadActivityExecution for construction-work-items-opened
+		var pout3_2 any
+		var perr3_2 error
+		pout3_2, perr3_2 = probeProjectStateAccessCommitToAProjectOptionP2S3N2(t, h, subject)
+		expect(t, "commit-to-a-project-option-P2 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}`)
+		// probe 3.3: projectStateAccess.ReadProject for commit-option
+		var pout3_3 any
+		var perr3_3 error
+		var probe3_3 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &probe3_3)
+		pout3_3, perr3_3 = subject.ReadProject(callContext(t, h, "3.3"), probe3_3.ProjectID)
+		expect(t, "commit-to-a-project-option-P2 probe 3.3", 3, pout3_3, perr3_3, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
+		// step 4: RecordSdpReviewOutcome (node revoke; guards decision=[commit], revoke-window=[yes])
+		var in4 inputProjectStateAccessCommitToAProjectOptionP2S4
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2","expectedVersion":23,"outcome":4,"feedback":"Revoked inside the grace window: the decompressed option is preferred.","idempotencyKey":"stp-psa-cpo-p2:revoke"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = stepProjectStateAccessCommitToAProjectOptionP2S4(t, h, subject, in4)
+		expect(t, "commit-to-a-project-option-P2", 4, out4, err4, `{"errorExpected":false}`)
+		// probe 4.1: projectStateAccess.ReadProject for sdp-review-revoked
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadProject(callContext(t, h, "4.1"), probe4_1.ProjectID)
+		expect(t, "commit-to-a-project-option-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"Phase\":1,\"SdpReview\":{\"Status\":4}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessCommitToAProjectOptionP3S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessCommitToAProjectOptionP3S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessCommitToAProjectOptionP3S2 is step 2's parameters of RecordSdpReviewOutcome, decoded from the binding's inputs.
+type inputProjectStateAccessCommitToAProjectOptionP3S2 struct {
+	ProjectID       projectstate.ProjectID            `json:"projectID"`
+	ExpectedVersion projectstate.Version              `json:"expectedVersion"`
+	Outcome         projectstate.ArtifactReviewStatus `json:"outcome"`
+	Feedback        string                            `json:"feedback"`
+	IdempotencyKey  fwra.IdempotencyKey               `json:"idempotencyKey"`
+}
+
+// TestScenario_ProjectStateAccess_commit_to_a_project_option_P3 — Commit to a Project Option — [reject-all + feedback] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → reject-all → sdp-review-rejected → merge → end).
+func TestScenario_ProjectStateAccess_commit_to_a_project_option_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "commit-to-a-project-option-P3", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node await-decision; guards decision=[reject-all + feedback])
+		var in1 inputProjectStateAccessCommitToAProjectOptionP3S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p3"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessCommitToAProjectOptionP3S1(t, h, subject, in1)
+		expect(t, "commit-to-a-project-option-P3", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-cpo-p3\",\"Version\":20,\"Phase\":1,\"SdpReview\":{\"Status\":1}}","errorExpected":false}`)
+		// step 2: RecordSdpReviewOutcome (node reject-all; guards decision=[reject-all + feedback])
+		var in2 inputProjectStateAccessCommitToAProjectOptionP3S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p3","expectedVersion":24,"outcome":3,"feedback":"Reject all options: the compressed option exceeds the build-cost ceiling.","idempotencyKey":"stp-psa-cpo-p3:reject-all"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessCommitToAProjectOptionP3S2(t, h, subject, in2)
+		expect(t, "commit-to-a-project-option-P3", 2, out2, err2, `{"errorExpected":false}`)
+		// probe 2.1: activityExecutionAccess.ReadActivityExecution for sdp-review-rejected
+		var pout2_1 any
+		var perr2_1 error
+		pout2_1, perr2_1 = probeProjectStateAccessCommitToAProjectOptionP3S2N1(t, h, subject)
+		expect(t, "commit-to-a-project-option-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"reviews\":[{\"roundId\":\"P-SDP:sdpReview:sdpReview:1\",\"outcome\":\"sentBack\",\"thread\":[{\"id\":\"r1c1\",\"text\":\"Reject all options: the compressed option exceeds the build-cost ceiling.\"}]}]}","errorExpected":false}`)
+		// probe 2.2: projectStateAccess.ReadProject for sdp-review-rejected
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p3"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadProject(callContext(t, h, "2.2"), probe2_2.ProjectID)
+		expect(t, "commit-to-a-project-option-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Phase\":1,\"SdpReview\":{\"Status\":3,\"reviewThread\":[{\"text\":\"Reject all options: the compressed option exceeds the build-cost ceiling.\",\"type\":\"changeRequest\",\"status\":\"open\"}]}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessDownloadGeneratedSourceCodeP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessDownloadGeneratedSourceCodeP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_download_generated_source_code_P1 — Download Generated Source Code — [clone or pull] (use case download-generated-source-code; path start → work-merges → open-repo → show-repo-location → repo-ref-convention → fetch-how → git-clone → merge-fetch → hold-source → end).
+func TestScenario_ProjectStateAccess_download_generated_source_code_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "download-generated-source-code-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node open-repo; guards fetch-how=[clone or pull])
+		var in1 inputProjectStateAccessDownloadGeneratedSourceCodeP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-dgs-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessDownloadGeneratedSourceCodeP1S1(t, h, subject, in1)
+		expect(t, "download-generated-source-code-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-dgs-p1\",\"Phase\":2,\"ActivityGit\":{\"C-project-state-access\":{\"ActivityID\":\"C-project-state-access\",\"BranchName\":\"activity/C-project-state-access\",\"PullRequestRef\":\"stp-psa-dgs-p1#pr-1\",\"IsRevert\":false}}}","errorExpected":false}`)
+		// unobservable: show-repo-location
+	})
+}
+
+// inputProjectStateAccessDownloadGeneratedSourceCodeP2S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessDownloadGeneratedSourceCodeP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_download_generated_source_code_P2 — Download Generated Source Code — [archive] (use case download-generated-source-code; path start → work-merges → open-repo → show-repo-location → repo-ref-convention → fetch-how → provider-archive → merge-fetch → hold-source → end).
+func TestScenario_ProjectStateAccess_download_generated_source_code_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "download-generated-source-code-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node open-repo; guards fetch-how=[archive])
+		var in1 inputProjectStateAccessDownloadGeneratedSourceCodeP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-dgs-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessDownloadGeneratedSourceCodeP2S1(t, h, subject, in1)
+		expect(t, "download-generated-source-code-P2", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-dgs-p2\",\"Phase\":2,\"ActivityGit\":{\"C-project-state-access\":{\"ActivityID\":\"C-project-state-access\",\"BranchName\":\"activity/C-project-state-access\",\"PullRequestRef\":\"stp-psa-dgs-p2#pr-1\",\"IsRevert\":false}}}","errorExpected":false}`)
+		// unobservable: show-repo-location
+	})
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ProjectStateAccess_execute_a_project_activity_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "execute-a-project-activity-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node activity-eligible; guards task-kind=dispatch, exit-met=yes)
+		var in1 inputProjectStateAccessExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessExecuteAProjectActivityP1S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-epa-p1\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP2S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP2S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP2S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ProjectStateAccess_execute_a_project_activity_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "execute-a-project-activity-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in1 inputProjectStateAccessExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessExecuteAProjectActivityP2S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-epa-p2\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}","errorExpected":false}`)
+		// step 2: ReadProject (node operator-intervened; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in2 inputProjectStateAccessExecuteAProjectActivityP2S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessExecuteAProjectActivityP2S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"{\"ActivityExecution\":{\"D-REQ\":{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"kind\":2,\"text\":\"Narrow the glossary to the billing terms and retry.\"}]}}}","errorExpected":false}`)
+		// probe 2.1: activityExecutionAccess.ReadActivityExecution for operator-note-recorded
+		var pout2_1 any
+		var perr2_1 error
+		pout2_1, perr2_1 = probeProjectStateAccessExecuteAProjectActivityP2S2N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"kind\":2,\"text\":\"Narrow the glossary to the billing terms and retry.\"}]}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP3S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP3S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP3S2 is step 2's parameters of AdvancePhase, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP3S2 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+}
+
+// TestScenario_ProjectStateAccess_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ProjectStateAccess_execute_a_project_activity_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "execute-a-project-activity-P3", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node activity-eligible; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in1 inputProjectStateAccessExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p3"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessExecuteAProjectActivityP3S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-epa-p3\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}","errorExpected":false}`)
+		// step 2: AdvancePhase (node seal-project-phase; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in2 inputProjectStateAccessExecuteAProjectActivityP3S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p3","expectedVersion":15}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessExecuteAProjectActivityP3S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"16","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for project-phase-advanced
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p3"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "execute-a-project-activity-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Version\":16,\"Phase\":1}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP4S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP4S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP4S2 is step 2's parameters of AdvancePhase, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP4S2 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+}
+
+// TestScenario_ProjectStateAccess_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ProjectStateAccess_execute_a_project_activity_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "execute-a-project-activity-P4", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node activity-eligible; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in1 inputProjectStateAccessExecuteAProjectActivityP4S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p4"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessExecuteAProjectActivityP4S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-epa-p4\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}","errorExpected":false}`)
+		// step 2: AdvancePhase (node seal-project-phase; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in2 inputProjectStateAccessExecuteAProjectActivityP4S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p4","expectedVersion":15}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessExecuteAProjectActivityP4S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"16","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for project-phase-advanced
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p4"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "execute-a-project-activity-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Version\":16,\"Phase\":1}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP5S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP5S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ProjectStateAccess_execute_a_project_activity_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "execute-a-project-activity-P5", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in1 inputProjectStateAccessExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p5"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessExecuteAProjectActivityP5S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-epa-p5\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP6S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP6S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP6S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP6S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP6S3 is step 3's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP6S3 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ProjectStateAccess_execute_a_project_activity_P6(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "execute-a-project-activity-P6", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in1 inputProjectStateAccessExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p6"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessExecuteAProjectActivityP6S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-epa-p6\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}","errorExpected":false}`)
+		// step 2: ReadProject (node operator-intervened; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in2 inputProjectStateAccessExecuteAProjectActivityP6S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p6"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessExecuteAProjectActivityP6S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"{\"ActivityExecution\":{\"D-REQ\":{\"activityID\":\"D-REQ\"}}}","errorExpected":false}`)
+		// unobservable: escalate-operator
+		// step 3: ReadProject (node operator-intervened; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in3 inputProjectStateAccessExecuteAProjectActivityP6S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p6"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepProjectStateAccessExecuteAProjectActivityP6S3(t, h, subject, in3)
+		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"result":"{\"ActivityExecution\":{\"D-REQ\":{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"kind\":2,\"text\":\"Narrow the glossary to the billing terms and retry.\"}]}}}","errorExpected":false}`)
+		// probe 3.1: activityExecutionAccess.ReadActivityExecution for operator-note-recorded
+		var pout3_1 any
+		var perr3_1 error
+		pout3_1, perr3_1 = probeProjectStateAccessExecuteAProjectActivityP6S3N1(t, h, subject)
+		expect(t, "execute-a-project-activity-P6 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"operatorNotes\":[{\"kind\":2,\"text\":\"Narrow the glossary to the billing terms and retry.\"}]}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessExecuteAProjectActivityP7S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessExecuteAProjectActivityP7S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_ProjectStateAccess_execute_a_project_activity_P7(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "execute-a-project-activity-P7", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node activity-eligible; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in1 inputProjectStateAccessExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-epa-p7"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessExecuteAProjectActivityP7S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-epa-p7\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessManageProjectsP1S1 is step 1's parameters of CreateProject, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP1S1 struct {
+	ProjectID projectstate.ProjectID  `json:"projectID"`
+	Owner     projectstate.OwnerScope `json:"owner"`
+	Name      string                  `json:"name"`
+}
+
+// inputProjectStateAccessManageProjectsP1S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP1S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessManageProjectsP1S3 is step 3's parameters of ListProjects, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP1S3 struct {
+	Owner projectstate.OwnerScope `json:"owner"`
+}
+
+// inputProjectStateAccessManageProjectsP1S4 is step 4's parameters of RecordReviewPolicy, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP1S4 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Policy          projectstate.ReviewPolicy `json:"policy"`
+	IdempotencyKey  fwra.IdempotencyKey       `json:"idempotencyKey"`
+}
+
+// inputProjectStateAccessManageProjectsP1S5 is step 5's parameters of SetResearchInput, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP1S5 struct {
+	ProjectID       projectstate.ProjectID     `json:"projectID"`
+	ExpectedVersion projectstate.Version       `json:"expectedVersion"`
+	Research        projectstate.ResearchInput `json:"research"`
+}
+
+// TestScenario_ProjectStateAccess_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+func TestScenario_ProjectStateAccess_manage_projects_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "manage-projects-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: CreateProject (node create-head-state; guards operating-model=[no: self-operated])
+		var in1 inputProjectStateAccessManageProjectsP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p1","owner":"stp-psa-owner-mp-p1","name":"STP Manage Projects P1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessManageProjectsP1S1(t, h, subject, in1)
+		expect(t, "manage-projects-P1", 1, out1, err1, `{"result":"1","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for obj-project-head-state-created
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p1"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProject(callContext(t, h, "1.1"), probe1_1.ProjectID)
+		expect(t, "manage-projects-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-psa-mp-p1\",\"Version\":1,\"Phase\":0,\"Owner\":\"stp-psa-owner-mp-p1\",\"Name\":\"STP Manage Projects P1\",\"OperatingModel\":\"selfOperated\"}","errorExpected":false}`)
+		// step 2: ReadProject (node catalog-open; guards operating-model=[no: self-operated])
+		var in2 inputProjectStateAccessManageProjectsP1S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p1"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadProject(callContext(t, h, "2"), in2.ProjectID)
+		expect(t, "manage-projects-P1", 2, out2, err2, `{"result":"{\"ID\":\"stp-psa-mp-p1\",\"Version\":1,\"Owner\":\"stp-psa-owner-mp-p1\",\"Name\":\"STP Manage Projects P1\",\"Phase\":0}","errorExpected":false}`)
+		// step 3: ListProjects (node catalog-open; guards operating-model=[no: self-operated])
+		var in3 inputProjectStateAccessManageProjectsP1S3
+		mustUnmarshal(t, `{"owner":"stp-psa-owner-mp-p1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.ListProjects(callContext(t, h, "3"), in3.Owner)
+		expect(t, "manage-projects-P1", 3, out3, err3, `{"result":"[{\"ProjectID\":\"stp-psa-mp-p1\",\"Name\":\"STP Manage Projects P1\",\"Owner\":\"stp-psa-owner-mp-p1\",\"Phase\":0}]","errorExpected":false}`)
+		// step 4: RecordReviewPolicy (node set-review-policy; guards operating-model=[no: self-operated])
+		var in4 inputProjectStateAccessManageProjectsP1S4
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p1","expectedVersion":1,"policy":{"preset":"full"},"idempotencyKey":"stp-psa-mp-p1:policy"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.RecordReviewPolicy(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.Policy, in4.IdempotencyKey)
+		expect(t, "manage-projects-P1", 4, out4, err4, `{"result":"2","errorExpected":false}`)
+		// probe 4.1: projectStateAccess.ReadProject for obj-review-policy-set
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p1"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadProject(callContext(t, h, "4.1"), probe4_1.ProjectID)
+		expect(t, "manage-projects-P1 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"Version\":2,\"reviewPolicy\":{\"preset\":\"full\"}}","errorExpected":false}`)
+		// step 5: SetResearchInput (node capture-research; guards operating-model=[no: self-operated])
+		var in5 inputProjectStateAccessManageProjectsP1S5
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p1","expectedVersion":2,"research":{"Sources":[{"Title":"Founder brief","Content":"Archistrator designs, builds and operates software with The Method."}]}}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.SetResearchInput(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.Research)
+		expect(t, "manage-projects-P1", 5, out5, err5, `{"result":"3","errorExpected":false}`)
+		// probe 5.1: projectStateAccess.ReadProject for obj-research-input-captured
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p1"}`, &probe5_1)
+		pout5_1, perr5_1 = subject.ReadProject(callContext(t, h, "5.1"), probe5_1.ProjectID)
+		expect(t, "manage-projects-P1 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"Version\":3,\"Research\":{\"sources\":[{\"title\":\"Founder brief\",\"path\":\".aiarch/state/research/00-founder-brief.txt\",\"contentBytes\":67}]}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessManageProjectsP2S1 is step 1's parameters of CreateProject, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP2S1 struct {
+	ProjectID projectstate.ProjectID  `json:"projectID"`
+	Owner     projectstate.OwnerScope `json:"owner"`
+	Name      string                  `json:"name"`
+}
+
+// inputProjectStateAccessManageProjectsP2S2 is step 2's parameters of SetOperatingModel, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP2S2 struct {
+	ProjectID       projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
+	Model           projectstate.OperatingModel `json:"model"`
+}
+
+// inputProjectStateAccessManageProjectsP2S3 is step 3's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP2S3 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessManageProjectsP2S4 is step 4's parameters of ListProjects, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP2S4 struct {
+	Owner projectstate.OwnerScope `json:"owner"`
+}
+
+// inputProjectStateAccessManageProjectsP2S5 is step 5's parameters of RecordReviewPolicy, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP2S5 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Policy          projectstate.ReviewPolicy `json:"policy"`
+	IdempotencyKey  fwra.IdempotencyKey       `json:"idempotencyKey"`
+}
+
+// inputProjectStateAccessManageProjectsP2S6 is step 6's parameters of SetResearchInput, decoded from the binding's inputs.
+type inputProjectStateAccessManageProjectsP2S6 struct {
+	ProjectID       projectstate.ProjectID     `json:"projectID"`
+	ExpectedVersion projectstate.Version       `json:"expectedVersion"`
+	Research        projectstate.ResearchInput `json:"research"`
+}
+
+// TestScenario_ProjectStateAccess_manage_projects_P2 — Manage Projects — [yes] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → record-operated → obj-operating-model-operated → note-operating-model-values → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+func TestScenario_ProjectStateAccess_manage_projects_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "manage-projects-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: CreateProject (node create-head-state; guards operating-model=[yes])
+		var in1 inputProjectStateAccessManageProjectsP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p2","owner":"stp-psa-owner-mp-p2","name":"STP Manage Projects P2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessManageProjectsP2S1(t, h, subject, in1)
+		expect(t, "manage-projects-P2", 1, out1, err1, `{"result":"1","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for obj-project-head-state-created
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p2"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProject(callContext(t, h, "1.1"), probe1_1.ProjectID)
+		expect(t, "manage-projects-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-psa-mp-p2\",\"Version\":1,\"Phase\":0,\"Owner\":\"stp-psa-owner-mp-p2\",\"Name\":\"STP Manage Projects P2\",\"OperatingModel\":\"selfOperated\"}","errorExpected":false}`)
+		// step 2: SetOperatingModel (node record-operated; guards operating-model=[yes])
+		var in2 inputProjectStateAccessManageProjectsP2S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p2","expectedVersion":1,"model":"archistratorOperated"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.SetOperatingModel(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedVersion, in2.Model)
+		expect(t, "manage-projects-P2", 2, out2, err2, `{"result":"2","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for obj-operating-model-operated
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p2"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "manage-projects-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Version\":2,\"OperatingModel\":\"archistratorOperated\"}","errorExpected":false}`)
+		// step 3: ReadProject (node catalog-open; guards operating-model=[yes])
+		var in3 inputProjectStateAccessManageProjectsP2S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p2"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.ReadProject(callContext(t, h, "3"), in3.ProjectID)
+		expect(t, "manage-projects-P2", 3, out3, err3, `{"result":"{\"ID\":\"stp-psa-mp-p2\",\"Version\":2,\"Owner\":\"stp-psa-owner-mp-p2\",\"Name\":\"STP Manage Projects P2\",\"Phase\":0}","errorExpected":false}`)
+		// step 4: ListProjects (node catalog-open; guards operating-model=[yes])
+		var in4 inputProjectStateAccessManageProjectsP2S4
+		mustUnmarshal(t, `{"owner":"stp-psa-owner-mp-p2"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.ListProjects(callContext(t, h, "4"), in4.Owner)
+		expect(t, "manage-projects-P2", 4, out4, err4, `{"result":"[{\"ProjectID\":\"stp-psa-mp-p2\",\"Name\":\"STP Manage Projects P2\",\"Owner\":\"stp-psa-owner-mp-p2\",\"Phase\":0}]","errorExpected":false}`)
+		// step 5: RecordReviewPolicy (node set-review-policy; guards operating-model=[yes])
+		var in5 inputProjectStateAccessManageProjectsP2S5
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p2","expectedVersion":2,"policy":{"preset":"checkpoints","gatedPhasesByType":{"service":["detailed_design","construction"]}},"idempotencyKey":"stp-psa-mp-p2:policy"}`, &in5)
+		var out5 any
+		var err5 error
+		out5, err5 = subject.RecordReviewPolicy(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.Policy, in5.IdempotencyKey)
+		expect(t, "manage-projects-P2", 5, out5, err5, `{"result":"3","errorExpected":false}`)
+		// probe 5.1: projectStateAccess.ReadProject for obj-review-policy-set
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p2"}`, &probe5_1)
+		pout5_1, perr5_1 = subject.ReadProject(callContext(t, h, "5.1"), probe5_1.ProjectID)
+		expect(t, "manage-projects-P2 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"Version\":3,\"reviewPolicy\":{\"preset\":\"checkpoints\",\"gatedPhasesByType\":{\"service\":[\"detailed_design\",\"construction\"]}}}","errorExpected":false}`)
+		// step 6: SetResearchInput (node capture-research; guards operating-model=[yes])
+		var in6 inputProjectStateAccessManageProjectsP2S6
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p2","expectedVersion":3,"research":{"Sources":[{"Title":"Founder brief","Content":"Archistrator designs, builds and operates software with The Method."}]}}`, &in6)
+		var out6 any
+		var err6 error
+		out6, err6 = subject.SetResearchInput(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.Research)
+		expect(t, "manage-projects-P2", 6, out6, err6, `{"result":"4","errorExpected":false}`)
+		// probe 6.1: projectStateAccess.ReadProject for obj-research-input-captured
+		var pout6_1 any
+		var perr6_1 error
+		var probe6_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-mp-p2"}`, &probe6_1)
+		pout6_1, perr6_1 = subject.ReadProject(callContext(t, h, "6.1"), probe6_1.ProjectID)
+		expect(t, "manage-projects-P2 probe 6.1", 6, pout6_1, perr6_1, `{"result":"{\"Version\":4,\"Research\":{\"sources\":[{\"title\":\"Founder brief\",\"path\":\".aiarch/state/research/00-founder-brief.txt\",\"contentBytes\":67}]}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessOperateADeliveredSystemP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessOperateADeliveredSystemP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_operate_a_delivered_system_P1 — Operate a Delivered System (use case operate-a-delivered-system; path start → publish-trigger → render-manifests-a → publish-a → desired-state-published-a → record-published-a → operated-system-recorded-a → publication-reason-note-a → end-a).
+func TestScenario_ProjectStateAccess_operate_a_delivered_system_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "operate-a-delivered-system-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node render-manifests-a)
+		var in1 inputProjectStateAccessOperateADeliveredSystemP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-ods-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessOperateADeliveredSystemP1S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-ods-p1\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessPauseConstructionP1S1 is step 1's parameters of RecordOperatorPaused, decoded from the binding's inputs.
+type inputProjectStateAccessPauseConstructionP1S1 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+	Reason          string                 `json:"reason"`
+	IdempotencyKey  fwra.IdempotencyKey    `json:"idempotencyKey"`
+}
+
+// TestScenario_ProjectStateAccess_pause_construction_P1 — Pause Construction (use case pause-construction; path start → choose-pause → note-pause-run-state → decide-pause-plan → note-plan-cancels → record-paused → run-state-paused → stop-pump → end).
+func TestScenario_ProjectStateAccess_pause_construction_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "pause-construction-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: RecordOperatorPaused (node record-paused)
+		var in1 inputProjectStateAccessPauseConstructionP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-pc-p1","expectedVersion":8,"reason":"Operator pause: upstream incident under investigation","idempotencyKey":"stp-psa-pc-p1:pause"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessPauseConstructionP1S1(t, h, subject, in1)
+		expect(t, "pause-construction-P1", 1, out1, err1, `{"result":"9","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for run-state-paused
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-pc-p1"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProject(callContext(t, h, "1.1"), probe1_1.ProjectID)
+		expect(t, "pause-construction-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"OperatorPaused\":true,\"PauseReason\":\"Operator pause: upstream incident under investigation\"}","errorExpected":false}`)
+		// probe 1.2: projectStateAccess.ReadProject for record-paused
+		var pout1_2 any
+		var perr1_2 error
+		var probe1_2 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-pc-p1"}`, &probe1_2)
+		pout1_2, perr1_2 = subject.ReadProject(callContext(t, h, "1.2"), probe1_2.ProjectID)
+		expect(t, "pause-construction-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"Version\":9,\"Phase\":2,\"OperatorPaused\":true,\"PauseReason\":\"Operator pause: upstream incident under investigation\"}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessReplanUnderScopeChangeP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessReplanUnderScopeChangeP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessReplanUnderScopeChangeP1S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessReplanUnderScopeChangeP1S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_replan_under_scope_change_P1 — Replan Under Scope Change — [yes] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → back-to-design → system-amendment-open → notify-returned-to-design → end).
+func TestScenario_ProjectStateAccess_replan_under_scope_change_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "replan-under-scope-change-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node snapshot; guards classify=[yes])
+		var in1 inputProjectStateAccessReplanUnderScopeChangeP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-rsc-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessReplanUnderScopeChangeP1S1(t, h, subject, in1)
+		expect(t, "replan-under-scope-change-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-rsc-p1\",\"Version\":50,\"Phase\":2,\"ActivityExecution\":{\"C-project-state-access\":{\"activityID\":\"C-project-state-access\"}}}","errorExpected":false}`)
+		// step 2: ReadProject (node back-to-design; guards classify=[yes])
+		var in2 inputProjectStateAccessReplanUnderScopeChangeP1S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-rsc-p1"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadProject(callContext(t, h, "2"), in2.ProjectID)
+		expect(t, "replan-under-scope-change-P1", 2, out2, err2, `{"result":"{\"ID\":\"stp-psa-rsc-p1\",\"Version\":50,\"SystemDesign\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessReplanUnderScopeChangeP2S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessReplanUnderScopeChangeP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_replan_under_scope_change_P2 — Replan Under Scope Change — [no: scope change] · [accept] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → adopt → sdp-revision-adopted → committed-network-revised → merge-end → end).
+func TestScenario_ProjectStateAccess_replan_under_scope_change_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "replan-under-scope-change-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node snapshot; guards classify=[no: scope change], mgmt=[accept])
+		var in1 inputProjectStateAccessReplanUnderScopeChangeP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-rsc-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessReplanUnderScopeChangeP2S1(t, h, subject, in1)
+		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-rsc-p2\",\"Version\":50,\"Phase\":2,\"ActivityExecution\":{\"C-project-state-access\":{\"activityID\":\"C-project-state-access\"}}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessReplanUnderScopeChangeP3S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessReplanUnderScopeChangeP3S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_replan_under_scope_change_P3 — Replan Under Scope Change — [no: scope change] · [reject] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → record-reject → sdp-revision-rejected → merge-end → end).
+func TestScenario_ProjectStateAccess_replan_under_scope_change_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "replan-under-scope-change-P3", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node snapshot; guards classify=[no: scope change], mgmt=[reject])
+		var in1 inputProjectStateAccessReplanUnderScopeChangeP3S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-rsc-p3"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessReplanUnderScopeChangeP3S1(t, h, subject, in1)
+		expect(t, "replan-under-scope-change-P3", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-rsc-p3\",\"Version\":50,\"Phase\":2,\"ActivityExecution\":{\"C-project-state-access\":{\"activityID\":\"C-project-state-access\"}}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessRequeueAFailedConstructionActivityP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessRequeueAFailedConstructionActivityP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessRequeueAFailedConstructionActivityP1S2 is step 2's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessRequeueAFailedConstructionActivityP1S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_requeue_a_failed_construction_activity_P1 — Re-queue a Failed Construction Activity (use case requeue-a-failed-construction-activity; path start → review-failure → read-attempts → read-failed-trace → show-failure-evidence → write-change → record-reopen → activity-reopened-state → failed-attempt-kept-state → requeue-note-pending-state → requeue-note-binding-hint → pump-fires → resume-activity → activity-resumed-state → requeue-note-delivered-state → resume-binding-hint → end).
+func TestScenario_ProjectStateAccess_requeue_a_failed_construction_activity_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "requeue-a-failed-construction-activity-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node record-reopen)
+		var in1 inputProjectStateAccessRequeueAFailedConstructionActivityP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-rq-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessRequeueAFailedConstructionActivityP1S1(t, h, subject, in1)
+		expect(t, "requeue-a-failed-construction-activity-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-rq-p1\",\"Phase\":2,\"ActivityExecution\":{\"C-project-state-access\":{\"activityID\":\"C-project-state-access\",\"failureDetail\":\"pipeline failed: build red\"}}}","errorExpected":false}`)
+		// step 2: ReadProject (node pump-fires)
+		var in2 inputProjectStateAccessRequeueAFailedConstructionActivityP1S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-rq-p1"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessRequeueAFailedConstructionActivityP1S2(t, h, subject, in2)
+		expect(t, "requeue-a-failed-construction-activity-P1", 2, out2, err2, `{"result":"{\"ID\":\"stp-psa-rq-p1\",\"Phase\":2,\"OperatorPaused\":false,\"ActivityExecution\":{\"C-project-state-access\":{\"activityID\":\"C-project-state-access\",\"operatorNotes\":[{\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}}}","errorExpected":false}`)
+		// probe 2.1: activityExecutionAccess.ReadActivityExecution for
+		var pout2_1 any
+		var perr2_1 error
+		pout2_1, perr2_1 = probeProjectStateAccessRequeueAFailedConstructionActivityP1S2N1(t, h, subject)
+		expect(t, "requeue-a-failed-construction-activity-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityID\":\"C-project-state-access\",\"operatorNotes\":[{\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessResumePausedConstructionP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessResumePausedConstructionP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessResumePausedConstructionP1S2 is step 2's parameters of RecordOperatorResumed, decoded from the binding's inputs.
+type inputProjectStateAccessResumePausedConstructionP1S2 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+	IdempotencyKey  fwra.IdempotencyKey    `json:"idempotencyKey"`
+}
+
+// inputProjectStateAccessResumePausedConstructionP1S3 is step 3's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessResumePausedConstructionP1S3 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_resume_paused_construction_P1 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → pause-settled → record-resume → run-state-running → pump-fires → continue → activity-started → end).
+func TestScenario_ProjectStateAccess_resume_paused_construction_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "resume-paused-construction-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node pause-settled; guards pause-settled=[yes])
+		var in1 inputProjectStateAccessResumePausedConstructionP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessResumePausedConstructionP1S1(t, h, subject, in1)
+		expect(t, "resume-paused-construction-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-rs-p1\",\"Version\":9,\"Phase\":2,\"OperatorPaused\":true,\"PauseReason\":\"Operator pause: upstream incident under investigation\"}","errorExpected":false}`)
+		// step 2: RecordOperatorResumed (node record-resume; guards pause-settled=[yes])
+		var in2 inputProjectStateAccessResumePausedConstructionP1S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p1","expectedVersion":9,"idempotencyKey":"stp-psa-rs-p1:resume"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.RecordOperatorResumed(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedVersion, in2.IdempotencyKey)
+		expect(t, "resume-paused-construction-P1", 2, out2, err2, `{"result":"10","errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for run-state-running
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p1"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "resume-paused-construction-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"OperatorPaused\":false,\"PauseReason\":\"\"}","errorExpected":false}`)
+		// probe 2.2: projectStateAccess.ReadProject for record-resume
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p1"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadProject(callContext(t, h, "2.2"), probe2_2.ProjectID)
+		expect(t, "resume-paused-construction-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Version\":10,\"OperatorPaused\":false,\"PauseReason\":\"\"}","errorExpected":false}`)
+		// step 3: ReadProject (node pump-fires; guards pause-settled=[yes])
+		var in3 inputProjectStateAccessResumePausedConstructionP1S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.ReadProject(callContext(t, h, "3"), in3.ProjectID)
+		expect(t, "resume-paused-construction-P1", 3, out3, err3, `{"result":"{\"ID\":\"stp-psa-rs-p1\",\"Version\":10,\"Phase\":2,\"OperatorPaused\":false}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessResumePausedConstructionP2S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessResumePausedConstructionP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_resume_paused_construction_P2 — Resume Paused Construction — [no] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → pause-settled → retry-later → run-state-still-paused → end).
+func TestScenario_ProjectStateAccess_resume_paused_construction_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "resume-paused-construction-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node pause-settled; guards pause-settled=[no])
+		var in1 inputProjectStateAccessResumePausedConstructionP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessResumePausedConstructionP2S1(t, h, subject, in1)
+		expect(t, "resume-paused-construction-P2", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-rs-p2\",\"Version\":9,\"Phase\":2,\"OperatorPaused\":true}","errorExpected":false}`)
+		// unobservable: retry-later
+		// probe 1.1: projectStateAccess.ReadProject for run-state-still-paused
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p2"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadProject(callContext(t, h, "1.1"), probe1_1.ProjectID)
+		expect(t, "resume-paused-construction-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Version\":9,\"OperatorPaused\":true,\"PauseReason\":\"Operator pause: upstream incident under investigation\"}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP1S2 is step 2's parameters of RecordTrackingPoint, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP1S2 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+	Point           projectstate.EvPoint   `json:"point"`
+	IdempotencyKey  fwra.IdempotencyKey    `json:"idempotencyKey"`
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP1S3 is step 3's parameters of RecordTrackingPoint, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP1S3 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+	Point           projectstate.EvPoint   `json:"point"`
+	IdempotencyKey  fwra.IdempotencyKey    `json:"idempotencyKey"`
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP1S4 is step 4's parameters of RecordTrackingPoint, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP1S4 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+	Point           projectstate.EvPoint   `json:"point"`
+	IdempotencyKey  fwra.IdempotencyKey    `json:"idempotencyKey"`
+}
+
+// TestScenario_ProjectStateAccess_track_weekly_project_progress_P1 — Track Weekly Project Progress — [no] · [yes] (use case track-weekly-project-progress; path start → week-elapses → read-exits → compute-ev → note-binary-exits → enough-points → no-trend → tracking-point-no-trend → merge-trend → record-point → progress-record-appended → off-track → corrective → replan-trigger-pending → merge-out → show-weekly-progress → end).
+func TestScenario_ProjectStateAccess_track_weekly_project_progress_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "track-weekly-project-progress-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node read-exits; guards enough-points=[no], off-track=[yes])
+		var in1 inputProjectStateAccessTrackWeeklyProjectProgressP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessTrackWeeklyProjectProgressP1S1(t, h, subject, in1)
+		expect(t, "track-weekly-project-progress-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-twp-p1\",\"Version\":60,\"Phase\":2,\"ConstructionProgress\":{\"Week\":3,\"points\":[{\"week\":1},{\"week\":2}]}}","errorExpected":false}`)
+		// step 2: RecordTrackingPoint (node no-trend; guards enough-points=[no], off-track=[yes])
+		var in2 inputProjectStateAccessTrackWeeklyProjectProgressP1S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p1","expectedVersion":60,"point":{"week":3,"earnedPct":0.25,"plannedPct":0.3,"note":"no trend: fewer than four points"},"idempotencyKey":"stp-psa-twp-p1:point:2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessTrackWeeklyProjectProgressP1S2(t, h, subject, in2)
+		expect(t, "track-weekly-project-progress-P1", 2, out2, err2, `{"errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for tracking-point-no-trend
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p1"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "track-weekly-project-progress-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3,\"note\":\"no trend: fewer than four points\"}]}}","errorExpected":false}`)
+		// step 3: RecordTrackingPoint (node record-point; guards enough-points=[no], off-track=[yes])
+		var in3 inputProjectStateAccessTrackWeeklyProjectProgressP1S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p1","expectedVersion":61,"point":{"week":3,"earnedPct":0.25,"plannedPct":0.3,"note":"no trend: fewer than four points"},"idempotencyKey":"stp-psa-twp-p1:point:3"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepProjectStateAccessTrackWeeklyProjectProgressP1S3(t, h, subject, in3)
+		expect(t, "track-weekly-project-progress-P1", 3, out3, err3, `{"errorExpected":false}`)
+		// probe 3.1: projectStateAccess.ReadProject for progress-record-appended
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p1"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProject(callContext(t, h, "3.1"), probe3_1.ProjectID)
+		expect(t, "track-weekly-project-progress-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3}]}}","errorExpected":false}`)
+		// probe 3.2: projectStateAccess.ReadProject for record-point
+		var pout3_2 any
+		var perr3_2 error
+		var probe3_2 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p1"}`, &probe3_2)
+		pout3_2, perr3_2 = subject.ReadProject(callContext(t, h, "3.2"), probe3_2.ProjectID)
+		expect(t, "track-weekly-project-progress-P1 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"ConstructionProgress\":{\"Week\":3,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3}]}}","errorExpected":false}`)
+		// step 4: RecordTrackingPoint (node corrective; guards enough-points=[no], off-track=[yes])
+		var in4 inputProjectStateAccessTrackWeeklyProjectProgressP1S4
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p1","expectedVersion":62,"point":{"week":3,"earnedPct":0.25,"plannedPct":0.3,"note":"corrective action: replan trigger pending"},"idempotencyKey":"stp-psa-twp-p1:point:4"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = stepProjectStateAccessTrackWeeklyProjectProgressP1S4(t, h, subject, in4)
+		expect(t, "track-weekly-project-progress-P1", 4, out4, err4, `{"errorExpected":false}`)
+		// unobservable: show-weekly-progress
+		// probe 4.1: projectStateAccess.ReadProject for replan-trigger-pending
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p1"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadProject(callContext(t, h, "4.1"), probe4_1.ProjectID)
+		expect(t, "track-weekly-project-progress-P1 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3,\"note\":\"corrective action: replan trigger pending\"}]}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP2S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP2S2 is step 2's parameters of RecordTrackingPoint, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP2S2 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+	Point           projectstate.EvPoint   `json:"point"`
+	IdempotencyKey  fwra.IdempotencyKey    `json:"idempotencyKey"`
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP2S3 is step 3's parameters of RecordTrackingPoint, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP2S3 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+	Point           projectstate.EvPoint   `json:"point"`
+	IdempotencyKey  fwra.IdempotencyKey    `json:"idempotencyKey"`
+}
+
+// TestScenario_ProjectStateAccess_track_weekly_project_progress_P2 — Track Weekly Project Progress — [no] · [no] (use case track-weekly-project-progress; path start → week-elapses → read-exits → compute-ev → note-binary-exits → enough-points → no-trend → tracking-point-no-trend → merge-trend → record-point → progress-record-appended → off-track → merge-out → show-weekly-progress → end).
+func TestScenario_ProjectStateAccess_track_weekly_project_progress_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "track-weekly-project-progress-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node read-exits; guards enough-points=[no], off-track=[no])
+		var in1 inputProjectStateAccessTrackWeeklyProjectProgressP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessTrackWeeklyProjectProgressP2S1(t, h, subject, in1)
+		expect(t, "track-weekly-project-progress-P2", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-twp-p2\",\"Version\":60,\"Phase\":2,\"ConstructionProgress\":{\"Week\":3,\"points\":[{\"week\":1},{\"week\":2}]}}","errorExpected":false}`)
+		// step 2: RecordTrackingPoint (node no-trend; guards enough-points=[no], off-track=[no])
+		var in2 inputProjectStateAccessTrackWeeklyProjectProgressP2S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p2","expectedVersion":60,"point":{"week":3,"earnedPct":0.25,"plannedPct":0.3,"note":"no trend: fewer than four points"},"idempotencyKey":"stp-psa-twp-p2:point:2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessTrackWeeklyProjectProgressP2S2(t, h, subject, in2)
+		expect(t, "track-weekly-project-progress-P2", 2, out2, err2, `{"errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for tracking-point-no-trend
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p2"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "track-weekly-project-progress-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3,\"note\":\"no trend: fewer than four points\"}]}}","errorExpected":false}`)
+		// step 3: RecordTrackingPoint (node record-point; guards enough-points=[no], off-track=[no])
+		var in3 inputProjectStateAccessTrackWeeklyProjectProgressP2S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p2","expectedVersion":61,"point":{"week":3,"earnedPct":0.25,"plannedPct":0.3,"note":"no trend: fewer than four points"},"idempotencyKey":"stp-psa-twp-p2:point:3"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepProjectStateAccessTrackWeeklyProjectProgressP2S3(t, h, subject, in3)
+		expect(t, "track-weekly-project-progress-P2", 3, out3, err3, `{"errorExpected":false}`)
+		// unobservable: show-weekly-progress
+		// probe 3.1: projectStateAccess.ReadProject for progress-record-appended
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p2"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProject(callContext(t, h, "3.1"), probe3_1.ProjectID)
+		expect(t, "track-weekly-project-progress-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3}]}}","errorExpected":false}`)
+		// probe 3.2: projectStateAccess.ReadProject for record-point
+		var pout3_2 any
+		var perr3_2 error
+		var probe3_2 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p2"}`, &probe3_2)
+		pout3_2, perr3_2 = subject.ReadProject(callContext(t, h, "3.2"), probe3_2.ProjectID)
+		expect(t, "track-weekly-project-progress-P2 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"ConstructionProgress\":{\"Week\":3,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3}]}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP3S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP3S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP3S2 is step 2's parameters of RecordTrackingPoint, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP3S2 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+	Point           projectstate.EvPoint   `json:"point"`
+	IdempotencyKey  fwra.IdempotencyKey    `json:"idempotencyKey"`
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP3S3 is step 3's parameters of RecordTrackingPoint, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP3S3 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+	Point           projectstate.EvPoint   `json:"point"`
+	IdempotencyKey  fwra.IdempotencyKey    `json:"idempotencyKey"`
+}
+
+// TestScenario_ProjectStateAccess_track_weekly_project_progress_P3 — Track Weekly Project Progress — [yes] · [yes] (use case track-weekly-project-progress; path start → week-elapses → read-exits → compute-ev → note-binary-exits → enough-points → project-eac → merge-trend → record-point → progress-record-appended → off-track → corrective → replan-trigger-pending → merge-out → show-weekly-progress → end).
+func TestScenario_ProjectStateAccess_track_weekly_project_progress_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "track-weekly-project-progress-P3", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node read-exits; guards enough-points=[yes], off-track=[yes])
+		var in1 inputProjectStateAccessTrackWeeklyProjectProgressP3S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p3"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessTrackWeeklyProjectProgressP3S1(t, h, subject, in1)
+		expect(t, "track-weekly-project-progress-P3", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-twp-p3\",\"Version\":60,\"Phase\":2,\"ConstructionProgress\":{\"Week\":5,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4}]}}","errorExpected":false}`)
+		// step 2: RecordTrackingPoint (node record-point; guards enough-points=[yes], off-track=[yes])
+		var in2 inputProjectStateAccessTrackWeeklyProjectProgressP3S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p3","expectedVersion":60,"point":{"week":5,"earnedPct":0.5,"plannedPct":0.55,"note":""},"idempotencyKey":"stp-psa-twp-p3:point:2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessTrackWeeklyProjectProgressP3S2(t, h, subject, in2)
+		expect(t, "track-weekly-project-progress-P3", 2, out2, err2, `{"errorExpected":false}`)
+		// probe 2.1: projectStateAccess.ReadProject for progress-record-appended
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p3"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "track-weekly-project-progress-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4},{\"week\":5}]}}","errorExpected":false}`)
+		// probe 2.2: projectStateAccess.ReadProject for record-point
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p3"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadProject(callContext(t, h, "2.2"), probe2_2.ProjectID)
+		expect(t, "track-weekly-project-progress-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ConstructionProgress\":{\"Week\":5,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4},{\"week\":5}]}}","errorExpected":false}`)
+		// step 3: RecordTrackingPoint (node corrective; guards enough-points=[yes], off-track=[yes])
+		var in3 inputProjectStateAccessTrackWeeklyProjectProgressP3S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p3","expectedVersion":61,"point":{"week":5,"earnedPct":0.5,"plannedPct":0.55,"note":"corrective action: replan trigger pending"},"idempotencyKey":"stp-psa-twp-p3:point:3"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepProjectStateAccessTrackWeeklyProjectProgressP3S3(t, h, subject, in3)
+		expect(t, "track-weekly-project-progress-P3", 3, out3, err3, `{"errorExpected":false}`)
+		// unobservable: show-weekly-progress
+		// probe 3.1: projectStateAccess.ReadProject for replan-trigger-pending
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p3"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProject(callContext(t, h, "3.1"), probe3_1.ProjectID)
+		expect(t, "track-weekly-project-progress-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4},{\"week\":5,\"note\":\"corrective action: replan trigger pending\"}]}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP4S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP4S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessTrackWeeklyProjectProgressP4S2 is step 2's parameters of RecordTrackingPoint, decoded from the binding's inputs.
+type inputProjectStateAccessTrackWeeklyProjectProgressP4S2 struct {
+	ProjectID       projectstate.ProjectID `json:"projectID"`
+	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
+	Point           projectstate.EvPoint   `json:"point"`
+	IdempotencyKey  fwra.IdempotencyKey    `json:"idempotencyKey"`
+}
+
+// TestScenario_ProjectStateAccess_track_weekly_project_progress_P4 — Track Weekly Project Progress — [yes] · [no] (use case track-weekly-project-progress; path start → week-elapses → read-exits → compute-ev → note-binary-exits → enough-points → project-eac → merge-trend → record-point → progress-record-appended → off-track → merge-out → show-weekly-progress → end).
+func TestScenario_ProjectStateAccess_track_weekly_project_progress_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "track-weekly-project-progress-P4", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node read-exits; guards enough-points=[yes], off-track=[no])
+		var in1 inputProjectStateAccessTrackWeeklyProjectProgressP4S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p4"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessTrackWeeklyProjectProgressP4S1(t, h, subject, in1)
+		expect(t, "track-weekly-project-progress-P4", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-twp-p4\",\"Version\":60,\"Phase\":2,\"ConstructionProgress\":{\"Week\":5,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4}]}}","errorExpected":false}`)
+		// step 2: RecordTrackingPoint (node record-point; guards enough-points=[yes], off-track=[no])
+		var in2 inputProjectStateAccessTrackWeeklyProjectProgressP4S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p4","expectedVersion":60,"point":{"week":5,"earnedPct":0.5,"plannedPct":0.55,"note":""},"idempotencyKey":"stp-psa-twp-p4:point:2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepProjectStateAccessTrackWeeklyProjectProgressP4S2(t, h, subject, in2)
+		expect(t, "track-weekly-project-progress-P4", 2, out2, err2, `{"errorExpected":false}`)
+		// unobservable: show-weekly-progress
+		// probe 2.1: projectStateAccess.ReadProject for progress-record-appended
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p4"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "track-weekly-project-progress-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4},{\"week\":5}]}}","errorExpected":false}`)
+		// probe 2.2: projectStateAccess.ReadProject for record-point
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-twp-p4"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadProject(callContext(t, h, "2.2"), probe2_2.ProjectID)
+		expect(t, "track-weekly-project-progress-P4 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ConstructionProgress\":{\"Week\":5,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4},{\"week\":5}]}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessViewLiveDeploymentHealthP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessViewLiveDeploymentHealthP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_view_live_deployment_health_P1 — View Live Deployment Health — [yes] (use case view-live-deployment-health; path start → open-deployment-diagram → request-health → anything-deployed → resolve-deployment → read-live-health → note-neutral-nodes → send-deployment-health → end).
+func TestScenario_ProjectStateAccess_view_live_deployment_health_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "view-live-deployment-health-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node resolve-deployment; guards anything-deployed=[yes])
+		var in1 inputProjectStateAccessViewLiveDeploymentHealthP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-vdh-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessViewLiveDeploymentHealthP1S1(t, h, subject, in1)
+		expect(t, "view-live-deployment-health-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-vdh-p1\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessViewTheProjectStateLogP1S1 is step 1's parameters of ReadProjectVersion, decoded from the binding's inputs.
+type inputProjectStateAccessViewTheProjectStateLogP1S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessViewTheProjectStateLogP1S2 is step 2's parameters of ReadProjectVersion, decoded from the binding's inputs.
+type inputProjectStateAccessViewTheProjectStateLogP1S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessViewTheProjectStateLogP1S3 is step 3's parameters of ReadProjectVersion, decoded from the binding's inputs.
+type inputProjectStateAccessViewTheProjectStateLogP1S3 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_view_the_project_state_log_P1 — View the Project State Log — [yes] (use case view-the-project-state-log; path start → open-history → read-commits → note-commit-naming → read-ledger → show-state-log → inspect → diff-slot → note-diff-basis → show-slot-diff → merge-out → project-state-unchanged → end).
+func TestScenario_ProjectStateAccess_view_the_project_state_log_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "view-the-project-state-log-P1", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProjectVersion (node read-commits; guards inspect=[yes])
+		var in1 inputProjectStateAccessViewTheProjectStateLogP1S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-vsl-p1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessViewTheProjectStateLogP1S1(t, h, subject, in1)
+		expect(t, "view-the-project-state-log-P1", 1, out1, err1, `{"result":"3","errorExpected":false}`)
+		// unobservable: read-commits
+		// step 2: ReadProjectVersion (node read-ledger; guards inspect=[yes])
+		var in2 inputProjectStateAccessViewTheProjectStateLogP1S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-vsl-p1"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadProjectVersion(callContext(t, h, "2"), in2.ProjectID)
+		expect(t, "view-the-project-state-log-P1", 2, out2, err2, `{"result":"3","errorExpected":false}`)
+		// unobservable: show-state-log
+		// step 3: ReadProjectVersion (node diff-slot; guards inspect=[yes])
+		var in3 inputProjectStateAccessViewTheProjectStateLogP1S3
+		mustUnmarshal(t, `{"projectID":"stp-psa-vsl-p1"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.ReadProjectVersion(callContext(t, h, "3"), in3.ProjectID)
+		expect(t, "view-the-project-state-log-P1", 3, out3, err3, `{"result":"3","errorExpected":false}`)
+		// unobservable: show-slot-diff
+		// probe 3.1: projectStateAccess.ReadProjectVersion for project-state-unchanged
+		var pout3_1 any
+		var perr3_1 error
+		var probe3_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-vsl-p1"}`, &probe3_1)
+		pout3_1, perr3_1 = subject.ReadProjectVersion(callContext(t, h, "3.1"), probe3_1.ProjectID)
+		expect(t, "view-the-project-state-log-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"3","errorExpected":false}`)
+		// probe 3.2: projectStateAccess.ReadProject for project-state-unchanged
+		var pout3_2 any
+		var perr3_2 error
+		var probe3_2 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-vsl-p1"}`, &probe3_2)
+		pout3_2, perr3_2 = subject.ReadProject(callContext(t, h, "3.2"), probe3_2.ProjectID)
+		expect(t, "view-the-project-state-log-P1 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"ID\":\"stp-psa-vsl-p1\",\"Version\":3,\"OperatingModel\":\"archistratorOperated\",\"reviewPolicy\":{\"preset\":\"full\"}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessViewTheProjectStateLogP2S1 is step 1's parameters of ReadProjectVersion, decoded from the binding's inputs.
+type inputProjectStateAccessViewTheProjectStateLogP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// inputProjectStateAccessViewTheProjectStateLogP2S2 is step 2's parameters of ReadProjectVersion, decoded from the binding's inputs.
+type inputProjectStateAccessViewTheProjectStateLogP2S2 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_view_the_project_state_log_P2 — View the Project State Log — [no] (use case view-the-project-state-log; path start → open-history → read-commits → note-commit-naming → read-ledger → show-state-log → inspect → merge-out → project-state-unchanged → end).
+func TestScenario_ProjectStateAccess_view_the_project_state_log_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "view-the-project-state-log-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProjectVersion (node read-commits; guards inspect=[no])
+		var in1 inputProjectStateAccessViewTheProjectStateLogP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-vsl-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessViewTheProjectStateLogP2S1(t, h, subject, in1)
+		expect(t, "view-the-project-state-log-P2", 1, out1, err1, `{"result":"3","errorExpected":false}`)
+		// unobservable: read-commits
+		// step 2: ReadProjectVersion (node read-ledger; guards inspect=[no])
+		var in2 inputProjectStateAccessViewTheProjectStateLogP2S2
+		mustUnmarshal(t, `{"projectID":"stp-psa-vsl-p2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadProjectVersion(callContext(t, h, "2"), in2.ProjectID)
+		expect(t, "view-the-project-state-log-P2", 2, out2, err2, `{"result":"3","errorExpected":false}`)
+		// unobservable: show-state-log
+	})
+}
+
+// callContext is the fwra call context a generated step calls the subject with:
+// the test's own context, a zero principal and, on an idempotent layer, a key
+// unique to the step. A step that needs an identity is a Hook:true step.
+func callContext(t *testing.T, h *scenariohost.Host, step string) fwra.Context {
+	t.Helper()
+	_ = step
+	return fwra.Context{Context: h.Context(t), IdempotencyKey: fwra.IdempotencyKey(t.Name() + "/" + step)}
+}
+
+func mustUnmarshal(t *testing.T, raw string, into any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(raw), into); err != nil {
+		t.Fatalf("testgen: decode %s: %v", raw, err)
+	}
+}
+
+// expect checks one step's outcome against its binding's expectation: an
+// expected error must arrive (carrying the expected code, when one is named);
+// an unexpected error fails; a named result must be a JSON subset of the
+// marshalled outcome.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	var want struct {
+		Result        string `json:"result"`
+		ErrorExpected bool   `json:"errorExpected"`
+		ErrorCode     string `json:"errorCode"`
+	}
+	mustUnmarshal(t, expectJSON, &want)
+	if want.ErrorExpected {
+		if err == nil {
+			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+		}
+		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
+			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+	}
+	if want.Result != "" && !resultMatches(want.Result, out) {
+		got, _ := json.Marshal(out)
+		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+	}
+}
+
+// errorHasCode matches the layer error's kind name, or the code as a substring
+// of the error text for a component-specific code.
+func errorHasCode(err error, code string) bool {
+	var le *fwra.Error
+	if errors.As(err, &le) && le.Kind.String() == code {
+		return true
+	}
+	return strings.Contains(err.Error(), code)
+}
+
+// resultMatches decodes the expectation (a JSON document, or a bare string)
+// and the marshalled outcome, and compares them as a subset.
+func resultMatches(wantRaw string, got any) bool {
+	var want any
+	if json.Unmarshal([]byte(wantRaw), &want) != nil {
+		want = wantRaw
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		return false
+	}
+	var g any
+	if json.Unmarshal(raw, &g) != nil {
+		return false
+	}
+	return subset(want, g)
+}
+
+// subset: every key of an expected object is present and matches; an expected
+// array matches element-wise; a scalar must be equal.
+func subset(want, got any) bool {
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			return false
+		}
+		for k, wv := range w {
+			gv, ok := g[k]
+			if !ok || !subset(wv, gv) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		g, ok := got.([]any)
+		if !ok || len(g) != len(w) {
+			return false
+		}
+		for i := range w {
+			if !subset(w[i], g[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(want, got)
+	}
+}

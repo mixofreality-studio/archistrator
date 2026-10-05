@@ -8249,7 +8249,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "commitOption(optionId) · recordSdpReviewOutcome(committed)"
+                    "label": "commitOption(optionId) — the chosen option is committed and the project enters construction"
                   },
                   {
                     "from": "delivery-manager",
@@ -8300,7 +8300,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "recordSdpReviewOutcome(revoked) — reopen the SDP decision"
+                    "label": "RecordSdpReviewOutcome(projectId, expectedVersion, withdrawn, feedback) — revoke the commitment inside its grace window: the SDP review reads withdrawn and the project returns to project design to await a new decision"
                   }
                 ]
               },
@@ -8311,7 +8311,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "recordSdpReviewOutcome(rejectAll, feedback) — return to project design"
+                    "label": "RecordSdpReviewOutcome(projectId, expectedVersion, rejected, feedback) — reject every option: the SDP review reads rejected with the feedback on its thread and the project returns to project design"
                   }
                 ]
               }
@@ -9742,7 +9742,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "record the week's point without a trend (fewer than four points — no EAC projected)"
+                    "label": "RecordTrackingPoint(projectId, expectedVersion, {week, earnedPct, plannedPct, note: no trend}) — the week's point without a trend (fewer than four points — no EAC projected)"
                   }
                 ]
               },
@@ -9753,7 +9753,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "append the tracking point (EV, EAC, trend) to the durable progress record"
+                    "label": "RecordTrackingPoint(projectId, expectedVersion, {week, earnedPct, plannedPct, note}) — append the week's tracking point (EV, EAC, trend) to the durable progress record"
                   },
                   {
                     "from": "project-state-access",
@@ -9770,7 +9770,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "record corrective action / scope-change replan trigger (the architect replans through Replan Under Scope Change)"
+                    "label": "RecordTrackingPoint(projectId, expectedVersion, {week, earnedPct, plannedPct, note: corrective action}) — record the corrective action and replan trigger on the week's point (the architect replans through Replan Under Scope Change)"
                   }
                 ]
               }
@@ -37613,6 +37613,78 @@
             "error": true
           },
           {
+            "name": "RecordSdpReviewOutcome",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "outcome",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactReviewStatus"
+                }
+              },
+              {
+                "name": "feedback",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "RecordTrackingPoint",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "point",
+                "schema": {
+                  "$ref": "#/$defs/EvPoint"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
             "name": "SetOperatingModel",
             "params": [
               {
@@ -63782,18 +63854,31 @@
               },
               {
                 "seq": 4,
-                "operation": "ReadProject",
+                "operation": "RecordSdpReviewOutcome",
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "stp-psa-cpo-p2",
-                    "schemaRef": ""
+                    "value": "stp-psa-cpo-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "23"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "4"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "Revoked inside the grace window: the decompressed option is preferred."
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-cpo-p2:revoke"
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"stp-psa-cpo-p2\"}",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": false
                 },
                 "probes": [
                   {
@@ -63808,7 +63893,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"SdpReview\":{\"Status\":4}}",
+                      "result": "{\"Phase\":1,\"SdpReview\":{\"Status\":4}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -63843,18 +63928,31 @@
               },
               {
                 "seq": 2,
-                "operation": "ReadProject",
+                "operation": "RecordSdpReviewOutcome",
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "stp-psa-cpo-p3",
-                    "schemaRef": ""
+                    "value": "stp-psa-cpo-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "24"
+                  },
+                  {
+                    "name": "outcome",
+                    "value": "3"
+                  },
+                  {
+                    "name": "feedback",
+                    "value": "Reject all options: the compressed option exceeds the build-cost ceiling."
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-cpo-p3:reject-all"
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"stp-psa-cpo-p3\",\"Phase\":1}",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": false
                 },
                 "probes": [
                   {
@@ -63891,7 +63989,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Phase\":1,\"SdpReview\":{\"Status\":1}}",
+                      "result": "{\"Phase\":1,\"SdpReview\":{\"Status\":3,\"reviewThread\":[{\"text\":\"Reject all options: the compressed option exceeds the build-cost ceiling.\",\"type\":\"changeRequest\",\"status\":\"open\"}]}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -65166,18 +65264,27 @@
               },
               {
                 "seq": 2,
-                "operation": "ReadProject",
+                "operation": "RecordTrackingPoint",
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "stp-psa-twp-p1",
-                    "schemaRef": ""
+                    "value": "stp-psa-twp-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "60"
+                  },
+                  {
+                    "name": "point",
+                    "value": "{\"week\":3,\"earnedPct\":0.25,\"plannedPct\":0.3,\"note\":\"no trend: fewer than four points\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-twp-p1:point:2"
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"stp-psa-twp-p1\"}",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": false
                 },
                 "probes": [
                   {
@@ -65203,18 +65310,27 @@
               },
               {
                 "seq": 3,
-                "operation": "ReadProject",
+                "operation": "RecordTrackingPoint",
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "stp-psa-twp-p1",
-                    "schemaRef": ""
+                    "value": "stp-psa-twp-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "61"
+                  },
+                  {
+                    "name": "point",
+                    "value": "{\"week\":3,\"earnedPct\":0.25,\"plannedPct\":0.3,\"note\":\"no trend: fewer than four points\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-twp-p1:point:3"
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"stp-psa-twp-p1\"}",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": false
                 },
                 "probes": [
                   {
@@ -65257,18 +65373,27 @@
               },
               {
                 "seq": 4,
-                "operation": "ReadProject",
+                "operation": "RecordTrackingPoint",
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "stp-psa-twp-p1",
-                    "schemaRef": ""
+                    "value": "stp-psa-twp-p1"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "62"
+                  },
+                  {
+                    "name": "point",
+                    "value": "{\"week\":3,\"earnedPct\":0.25,\"plannedPct\":0.3,\"note\":\"corrective action: replan trigger pending\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-twp-p1:point:4"
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"stp-psa-twp-p1\"}",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": false
                 },
                 "probes": [
                   {
@@ -65320,18 +65445,27 @@
               },
               {
                 "seq": 2,
-                "operation": "ReadProject",
+                "operation": "RecordTrackingPoint",
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "stp-psa-twp-p2",
-                    "schemaRef": ""
+                    "value": "stp-psa-twp-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "60"
+                  },
+                  {
+                    "name": "point",
+                    "value": "{\"week\":3,\"earnedPct\":0.25,\"plannedPct\":0.3,\"note\":\"no trend: fewer than four points\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-twp-p2:point:2"
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"stp-psa-twp-p2\"}",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": false
                 },
                 "probes": [
                   {
@@ -65357,18 +65491,27 @@
               },
               {
                 "seq": 3,
-                "operation": "ReadProject",
+                "operation": "RecordTrackingPoint",
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "stp-psa-twp-p2",
-                    "schemaRef": ""
+                    "value": "stp-psa-twp-p2"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "61"
+                  },
+                  {
+                    "name": "point",
+                    "value": "{\"week\":3,\"earnedPct\":0.25,\"plannedPct\":0.3,\"note\":\"no trend: fewer than four points\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-twp-p2:point:3"
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"stp-psa-twp-p2\"}",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": false
                 },
                 "probes": [
                   {
@@ -65437,18 +65580,27 @@
               },
               {
                 "seq": 2,
-                "operation": "ReadProject",
+                "operation": "RecordTrackingPoint",
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "stp-psa-twp-p3",
-                    "schemaRef": ""
+                    "value": "stp-psa-twp-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "60"
+                  },
+                  {
+                    "name": "point",
+                    "value": "{\"week\":5,\"earnedPct\":0.5,\"plannedPct\":0.55,\"note\":\"\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-twp-p3:point:2"
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"stp-psa-twp-p3\"}",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": false
                 },
                 "probes": [
                   {
@@ -65491,18 +65643,27 @@
               },
               {
                 "seq": 3,
-                "operation": "ReadProject",
+                "operation": "RecordTrackingPoint",
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "stp-psa-twp-p3",
-                    "schemaRef": ""
+                    "value": "stp-psa-twp-p3"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "61"
+                  },
+                  {
+                    "name": "point",
+                    "value": "{\"week\":5,\"earnedPct\":0.5,\"plannedPct\":0.55,\"note\":\"corrective action: replan trigger pending\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-twp-p3:point:3"
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"stp-psa-twp-p3\"}",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": false
                 },
                 "probes": [
                   {
@@ -65554,18 +65715,27 @@
               },
               {
                 "seq": 2,
-                "operation": "ReadProject",
+                "operation": "RecordTrackingPoint",
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "stp-psa-twp-p4",
-                    "schemaRef": ""
+                    "value": "stp-psa-twp-p4"
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "60"
+                  },
+                  {
+                    "name": "point",
+                    "value": "{\"week\":5,\"earnedPct\":0.5,\"plannedPct\":0.55,\"note\":\"\"}"
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-twp-p4:point:2"
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"stp-psa-twp-p4\"}",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": false
                 },
                 "probes": [
                   {

@@ -1813,6 +1813,26 @@ func (a *projectStateGitAdapter) RecordOperatorPaused(rc fwra.Context, projectID
 	return a.store.recordOperatorPaused(rc, projectID, expectedVersion, reason, cred, idempotencyKey)
 }
 
+// RecordSdpReviewOutcome records an M0 reject-all or grace-window revoke (see
+// GitStore.recordSdpReviewOutcome). The cred is minted just-in-time.
+func (a *projectStateGitAdapter) RecordSdpReviewOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, outcome ArtifactReviewStatus, feedback string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	cred, err := a.minter.CredentialFor(rc.Context, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordSdpReviewOutcome(rc, projectID, expectedVersion, outcome, feedback, cred, idempotencyKey)
+}
+
+// RecordTrackingPoint records one week's tracking point (see
+// GitStore.recordTrackingPoint). The cred is minted just-in-time.
+func (a *projectStateGitAdapter) RecordTrackingPoint(rc fwra.Context, projectID ProjectID, expectedVersion Version, point EvPoint, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	cred, err := a.minter.CredentialFor(rc.Context, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordTrackingPoint(rc, projectID, expectedVersion, point, cred, idempotencyKey)
+}
+
 // RecordOperatorResumed clears the recorded pause (plan B1.7). The cred is minted
 // just-in-time.
 func (a *projectStateGitAdapter) RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error) {
@@ -2029,6 +2049,94 @@ func (s *GitStore) recordOperatorPaused(rc fwra.Context, projectID ProjectID, ex
 	return s.applyMutation(rc.Context, "RecordOperatorPaused", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.OperatorPaused = true
 		p.PauseReason = reason
+		return nil
+	})
+}
+
+// recordSdpReviewOutcome records the M0 gate's two NON-commit outcomes on the SDP review
+// slot (use case commit-to-a-project-option; DCT §12 B7 — the use case stands):
+//
+//   - ReviewRejected (reject-all + feedback): no presented option is acceptable; the slot
+//     reads rejected with the feedback on its review thread, and the project stays in (or
+//     returns to) project design for a fresh set of options. Feedback is required.
+//   - ReviewWithdrawn (the grace-window revoke): a COMMITTED option is withdrawn; the slot
+//     reads withdrawn and the project returns to project design to await a new decision
+//     (construction rows already opened stay as history; the pump's M0 fence holds them).
+//
+// A commit is NOT recorded here — it is CommitArtifactWithProvenance + AdvancePhase. Any
+// other outcome, a reject without feedback, a reject of an SDP review not awaiting review,
+// and a revoke of one not committed are ContractMisuse. Whether a revoke is still inside
+// its grace window is the Manager's policy, not this store's.
+func (s *GitStore) recordSdpReviewOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, outcome ArtifactReviewStatus, feedback string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	const verb = "projectstate.RecordSdpReviewOutcome"
+	switch outcome {
+	case ReviewRejected:
+		if strings.TrimSpace(feedback) == "" {
+			return 0, fwra.New(fwra.ContractMisuse, verb+": a reject-all carries the architect's feedback; got none")
+		}
+	case ReviewWithdrawn:
+	case ReviewNone, ReviewAwaitingReview, ReviewCommitted:
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: outcome %d is not an M0 outcome this verb records (rejected or withdrawn; a commit is CommitArtifactWithProvenance)", verb, int(outcome)))
+	default:
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: unknown outcome %d", verb, int(outcome)))
+	}
+	return s.applyMutation(rc.Context, "RecordSdpReviewOutcome", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		slot, ok := slotPtr(p, KindSdpReview)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, verb+": the project has no SDP review slot")
+		}
+		switch outcome {
+		case ReviewRejected:
+			if slot.Status != ReviewAwaitingReview {
+				return fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: reject-all needs an SDP review awaiting review; it is %d", verb, int(slot.Status)))
+			}
+		case ReviewWithdrawn:
+			if slot.Status != ReviewCommitted {
+				return fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: only a committed SDP review can be revoked; it is %d", verb, int(slot.Status)))
+			}
+		case ReviewNone, ReviewAwaitingReview, ReviewCommitted:
+			// refused above
+		}
+		slot.Status = outcome
+		p.Phase = PhaseProjectDesign
+		if strings.TrimSpace(feedback) != "" {
+			round := max(slot.Revisions, 1)
+			slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, []ReviewComment{{
+				Text: feedback, AuthorRole: gateReviewerRole, Type: ReviewCommentTypeChangeRequest,
+			}})
+		}
+		return nil
+	})
+}
+
+// gateReviewerRole is the author of an M0 gate's feedback: the human at the gate. It is
+// not an agent role (isReviewerRole), so the feedback reads as the reviewer's.
+const gateReviewerRole = "operator"
+
+// recordTrackingPoint records one week's point on the durable construction progress
+// record (use case track-weekly-project-progress, Righting Software Appendix A): the
+// earned-value and planned-value percentages of that week, and its note — "no trend"
+// before four points exist, or the corrective-action / replan-trigger note. One point per
+// week: re-recording a week (the corrective note recorded after the point) replaces it;
+// points stay in week order. A week below 1, or a project with no construction progress
+// record (not in construction), is ContractMisuse.
+func (s *GitStore) recordTrackingPoint(rc fwra.Context, projectID ProjectID, expectedVersion Version, point EvPoint, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	const verb = "projectstate.RecordTrackingPoint"
+	if point.Week < 1 {
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: week %d; tracking weeks start at 1", verb, point.Week))
+	}
+	return s.applyMutation(rc.Context, "RecordTrackingPoint", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		if p.ConstructionProgress == nil {
+			return fwra.New(fwra.ContractMisuse, verb+": the project has no construction progress record; it is not in construction")
+		}
+		pts := p.ConstructionProgress.Points
+		i := sort.Search(len(pts), func(i int) bool { return pts[i].Week >= point.Week })
+		if i < len(pts) && pts[i].Week == point.Week {
+			pts[i] = point
+		} else {
+			pts = slices.Insert(pts, i, point)
+		}
+		p.ConstructionProgress.Points = pts
 		return nil
 	})
 }
@@ -8665,16 +8773,6 @@ var conditionalTasks = map[MethodTask]ActivityMethodPhase{
 
 // GateTaskFor returns the task whose success IS the phase's binary exit criterion.
 func GateTaskFor(p ActivityMethodPhase) MethodTask { return lifecyclePhaseTasks[p].gate }
-
-// isGateTask reports whether a task is some lifecycle phase's binary exit criterion.
-func isGateTask(t MethodTask) bool {
-	for _, pair := range lifecyclePhaseTasks {
-		if pair.gate == t {
-			return true
-		}
-	}
-	return false
-}
 
 // AgentTaskFor returns the phase's single AI-WORK task: the task an agent is dispatched
 // to do, which the phase's gate then reviews. "" for a phase outside the vocabulary, for

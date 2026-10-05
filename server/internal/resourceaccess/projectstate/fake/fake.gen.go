@@ -168,17 +168,19 @@ var _ projectstate.GitActivityStatusAccess = (*FakeGitActivityStatusAccess)(nil)
 // FakeProjectStateAccess is a generated test double for projectstate.ProjectStateAccess: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeProjectStateAccess struct {
-	AcknowledgeStaleBasisFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	AdvancePhaseFn          func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error)
-	CreateProjectFn         func(rc fwra.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error)
-	ListProjectsFn          func(rc fwra.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error)
-	ReadProjectFn           func(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
-	ReadProjectVersionFn    func(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Version, error)
-	RecordOperatorPausedFn  func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordOperatorResumedFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordReviewPolicyFn    func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	SetOperatingModelFn     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error)
-	SetResearchInputFn      func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error)
+	AcknowledgeStaleBasisFn  func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	AdvancePhaseFn           func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error)
+	CreateProjectFn          func(rc fwra.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error)
+	ListProjectsFn           func(rc fwra.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error)
+	ReadProjectFn            func(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
+	ReadProjectVersionFn     func(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Version, error)
+	RecordOperatorPausedFn   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordOperatorResumedFn  func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordReviewPolicyFn     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordSdpReviewOutcomeFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, outcome projectstate.ArtifactReviewStatus, feedback string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordTrackingPointFn    func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, point projectstate.EvPoint, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	SetOperatingModelFn      func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error)
+	SetResearchInputFn       func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error)
 }
 
 func (f *FakeProjectStateAccess) AcknowledgeStaleBasis(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -242,6 +244,20 @@ func (f *FakeProjectStateAccess) RecordReviewPolicy(rc fwra.Context, projectID p
 		panic("FakeProjectStateAccess.RecordReviewPolicyFn not set")
 	}
 	return f.RecordReviewPolicyFn(rc, projectID, expectedVersion, policy, idempotencyKey)
+}
+
+func (f *FakeProjectStateAccess) RecordSdpReviewOutcome(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, outcome projectstate.ArtifactReviewStatus, feedback string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	if f.RecordSdpReviewOutcomeFn == nil {
+		panic("FakeProjectStateAccess.RecordSdpReviewOutcomeFn not set")
+	}
+	return f.RecordSdpReviewOutcomeFn(rc, projectID, expectedVersion, outcome, feedback, idempotencyKey)
+}
+
+func (f *FakeProjectStateAccess) RecordTrackingPoint(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, point projectstate.EvPoint, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	if f.RecordTrackingPointFn == nil {
+		panic("FakeProjectStateAccess.RecordTrackingPointFn not set")
+	}
+	return f.RecordTrackingPointFn(rc, projectID, expectedVersion, point, idempotencyKey)
 }
 
 func (f *FakeProjectStateAccess) SetOperatingModel(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
