@@ -85,7 +85,7 @@ func parseRecordTestRunArgs(args []string) (recordTestRunArgs, error) {
 		revision:  strings.TrimSpace(*revision),
 	}
 	for _, f := range []struct{ name, value string }{
-		{"activity", a.activity}, {"component", a.component}, {"run-id", a.runID}, {"artifact", a.artifact}, {"results", a.results},
+		{"component", a.component}, {"run-id", a.runID}, {"artifact", a.artifact}, {"results", a.results},
 	} {
 		if f.value == "" {
 			return recordTestRunArgs{}, fmt.Errorf("--%s is required", f.name)
@@ -114,6 +114,9 @@ func runRecordTestRun(args []string, sink testRunSink) error {
 	}
 	proj, write, err := testRunWriter(sink)
 	if err != nil {
+		return err
+	}
+	if err := checkRunActivity(a.activity, a.component, proj); err != nil {
 		return err
 	}
 	contracts, err := resultContracts(a.results, a.component, proj)
@@ -158,6 +161,46 @@ func testRunWriter(sink testRunSink) (*projectstate.Project, testRunSink, error)
 		return nil, nil, err
 	}
 	return &p, func(run projectstate.TestRun) error { return recordTestRunInSession(s, run) }, nil
+}
+
+// checkRunActivity holds --activity to the plan. A run names the activity whose
+// integration produced it, and the testing gate judges an activity by its latest
+// run, so a run recorded under ANOTHER component's activity would hide that
+// activity's own. A component the derived plan builds no activity for (a provided
+// utility such as messageBus, a generated client such as mcpClient's facets) has no
+// gate to feed: its run is the component's evidence alone and carries no activity
+// (DCT plan 5 r2). So --activity may be empty exactly when the committed activity
+// list holds no activity for the component, and is required otherwise.
+func checkRunActivity(activity, component string, proj *projectstate.Project) error {
+	if activity != "" {
+		return nil
+	}
+	if proj == nil {
+		return fmt.Errorf("--activity is required")
+	}
+	if owner := activityOfComponent(proj, component); owner != "" {
+		return fmt.Errorf("--activity is required: component %q is built by activity %q", component, owner)
+	}
+	return nil
+}
+
+// activityOfComponent names the committed activity-list entry that builds component
+// (its componentId, or a contract of it, normalizes to it), or "" when none does.
+func activityOfComponent(proj *projectstate.Project, component string) string {
+	list, ok := proj.ActivityList.Model.(*projectstate.ActivityList)
+	if !ok || list == nil {
+		return ""
+	}
+	want := map[string]bool{scenario.Normalize(component): true}
+	if sc, ok := proj.ServiceContracts[component]; ok && sc.Component != "" {
+		want[scenario.Normalize(sc.Component)] = true
+	}
+	for _, it := range list.Activities {
+		if it.ComponentID != "" && want[scenario.Normalize(it.ComponentID)] {
+			return it.Name
+		}
+	}
+	return ""
 }
 
 // anyResultsIndex reports whether some DIR/<contract>/results.json exists — checked

@@ -245,11 +245,11 @@ func TestRecordTestRun_RecordsEveryFacetOfTheComponent(t *testing.T) {
 	}
 }
 
-// TestRecordTestRun_KeepsTheCommittedDocument: recording onto archistrator's own
-// committed project.json, with no AIARCH_PROJECT_ID (DCT plan 5 r2: the write renamed
-// the project after the checkout directory and zeroed updatedAt), changes nothing but
-// .testingState.testRuns.
-func TestRecordTestRun_KeepsTheCommittedDocument(t *testing.T) {
+// seedCommittedCheckout seats archistrator's own committed project.json in a
+// construct checkout with no AIARCH_PROJECT_ID, and returns the checkout's
+// test-results dir and the committed bytes.
+func seedCommittedCheckout(t *testing.T) (string, []byte) {
+	t.Helper()
 	_, raw := copyCommittedProject(t)
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, statePathPrefix), 0o755); err != nil {
@@ -258,19 +258,40 @@ func TestRecordTestRun_KeepsTheCommittedDocument(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, statePathPrefix, projectFile), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(root, "test-results")
-	writeContractResults(t, dir, "messageBus")
 	t.Setenv(envJobMode, "")
 	t.Setenv(envArtifactKind, "")
 	t.Setenv(envStateRoot, root)
 	t.Setenv(envProjectID, "")
 	t.Setenv(envActivityID, "")
+	return filepath.Join(root, "test-results"), raw
+}
+
+// TestRecordTestRun_ABuiltComponentNeedsItsActivity: a run names the activity whose
+// integration produced it; a component the plan builds may not record without one.
+func TestRecordTestRun_ABuiltComponentNeedsItsActivity(t *testing.T) {
+	dir, _ := seedCommittedCheckout(t)
+	writeContractResults(t, dir, "reviewEngine")
 	flags := recordTestRunFlags(dir)
-	flags[1], flags[3] = "C-message-bus", "messageBus"
+	flags[1], flags[3] = "", "reviewEngine"
+	if err := runRecordTestRun(flags, nil); err == nil || !strings.Contains(err.Error(), `built by activity "C-review-engine"`) {
+		t.Fatalf("an activity-less run of a component the plan builds must be refused, got %v", err)
+	}
+}
+
+// TestRecordTestRun_KeepsTheCommittedDocument: recording onto archistrator's own
+// committed project.json, with no AIARCH_PROJECT_ID (DCT plan 5 r2: the write renamed
+// the project after the checkout directory and zeroed updatedAt), changes nothing but
+// .testingState.testRuns. messageBus is a provided utility: the plan builds no
+// activity for it, so its run carries none.
+func TestRecordTestRun_KeepsTheCommittedDocument(t *testing.T) {
+	dir, raw := seedCommittedCheckout(t)
+	writeContractResults(t, dir, "messageBus")
+	flags := recordTestRunFlags(dir)
+	flags[1], flags[3] = "", "messageBus"
 	if err := runRecordTestRun(flags, nil); err != nil {
 		t.Fatalf("record-test-run: %v", err)
 	}
-	after, err := os.ReadFile(filepath.Join(root, statePathPrefix, projectFile))
+	after, err := os.ReadFile(filepath.Join(filepath.Dir(dir), statePathPrefix, projectFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,14 +303,20 @@ func TestRecordTestRun_KeepsTheCommittedDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	for k, v := range before {
-		if k == "testingState" {
-			continue
-		}
-		if !bytes.Equal(v, got[k]) {
+		if k != "testingState" && !bytes.Equal(v, got[k]) {
 			t.Errorf("member %q changed by recording a run", k)
 		}
 	}
 	if len(got) != len(before) {
 		t.Errorf("members: %d before, %d after", len(before), len(got))
+	}
+	var ts struct {
+		TestRuns []projectstate.TestRun `json:"testRuns"`
+	}
+	if err := json.Unmarshal(got["testingState"], &ts); err != nil {
+		t.Fatal(err)
+	}
+	if last := ts.TestRuns[len(ts.TestRuns)-1]; last.Component != "messageBus" || last.Activity != "" || last.ID != "1" {
+		t.Fatalf("the messageBus run must be recorded with no activity: %+v", last)
 	}
 }
