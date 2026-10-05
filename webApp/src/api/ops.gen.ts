@@ -37,6 +37,16 @@ export const OP_BINDINGS = {
     path: '/api/v1/billing/get-billing-cycle/{customerID}',
     tool: 'billingGetBillingCycle',
   },
+  billingOnboardPaymentIntegration: {
+    method: 'POST',
+    path: '/api/v1/billing/onboard-payment-integration/{deployedAppID}',
+    tool: 'billingOnboardPaymentIntegration',
+  },
+  billingRegisterCustomer: {
+    method: 'POST',
+    path: '/api/v1/billing/register-customer/{customerID}',
+    tool: 'billingRegisterCustomer',
+  },
   compositionGetCapabilities: {
     method: 'GET',
     path: '/api/v1/capabilities',

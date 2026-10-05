@@ -24,6 +24,8 @@ type Handler struct {
 // Register mounts every operation route on mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/billing/get-billing-cycle/{customerID}", h.handleGetBillingCycle)
+	mux.HandleFunc("POST /api/v1/billing/onboard-payment-integration/{deployedAppID}", h.handleOnboardPaymentIntegration)
+	mux.HandleFunc("POST /api/v1/billing/register-customer/{customerID}", h.handleRegisterCustomer)
 }
 
 // handleGetBillingCycle binds GET /api/v1/billing/get-billing-cycle/{customerID} -> mgr.GetBillingCycle.
@@ -48,6 +50,62 @@ func (h *Handler) handleGetBillingCycle(w http.ResponseWriter, r *http.Request) 
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
 	result, err := h.Manager.GetBillingCycle(rc, customerID, cycleID)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleOnboardPaymentIntegration binds POST /api/v1/billing/onboard-payment-integration/{deployedAppID} -> mgr.OnboardPaymentIntegration.
+func (h *Handler) handleOnboardPaymentIntegration(w http.ResponseWriter, r *http.Request) {
+	deployedAppID, err := uuid.Parse(r.PathValue("deployedAppID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid deployedAppID: "+err.Error())
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "onboard-payment-integration"},
+		security.ResourceRef{Kind: "deployedapp", ID: deployedAppID.String()})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.OnboardPaymentIntegration(rc, deployedAppID)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleRegisterCustomer binds POST /api/v1/billing/register-customer/{customerID} -> mgr.RegisterCustomer.
+func (h *Handler) handleRegisterCustomer(w http.ResponseWriter, r *http.Request) {
+	customerID, err := uuid.Parse(r.PathValue("customerID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid customerID: "+err.Error())
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "register-customer"},
+		security.ResourceRef{Kind: "customer", ID: customerID.String()})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.RegisterCustomer(rc, customerID)
 	if err != nil {
 		writeManagerError(w, err)
 		return

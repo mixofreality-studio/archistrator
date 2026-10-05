@@ -164,9 +164,10 @@ func (m loggingOperationsManager) WithdrawSystem(rc fwmanager.Context, operatedA
 
 // --- Billing ---------------------------------------------------------------
 
-// loggingBillingManager wraps the one billing op a client reaches (GetBillingCycle,
-// cmd/clientgen exposedManagers). The money-moving ops are never on a client
-// surface; they pass through the embedded Manager unwrapped.
+// loggingBillingManager wraps the three billing ops a client reaches (GetBillingCycle,
+// OnboardPaymentIntegration, RegisterCustomer — cmd/clientgen exposedManagers). The
+// scheduler-driven ops are never on a client surface; they pass through the embedded
+// Manager unwrapped.
 type loggingBillingManager struct {
 	billing.BillingManager
 	log *slog.Logger
@@ -176,4 +177,14 @@ func (m loggingBillingManager) GetBillingCycle(rc fwmanager.Context, customerID 
 	// A billing cycle is customer-scoped: the customer id rides in the projectId slot.
 	v, err := m.BillingManager.GetBillingCycle(rc, customerID, cycleID)
 	return v, logInfraError(m.log, "Billing.GetBillingCycle", customerID.String(), err)
+}
+
+func (m loggingBillingManager) OnboardPaymentIntegration(rc fwmanager.Context, deployedAppID uuid.UUID) (billing.BillingRef, error) {
+	v, err := m.BillingManager.OnboardPaymentIntegration(rc, deployedAppID)
+	return v, logInfraError(m.log, "Billing.OnboardPaymentIntegration", deployedAppID.String(), err)
+}
+
+func (m loggingBillingManager) RegisterCustomer(rc fwmanager.Context, customerID uuid.UUID) (billing.BillingRef, error) {
+	v, err := m.BillingManager.RegisterCustomer(rc, customerID)
+	return v, logInfraError(m.log, "Billing.RegisterCustomer", customerID.String(), err)
 }

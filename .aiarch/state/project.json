@@ -9028,7 +9028,7 @@
                     "from": "architect-user",
                     "to": "mcp-client",
                     "mode": "sync",
-                    "label": "opens payment onboarding via the MCP surface (R4 cross-surface equivalence)",
+                    "label": "BillingOnboardPaymentIntegration(deployedAppID) — opens payment onboarding via the MCP surface (R4 cross-surface equivalence)",
                     "alt": "s1"
                   },
                   {
@@ -9073,7 +9073,7 @@
                     "from": "architect-user",
                     "to": "mcp-client",
                     "mode": "sync",
-                    "label": "registers via the MCP surface (R4 cross-surface equivalence)",
+                    "label": "BillingRegisterCustomer(customerID) — registers the customer via the MCP surface (R4 cross-surface equivalence)",
                     "alt": "s1"
                   },
                   {
@@ -30571,7 +30571,7 @@
       "layer": "Client",
       "goPackage": "internal/client/mcp/billing",
       "title": "mcpClientBilling contract",
-      "notes": "Facet of mcpClient: the billing tools (internal/client/mcp/billing) — only the read-only GetBillingCycle is exposed; the money-moving billing ops stay on the Temporal worker (spec §12 B1).",
+      "notes": "Facet of mcpClient: the billing tools (internal/client/mcp/billing) — the read-only GetBillingCycle (view-a-billing-cycle) and onboarding's OnboardPaymentIntegration and RegisterCustomer (onboard-a-new-customer, spec §12 B7); the scheduler-driven billing ops (closing a cycle, the shortfall sweep) stay on the Temporal worker (spec §12 B1).",
       "$defs": {
         "BillingCycleView": {
           "type": "object",
@@ -30632,6 +30632,46 @@
             "result"
           ],
           "additionalProperties": false
+        },
+        "BillingRef": {
+          "type": "object",
+          "properties": {
+            "customerId": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID",
+              "x-go-name": "CustomerID"
+            }
+          },
+          "required": [
+            "customerId"
+          ],
+          "additionalProperties": false
+        },
+        "BillingOnboardPaymentIntegrationOutput": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "$ref": "#/$defs/BillingRef"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "BillingRegisterCustomerOutput": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "$ref": "#/$defs/BillingRef"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -30659,6 +30699,42 @@
             ],
             "result": {
               "$ref": "#/$defs/BillingGetBillingCycleOutput"
+            },
+            "error": true
+          },
+          {
+            "name": "BillingOnboardPaymentIntegration",
+            "params": [
+              {
+                "name": "deployedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/BillingOnboardPaymentIntegrationOutput"
+            },
+            "error": true
+          },
+          {
+            "name": "BillingRegisterCustomer",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/BillingRegisterCustomerOutput"
             },
             "error": true
           }
