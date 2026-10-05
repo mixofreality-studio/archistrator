@@ -8514,8 +8514,12 @@ func constructionLedger(activityID string, phases ...ActivityMethodPhase) []Task
 	return out
 }
 
+// constructionAttempt is one ledger attempt. A PASSED `testing` attempt cites a TestRun,
+// because that is the only testing pass a reader counts (spec §1 T4, QualifiedAttempts): a
+// fixture ledger that means "the walk passed every gate" means the testing gate passed on a
+// run. The uncited shape is pinned in cmd/backfill-attempts (TestT4_AnUncitedTestingPassNeverReadsPassed).
 func constructionAttempt(activityID string, task MethodTask, n int, outcome TaskOutcome) TaskAttempt {
-	return TaskAttempt{
+	a := TaskAttempt{
 		AttemptID:  AttemptID(activityID, task, n),
 		Task:       task,
 		Phase:      PhaseForTask(task),
@@ -8523,6 +8527,10 @@ func constructionAttempt(activityID string, task MethodTask, n int, outcome Task
 		Outcome:    outcome,
 		Provenance: AttemptProvenance{Origin: OriginBackfilled, Basis: "test fixture"},
 	}
+	if task == TaskTesting && outcome == OutcomePassed {
+		a.Evidence = EvidenceRef{Kind: EvidenceTestRun, Ref: "run-" + activityID}
+	}
+	return a
 }
 
 // TestEffectiveConstructionPhase_HeadFactsThenTheLedger pins the ONE derivation, case by
@@ -11391,13 +11399,16 @@ func verbRowVersion(t *testing.T, a ActivityExecutionAccess, id ProjectID, activ
 	return row.Version
 }
 
-// TestLegacyIntegratedRow_StaysIntegratedThroughTheLedger is the other half of the
-// tolerance's promise. An exit stamp alone reads as done-but-in-review, so a legacy row
-// that stored BuildStatus == Integrated would have been quietly un-completed by the rename
-// — and two consumers act on that: isConstructionComplete (the catalog's Operating signal)
-// and the EV curve's integrated set. The claim is carried as the EVIDENCE the derivation
-// reads, stamped backfilled so nothing can mistake it for a recorded gate.
-func TestLegacyIntegratedRow_StaysIntegratedThroughTheLedger(t *testing.T) {
+// TestLegacyIntegratedRow_KeepsItsGatesButNotAnUncitedTestingPass is the other half of the
+// tolerance's promise, as T4 (spec §1) bounds it. An exit stamp alone reads as
+// done-but-in-review, so a legacy row that stored BuildStatus == Integrated has its claim
+// carried as the EVIDENCE the derivation reads, stamped backfilled so nothing can mistake it
+// for a recorded gate — every gate of its profile. But a stored Integrated is not a test run:
+// the carried `testing` pass cites none, so it does not close Integration (QualifiedAttempts).
+// The row stays Done — its exit stamp still unblocks its dependents — and reads in review,
+// with every phase but Integration complete, until the testing gate passes it on a run; the
+// catalog's Operating signal waits for that too.
+func TestLegacyIntegratedRow_KeepsItsGatesButNotAnUncitedTestingPass(t *testing.T) {
 	item := ActivityItem{Name: "C-a", WorkerClass: "junior-developer", Coding: true}
 	legacy := LegacyActivityConstructionRow{
 		ActivityID:  "C-a",
@@ -11411,23 +11422,29 @@ func TestLegacyIntegratedRow_StaysIntegratedThroughTheLedger(t *testing.T) {
 	row := legacy.toActivityExecution()
 
 	phase, build := EffectiveConstructionPhase(row, item)
-	if phase != ActivityConstructionDone || build != BuildIntegrated {
-		t.Fatalf("legacy Done+Integrated = (%v, %v), want (Done, Integrated)", phase, build)
+	if phase != ActivityConstructionDone || build != BuildInReview {
+		t.Fatalf("legacy Done+Integrated = (%v, %v), want (Done, InReview): its testing pass cites no run", phase, build)
+	}
+	_, _, resolved, _ := ResolveConstructionRow(row, item)
+	for _, pc := range resolved {
+		if want := pc.Phase != MethodPhaseIntegration; pc.Completed != want {
+			t.Errorf("phase %s completed = %v, want %v", pc.Phase, pc.Completed, want)
+		}
 	}
 	for _, a := range row.Attempts {
 		if a.Provenance.Origin != OriginBackfilled || a.Provenance.Basis != "legacy activityConstruction.phases" {
 			t.Fatalf("a carried-forward gate must be stamped backfilled with its basis: %+v", a.Provenance)
 		}
 	}
-
-	// And the catalog's Operating signal, which is the consumer that would have flipped.
+	// And the catalog's Operating signal: construction is not complete while a testing task
+	// awaits its run.
 	p := Project{
 		Phase:             PhaseConstruction,
 		ActivityList:      ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: []ActivityItem{item}}},
 		ActivityExecution: map[string]ActivityExecution{"C-a": row},
 	}
-	if !isConstructionComplete(p) {
-		t.Fatal("a legacy Integrated row must keep the project construction-complete")
+	if isConstructionComplete(p) {
+		t.Fatal("a legacy Integrated row whose testing pass cites no run must not make the project construction-complete")
 	}
 }
 

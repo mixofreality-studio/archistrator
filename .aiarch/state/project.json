@@ -10743,7 +10743,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "RecordAttemptOutcome(projectId, activityId, {attemptId \"\u003cactivity\u003e:\u003ctask\u003e:\u003cn\u003e\", taskId, attempt, actor, outcome, evidenceKind, evidenceRef, detail}) — the attempt is appended to the activity's attempts ledger; the exit-met guard and the retry budget read it"
+                    "label": "RecordAttemptOutcome(projectId, activityId, {attemptId \"\u003cactivity\u003e:\u003ctask\u003e:\u003cn\u003e\", taskId, attempt, actor, outcome, evidenceKind, evidenceRef, detail}) — the attempt is appended to the activity's attempts ledger; the exit-met guard and the retry budget read it; a testing pass on a test-planned (service or frontend) activity must cite the TestRun its gate judged (evidenceKind testRun, evidenceRef the run id) or the store refuses it, and every read counts an uncited testing pass as not passed (spec T4)"
                   }
                 ]
               },
@@ -10838,7 +10838,7 @@
                     "from": "delivery-manager",
                     "to": "artifact-access",
                     "mode": "sync",
-                    "label": "GetTestRunIndex(testRunRef(run)) — the testing gate reads the venue's recorded run artifact index (expired? which videoRef/traceRef/go-test-stream files exist) and joins it with the run row and the projected scenarios; a run that is missing, not at the judged attempt, not all green, or no longer renderable holds the round for a human regardless of policy"
+                    "label": "GetTestRunIndex(testRunRef(run)) — the testing gate reads the venue's recorded run artifact index (expired? which videoRef/traceRef/go-test-stream files exist) and joins it with the run row and the projected scenarios; a run that is missing, not at the judged attempt, not all green, or no longer renderable holds the round for a human regardless of policy, and a human approve over a held round is refused with the hold landed again; the round passes only on a qualifying run, which the testing pass cites (spec T4)"
                   }
                 ]
               },
