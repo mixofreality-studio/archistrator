@@ -67757,6 +67757,1250 @@
             ]
           }
         ]
+      },
+      "webClient": {
+        "component": "webClient",
+        "bindings": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AmendArtifact",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-coreUseCasesReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-amend-open\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"amend-rationale\",\"value\":\"Add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"amend-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"generating-amending-notice\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DecideReview",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-coreUseCasesReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-amend-open\"},{\"visible\":\"artifact-render\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "MarkReviewedUnaffected",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/architecture\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-architectureReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-mark-reviewed\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"stale-ack-note\",\"value\":\"reviewed — unaffected\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-ack-confirm\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"artifact-render\"},{\"visible\":\"activity-amend-open\"}]"
+                }
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AmendArtifact",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-coreUseCasesReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-amend-open\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"amend-rationale\",\"value\":\"Add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"amend-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"generating-amending-notice\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DecideReview",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-coreUseCasesReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-amend-open\"},{\"visible\":\"artifact-render\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "MarkReviewedUnaffected",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/architecture\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-architectureReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-mark-reviewed\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"stale-ack-note\",\"value\":\"reviewed — unaffected\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-ack-confirm\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"artifact-render\"},{\"visible\":\"activity-amend-open\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AmendArtifact",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-coreUseCasesReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-amend-open\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"amend-rationale\",\"value\":\"Add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"amend-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"generating-amending-notice\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DecideReview",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-coreUseCasesReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-amend-open\"},{\"visible\":\"artifact-render\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "MarkReviewedUnaffected",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/architecture\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-architectureReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-mark-reviewed\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"stale-ack-note\",\"value\":\"reviewed — unaffected\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-ack-confirm\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"artifact-render\"},{\"visible\":\"activity-amend-open\"}]"
+                }
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AmendArtifact",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-coreUseCasesReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-amend-open\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"amend-rationale\",\"value\":\"Add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"amend-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"generating-amending-notice\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DecideReview",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-coreUseCasesReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-amend-open\"},{\"visible\":\"artifact-render\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "MarkReviewedUnaffected",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/architecture\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-architectureReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-mark-reviewed\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"stale-ack-note\",\"value\":\"reviewed — unaffected\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-ack-confirm\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"artifact-render\"},{\"visible\":\"activity-amend-open\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AskReviewQuestions",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-missionReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"comment-list-item-button-obj-1-0\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-type-question\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-addressee-pm\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"chat-input\",\"value\":\"Why is objective 1 measured per project rather than per activity?\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-send\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"comment-margin\"},{\"visible\":\"artifact-render\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AskReviewQuestions",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-missionReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"comment-list-item-button-obj-1-0\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-type-question\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-addressee-pm\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"chat-input\",\"value\":\"Why is objective 1 measured per project rather than per activity?\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-send\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"comment-margin\"},{\"visible\":\"artifact-render\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AskReviewQuestions",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-missionReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"comment-list-item-button-obj-1-0\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-type-question\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-addressee-pm\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"chat-input\",\"value\":\"Why is objective 1 measured per project rather than per activity?\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-send\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"comment-margin\"},{\"visible\":\"artifact-render\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AskReviewQuestions",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-missionReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"comment-list-item-button-obj-1-0\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-type-question\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-addressee-pm\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"chat-input\",\"value\":\"Why is objective 1 measured per project rather than per activity?\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-send\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"comment-margin\"},{\"visible\":\"artifact-render\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/plan\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-row-C-review-engine\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-construction\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"},{\"visible\":\"activity-screen\"},{\"visible\":\"activity-dispatch-body\"},{\"visible\":\"activity-task-facts\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/plan\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-row-C-review-engine\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-construction\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"},{\"visible\":\"activity-dispatch-body\"},{\"visible\":\"activity-override-bar\"},{\"visible\":\"activity-steer\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SteerActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"activity-override-note\",\"value\":\"Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-steer\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-sub-attempts\"},{\"visible\":\"activity-dispatch-body\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/plan\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-row-C-review-engine\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-codeReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"},{\"visible\":\"activity-review-body\"},{\"visible\":\"activity-reviewers-strip\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/plan\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-row-C-review-engine\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-codeReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"},{\"visible\":\"activity-review-body\"},{\"visible\":\"activity-reviewers-strip\"},{\"visible\":\"submit-bar-primary\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DecideReview",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-review-body\"},{\"visible\":\"activity-reviewers-strip\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/plan\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-row-C-review-engine\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-construction\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"},{\"visible\":\"activity-dispatch-body\"},{\"visible\":\"activity-sub-attempts\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/plan\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-row-C-review-engine\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-construction\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"},{\"visible\":\"activity-dispatch-body\"},{\"visible\":\"activity-override-bar\"},{\"visible\":\"activity-steer\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SteerActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"activity-override-note\",\"value\":\"Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-steer\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-sub-attempts\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SteerActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"activity-override-note\",\"value\":\"Retry again: pin the integration test's Temporal namespace; the earlier failure was a namespace collision.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-steer\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-sub-attempts\"},{\"visible\":\"activity-dispatch-body\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/plan\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-row-C-review-engine\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-construction\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"},{\"visible\":\"activity-dispatch-body\"},{\"visible\":\"lifecycle-revision-select\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AmendArtifact",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/projectDesign\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-sdpReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-amend-architecture\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-architectureReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-amend-open\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"amend-rationale\",\"value\":\"Architecture change: split billing into metering and invoicing components; this is not a scope change.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"amend-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/architecture\"},{\"visible\":\"generating-amending-notice\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AmendArtifact",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/projectDesign\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-sdpReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-amend-open\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"amend-rationale\",\"value\":\"Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"amend-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/projectDesign\"},{\"visible\":\"generating-amending-notice\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AmendArtifact",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/projectDesign\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-sdpReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-amend-open\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"amend-rationale\",\"value\":\"Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"amend-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/projectDesign\"},{\"visible\":\"generating-amending-notice\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "requeue-a-failed-construction-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenFailedActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/plan\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-row-C-review-engine\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"episodes-row-dct-ep-review-engine-0003\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"},{\"visible\":\"episodes-panel\"},{\"visible\":\"episode-outcome-chip-dct-ep-review-engine-0003\"},{\"visible\":\"episode-timeline\"},{\"visible\":\"activity-reopen\"}]"
+                }
+              },
+              {
+                "seq": 2,
+                "operation": "RequeueActivity",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"activity-override-note\",\"value\":\"Re-queue: the construction attempt failed because the contract's ReviewSet result changed; regenerate the fake and rerun the phase.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"activity-reopen\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-override-bar\"},{\"visible\":\"activity-steer\"}]"
+                }
+              }
+            ]
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SendBackWithComments",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-missionReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"comment-list-item-button-obj-1-0\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-type-change-request\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"chat-input\",\"value\":\"Objective 1 names a solution (a dashboard); restate it as the business outcome.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-send\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-revision-note\"},{\"visible\":\"lifecycle-node-missionDraft\"}]"
+                }
+              },
+              {
+                "seq": 2,
+                "operation": "ReviewRedraft",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-missionReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"artifact-render\"},{\"visible\":\"comment-margin\"},{\"visible\":\"submit-bar-primary\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SendBackWithComments",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-delivery/activity/requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-missionReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"comment-list-item-button-obj-1-0\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-type-change-request\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"chat-input\",\"value\":\"Objective 1 names a solution (a dashboard); restate it as the business outcome.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-send\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-revision-note\"},{\"visible\":\"lifecycle-node-missionDraft\"}]"
+                }
+              },
+              {
+                "seq": 2,
+                "operation": "ReviewRedraft",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-missionReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"artifact-render\"},{\"visible\":\"comment-margin\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "SendBackWithComments",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"comment-list-item-button-obj-1-0\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-type-change-request\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"chat-input\",\"value\":\"Second round: the restated objective still names the dashboard; drop it.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"chat-send\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-revision-note\"},{\"visible\":\"lifecycle-revision-select\"}]"
+                }
+              },
+              {
+                "seq": 4,
+                "operation": "ReviewRedraft",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-missionReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"artifact-render\"},{\"visible\":\"comment-margin\"},{\"visible\":\"submit-bar-primary\"}]"
+                },
+                "hook": true
+              }
+            ]
+          }
+        ],
+        "authoredAt": "2026-10-04T00:00:00Z"
       }
     }
   },
