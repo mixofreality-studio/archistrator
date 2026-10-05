@@ -145,7 +145,7 @@ func (wf *csWorkflows) relayPauseToPump(ctx workflow.Context, projectID ProjectI
 	err = wf.Acts.MessageBusDeliverSignal(ctx,
 		messagebus.ExecutionID(pumpWorkflowID(projectID)),
 		messagebus.SignalName(signalOperatorPauseRequested),
-		payload)
+		payload, nil)
 	if err != nil && !isSignalTargetNotFound(err) {
 		return err
 	}

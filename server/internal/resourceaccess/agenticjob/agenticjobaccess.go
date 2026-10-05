@@ -1348,8 +1348,9 @@ func (a *localExecAccess) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (
 	// The operator's steer for this attempt, when the Manager carried one (B1.4). It is
 	// passed through VERBATIM — never trimmed — and absent from the rig when empty.
 	operatorNote := spec.DispatchInputs[dispatchInputOperatorNoteKey]
+	revision := spec.DispatchInputs[dispatchInputRevisionKey]
 
-	plan := constructDispatchPlan(a.dispatchProjectID(spec), activityID, command, componentID, operatorNote)
+	plan := constructDispatchPlan(a.dispatchProjectID(spec), activityID, command, componentID, operatorNote, revision)
 	plan.agentStep = agentStepOf(spec)
 	return a.submitClaudeRun(rc, plan)
 }
@@ -1494,7 +1495,12 @@ func agentStepOf(spec PipelineSpec) string {
 // writeStateMCPConfig encodes it with json.MarshalIndent, so the note needs no quoting
 // here and can break neither the process env nor the MCP config (amendment §C, H10).
 // It never rides the prompt, whose positional arguments it would corrupt.
-func constructDispatchPlan(projectID, activityID, command, componentID, operatorNote string) localDispatchPlan {
+//
+// revision is the attempt the dispatch runs under (DispatchInputs["revision"]), stamped as
+// AIARCH_REVISION when the Manager carried one: the integration job's record-test-run
+// stamps it on the TestRun, and the testing gate matches it against the attempt its
+// round judges.
+func constructDispatchPlan(projectID, activityID, command, componentID, operatorNote, revision string) localDispatchPlan {
 	branch := localBranchName(activityID)
 	rig := map[string]string{
 		"AIARCH_PROJECT_ID":    projectID,
@@ -1506,6 +1512,9 @@ func constructDispatchPlan(projectID, activityID, command, componentID, operator
 	}
 	if operatorNote != "" {
 		rig[rigOperatorNoteKey] = operatorNote
+	}
+	if revision != "" {
+		rig[rigRevisionKey] = revision
 	}
 	return localDispatchPlan{
 		branch:        branch,
@@ -1519,6 +1528,10 @@ func constructDispatchPlan(projectID, activityID, command, componentID, operator
 // rigOperatorNoteKey is the rig variable cmd/aiarch-state-mcp reads the note from
 // (its envOperatorNote).
 const rigOperatorNoteKey = "AIARCH_OPERATOR_NOTE"
+
+// rigRevisionKey is the rig variable record-test-run reads the run's revision from
+// (cmd/aiarch-state-mcp's envRevision).
+const rigRevisionKey = "AIARCH_REVISION"
 
 // designDispatchPlan builds the plan for a DESIGN dispatch, MIRRORING the seated
 // aiarch-design.yml draft job field-for-field:
@@ -1595,6 +1608,11 @@ const (
 	// construct workflow's `operator_note` input; this local arm stamps it into the rig as
 	// AIARCH_OPERATOR_NOTE (constructDispatchPlan).
 	dispatchInputOperatorNoteKey = "operator_note"
+	// dispatchInputRevisionKey is the OPTIONAL construction input naming the attempt the
+	// job runs under ("<activity>:<task>:<n>"). The GitHub arm passes it through as the
+	// seated construct workflow's `revision` input (stamped as AIARCH_REVISION); this
+	// local arm stamps it into the rig (constructDispatchPlan).
+	dispatchInputRevisionKey = "revision"
 )
 
 // dispatch performs the synchronous prep (git-worktree-add the plan's branch, write

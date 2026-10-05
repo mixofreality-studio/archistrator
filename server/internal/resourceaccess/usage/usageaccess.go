@@ -215,16 +215,16 @@ func resolveDuplicatesPass2(ctx context.Context, tx pgx.Tx, op string, events []
 
 // ReadRange replays the immutable usage facts in scope, in append order
 // (contract §2.3): whole period when query.OperatedAppID is nil, one operated
-// app's facts when set. Pure read; an empty period returns an empty
-// (non-nil) slice, never NotFound.
+// app's facts when set. An empty CycleID reads every cycle of the customer: usage
+// the operations rail records is attributed to the cycle of the recorder's own
+// clock, so a reader that did not choose that cycle names the customer (and app)
+// only. Pure read; an empty period returns an empty (non-nil) slice, never
+// NotFound.
 func (s *postgresUsageAccess) ReadRange(rc fwra.Context, query UsageRangeQuery) ([]UsageEvent, error) {
 	ctx := rc.Context
 	const op = "usage.ReadRange"
 	if query.CustomerID == uuid.Nil {
 		return nil, fwra.New(fwra.ContractMisuse, op+": zero CustomerID")
-	}
-	if query.CycleID == "" {
-		return nil, fwra.New(fwra.ContractMisuse, op+": empty CycleID")
 	}
 	if query.OperatedAppID != nil && *query.OperatedAppID == uuid.Nil {
 		return nil, fwra.New(fwra.ContractMisuse, op+": OperatedAppID set but zero (use nil for the whole period)")
@@ -234,10 +234,17 @@ func (s *postgresUsageAccess) ReadRange(rc fwra.Context, query UsageRangeQuery) 
 SELECT entry_id, customer_id, operated_app_id, cycle_id, units_amount, units_unit,
        runtime_event_id, raw_meter, window_start, window_end, occurred_at, recorded_at
 FROM usage_log
-WHERE customer_id = $1 AND cycle_id = $2`
-	args := []any{query.CustomerID, string(query.CycleID)}
-	if query.OperatedAppID != nil {
-		q += ` AND operated_app_id = $3`
+WHERE customer_id = $1`
+	args := []any{query.CustomerID}
+	switch {
+	case query.CycleID != "" && query.OperatedAppID != nil:
+		q += ` AND cycle_id = $2 AND operated_app_id = $3`
+		args = append(args, string(query.CycleID), *query.OperatedAppID)
+	case query.CycleID != "":
+		q += ` AND cycle_id = $2`
+		args = append(args, string(query.CycleID))
+	case query.OperatedAppID != nil:
+		q += ` AND operated_app_id = $2`
 		args = append(args, *query.OperatedAppID)
 	}
 	q += `

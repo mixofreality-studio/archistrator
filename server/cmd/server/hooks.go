@@ -1211,6 +1211,9 @@ func (h *appHooks) MessageBusTemporalArgs(_ *Config) map[messagebus.ExecutionKin
 		// operations: the startup operatedStateReconcile Schedule
 		// (operationsmanager.go's executionKindReconcile).
 		"operationsReconcile": {WorkflowType: "operationsReconcile", TaskQueue: operations.TaskQueue},
+		// operations: the per-customer delinquency enforcement workflow, started by
+		// billing's applyDelinquencyPolicy signal-with-start ({customerId}:delinquency).
+		"operationsDelinquencyEnforcement": {WorkflowType: "operationsDelinquencyEnforcement", TaskQueue: operations.TaskQueue},
 		// delivery: the two startup Schedules (Task 7c + stage 4b1 Task 6;
 		// deliverymanager.go's executionKindPumpSweep / executionKindRoundSweep). The pump
 		// sweep's WORKFLOW TYPE name is unchanged at stage 4a (R2 — nineteen replay fixtures
@@ -1284,8 +1287,8 @@ var _ messagebus.MessageBus = dryRunConstructionScheduleGate{}
 
 // DeliverSignal always passes through — the gate only intercepts Schedule
 // registration.
-func (g dryRunConstructionScheduleGate) DeliverSignal(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
-	return g.inner.DeliverSignal(rc, targetExecutionID, signalName, payload)
+func (g dryRunConstructionScheduleGate) DeliverSignal(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload, start *messagebus.ExecutionStart) error {
+	return g.inner.DeliverSignal(rc, targetExecutionID, signalName, payload, start)
 }
 
 // RegisterSchedule skips (returns nil, no runtime call) when spec.ExecutionKind

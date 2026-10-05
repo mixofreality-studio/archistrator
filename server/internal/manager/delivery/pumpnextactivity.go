@@ -1102,7 +1102,7 @@ func (wf *csWorkflows) pumpSignalChild(ctx workflow.Context, projectID ProjectID
 	return wf.Acts.MessageBusDeliverSignal(ctx,
 		messagebus.ExecutionID(deliveryActivityWorkflowID(projectID, id)),
 		messagebus.SignalName(signalActivityLeaseGranted),
-		messagebus.ExecutionPayload{Bytes: b})
+		messagebus.ExecutionPayload{Bytes: b}, nil)
 }
 
 // ---------------------------------------------------------------------------

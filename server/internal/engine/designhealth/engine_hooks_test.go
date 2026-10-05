@@ -7,7 +7,6 @@
 package designhealth_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
@@ -31,7 +30,7 @@ func newSubject(t *testing.T, h *scenariohost.Host) designhealth.DesignHealthEng
 // Engine is pure, so the step is the call itself on the binding's project.
 func stepAddAUseCaseToAnInFlightProjectP3S1(t *testing.T, h *scenariohost.Host, subject designhealth.DesignHealthEngine, in inputAddAUseCaseToAnInFlightProjectP3S1) (any, error) {
 	t.Helper()
-	return subject.EvaluateDesignHealth(callContext(t, h, "stepAddAUseCaseToAnInFlightProjectP3S1"), stringParam(in.Project))
+	return subject.EvaluateDesignHealth(callContext(t, h, "stepAddAUseCaseToAnInFlightProjectP3S1"), in.Project)
 }
 
 // stepAddAUseCaseToAnInFlightProjectP4S1 — Add a Use Case to an In-Flight Project — [core: rare] · [yes], step 1: EvaluateDesignHealth
@@ -41,7 +40,7 @@ func stepAddAUseCaseToAnInFlightProjectP3S1(t *testing.T, h *scenariohost.Host, 
 // Engine is pure, so the step is the call itself on the binding's project.
 func stepAddAUseCaseToAnInFlightProjectP4S1(t *testing.T, h *scenariohost.Host, subject designhealth.DesignHealthEngine, in inputAddAUseCaseToAnInFlightProjectP4S1) (any, error) {
 	t.Helper()
-	return subject.EvaluateDesignHealth(callContext(t, h, "stepAddAUseCaseToAnInFlightProjectP4S1"), stringParam(in.Project))
+	return subject.EvaluateDesignHealth(callContext(t, h, "stepAddAUseCaseToAnInFlightProjectP4S1"), in.Project)
 }
 
 // stepExecuteAProjectActivityP3S1 — Execute a Project Activity — review · agents only · approve, step 1: EvaluateDesignHealth
@@ -51,7 +50,7 @@ func stepAddAUseCaseToAnInFlightProjectP4S1(t *testing.T, h *scenariohost.Host, 
 // Engine is pure, so the step is the call itself on the binding's project.
 func stepExecuteAProjectActivityP3S1(t *testing.T, h *scenariohost.Host, subject designhealth.DesignHealthEngine, in inputExecuteAProjectActivityP3S1) (any, error) {
 	t.Helper()
-	return subject.EvaluateDesignHealth(callContext(t, h, "stepExecuteAProjectActivityP3S1"), stringParam(in.Project))
+	return subject.EvaluateDesignHealth(callContext(t, h, "stepExecuteAProjectActivityP3S1"), in.Project)
 }
 
 // stepExecuteAProjectActivityP4S1 — Execute a Project Activity — review · human required · approve, step 1: EvaluateDesignHealth
@@ -61,21 +60,5 @@ func stepExecuteAProjectActivityP3S1(t *testing.T, h *scenariohost.Host, subject
 // Engine is pure, so the step is the call itself on the binding's project.
 func stepExecuteAProjectActivityP4S1(t *testing.T, h *scenariohost.Host, subject designhealth.DesignHealthEngine, in inputExecuteAProjectActivityP4S1) (any, error) {
 	t.Helper()
-	return subject.EvaluateDesignHealth(callContext(t, h, "stepExecuteAProjectActivityP4S1"), stringParam(in.Project))
-}
-
-// stringParam reads a string-typed binding input the way methodcheck's
-// TP-ARG-TYPE reads it: a value that is valid JSON is the JSON value it spells, so
-// a string parameter whose value is a JSON string literal ("\"{…}\"") carries
-// that literal's contents. The binding spells the project document that way
-// because TP-ARG-TYPE rejects an unquoted document (it parses as an object, not a
-// string); testgen v0.12.0, though, quotes every string-typed value whole, so the
-// decoded input still holds the literal. A value that is not a JSON string
-// literal is the parameter itself.
-func stringParam(value string) string {
-	var s string
-	if json.Unmarshal([]byte(value), &s) != nil {
-		return value
-	}
-	return s
+	return subject.EvaluateDesignHealth(callContext(t, h, "stepExecuteAProjectActivityP4S1"), in.Project)
 }

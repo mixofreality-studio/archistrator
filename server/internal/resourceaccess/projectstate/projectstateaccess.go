@@ -1269,6 +1269,11 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		// policy stops looping and routes it to the human recovery gate.
 		return Project{}, false, fwra.Wrap(fwra.ContractMisuse, err, "projectstate: decode project.json")
 	}
+	// The caller's projectID is the identity (the repo the document lives in); a
+	// caller that has none — a tool reading a checkout — takes the document's own id.
+	if projectID == "" {
+		projectID = ProjectID(doc.ID)
+	}
 	p := Project{
 		ID:       projectID,
 		Version:  Version(doc.Version),
@@ -1300,6 +1305,7 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		OperatorPaused:       doc.OperatorPaused,
 		PauseReason:          doc.PauseReason,
 		ReviewPolicy:         doc.ReviewPolicy,
+		UpdatedAt:            doc.UpdatedAt,
 	}
 	if err := checkActivityExecutionKeys(p.ActivityExecution); err != nil {
 		return Project{}, false, err
@@ -1455,11 +1461,13 @@ func isAuth(err error) bool {
 }
 
 // encodeProjectDoc serializes the Project aggregate to its on-infrastructure JSON.
-// updatedAt is the server-resolved mutation timestamp; pass the zero time to
-// preserve whatever updatedAt is already present in the doc (the decode will not
-// have threaded it through to Project, so callers that do not need to stamp a
-// fresh time pass time.Time{}). The non-zero value is always preferred.
+// updatedAt is the server-resolved mutation timestamp; the zero time keeps the
+// Project's own UpdatedAt (the decoded document's), so a caller that does not stamp
+// a fresh time round-trips the committed one.
 func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
+	if updatedAt.IsZero() {
+		updatedAt = p.UpdatedAt
+	}
 	slots, err := encodeSlotsMap(p)
 	if err != nil {
 		return nil, err
@@ -5134,6 +5142,12 @@ type Project struct {
 	// phase) pairs require human approval during construction. The zero value gates
 	// nothing — the construction loop behaves as before this feature was introduced.
 	ReviewPolicy ReviewPolicy `json:"reviewPolicy"`
+
+	// UpdatedAt is the document's updatedAt as committed: the server-resolved time of
+	// the last state mutation. The git store stamps a fresh one on every write; a
+	// decode → encode with no fresh stamp (the construct-mode tools, the migrations)
+	// carries it through unchanged, so the round trip loses nothing.
+	UpdatedAt time.Time
 
 	// ---- Phase 1 slots ----
 	Mission              ArtifactSlot // Model is *MissionStatement when populated
