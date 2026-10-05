@@ -59094,6 +59094,177 @@
         },
         "designGap": "ChargeCustomer outputs (nodes charge-user and recharge) are declared unobservable. No read-only op on any contract exposes the gateway's charge ledger (merchant_gateway_request), so 'at most one charge per (customer, cycle, attempt)' can only be checked through replays in hooks, not by a probe. Under A7 the fix is a read-only op such as ReadCharge(idempotencyKey) -> {Declined, Amount}; that would turn these into probes."
       },
+      "messageBus": {
+        "component": "messageBus",
+        "bindings": [
+          {
+            "scenario": "onboard-a-new-customer-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RegisterSchedule",
+                "inputs": [
+                  {
+                    "name": "scheduleID",
+                    "value": "closeBillingCycle:0b5c0000-0000-4000-8000-000000000201",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "spec",
+                    "value": "{\"ExecutionKind\":\"billingCloseCycle\",\"Cadence\":{\"Every\":86400000000000,\"CronExpr\":\"\"},\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000201\",\"StartPayload\":{\"Bytes\":\"\",\"ContentType\":\"\"}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DescribeSchedule",
+                "inputs": [
+                  {
+                    "name": "scheduleID",
+                    "value": "closeBillingCycle:0b5c0000-0000-4000-8000-000000000201",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Registered\":true,\"ExecutionKind\":\"billingCloseCycle\",\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000201\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-schedule-registered",
+                    "component": "messageBus",
+                    "operation": "DescribeSchedule",
+                    "inputs": [
+                      {
+                        "name": "scheduleID",
+                        "value": "closeBillingCycle:0b5c0000-0000-4000-8000-000000000201",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Registered\":true,\"ExecutionKind\":\"billingCloseCycle\",\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000201\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "onboard-a-new-customer-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RegisterSchedule",
+                "inputs": [
+                  {
+                    "name": "scheduleID",
+                    "value": "closeBillingCycle:0b5c0000-0000-4000-8000-000000000202",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "spec",
+                    "value": "{\"ExecutionKind\":\"billingCloseCycle\",\"Cadence\":{\"Every\":86400000000000,\"CronExpr\":\"\"},\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000202\",\"StartPayload\":{\"Bytes\":\"\",\"ContentType\":\"\"}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "DescribeSchedule",
+                "inputs": [
+                  {
+                    "name": "scheduleID",
+                    "value": "closeBillingCycle:0b5c0000-0000-4000-8000-000000000202",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Registered\":true,\"ExecutionKind\":\"billingCloseCycle\",\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000202\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-schedule-registered",
+                    "component": "messageBus",
+                    "operation": "DescribeSchedule",
+                    "inputs": [
+                      {
+                        "name": "scheduleID",
+                        "value": "closeBillingCycle:0b5c0000-0000-4000-8000-000000000202",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Registered\":true,\"ExecutionKind\":\"billingCloseCycle\",\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000202\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "pause-construction-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DeliverSignal",
+                "inputs": [
+                  {
+                    "name": "targetExecutionID",
+                    "value": "dct-messagebus-pause-p1:nextActivity",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "signalName",
+                    "value": "operatorPauseRequested",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "payload",
+                    "value": "{\"Bytes\":\"eyJQcm9qZWN0SUQiOiJkY3QtbWVzc2FnZWJ1cy1wYXVzZS1wMSIsIlJlYXNvbiI6Im9wZXJhdG9yIHBhdXNlZCBjb25zdHJ1Y3Rpb24ifQ==\",\"ContentType\":\"application/json\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
+      },
       "operatedRuntimeAccess": {
         "component": "operatedRuntimeAccess",
         "bindings": [
