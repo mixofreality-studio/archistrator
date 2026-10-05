@@ -65,12 +65,15 @@ func newPostgresOperatedSystemStateAccess(ctx context.Context, pool *pgxpool.Poo
 // ---------------------------------------------------------------------------
 
 const selectOperatedSystemSQL = `
-SELECT operated_app_id, version, status, in_flight, deployable_bundle_ref
+SELECT operated_app_id, COALESCE(customer_id, '00000000-0000-0000-0000-000000000000'::uuid),
+       version, status, in_flight, deployable_bundle_ref, project_ref
 FROM operated_system
 WHERE operated_app_id = $1`
 
-// ReadOperatedSystem returns the whole head-state for one operated app (§2). A missing
-// row is fwra.NotFound (via the pg error mapper).
+// ReadOperatedSystem returns the whole head-state for one operated app (§2), including
+// the onboarding columns RegisterOperatedSystem wrote (customer, project, deployable
+// bundle). A row created by a version-0 PublishDesiredState carries no customer, which
+// reads as the zero UUID. A missing row is fwra.NotFound (via the pg error mapper).
 func (s *postgresOperatedSystemStateAccess) ReadOperatedSystem(rc fwra.Context, operatedAppID uuid.UUID) (OperatedSystem, error) {
 	const op = "operatedsystemstate.ReadOperatedSystem"
 	if operatedAppID == uuid.Nil {
@@ -81,7 +84,7 @@ func (s *postgresOperatedSystemStateAccess) ReadOperatedSystem(rc fwra.Context, 
 		status int16
 	)
 	err := s.pool.QueryRow(rc.Context, selectOperatedSystemSQL, operatedAppID).
-		Scan(&out.ID, &out.Version, &status, &out.InFlight, &out.DeployableBundleRef)
+		Scan(&out.ID, &out.CustomerID, &out.Version, &status, &out.InFlight, &out.DeployableBundleRef, &out.ProjectRef)
 	if err != nil {
 		return OperatedSystem{}, fwpg.MapError(err, op)
 	}
