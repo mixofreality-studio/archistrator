@@ -3470,12 +3470,24 @@ func serviceLedger(done ...projectstate.ActivityMethodPhase) []projectstate.Task
 		if gate == "" {
 			continue
 		}
-		out = append(out, projectstate.TaskAttempt{
+		out = append(out, citedIfTesting(projectstate.TaskAttempt{
 			AttemptID: projectstate.AttemptID("C", gate, 1), Task: gate, Phase: ph, Attempt: 1,
 			Outcome: projectstate.OutcomePassed,
-		})
+		}))
 	}
 	return out
+}
+
+// citedIfTesting gives a PASSED `testing` attempt the evidence a real testing gate writes —
+// the TestRun it judged (spec §1 T4). A fixture ledger that means "every gate passed" means
+// the testing gate passed on a run: an uncited testing pass is one no reader counts
+// (projectstate.QualifiedAttempts), so without the citation these fixtures would describe a
+// row whose testing task still awaits its run.
+func citedIfTesting(a projectstate.TaskAttempt) projectstate.TaskAttempt {
+	if a.Task == projectstate.TaskTesting && a.Outcome == projectstate.OutcomePassed {
+		a.Evidence = projectstate.EvidenceRef{Kind: projectstate.EvidenceTestRun, Ref: "run-" + a.AttemptID}
+	}
+	return a
 }
 
 // allServiceLedger is serviceLedger over every canonical service phase.
@@ -4113,14 +4125,14 @@ func pendingLedger(activityID string, phases ...projectstate.ActivityMethodPhase
 		for _, task := range []projectstate.MethodTask{
 			projectstate.AgentTaskFor(ph), projectstate.GateTaskFor(ph),
 		} {
-			out = append(out, projectstate.TaskAttempt{
+			out = append(out, citedIfTesting(projectstate.TaskAttempt{
 				AttemptID:  projectstate.AttemptID(activityID, task, 1),
 				Task:       task,
 				Phase:      projectstate.PhaseForTask(task),
 				Attempt:    1,
 				Outcome:    projectstate.OutcomePassed,
 				Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Basis: "test fixture"},
-			})
+			}))
 		}
 	}
 	return out
@@ -9672,7 +9684,7 @@ func passedLedger(activityID string, phases ...projectstate.ActivityMethodPhase)
 }
 
 func ledgerAttempt(activityID string, task projectstate.MethodTask, n int, outcome projectstate.TaskOutcome) projectstate.TaskAttempt {
-	return projectstate.TaskAttempt{
+	return citedIfTesting(projectstate.TaskAttempt{
 		AttemptID: projectstate.AttemptID(activityID, task, n),
 		Task:      task,
 		Phase:     projectstate.PhaseForTask(task),
@@ -9682,7 +9694,7 @@ func ledgerAttempt(activityID string, task projectstate.MethodTask, n int, outco
 			Origin: projectstate.OriginBackfilled,
 			Basis:  "test fixture",
 		},
-	}
+	})
 }
 
 // ledgerChain is A → B: A is a Service build (coding, junior-developer, a real
@@ -27126,10 +27138,10 @@ func passedLedgerFor(activityID string, typ projectstate.ActivityType, at time.T
 	ended := at
 	var out []projectstate.TaskAttempt
 	for _, t := range lc.Tasks {
-		out = append(out, projectstate.TaskAttempt{
+		out = append(out, citedIfTesting(projectstate.TaskAttempt{
 			AttemptID: activityID + ":" + t.ID + ":1", Task: projectstate.MethodTask(t.ID),
 			Attempt: 1, Outcome: projectstate.OutcomePassed, StartedAt: &ended, EndedAt: &ended,
-		})
+		}))
 	}
 	return out
 }
@@ -32492,46 +32504,121 @@ func mainRuns(ps *csFakeProjectState, activityID string) []projectstate.TestRun 
 	return runs
 }
 
-// driveTestingGateHold runs the walk, asserts at the gate that it is HELD with a system
-// comment whose text names `wantInReason`, then releases it the only way a human can
-// release a held testing gate — resolve the system's change request and approve — and
-// reports the released round.
-func driveTestingGateHold(t *testing.T, rig *shapeRig, m *deliveryManager, wantInReason ...string) projectstate.ReviewRound {
+// driveTestingGateHold runs the walk and asserts at the gate that it is HELD with a system
+// comment whose text names `wantInReason`. It then tries the override T4 forbids (spec §1;
+// §6.5: the round "cannot passRound unless" the run holds up, whoever decides it) — resolve
+// the system's change request and approve — and asserts the approve is REFUSED: the round
+// stays pending and the hold lands again as a fresh blocking system comment, which is how the
+// reviewer learns the approve did not pass. Finally it releases the gate the only way left, a
+// send-back with the venue fixed, which re-runs integration so the venue records a run at the
+// new attempt; the gate then passes on that run, as the operator where the roster still asks
+// for one. It returns the FIRST hold's comment.
+func driveTestingGateHold(t *testing.T, rig *shapeRig, m *deliveryManager, wantInReason ...string) projectstate.ReviewComment {
 	t.Helper()
-	rig.env.RegisterDelayedCallback(func() {
-		round, ok := testingRound(rig.cs, shapeServiceID)
-		if !ok || round.Outcome != projectstate.RoundPending {
-			t.Errorf("the testing gate must be HELD at t+30s, got round %+v (found %v)", round, ok)
-			return
-		}
-		c := systemHoldComment(t, round)
-		for _, want := range wantInReason {
-			if !strings.Contains(c.Text, want) {
-				t.Errorf("the system comment must name %q; got %q", want, c.Text)
-			}
-		}
-		if !projectstate.ReviewCommentBlocksApprove(c) {
-			t.Errorf("the system's hold must be a BLOCKING change request, not a question: %+v", c)
-		}
-		if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), string(projectstate.TaskTesting),
-			ReviewDecisionInput{Decision: ReviewSetCommentStatus, CommentID: ptrTo(c.ID),
-				CommentStatus: ptrTo(projectstate.ReviewCommentResolved)}, nil); err != nil {
-			t.Errorf("the resolve must land: %v", err)
-		}
-		if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), string(projectstate.TaskTesting),
-			ReviewDecisionInput{Decision: ReviewApprove}, nil); err != nil {
-			t.Errorf("the operator's approve over the resolved hold must be accepted: %v", err)
-		}
-	}, 30*time.Second)
+	var first projectstate.ReviewComment
+	rig.env.RegisterDelayedCallback(func() { first = holdThenTryTheOverride(t, rig, m, wantInReason) }, 30*time.Second)
+	rig.env.RegisterDelayedCallback(func() { overrideRefusedThenReRun(t, rig, first) }, 60*time.Second)
+	rig.env.RegisterDelayedCallback(func() { approveTheReRunIfAsked(t, rig, m) }, 90*time.Second)
 	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
 	})
 	shapeRequireCompleted(t, rig.env)
 	round, ok := testingRound(rig.cs, shapeServiceID)
-	if !ok || round.Outcome != projectstate.RoundPassed || round.DecidedBy != gateActorOperator {
-		t.Fatalf("a held testing gate is released by the OPERATOR, got %+v", round)
+	if !ok || round.Round != 2 || round.Outcome != projectstate.RoundPassed {
+		t.Fatalf("the held gate is released only by the re-run's round (2) passing on a qualifying run, got %+v", round)
 	}
-	return round
+	requireTestingPassCitesTheRun(t, rig)
+	return first
+}
+
+// holdThenTryTheOverride is driveTestingGateHold's first step: the gate is HELD with one
+// blocking system comment naming every wantInReason; the reviewer resolves it and approves.
+func holdThenTryTheOverride(t *testing.T, rig *shapeRig, m *deliveryManager, wantInReason []string) projectstate.ReviewComment {
+	t.Helper()
+	round, ok := testingRound(rig.cs, shapeServiceID)
+	if !ok || round.Outcome != projectstate.RoundPending {
+		t.Errorf("the testing gate must be HELD at t+30s, got round %+v (found %v)", round, ok)
+		return projectstate.ReviewComment{}
+	}
+	c := systemHoldComment(t, round)
+	for _, want := range wantInReason {
+		if !strings.Contains(c.Text, want) {
+			t.Errorf("the system comment must name %q; got %q", want, c.Text)
+		}
+	}
+	if !projectstate.ReviewCommentBlocksApprove(c) {
+		t.Errorf("the system's hold must be a BLOCKING change request, not a question: %+v", c)
+	}
+	if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), string(projectstate.TaskTesting),
+		ReviewDecisionInput{Decision: ReviewSetCommentStatus, CommentID: ptrTo(c.ID),
+			CommentStatus: ptrTo(projectstate.ReviewCommentResolved)}, nil); err != nil {
+		t.Errorf("the resolve must land: %v", err)
+	}
+	if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), string(projectstate.TaskTesting),
+		ReviewDecisionInput{Decision: ReviewApprove}, nil); err != nil {
+		t.Errorf("the approve is accepted at the façade (the comment is resolved) and judged by the gate: %v", err)
+	}
+	return c
+}
+
+// overrideRefusedThenReRun is the second step: the approve did NOT pass the round (T4), the
+// hold landed again as one fresh blocking system comment, and the reviewer sends the round
+// back with the venue fixed so the re-run records a qualifying run.
+func overrideRefusedThenReRun(t *testing.T, rig *shapeRig, first projectstate.ReviewComment) {
+	t.Helper()
+	round, ok := testingRound(rig.cs, shapeServiceID)
+	if !ok || round.Round != 1 || round.Outcome != projectstate.RoundPending {
+		t.Errorf("an approve over a run that does not qualify must NOT pass the round (T4), got %+v (found %v)", round, ok)
+		return
+	}
+	var open []projectstate.ReviewComment
+	for _, c := range round.Thread {
+		if c.AuthorRole == gateActorSystem && projectstate.ReviewCommentBlocksApprove(c) {
+			open = append(open, c)
+		}
+	}
+	if len(open) != 1 || open[0].ID == first.ID {
+		t.Errorf("the refused approve must land the hold again as ONE fresh blocking system comment, got %+v", open)
+	}
+	rig.cs.mu.Lock()
+	rig.cs.venue = nil
+	rig.cs.expiredArtifacts = nil
+	rig.cs.mu.Unlock()
+	shapeReject(rig.env, string(projectstate.TaskTesting), "re-run the scenarios")()
+}
+
+// approveTheReRunIfAsked is the last step: a roster that still asks for a human (the
+// refused-roster arm) gets its approve, over a run that now qualifies.
+func approveTheReRunIfAsked(t *testing.T, rig *shapeRig, m *deliveryManager) {
+	t.Helper()
+	round, ok := testingRound(rig.cs, shapeServiceID)
+	if !ok || round.Round != 2 || round.Outcome != projectstate.RoundPending {
+		return
+	}
+	if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), string(projectstate.TaskTesting),
+		ReviewDecisionInput{Decision: ReviewApprove}, nil); err != nil {
+		t.Errorf("the approve over a qualifying run must land: %v", err)
+	}
+}
+
+// requireTestingPassCitesTheRun asserts the testing gate's PASSED attempt cites, as its
+// evidence, the run the venue recorded last — the only testing pass T4 lets stand.
+func requireTestingPassCitesTheRun(t *testing.T, rig *shapeRig) {
+	t.Helper()
+	run, ok := latestVenueRun(rig.cs, shapeServiceID)
+	if !ok {
+		t.Fatal("no venue run recorded")
+	}
+	var passed []projectstate.TaskAttempt
+	for _, a := range rig.cs.execution(shapeServiceID).Attempts {
+		if a.Task == projectstate.TaskTesting && a.Outcome == projectstate.OutcomePassed {
+			passed = append(passed, a)
+		}
+	}
+	want := projectstate.EvidenceRef{Kind: projectstate.EvidenceTestRun, Ref: run.ID}
+	if len(passed) != 1 || passed[0].Evidence != want {
+		t.Fatalf("the testing gate's pass must cite the run it judged (%+v), got %+v", want, passed)
+	}
 }
 
 func TestTestingGate_PassesWhenAllGreen(t *testing.T) {
@@ -32555,6 +32642,7 @@ func TestTestingGate_PassesWhenAllGreen(t *testing.T) {
 	if !ok || run.Revision != projectstate.AttemptID(shapeServiceID, projectstate.TaskIntegration, 1) {
 		t.Fatalf("the venue records the run at the judged integration attempt, got %+v (found %v)", run, ok)
 	}
+	requireTestingPassCitesTheRun(t, rig)
 }
 
 // REVIEW FOCUS 1: a run recorded for an OLDER revision than the one this round judges must
@@ -32575,8 +32663,7 @@ func TestTestingGate_MissingScenarioHolds(t *testing.T) {
 		run.Scenarios = slices.DeleteFunc(run.Scenarios, func(r projectstate.ScenarioResult) bool { return r.Scenario == missing })
 		return true
 	}
-	round := driveTestingGateHold(t, rig, m, missing)
-	if c := systemHoldComment(t, round); strings.Contains(c.Text, sampleActivity().ComponentID+"-P1") {
+	if c := driveTestingGateHold(t, rig, m, missing); strings.Contains(c.Text, sampleActivity().ComponentID+"-P1") {
 		t.Fatalf("the hold names the MISSING scenario only, not the ones that ran: %q", c.Text)
 	}
 }
@@ -32696,14 +32783,15 @@ func (r refuseReviewsAt) ProposeReviews(rc fweng.Context, change review.ReviewCh
 // round "cannot passRound unless" the venue's evidence holds up, whoever decides it. Without
 // the evaluation on this arm a human could approve a testing round with no run and no
 // system comment, so the stale run here must land the same blocking system comment the
-// ordinary arm lands, and the only way through is resolve + approve (the recorded override).
+// ordinary arm lands, and an approve over it is refused (T4) like one on the ordinary arm:
+// the only way through is a re-run that records a qualifying run.
 func TestTestingGate_HoldsOnTheRefusedRosterArmToo(t *testing.T) {
 	rig, m := openCommentRig(t)
 	rig.cswf.Review = refuseReviewsAt{inner: review.NewReviewEngine(), phase: projectstate.MethodPhaseIntegration.String()}
 	stale := projectstate.AttemptID(shapeServiceID, projectstate.TaskIntegration, 0)
 	rig.cs.venue = func(run *projectstate.TestRun) bool { run.Revision = stale; return true }
-	round := driveTestingGateHold(t, rig, m, stale)
-	if len(round.Reviewers) != 0 {
+	driveTestingGateHold(t, rig, m, stale)
+	if round, _ := testingRound(rig.cs, shapeServiceID); len(round.Reviewers) != 0 {
 		t.Fatalf("the refused arm opens an EMPTY roster, got %+v", round.Reviewers)
 	}
 }

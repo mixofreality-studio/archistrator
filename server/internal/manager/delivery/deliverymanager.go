@@ -6541,7 +6541,12 @@ func (m *constructionManager) QueryActivityView(rc fwmanager.Context, projectID 
 	// The gates are the session's own, verbatim: a lifecycle-phase id matches a phase, and
 	// the merge hold and an escalation simply match none.
 	liveGates := liveApprovalGates(live)
-	tasks := deriveTaskViews(lc, normalizeAttempts(id, row, resolved, records, live), row.OperatorNotes, row.Reviews, liveGates)
+	// THE TESTING TASK READS PASSED ONLY ON A CITED RUN (spec §1 T4). The task states are
+	// derived from the ledger as projectstate resolves it, so an uncited testing pass reads
+	// pending review here exactly as it leaves the Integration phase open in `resolved`.
+	ledger := row
+	ledger.Attempts = projectstate.QualifiedAttempts(lifecycleBindsTestPlan(lc), row.Attempts)
+	tasks := deriveTaskViews(lc, normalizeAttempts(id, ledger, resolved, records, live), row.OperatorNotes, row.Reviews, liveGates)
 	view := activityViewFrom(activityID, item, typ, variant, lc, resolved, tasks)
 	view.State = activityViewState(coarse, live)
 	// THE FIVE LIVE-GATE FACTS LAND ON THE TASK THEY ARE ABOUT (stage 4b3). They used to be
@@ -8554,6 +8559,11 @@ type gateLedger struct {
 	// constructState.workAttemptID for the same reason the rest of this struct does: on a
 	// fork two gates judge two different attempts at the same moment.
 	judgedAttemptID string
+	// testRunID is the TestRun a scenario testing gate judged and found qualifying (spec
+	// §6.5), set by testingGateHeld when the gate does not hold. The gate's pass cites it as
+	// its evidence (passGateAttempt), which is the only testing pass T4 lets stand; empty on
+	// every other gate, and on a testing gate that has not (yet) judged a qualifying run.
+	testRunID string
 }
 
 // walkRun is the generic child's per-run head-state and git lifecycle. The helpers it
@@ -9899,6 +9909,15 @@ func deriveTaskViews(lc methodassets.Lifecycle, attempts []projectstate.TaskAtte
 		states[id] = taskLocked // a cycle reads locked; a validated lifecycle has none
 		t := byID[id]
 		s := evidenceState(t, gates[id], revs, reviewerOf, liveGates)
+		if s == taskPassed && scenarioTestingGate(lc, t) && !testingPassCitesRun(attempts) {
+			// T4 (spec §1): the testing task of a test-planned lifecycle reads passed only on
+			// a pass that cites its TestRun. A persisted round can read passed on its own (a
+			// round decided before its gate attempt was refused), so the state is checked
+			// here as well as the ledger being qualified on the way in: the task reads
+			// pending review, or locked behind an unfinished dependency, like a task never
+			// decided.
+			s = ""
+		}
 		if s == "" {
 			s = taskPending
 			for _, dep := range t.DependsOn {

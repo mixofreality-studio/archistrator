@@ -6980,7 +6980,57 @@ const (
 	EvidenceArtifact EvidenceKind = "artifact"
 	EvidenceContract EvidenceKind = "contract"
 	EvidenceGit      EvidenceKind = "git"
+	// EvidenceTestRun cites a recorded TestRun by its id (.testingState.testRuns[].id). It is
+	// the ONLY evidence a `testing` pass of a test-planned activity may carry (see
+	// QualifiedAttempts): the testing gate writes it when the run it judged qualified.
+	EvidenceTestRun EvidenceKind = "testRun"
 )
+
+// THE TESTING TASK PASSES ONLY ON A QUALIFYING TEST RUN (spec 2026-10-02 §1 T4, §6.5).
+//
+// A lifecycle that binds a test plan — the service and frontend lifecycles, whose phase set
+// carries MethodPhaseTestPlan — exits its Integration phase through the `testing` review, and
+// T4 says that review passes only on a full green TestRun at the judged revision that
+// renders. The testing gate (the delivery Manager's DeliveryActivityWorkflow) checks all four
+// §6.5 rules before it passes, and records the run it judged as the pass's evidence
+// (EvidenceTestRun). So a `testing` pass that cites no run is a pass nobody judged against a
+// run — the backfill's "assume it is done" rows, a human override of a held gate, a record
+// written before the gate existed — and it does not stand:
+//
+//   - every READ resolves it as not passed (QualifiedAttempts, which ResolvePhaseCompletions
+//     and the delivery Manager's views and walk seed read through), so the activity's
+//     Integration phase stays open and its testing task reads pending review;
+//   - the WRITE refuses it (RecordAttemptOutcome), so the store never records a new one.
+//
+// The test is the citation, not a lookup of the run: the run is published on the activity
+// branch by the venue and reaches main only with the activity's merge, so the row on main
+// cannot be required to sit beside it. The gate that wrote the citation is what checked it.
+
+// testsScenarios reports whether a lifecycle profile binds a test plan, and so whether its
+// `testing` review judges a scenario run (T4).
+func testsScenarios(pr Profile) bool {
+	return slices.ContainsFunc(pr.Phases, func(p ProfilePhase) bool { return p.Phase == MethodPhaseTestPlan })
+}
+
+// testingPassCitesRun reports whether a passed `testing` attempt carries the evidence T4
+// requires: a cited TestRun id.
+func testingPassCitesRun(a TaskAttempt) bool {
+	return a.Evidence.Kind == EvidenceTestRun && a.Evidence.Ref != ""
+}
+
+// QualifiedAttempts is the attempt ledger as every reader must resolve it: when scenarioTested
+// (the activity's lifecycle binds a test plan), each `testing` attempt that PASSED without
+// citing a TestRun is dropped, so the testing task reads as undecided rather than passed. Every
+// other attempt, and every attempt of a lifecycle that binds no test plan, is kept as it is.
+// The input is never modified.
+func QualifiedAttempts(scenarioTested bool, attempts []TaskAttempt) []TaskAttempt {
+	if !scenarioTested {
+		return attempts
+	}
+	return slices.DeleteFunc(slices.Clone(attempts), func(a TaskAttempt) bool {
+		return a.Task == TaskTesting && a.Outcome == OutcomePassed && !testingPassCitesRun(a)
+	})
+}
 
 // EvidenceRef points an attempt at what it produced or reviewed.
 type EvidenceRef struct {
@@ -8159,6 +8209,8 @@ func ResolvePhaseCompletions(
 	if len(attempts) == 0 {
 		return nil
 	}
+	// T4: an uncited testing pass does not close the Integration phase (QualifiedAttempts).
+	attempts = QualifiedAttempts(testsScenarios(profile), attempts)
 	out := make([]PhaseCompletion, 0, len(profile.Phases))
 	for _, pp := range profile.Phases {
 		// Weight and Label are the profile's: a uiDesign row must render 40/60, not
@@ -9676,6 +9728,12 @@ func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID Pro
 // under a DIFFERENT idempotency key resolves it in place, and a call that would give
 // an already-resolved attempt a different terminal is refused. The dedup ledger
 // covers the RETRY; this rule covers the RE-ISSUE, and the ledger needs both.
+//
+// A `testing` PASS on a row whose lifecycle binds a test plan must cite the TestRun the
+// testing gate judged (EvidenceTestRun with the run id), or it is refused: T4 says that task
+// passes only on a qualifying run, and a pass citing none is one no reader would count
+// (QualifiedAttempts). The row's own classified type decides, as it decides every other
+// reading of the row.
 func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, attempt TaskAttemptInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case attempt.AttemptID == "":
@@ -9687,6 +9745,12 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 	}
 	now := a.store.now()
 	return a.onActivity(rc, "RecordAttemptOutcome", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+		if attempt.TaskID == TaskTesting && attempt.Outcome == OutcomePassed && testsScenarios(ProfileFor(cs.Type, cs.Variant)) &&
+			!testingPassCitesRun(TaskAttempt{Evidence: EvidenceRef{Kind: attempt.EvidenceKind, Ref: attempt.EvidenceRef}}) {
+			return execMisuse("RecordAttemptOutcome", fmt.Sprintf(
+				"attempt %s passes the testing task of %s without citing a test run (evidenceKind %q, evidenceRef %q); the testing task passes only on a qualifying TestRun, cited as evidenceKind %q with the run id (spec §1 T4)",
+				attempt.AttemptID, activityID, attempt.EvidenceKind, attempt.EvidenceRef, EvidenceTestRun))
+		}
 		for i := range cs.Attempts {
 			held := &cs.Attempts[i]
 			if held.AttemptID != attempt.AttemptID {

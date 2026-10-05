@@ -794,6 +794,18 @@ var encapsulationAllowlistData = map[string][]string{
 		//	                    an operator requeue is dispatchable again whatever its attempt
 		//	                    ledger resolves to, because the ledger is deliberately KEPT.
 		"RequeuedAfterExit",
+		// THE T4 READ RULE (deterministic component testing, spec §1 T4). QualifiedAttempts is
+		// the same category as ResolvePhaseCompletions above, which reads through it: a total,
+		// side-effect-free function over projectstate's OWN TaskAttempt ledger — no resource,
+		// so no contract op. It drops a `testing` pass that cites no TestRun from a test-planned
+		// activity's ledger, so the testing task can never READ passed without a qualifying
+		// run. Callers outside this package, verifiable by grep:
+		//
+		//	QualifiedAttempts → the delivery Manager: the activity view's task states
+		//	                    (activityTaskViews) and the walk's ledger seed
+		//	                    (seedWalkFromLedger), so the screen and the walk read the
+		//	                    testing task exactly as the phase resolution does.
+		"QualifiedAttempts",
 		// OPERATOR NOTES (plan B1.1). OperatorNote is the STORED note on
 		// ActivityExecution.OperatorNotes, hand-written beside that row type like
 		// TaskAttempt; the verbs' input shape (OperatorNoteInput, NoteComment,

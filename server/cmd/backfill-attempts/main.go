@@ -21,7 +21,9 @@
 //   - CODE (a component). The founder ruled (2026-09-09) "assume any component that is
 //     fully implemented is done and reviewed and integrated", and ruled (F2) "if they're
 //     not implemented in code, then leave them as real work that still needs to be
-//     done". "Fully implemented" is read off the repository — see fullyImplemented.
+//     done". "Fully implemented" is read off the repository — see fullyImplemented, and
+//     clientAppBuilt for a client with a UI surface, whose code is the SPA rather than a
+//     Go package.
 //   - INFERRED (a Resource). A Resource has no code of its own in this repository; it
 //     qualifies iff every ResourceAccess with a slot-5 relationship to it qualifies on
 //     code, and its basis says the evidence is inferred.
@@ -34,6 +36,17 @@
 // order, an activity is integrated only once every dependency is fully Done (see
 // gateIntegration). Such an activity's Integration tasks stay unattempted, and its basis
 // names the dependencies that hold it back.
+//
+// NO BACKFILLED ACTIVITY HAS PASSED ITS TESTING TASK when its lifecycle binds a test plan
+// (spec 2026-10-02 §1 T4, founder 2026-10-04): that task passes only on a full green
+// TestRun at the current revision that renders, and nothing this tool reads is a run. Such
+// an activity is backfilled through Integration and its `testing` review is left for the
+// testing gate, which shows the recorded run and asks for the approve (see attemptsFor).
+//
+// A component activity whose row this tool backfilled under an id the committed plan no
+// longer holds — the plan re-derived the id, as the design → delivery Manager unification
+// did — is RETIRED: the evidence now backs the activity under its new id (see
+// retireOrphans).
 //
 // Usage (from server/):
 //
@@ -49,11 +62,13 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -69,6 +84,18 @@ var statePath = filepath.Join(".aiarch", "state", "project.json")
 
 // serverDir is where every .serviceContracts goPackage is rooted, relative to the repo.
 const serverDir = "server"
+
+// spaDir is where the SPA lives, relative to the repo: the code a UI-surface client's
+// activity (U-SPA-<client>) builds. The repository has one SPA; the derivation emits one
+// client-app activity per UI-surface client, and this repository's System has one.
+const spaDir = "webApp"
+
+// spaIdentifiers is the SPA's data-testid table, relative to the SPA root. A client
+// contract's user actions name their anchors in it (spec §12 B1).
+const spaIdentifiers = "src/utilities/constants/UIIdentifiers.ts"
+
+// spaSourceDir is the SPA's source tree, relative to the SPA root.
+const spaSourceDir = "src"
 
 // generatorID identifies this tool in every provenance stamp it writes.
 const generatorID = "cmd/backfill-attempts"
@@ -387,6 +414,10 @@ type verdict struct {
 	// not fully Done ("Integration pending: dependency X is not built."); its attempts
 	// then stop short of the Integration phase. Empty means the activity is integrated.
 	IntegrationPending string
+	// ClientApp marks a verdict read off the SPA (clientAppBuilt). Its ContractRef names the
+	// client's contract for the detailed-design evidence, but the activity is a client app,
+	// not a service: classify must not let the contract type it.
+	ClientApp bool
 }
 
 // inputs is everything the evaluation reads: the decoded committed state, where the
@@ -395,6 +426,8 @@ type inputs struct {
 	Project projectstate.Project
 	// ServerRoot is the directory every goPackage is resolved under.
 	ServerRoot string
+	// SPARoot is the SPA's directory: a UI-surface client's code (clientAppBuilt).
+	SPARoot string
 	// Head is the commit the server tree was read at; it is cited in every code basis.
 	Head string
 }
@@ -439,24 +472,11 @@ func evaluate(in inputs) ([]verdict, error) {
 	var resources []projectstate.ActivityItem
 	for _, a := range list.Activities {
 		component, hasComponent := components[a.ComponentID]
-		var v verdict
-		switch {
-		case producesArtifactSlots(a):
-			// FIRST, before hasComponent: a design activity is componentless, so it would
-			// otherwise fall to signedOff and report "no evidence path" for work whose
-			// artifacts are sitting committed in this very file.
-			v = designSlotEvidence(a.Name, in.Project)
-		case hasComponent && component.Kind == projectstate.CompResource:
+		if hasComponent && component.Kind == projectstate.CompResource && !producesArtifactSlots(a) {
 			resources = append(resources, a) // decided below, once every RA is known.
 			continue
-		case hasComponent:
-			v = fullyImplemented(a.Name, component, in)
-		case a.ComponentID != "":
-			v = verdict{ActivityID: a.Name, Reason: fmt.Sprintf("componentId %q names no component of the committed System", a.ComponentID)}
-		default:
-			v = signedOff(a.Name, signOffs, in.Project)
 		}
-		byID[a.Name] = v
+		byID[a.Name] = decideActivity(a, component, hasComponent, signOffs, in)
 	}
 	for _, a := range resources {
 		byID[a.Name] = inferredFromAccess(a.Name, components[a.ComponentID], sys, activityFor, byID)
@@ -468,6 +488,28 @@ func evaluate(in inputs) ([]verdict, error) {
 		out = append(out, byID[a.Name])
 	}
 	return out, nil
+}
+
+// decideActivity is one non-Resource activity's verdict, by its evidence path. (A Resource
+// is decided by evaluate once every ResourceAccess is known — inferredFromAccess.)
+func decideActivity(a projectstate.ActivityItem, component projectstate.Component, hasComponent bool, signOffs map[string]founderSignOff, in inputs) verdict {
+	switch {
+	case producesArtifactSlots(a):
+		// FIRST, before hasComponent: a design activity is componentless, so it would
+		// otherwise fall to signedOff and report "no evidence path" for work whose
+		// artifacts are sitting committed in this very file.
+		return designSlotEvidence(a.Name, in.Project)
+	case hasComponent && component.Kind == projectstate.CompClient:
+		// A client's activity builds the client app; its code is the SPA, not a Go
+		// package, so fullyImplemented's conditions 2-3 cannot be asked of it.
+		return clientAppBuilt(a.Name, component, in)
+	case hasComponent:
+		return fullyImplemented(a.Name, component, in)
+	case a.ComponentID != "":
+		return verdict{ActivityID: a.Name, Reason: fmt.Sprintf("componentId %q names no component of the committed System", a.ComponentID)}
+	default:
+		return signedOff(a.Name, signOffs, in.Project)
+	}
 }
 
 // ---- integration: an activity is integrated only once everything it depends on is ----
@@ -1008,6 +1050,320 @@ func inferredFromAccess(activityID string, resource projectstate.Component, sys 
 	return verdict{ActivityID: activityID, Qualifies: true, Reason: "inferred: " + strings.Join(ids, ","), Basis: basis}
 }
 
+// ---- the client app: a UI-surface client's code is the SPA -----------------------------
+
+// anchorsMarker opens the list in a client contract's notes that names, per user action,
+// the UI_IDENTIFIERS data-testids the action is taken on (spec §12 B1): segments separated
+// by ";", each "<Operation> <Namespace.KEY>…", where "Namespace.KEY/KEY2" names two keys of
+// one namespace.
+const anchorsMarker = "Anchors (UI_IDENTIFIERS):"
+
+// uiAnchor is one data-testid a user action is taken on: UI_IDENTIFIERS[NS][Key].
+type uiAnchor struct{ NS, Key string }
+
+func (a uiAnchor) String() string { return a.NS + "." + a.Key }
+
+var (
+	anchorPattern = regexp.MustCompile(`^([A-Z][A-Za-z0-9]*)\.([A-Za-z_][A-Za-z0-9_]*)$`)
+	keyPattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	// The identifier table's own layout (two-space namespaces, four-space keys); a key is a
+	// string member or a function member.
+	identifierNamespace = regexp.MustCompile(`^  ([A-Za-z_][A-Za-z0-9_]*): \{\s*$`)
+	identifierKey       = regexp.MustCompile(`^    ([A-Za-z_][A-Za-z0-9_]*)\s*[:(]`)
+)
+
+// clientAppBuilt is the CODE evidence path for a client: its activity (U-SPA-<client>,
+// Table 11-1 #19) builds the client app, whose code is the SPA rather than a Go package.
+// The client app is built only when ALL of these hold:
+//
+//  1. The client has a UI surface. One without (an MCP or scheduler client) is generated
+//     transport and is given no client-app activity to evidence.
+//  2. Its contract, .serviceContracts[contractKey], exists, and it and every facet grouped
+//     under it is not a stub, names no goPackage (a client with one is a Go component, not
+//     an app) and declares at least one operation — one per user action the use cases
+//     name (spec §12 B1).
+//  3. The SPA's package.json declares a non-empty `build` script.
+//  4. Each entry's anchors list names at least one data-testid for EVERY operation and
+//     for no operation the contract lacks, and every anchor it names is declared in the
+//     SPA's UIIdentifiers.ts AND referenced by a non-test source file of the SPA: the
+//     screen each user action is taken on exists and renders it.
+//
+// That the SPA COMPILES is not read here — a build is not evidence a one-shot can hold in a
+// basis — and is verified by whoever runs the tool, as it is for the Go components.
+func clientAppBuilt(activityID string, component projectstate.Component, in inputs) verdict {
+	fail := func(format string, args ...any) verdict {
+		return verdict{ActivityID: activityID, Reason: "client app: " + fmt.Sprintf(format, args...)}
+	}
+	if component.UiSurface == nil || !*component.UiSurface {
+		return fail("condition 1: client %q has no UI surface, so there is no client app to build", component.ID)
+	}
+	if component.ContractKey == nil || *component.ContractKey == "" {
+		return fail("condition 2: client %q names no contractKey", component.ID)
+	}
+	key := *component.ContractKey
+	if own, ok := in.Project.ServiceContracts[key]; !ok || own.Component != key {
+		return fail("condition 2: .serviceContracts has no entry for the client's own contract (key %q)", key)
+	}
+	// FACETS: a client's user actions are split across its contract and the facets grouped
+	// under it (the web client's are split by screen), and every one of them is a user
+	// action the app must offer — so every entry is held to conditions 2 and 4.
+	entries := contractsOf(in.Project.ServiceContracts, key)
+	actions, err := clientActions(in.Project.ServiceContracts, entries)
+	if err != nil {
+		return fail("condition 2: %v", err)
+	}
+	spa := os.DirFS(in.SPARoot)
+	build, err := spaBuildScript(spa)
+	if err != nil {
+		return fail("condition 3: %v", err)
+	}
+	anchors := map[string][]uiAnchor{}
+	for _, k := range entries {
+		byOp, err := contractAnchors(in.Project.ServiceContracts[k])
+		if err != nil {
+			return fail("condition 4: serviceContracts[%s]: %v", k, err)
+		}
+		for op, as := range byOp {
+			anchors[k+"."+op] = as
+		}
+	}
+	rendered, err := renderedAnchors(spa, anchors)
+	if err != nil {
+		return fail("condition 4: %v", err)
+	}
+	files := append([]string{path.Join(spaDir, "package.json"), path.Join(spaDir, spaIdentifiers)}, rendered...)
+	built := fmt.Sprintf("%d user actions, %d UI_IDENTIFIERS anchors, each declared and rendered", actions, countAnchors(anchors))
+	basis := fmt.Sprintf("serviceContracts[%s] (%s) + %s (build %q) + %s (rendered by %s) @ %s + %s",
+		strings.Join(entries, ","), built, files[0], build, files[1], strings.Join(rendered, " + "), in.Head, founderRulingRef)
+	return verdict{
+		ActivityID:  activityID,
+		Qualifies:   true,
+		Reason:      fmt.Sprintf("client app: serviceContracts[%s]; %s", strings.Join(entries, ","), built),
+		Basis:       basis,
+		ContractRef: key,
+		CodeRef:     in.Head,
+		Files:       files,
+		ClientApp:   true,
+	}
+}
+
+// clientActions is condition 2 over a client's contract and its facets: none a stub, none
+// naming a goPackage, each declaring at least one user action. It returns how many there are.
+func clientActions(contracts map[string]projectstate.ServiceContract, entries []string) (int, error) {
+	actions := 0
+	for _, k := range entries {
+		sc := contracts[k]
+		switch {
+		case sc.Stub:
+			return 0, fmt.Errorf("serviceContracts[%s] is stub: true", k)
+		case sc.GoPackage != "":
+			return 0, fmt.Errorf("serviceContracts[%s] names goPackage %s; a client app's code is the SPA", k, sc.GoPackage)
+		case len(sc.Interface.Operations) == 0:
+			return 0, fmt.Errorf("serviceContracts[%s] declares no operations, so there is no user action to find built", k)
+		}
+		actions += len(sc.Interface.Operations)
+	}
+	return actions, nil
+}
+
+// spaBuildScript is condition 3: the SPA's package.json build script.
+func spaBuildScript(spa fs.FS) (string, error) {
+	raw, err := fs.ReadFile(spa, "package.json")
+	if err != nil {
+		return "", err
+	}
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		return "", fmt.Errorf("%s: %w", path.Join(spaDir, "package.json"), err)
+	}
+	build := strings.TrimSpace(pkg.Scripts["build"])
+	if build == "" {
+		return "", fmt.Errorf("%s declares no build script", path.Join(spaDir, "package.json"))
+	}
+	return build, nil
+}
+
+// contractAnchors reads the anchors list out of a client contract's notes, per operation.
+// It refuses a list that is missing, that names an operation the contract lacks, or that
+// leaves an operation with no anchor.
+func contractAnchors(sc projectstate.ServiceContract) (map[string][]uiAnchor, error) {
+	_, list, ok := strings.Cut(sc.Notes, anchorsMarker)
+	if !ok {
+		return nil, fmt.Errorf("its notes carry no %q list naming where each user action is taken", anchorsMarker)
+	}
+	ops := make(map[string]bool, len(sc.Interface.Operations))
+	for _, op := range sc.Interface.Operations {
+		ops[op.Name] = true
+	}
+	out := map[string][]uiAnchor{}
+	for segment := range strings.SplitSeq(list, ";") {
+		words := strings.Fields(segment)
+		if len(words) == 0 {
+			continue
+		}
+		op := words[0]
+		if !ops[op] {
+			return nil, fmt.Errorf("the anchors list names %q, which is not one of its operations", op)
+		}
+		out[op] = append(out[op], anchorsIn(words[1:])...)
+	}
+	var missing []string
+	for _, op := range sc.Interface.Operations {
+		if len(out[op.Name]) == 0 {
+			missing = append(missing, op.Name)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("the anchors list names no data-testid for operation(s) %s", strings.Join(missing, ", "))
+	}
+	return out, nil
+}
+
+// anchorsIn reads the anchors out of one segment's words: each "NS.KEY", and each "/KEY2"
+// continuing the namespace of the "NS.KEY" it follows within the same word.
+func anchorsIn(words []string) []uiAnchor {
+	var out []uiAnchor
+	for _, word := range words {
+		ns := ""
+		for i, piece := range strings.Split(word, "/") {
+			piece = strings.Trim(piece, "(),.")
+			if m := anchorPattern.FindStringSubmatch(piece); m != nil {
+				ns = m[1]
+				out = append(out, uiAnchor{NS: m[1], Key: m[2]})
+				continue
+			}
+			if i > 0 && ns != "" && keyPattern.MatchString(piece) {
+				out = append(out, uiAnchor{NS: ns, Key: piece})
+			}
+		}
+	}
+	return out
+}
+
+func countAnchors(byOp map[string][]uiAnchor) int {
+	seen := map[uiAnchor]bool{}
+	for _, as := range byOp {
+		for _, a := range as {
+			seen[a] = true
+		}
+	}
+	return len(seen)
+}
+
+// renderedAnchors checks condition 4's two halves for every anchor — declared in the SPA's
+// identifier table, referenced by a non-test source file — and returns the SPA files that
+// reference them (repo-relative, sorted): the first one found per anchor.
+func renderedAnchors(spa fs.FS, byOp map[string][]uiAnchor) ([]string, error) {
+	declared, err := declaredIdentifiers(spa)
+	if err != nil {
+		return nil, err
+	}
+	sources, err := spaSources(spa)
+	if err != nil {
+		return nil, err
+	}
+	var undeclared, unrendered []string
+	files := map[string]bool{}
+	ops := make([]string, 0, len(byOp))
+	for op := range byOp {
+		ops = append(ops, op)
+	}
+	sort.Strings(ops)
+	for _, op := range ops {
+		for _, a := range byOp[op] {
+			if !declared[a] {
+				undeclared = append(undeclared, op+":"+a.String())
+				continue
+			}
+			ref := regexp.MustCompile(`\b` + regexp.QuoteMeta(a.String()) + `\b`)
+			at := slices.IndexFunc(sources, func(s spaSource) bool { return ref.MatchString(s.text) })
+			if at < 0 {
+				unrendered = append(unrendered, op+":"+a.String())
+				continue
+			}
+			files[sources[at].path] = true
+		}
+	}
+	switch {
+	case len(undeclared) > 0:
+		return nil, fmt.Errorf("anchor(s) not declared in %s: %s", path.Join(spaDir, spaIdentifiers), strings.Join(undeclared, ", "))
+	case len(unrendered) > 0:
+		return nil, fmt.Errorf("anchor(s) no source file of the SPA renders: %s", strings.Join(unrendered, ", "))
+	}
+	out := make([]string, 0, len(files))
+	for f := range files {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// declaredIdentifiers reads the namespace → key table out of UIIdentifiers.ts.
+func declaredIdentifiers(spa fs.FS) (map[uiAnchor]bool, error) {
+	raw, err := fs.ReadFile(spa, spaIdentifiers)
+	if err != nil {
+		return nil, err
+	}
+	out := map[uiAnchor]bool{}
+	ns := ""
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if m := identifierNamespace.FindStringSubmatch(line); m != nil {
+			ns = m[1]
+			continue
+		}
+		if strings.HasPrefix(line, "  }") {
+			ns = ""
+			continue
+		}
+		if m := identifierKey.FindStringSubmatch(line); m != nil && ns != "" {
+			out[uiAnchor{NS: ns, Key: m[1]}] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%s declares no identifiers", path.Join(spaDir, spaIdentifiers))
+	}
+	return out, nil
+}
+
+// spaSource is one non-test source file of the SPA: its repo-relative path and its text.
+type spaSource struct{ path, text string }
+
+// spaSources reads every non-test .ts/.tsx file under the SPA's source tree except the
+// identifier table itself (which declares every anchor and renders none), in path order.
+func spaSources(spa fs.FS) ([]spaSource, error) {
+	var out []spaSource
+	err := fs.WalkDir(spa, spaSourceDir, func(file string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if name == "node_modules" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if (!strings.HasSuffix(name, ".ts") && !strings.HasSuffix(name, ".tsx")) ||
+			strings.HasSuffix(name, ".test.ts") || strings.HasSuffix(name, ".test.tsx") ||
+			file == spaIdentifiers {
+			return nil
+		}
+		text, err := fs.ReadFile(spa, file)
+		if err != nil {
+			return err
+		}
+		out = append(out, spaSource{path: path.Join(spaDir, file), text: string(text)})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
+	return out, nil
+}
+
 // evidenceFor points one task's attempt at the artifact that backs it, and at NOTHING
 // when none does. A design task is backed by the slot its own PHASE produced; detailed
 // design and its review were read off the contract; construction and its review off the
@@ -1076,14 +1432,26 @@ func classify(item projectstate.ActivityItem, hasContract bool) (projectstate.Ac
 // An integration-pending verdict (see gateIntegration) gets no attempt at any task of the
 // Integration phase: its dependencies are not all built, so it cannot have been
 // integrated, and those tasks stay unattempted — real work for the pump to record.
+//
+// THE TESTING REVIEW OF A TEST-PLANNED LIFECYCLE IS NEVER BACKFILLED (spec §1 T4). That
+// task passes only on a full green TestRun at the current revision that renders, cited as
+// the pass's evidence (projectstate.QualifiedAttempts); this tool reads code, not runs, so
+// it has none to cite, and a pass it wrote would be one no reader counts. The task stays
+// unattempted: the activity reads integrated with its testing task pending review, and the
+// pump's walk stops at the testing gate, where the recorded run is shown and approved.
 func attemptsFor(v verdict, typ projectstate.ActivityType, variant projectstate.TestingVariant, now time.Time) []projectstate.TaskAttempt {
 	var out []projectstate.TaskAttempt
+	profile := projectstate.ProfileFor(typ, variant)
+	testPlanned := bindsTestPlan(profile)
 	// TasksForProfile emits a profile's lifecycle NODES only: the sub-attempt tasks
 	// (someConstruction, testClient) are not among them, which is the right answer here
 	// for the reason the paragraph above gives — inventing one would assert a pre-design
 	// spike or a test client that may never have existed.
-	for _, task := range projectstate.TasksForProfile(projectstate.ProfileFor(typ, variant)) {
+	for _, task := range projectstate.TasksForProfile(profile) {
 		if v.IntegrationPending != "" && projectstate.PhaseForTask(task) == projectstate.MethodPhaseIntegration {
+			continue
+		}
+		if testPlanned && task == projectstate.TaskTesting {
 			continue
 		}
 		stamp := now
@@ -1104,6 +1472,14 @@ func attemptsFor(v verdict, typ projectstate.ActivityType, variant projectstate.
 		})
 	}
 	return out
+}
+
+// bindsTestPlan reports whether a lifecycle profile carries the test-plan phase — whether
+// its `testing` review judges a scenario run (spec §1 T4).
+func bindsTestPlan(profile projectstate.Profile) bool {
+	return slices.ContainsFunc(profile.Phases, func(p projectstate.ProfilePhase) bool {
+		return p.Phase == projectstate.MethodPhaseTestPlan
+	})
 }
 
 // validateAttempts enforces the two invariants every attempt must satisfy before
@@ -1156,7 +1532,10 @@ func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, 
 		if !v.Qualifies {
 			continue
 		}
-		typ, variant, err := classify(items[v.ActivityID], v.ContractRef != "")
+		// A client app cites its contract for the detailed-design evidence, but it is a
+		// client app: the contract must not type it a service (ClassifyType ranks a contract
+		// above every other signal).
+		typ, variant, err := classify(items[v.ActivityID], v.ContractRef != "" && !v.ClientApp)
 		if err != nil {
 			return 0, err
 		}
@@ -1218,6 +1597,75 @@ func deQualified(rows map[string]projectstate.ActivityExecution, verdicts []verd
 // escape re-examination as not ours (or the reverse).
 func ownBackfill(a projectstate.TaskAttempt) bool {
 	return a.Provenance.Origin == projectstate.OriginBackfilled && a.Provenance.Generator == generatorID
+}
+
+// apply is the whole edit one run makes to .activityExecution: the verdicts backfilled,
+// then the rows the plan re-derived under a new id retired. It returns the attempts written
+// and the ids retired; on a refusal p is left as the failing step left it, and the caller
+// (rewrite) writes nothing.
+func apply(p *projectstate.Project, verdicts []verdict, now time.Time) (int, []string, error) {
+	total, err := backfill(p, verdicts, now)
+	if err != nil {
+		return 0, nil, err
+	}
+	retired, err := retireOrphans(p)
+	if err != nil {
+		return 0, nil, err
+	}
+	return total, retired, nil
+}
+
+// retireOrphans deletes the rows this tool backfilled for COMPONENT activities the committed
+// plan no longer holds, and returns their ids in order.
+//
+// THE DEFECT IT CLOSES. Activity ids are derived from component ids (C-<component>,
+// U-SPA-<client>), so when the architecture renamed or merged a component — the design →
+// delivery Manager unification turned C-construction-manager, C-project-design-manager and
+// C-system-design-manager into C-delivery-manager — the plan re-derived the id and the row
+// stayed under the old one. Nothing reads a row the plan does not list, so the new id read
+// not started however built its component was, and the old row sat on as a record of an
+// activity that no longer exists. This tool now backfills the new id off the code, and the
+// old row is the same evidence filed under a name the plan retired: it goes.
+//
+// A row is retired only when ALL of these hold, so nothing a human or a pump wrote is lost:
+//   - the committed plan has no activity with its id;
+//   - it is a component activity's row, typed service or frontend (the two lifecycles a
+//     component's activity runs). A componentless activity's row is not re-derived anywhere
+//     and is left for its own ruling — N-STP's clearing is D10's, after the deploy;
+//   - it holds at least one attempt, every attempt is this generator's own backfill, and it
+//     carries no review round, no operator note and no head fact a pump wrote.
+func retireOrphans(p *projectstate.Project) ([]string, error) {
+	list, _, err := planOf(*p)
+	if err != nil {
+		return nil, err
+	}
+	planned := make(map[string]bool, len(list.Activities))
+	for _, a := range list.Activities {
+		planned[a.Name] = true
+	}
+	var retired []string
+	for id, row := range p.ActivityExecution {
+		if planned[id] || !retirable(row) {
+			continue
+		}
+		retired = append(retired, id)
+	}
+	sort.Strings(retired)
+	for _, id := range retired {
+		delete(p.ActivityExecution, id)
+	}
+	return retired, nil
+}
+
+// retirable is retireOrphans' row test: a component activity's row holding nothing but this
+// generator's own backfill.
+func retirable(row projectstate.ActivityExecution) bool {
+	if row.Type != projectstate.ActivityTypeService && row.Type != projectstate.ActivityTypeFrontend {
+		return false
+	}
+	return len(row.Attempts) > 0 && !slices.ContainsFunc(row.Attempts, func(a projectstate.TaskAttempt) bool { return !ownBackfill(a) }) &&
+		len(row.Reviews) == 0 && len(row.OperatorNotes) == 0 &&
+		row.StartedAt == nil && row.CompletedAt == nil && row.FailureReason == projectstate.FailureReasonUnknown
 }
 
 // rowFor returns the row a qualifying activity's attempts go into, and the attempts to
@@ -1658,7 +2106,7 @@ func run(repo string, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	verdicts, err := evaluate(inputs{Project: p, ServerRoot: filepath.Join(repo, serverDir), Head: head})
+	verdicts, err := evaluate(inputs{Project: p, ServerRoot: filepath.Join(repo, serverDir), SPARoot: filepath.Join(repo, spaDir), Head: head})
 	if err != nil {
 		return err
 	}
@@ -1667,15 +2115,16 @@ func run(repo string, dryRun bool) error {
 	}
 	now := time.Now().UTC()
 	total := 0
+	var retired []string
 	out, err := rewrite(raw, func(p *projectstate.Project) error {
-		n, err := backfill(p, verdicts, now)
-		total = n
+		var err error
+		total, retired, err = apply(p, verdicts, now)
 		return err
 	})
 	if err != nil {
 		return err
 	}
-	printReport(verdicts, total, head, dryRun)
+	printReport(verdicts, retired, total, head, dryRun)
 	if dryRun {
 		return nil
 	}
@@ -1690,7 +2139,7 @@ func run(repo string, dryRun bool) error {
 	return nil
 }
 
-func printReport(verdicts []verdict, total int, head string, dryRun bool) {
+func printReport(verdicts []verdict, retired []string, total int, head string, dryRun bool) {
 	mode := "write"
 	if dryRun {
 		mode = "dry-run"
@@ -1712,7 +2161,11 @@ func printReport(verdicts []verdict, total int, head string, dryRun bool) {
 			fmt.Printf("  %-32s %s\n", v.ActivityID, v.Reason)
 		}
 	}
-	fmt.Printf("\n  %d of %d activities qualify (%d of them integration pending), %d attempts total\n", qualifying, len(verdicts), pending, total)
+	fmt.Println("\nRETIRED (backfilled under an id the plan no longer holds)")
+	for _, id := range retired {
+		fmt.Printf("  %s\n", id)
+	}
+	fmt.Printf("\n  %d of %d activities qualify (%d of them integration pending), %d attempts total, %d rows retired\n", qualifying, len(verdicts), pending, total, len(retired))
 }
 
 func main() {

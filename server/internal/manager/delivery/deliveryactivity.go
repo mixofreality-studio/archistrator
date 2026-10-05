@@ -3100,6 +3100,32 @@ func (wf *csWorkflows) awaitTaskDecision(
 	}
 }
 
+// testingGateRefusesApprove is a human approve's check at a scenario testing gate: a human
+// cannot approve a testing gate over a run that does not qualify (spec §1 T4; §6.5: the round
+// "cannot passRound unless" the run holds up, whoever decides it). Resolving the gate's system
+// comment used to make the approve an override on the record; T4 forbids that override. So
+// the run is judged again at the approve — the venue may have recorded a new one since the
+// hold — and while it still does not qualify the approve is refused: the hold lands again on
+// the round (a fresh system comment naming why, which is how the reviewer learns the approve
+// did not pass) and the gate keeps awaiting. When it qualifies, the judged run is what the
+// pass cites (testingGateHeld records it on the gate). Every other gate is never refused here.
+func (wf *csWorkflows) testingGateRefusesApprove(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, t methodassets.LifecycleTask,
+	ws *walkState, state *constructState, gate *gateLedger,
+) (bool, error) {
+	if !scenarioTestingGate(lc, t) || workflow.GetVersion(ctx, changeTestingPassCitesRun, workflow.DefaultVersion, 1) < 1 {
+		return false, nil
+	}
+	held, err := wf.testingGateHeld(ctx, in, lc, t, ws, state, gate)
+	if err != nil || !held {
+		return false, err
+	}
+	workflow.GetLogger(ctx).Warn("delivery.gate.approveRefusedOnTestingGate",
+		"activityId", in.ActivityID, "taskId", t.ID, "roundId", gate.roundID,
+		"consequence", "the testing task passes only on a qualifying test run; the gate keeps awaiting")
+	return true, nil
+}
+
 // routedPayloadPresent reports whether a routed signal carries the payload its Kind names.
 // The four kinds each have exactly one pointer, and an unknown kind carries none — which is
 // also "not present", because a message this build cannot interpret must be dropped rather
@@ -3202,6 +3228,9 @@ func (wf *csWorkflows) decideTaskGate(
 			workflow.GetLogger(ctx).Warn("delivery.gate.approveRefusedOnOpenComments",
 				"activityId", in.ActivityID, "taskId", t.ID, "open", len(open))
 			return walkTaskFailed, false, nil
+		}
+		if refused, err := wf.testingGateRefusesApprove(ctx, in, lc, t, ws, state, gate); err != nil || refused {
+			return walkTaskFailed, err != nil, err
 		}
 		state.leaveHumanStage(ctx, t.ID, activityType, gateOutcomeApproved)
 		if err := wf.closeGateRound(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
@@ -3442,10 +3471,19 @@ func (wf *csWorkflows) seedWalkFromLedger(
 		return resumed
 	}
 	row := proj.ActivityExecution[string(in.ActivityID)]
+	// T4 (spec §1): an uncited testing pass does not seed the testing task passed, so a walk
+	// over a ledger that carries one — the backfill's, an override written before the rule —
+	// stops at the testing gate and judges the run there. The numbering below still counts
+	// the dropped attempt, so the gate's next attempt does not collide with it.
+	seeded := row
+	if lifecycleBindsTestPlan(lc) && workflow.GetVersion(ctx, changeTestingPassCitesRun, workflow.DefaultVersion, 1) >= 1 {
+		seeded.Attempts = projectstate.QualifiedAttempts(true, row.Attempts)
+	}
 	ws := newWalkState(lc)
 	ws.rec = wf.Deliveries
 	for _, t := range lc.Tasks {
-		latest, n := latestTaskOutcome(row, projectstate.MethodTask(t.ID))
+		latest, _ := latestTaskOutcome(seeded, projectstate.MethodTask(t.ID))
+		_, n := latestTaskOutcome(row, projectstate.MethodTask(t.ID))
 		if latest == projectstate.OutcomePassed || committedArtifactOfTask(proj, lc, t) {
 			ws.byTask[t.ID] = walkTaskPassed
 		}
@@ -5404,6 +5442,11 @@ func (wf *csWorkflows) passGateAttempt(
 		return nil
 	}
 	kind, ref := gateEvidence(gate.subject)
+	if gate.testRunID != "" {
+		// A scenario testing gate's pass cites the run it judged (spec §1 T4): the store
+		// refuses a testing pass without it, and no reader counts one.
+		kind, ref = projectstate.EvidenceTestRun, gate.testRunID
+	}
 	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
 		AttemptID:    projectstate.AttemptID(string(in.ActivityID), gate.task, gate.number),
 		TaskID:       gate.task,
@@ -5910,6 +5953,12 @@ func (wf *csWorkflows) applyRecovering(
 // row whose presence says this lifecycle's `testing` review judges a scenario run.
 const artifactKindSTP = "STP"
 
+// changeTestingPassCitesRun fences the two command-visible halves of T4 (spec §1) in the
+// walk: the ledger seed no longer seeds an uncited testing pass passed, and a human approve
+// at a scenario testing gate re-judges the run and is refused while the gate holds. A
+// history recorded before either keeps its old commands.
+const changeTestingPassCitesRun = "testing-pass-cites-run"
+
 // scenarioTestingGate reads the DATA and nothing else: the `testing` review of a lifecycle
 // that carries a test-plan task. Those are the service and frontend lifecycles — the ones
 // whose testing exit criterion is "a test run at the current revision covers every
@@ -5920,8 +5969,24 @@ func scenarioTestingGate(lc methodassets.Lifecycle, t methodassets.LifecycleTask
 	if t.Kind != methodassets.LifecycleTaskReview || t.ID != string(projectstate.TaskTesting) {
 		return false
 	}
+	return lifecycleBindsTestPlan(lc)
+}
+
+// lifecycleBindsTestPlan reports whether a lifecycle carries a test-plan task — whether its
+// `testing` review judges a scenario run, and so passes only on a cited, qualifying TestRun
+// (spec §1 T4; projectstate.QualifiedAttempts).
+func lifecycleBindsTestPlan(lc methodassets.Lifecycle) bool {
 	return slices.ContainsFunc(lc.Tasks, func(row methodassets.LifecycleTask) bool {
 		return row.ArtifactKind == artifactKindSTP
+	})
+}
+
+// testingPassCitesRun reports whether the ledger holds a `testing` pass that cites the
+// TestRun its gate judged — the only pass T4 lets the testing task read passed on.
+func testingPassCitesRun(attempts []projectstate.TaskAttempt) bool {
+	return slices.ContainsFunc(attempts, func(a projectstate.TaskAttempt) bool {
+		return a.Task == projectstate.TaskTesting && a.Outcome == projectstate.OutcomePassed &&
+			a.Evidence.Kind == projectstate.EvidenceTestRun && a.Evidence.Ref != ""
 	})
 }
 
@@ -6111,8 +6176,12 @@ func (wf *csWorkflows) testingGateHeld(
 	}
 	reason := testingGateHold(ev, judgedSubject(ws, t).AttemptID)
 	if reason == "" {
+		// Not held means a run was found and every §6.5 rule holds for it: it is the run the
+		// pass will cite (passGateAttempt).
+		gate.testRunID = ev.Run.Run.Id
 		return false, nil
 	}
+	gate.testRunID = ""
 	if err := wf.holdTestingGate(ctx, in, t, state, gate, ev, reason); err != nil {
 		return false, err
 	}
