@@ -6049,7 +6049,7 @@
                   {
                     "id": "record-exit",
                     "kind": "action",
-                    "label": "Record binary exit; recompute earned value and projection",
+                    "label": "Record the binary exit; the LifecyclePhase is earned, never asserted",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -6060,6 +6060,13 @@
                     "roleName": "",
                     "linkedActorId": null,
                     "inState": "[exited: LifecyclePhase earned]"
+                  },
+                  {
+                    "id": "recompute-ev",
+                    "kind": "action",
+                    "label": "Recompute earned value and the projection from the recorded exits",
+                    "roleName": "",
+                    "linkedActorId": null
                   },
                   {
                     "id": "earned-value-recomputed",
@@ -6298,6 +6305,12 @@
                   },
                   {
                     "from": "activity-exit-recorded",
+                    "to": "recompute-ev",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "recompute-ev",
                     "to": "earned-value-recomputed",
                     "kind": "controlFlow",
                     "guard": ""
@@ -10108,7 +10121,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "SetReviewCommentStatus(projectId, activityId, roundId, commentId, answered) — per-question responses recorded in place in the review thread"
+                    "label": "AppendReviewVerdict(projectId, activityId, roundId, {reviewerRole: addressee, abstain}, no comments, replies) — each per-question response is an agent-authored reply on its question; the question then reads answered (derived from the reply, never set by a status verb)"
                   }
                 ]
               },
@@ -10990,12 +11003,6 @@
                   },
                   {
                     "from": "delivery-manager",
-                    "to": "estimation-engine",
-                    "mode": "sync",
-                    "label": "ComputeEarnedValue(exits, committedNetwork) → the earned-value point and the projection"
-                  },
-                  {
-                    "from": "delivery-manager",
                     "to": "operation-estimation-engine",
                     "mode": "sync",
                     "label": "EstimateOperatingCost(option) → the operating-cost headline of the projectDesign activity's M0 gate (§6)"
@@ -11005,6 +11012,17 @@
                     "to": "project-state-access",
                     "mode": "sync",
                     "label": "RecordActivityOutcome(projectId, activityId, completed|skipped|takenOver, failureReason, detail) — the binary exit is stamped on the row; the LifecyclePhase is earned, never asserted"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "recompute-ev",
+                "calls": [
+                  {
+                    "from": "delivery-manager",
+                    "to": "estimation-engine",
+                    "mode": "sync",
+                    "label": "ComputeEarnedValue(exits, committedNetwork) → the earned-value point and the projection, recomputed AFTER the exit is recorded so it counts it"
                   }
                 ]
               }
@@ -39441,7 +39459,7 @@
                   },
                   {
                     "name": "model",
-                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
+                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\",\"classification\":\"nonCore\",\"variationOf\":\"view-the-project-state-log\",\"activity\":{\"nodes\":[{\"id\":\"start\",\"kind\":\"start\",\"label\":\"\"},{\"id\":\"export-audit-trail\",\"kind\":\"action\",\"label\":\"Download every state commit with its operation name as one archive\",\"roleName\":\"Architect User\",\"linkedActorId\":\"architect-user\"},{\"id\":\"end\",\"kind\":\"end\",\"label\":\"\"}],\"edges\":[{\"from\":\"start\",\"to\":\"export-audit-trail\",\"kind\":\"controlFlow\",\"guard\":\"\"},{\"from\":\"export-audit-trail\",\"to\":\"end\",\"kind\":\"controlFlow\",\"guard\":\"\"}]}},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
                   },
                   {
                     "name": "cred",
@@ -39514,7 +39532,7 @@
                   },
                   {
                     "name": "model",
-                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
+                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\",\"classification\":\"nonCore\",\"variationOf\":\"view-the-project-state-log\",\"activity\":{\"nodes\":[{\"id\":\"start\",\"kind\":\"start\",\"label\":\"\"},{\"id\":\"export-audit-trail\",\"kind\":\"action\",\"label\":\"Download every state commit with its operation name as one archive\",\"roleName\":\"Architect User\",\"linkedActorId\":\"architect-user\"},{\"id\":\"end\",\"kind\":\"end\",\"label\":\"\"}],\"edges\":[{\"from\":\"start\",\"to\":\"export-audit-trail\",\"kind\":\"controlFlow\",\"guard\":\"\"},{\"from\":\"export-audit-trail\",\"to\":\"end\",\"kind\":\"controlFlow\",\"guard\":\"\"}]}},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
                   },
                   {
                     "name": "cred",
@@ -39587,7 +39605,7 @@
                   },
                   {
                     "name": "model",
-                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
+                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\",\"classification\":\"nonCore\",\"variationOf\":\"view-the-project-state-log\",\"activity\":{\"nodes\":[{\"id\":\"start\",\"kind\":\"start\",\"label\":\"\"},{\"id\":\"export-audit-trail\",\"kind\":\"action\",\"label\":\"Download every state commit with its operation name as one archive\",\"roleName\":\"Architect User\",\"linkedActorId\":\"architect-user\"},{\"id\":\"end\",\"kind\":\"end\",\"label\":\"\"}],\"edges\":[{\"from\":\"start\",\"to\":\"export-audit-trail\",\"kind\":\"controlFlow\",\"guard\":\"\"},{\"from\":\"export-audit-trail\",\"to\":\"end\",\"kind\":\"controlFlow\",\"guard\":\"\"}]}},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
                   },
                   {
                     "name": "cred",
@@ -39660,7 +39678,7 @@
                   },
                   {
                     "name": "model",
-                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
+                    "value": "{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\",\"classification\":\"nonCore\",\"variationOf\":\"view-the-project-state-log\",\"activity\":{\"nodes\":[{\"id\":\"start\",\"kind\":\"start\",\"label\":\"\"},{\"id\":\"export-audit-trail\",\"kind\":\"action\",\"label\":\"Download every state commit with its operation name as one archive\",\"roleName\":\"Architect User\",\"linkedActorId\":\"architect-user\"},{\"id\":\"end\",\"kind\":\"end\",\"label\":\"\"}],\"edges\":[{\"from\":\"start\",\"to\":\"export-audit-trail\",\"kind\":\"controlFlow\",\"guard\":\"\"},{\"from\":\"export-audit-trail\",\"to\":\"end\",\"kind\":\"controlFlow\",\"guard\":\"\"}]}},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}"
                   },
                   {
                     "name": "cred",
@@ -39767,7 +39785,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\"}]}]}",
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}",
                       "errorExpected": false
                     }
                   }
@@ -39776,7 +39794,7 @@
               },
               {
                 "seq": 2,
-                "operation": "SetReviewCommentStatus",
+                "operation": "AppendReviewVerdict",
                 "inputs": [
                   {
                     "name": "projectID",
@@ -39784,7 +39802,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -39799,12 +39817,16 @@
                     "value": "D-REQ:missionReview:mission:1"
                   },
                   {
-                    "name": "commentID",
-                    "value": "q-1"
+                    "name": "verdict",
+                    "value": "{\"reviewerRole\":\"architect\",\"actor\":\"agent\",\"verdict\":\"abstain\",\"summary\":\"Answers to the reviewer's questions.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
                   },
                   {
-                    "name": "status",
-                    "value": "answered"
+                    "name": "comments",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[{\"commentId\":\"r1c1\",\"authorRole\":\"architect\",\"text\":\"Yes: operating the system includes billing the customer for it.\",\"at\":\"\"}]"
                   },
                   {
                     "name": "cred",
@@ -39834,7 +39856,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"answered\"}]}]}",
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"answered\"}]}]}",
                       "errorExpected": false
                     }
                   }
@@ -39910,7 +39932,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\"}]}]}",
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}",
                       "errorExpected": false
                     }
                   }
@@ -39924,7 +39946,7 @@
             "steps": [
               {
                 "seq": 1,
-                "operation": "SetReviewCommentStatus",
+                "operation": "AppendReviewVerdict",
                 "inputs": [
                   {
                     "name": "projectID",
@@ -39947,12 +39969,16 @@
                     "value": "D-REQ:missionReview:mission:1"
                   },
                   {
-                    "name": "commentID",
-                    "value": "q-1"
+                    "name": "verdict",
+                    "value": "{\"reviewerRole\":\"architect\",\"actor\":\"agent\",\"verdict\":\"abstain\",\"summary\":\"Answers to the reviewer's questions.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
                   },
                   {
-                    "name": "status",
-                    "value": "answered"
+                    "name": "comments",
+                    "value": "[]"
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[{\"commentId\":\"r1c1\",\"authorRole\":\"architect\",\"text\":\"Yes: operating the system includes billing the customer for it.\",\"at\":\"\"}]"
                   },
                   {
                     "name": "cred",
@@ -39982,7 +40008,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"answered\"}]}]}",
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"answered\"}]}]}",
                       "errorExpected": false
                     }
                   }
@@ -40090,7 +40116,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40137,7 +40163,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40234,7 +40260,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "2"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40268,7 +40294,28 @@
                 "expect": {
                   "errorExpected": false
                 },
-                "hook": false
+                "hook": false,
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p1"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"version\":3}",
+                      "errorExpected": false
+                    }
+                  }
+                ]
               }
             ]
           },
@@ -40371,7 +40418,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40418,7 +40465,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40515,7 +40562,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "2"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40578,7 +40625,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "3"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40612,7 +40659,28 @@
                 "expect": {
                   "errorExpected": false
                 },
-                "hook": false
+                "hook": false,
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p2"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"version\":4}",
+                      "errorExpected": false
+                    }
+                  }
+                ]
               }
             ]
           },
@@ -40715,7 +40783,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40774,7 +40842,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "2"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40845,7 +40913,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "3"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40912,7 +40980,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "4"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -40946,7 +41014,28 @@
                 "expect": {
                   "errorExpected": false
                 },
-                "hook": false
+                "hook": false,
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p3"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"version\":5}",
+                      "errorExpected": false
+                    }
+                  }
+                ]
               }
             ]
           },
@@ -41049,7 +41138,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41108,7 +41197,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "2"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41179,7 +41268,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "3"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41246,7 +41335,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "4"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41280,7 +41369,28 @@
                 "expect": {
                   "errorExpected": false
                 },
-                "hook": false
+                "hook": false,
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p4"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"version\":5}",
+                      "errorExpected": false
+                    }
+                  }
+                ]
               }
             ]
           },
@@ -41383,7 +41493,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41430,7 +41540,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41527,7 +41637,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "2"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41574,7 +41684,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "2"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41671,7 +41781,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "3"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41705,7 +41815,28 @@
                 "expect": {
                   "errorExpected": false
                 },
-                "hook": false
+                "hook": false,
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p5"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"version\":4}",
+                      "errorExpected": false
+                    }
+                  }
+                ]
               }
             ]
           },
@@ -41808,7 +41939,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41855,7 +41986,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -41952,7 +42083,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "2"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -42015,7 +42146,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "3"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -42078,7 +42209,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "4"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -42112,7 +42243,28 @@
                 "expect": {
                   "errorExpected": false
                 },
-                "hook": false
+                "hook": false,
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p6"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"version\":5}",
+                      "errorExpected": false
+                    }
+                  }
+                ]
               }
             ]
           },
@@ -42215,7 +42367,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -42274,7 +42426,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "2"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -42345,7 +42497,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "3"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -42431,7 +42583,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "4"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -42478,7 +42630,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "4"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -42575,7 +42727,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "5"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -42609,7 +42761,28 @@
                 "expect": {
                   "errorExpected": false
                 },
-                "hook": false
+                "hook": false,
+                "probes": [
+                  {
+                    "for": "activity-exit-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-epa-p7"
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"version\":6}",
+                      "errorExpected": false
+                    }
+                  }
+                ]
               }
             ]
           },
@@ -43013,7 +43186,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "3"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -43226,7 +43399,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"cr-1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}",
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}",
                       "errorExpected": false
                     }
                   }
@@ -43314,7 +43487,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -43330,7 +43503,7 @@
                   },
                   {
                     "name": "commentID",
-                    "value": "cr-1"
+                    "value": "r1c1"
                   },
                   {
                     "name": "status",
@@ -43364,7 +43537,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"cr-1\",\"type\":\"changeRequest\",\"status\":\"resolved\"}]}]}",
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"resolved\"}]}]}",
                       "errorExpected": false
                     }
                   }
@@ -43440,7 +43613,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"cr-1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}",
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}",
                       "errorExpected": false
                     }
                   }
@@ -43528,7 +43701,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -43544,7 +43717,7 @@
                   },
                   {
                     "name": "verdict",
-                    "value": "{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"sendBack\",\"summary\":\"Change requests attached.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"
+                    "value": "{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"sendBack\",\"summary\":\"Still no measurable outcome.\",\"attemptId\":\"D-REQ:missionDraft:2\",\"at\":\"\"}"
                   },
                   {
                     "name": "comments",
@@ -43552,7 +43725,7 @@
                   },
                   {
                     "name": "replies",
-                    "value": "[{\"commentId\":\"cr-1\",\"authorRole\":\"architect\",\"text\":\"Still no measurable outcome.\",\"at\":\"\"}]"
+                    "value": "[{\"commentId\":\"r1c1\",\"authorRole\":\"architect-user\",\"text\":\"Still no measurable outcome.\",\"at\":\"\"}]"
                   },
                   {
                     "name": "cred",
@@ -43582,7 +43755,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"},{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"cr-1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}",
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"},{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}",
                       "errorExpected": false
                     }
                   }
@@ -43599,7 +43772,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "1"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -43670,7 +43843,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "0"
+                    "value": "2"
                   },
                   {
                     "name": "expectedActivityVersion",
@@ -43686,7 +43859,7 @@
                   },
                   {
                     "name": "commentID",
-                    "value": "cr-1"
+                    "value": "r1c1"
                   },
                   {
                     "name": "status",
@@ -43720,7 +43893,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"cr-1\",\"type\":\"changeRequest\",\"status\":\"resolved\"}]}]}",
+                      "result": "{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"resolved\"}]}]}",
                       "errorExpected": false
                     }
                   }
@@ -52832,7 +53005,39 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": [],
+                "probes": [
+                  {
+                    "for": "earned-value-recomputed",
+                    "component": "estimationEngine",
+                    "operation": "ComputeEarnedValue",
+                    "inputs": [
+                      {
+                        "name": "activities",
+                        "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}"
+                      },
+                      {
+                        "name": "network",
+                        "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}"
+                      },
+                      {
+                        "name": "integrated",
+                        "value": "[\"C-orders-access\"]"
+                      },
+                      {
+                        "name": "totalWeeks",
+                        "value": "1"
+                      },
+                      {
+                        "name": "calendarDaysPerWeek",
+                        "value": "5"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"spi\":0.75}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
                 "unobservable": [],
                 "hook": false
               }
@@ -52876,7 +53081,39 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": [],
+                "probes": [
+                  {
+                    "for": "earned-value-recomputed",
+                    "component": "estimationEngine",
+                    "operation": "ComputeEarnedValue",
+                    "inputs": [
+                      {
+                        "name": "activities",
+                        "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}"
+                      },
+                      {
+                        "name": "network",
+                        "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}"
+                      },
+                      {
+                        "name": "integrated",
+                        "value": "[\"C-orders-access\",\"C-orders-manager\"]"
+                      },
+                      {
+                        "name": "totalWeeks",
+                        "value": "1"
+                      },
+                      {
+                        "name": "calendarDaysPerWeek",
+                        "value": "5"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"spi\":1}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
                 "unobservable": [],
                 "hook": false
               }
@@ -52920,7 +53157,39 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": [],
+                "probes": [
+                  {
+                    "for": "earned-value-recomputed",
+                    "component": "estimationEngine",
+                    "operation": "ComputeEarnedValue",
+                    "inputs": [
+                      {
+                        "name": "activities",
+                        "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}"
+                      },
+                      {
+                        "name": "network",
+                        "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}"
+                      },
+                      {
+                        "name": "integrated",
+                        "value": "[\"C-orders-access\"]"
+                      },
+                      {
+                        "name": "totalWeeks",
+                        "value": "1"
+                      },
+                      {
+                        "name": "calendarDaysPerWeek",
+                        "value": "5"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"spi\":0.75}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
                 "unobservable": [],
                 "hook": false
               }
@@ -52964,7 +53233,39 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": [],
+                "probes": [
+                  {
+                    "for": "earned-value-recomputed",
+                    "component": "estimationEngine",
+                    "operation": "ComputeEarnedValue",
+                    "inputs": [
+                      {
+                        "name": "activities",
+                        "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}"
+                      },
+                      {
+                        "name": "network",
+                        "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}"
+                      },
+                      {
+                        "name": "integrated",
+                        "value": "[\"C-orders-access\",\"C-orders-manager\"]"
+                      },
+                      {
+                        "name": "totalWeeks",
+                        "value": "1"
+                      },
+                      {
+                        "name": "calendarDaysPerWeek",
+                        "value": "5"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"spi\":1}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
                 "unobservable": [],
                 "hook": false
               }
@@ -53008,7 +53309,39 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": [],
+                "probes": [
+                  {
+                    "for": "earned-value-recomputed",
+                    "component": "estimationEngine",
+                    "operation": "ComputeEarnedValue",
+                    "inputs": [
+                      {
+                        "name": "activities",
+                        "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}"
+                      },
+                      {
+                        "name": "network",
+                        "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}"
+                      },
+                      {
+                        "name": "integrated",
+                        "value": "[\"C-orders-access\"]"
+                      },
+                      {
+                        "name": "totalWeeks",
+                        "value": "1"
+                      },
+                      {
+                        "name": "calendarDaysPerWeek",
+                        "value": "5"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"spi\":0.75}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
                 "unobservable": [],
                 "hook": false
               }
@@ -53052,7 +53385,39 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": [],
+                "probes": [
+                  {
+                    "for": "earned-value-recomputed",
+                    "component": "estimationEngine",
+                    "operation": "ComputeEarnedValue",
+                    "inputs": [
+                      {
+                        "name": "activities",
+                        "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}"
+                      },
+                      {
+                        "name": "network",
+                        "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}"
+                      },
+                      {
+                        "name": "integrated",
+                        "value": "[\"C-orders-access\",\"C-orders-manager\"]"
+                      },
+                      {
+                        "name": "totalWeeks",
+                        "value": "1"
+                      },
+                      {
+                        "name": "calendarDaysPerWeek",
+                        "value": "5"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"spi\":1}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
                 "unobservable": [],
                 "hook": false
               }
@@ -53096,7 +53461,39 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": [],
+                "probes": [
+                  {
+                    "for": "earned-value-recomputed",
+                    "component": "estimationEngine",
+                    "operation": "ComputeEarnedValue",
+                    "inputs": [
+                      {
+                        "name": "activities",
+                        "value": "{\"activities\":[{\"name\":\"C-orders-access\",\"effortDays\":3},{\"name\":\"C-orders-manager\",\"effortDays\":1}]}"
+                      },
+                      {
+                        "name": "network",
+                        "value": "{\"dependencies\":[{\"activity\":\"C-orders-access\",\"dependsOn\":[]},{\"activity\":\"C-orders-manager\",\"dependsOn\":[\"C-orders-access\"]}],\"milestones\":null}"
+                      },
+                      {
+                        "name": "integrated",
+                        "value": "[\"C-orders-access\"]"
+                      },
+                      {
+                        "name": "totalWeeks",
+                        "value": "1"
+                      },
+                      {
+                        "name": "calendarDaysPerWeek",
+                        "value": "5"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"spi\":0.75}",
+                      "errorExpected": false
+                    }
+                  }
+                ],
                 "unobservable": [],
                 "hook": false
               }
@@ -62463,7 +62860,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"reviewed — unaffected\"}]}}",
+                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"Reviewed — unaffected: reviewed — unaffected\"}]}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -62562,7 +62959,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"reviewed — unaffected\"}]}}",
+                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"Reviewed — unaffected: reviewed — unaffected\"}]}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -62717,7 +63114,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"reviewed — unaffected\"}]}}",
+                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"Reviewed — unaffected: reviewed — unaffected\"}]}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -62835,7 +63232,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"reviewed — unaffected\"}]}}",
+                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"Reviewed — unaffected: reviewed — unaffected\"}]}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -63477,7 +63874,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"reviews\":[{\"roundId\":\"P-SDP:sdpReview:sdpReview:1\",\"outcome\":\"sentBack\",\"thread\":[{\"id\":\"fb-1\",\"text\":\"Reject all options: the compressed option exceeds the build-cost ceiling.\"}]}]}",
+                      "result": "{\"reviews\":[{\"roundId\":\"P-SDP:sdpReview:sdpReview:1\",\"outcome\":\"sentBack\",\"thread\":[{\"id\":\"r1c1\",\"text\":\"Reject all options: the compressed option exceeds the build-cost ceiling.\"}]}]}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
