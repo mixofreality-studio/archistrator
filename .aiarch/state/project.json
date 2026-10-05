@@ -69001,6 +69001,161 @@
           }
         ],
         "authoredAt": "2026-10-04T00:00:00Z"
+      },
+      "webClientBilling": {
+        "component": "webClientBilling",
+        "bindings": [
+          {
+            "scenario": "onboard-a-new-customer-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenPaymentOnboarding",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-onboard-app-id\",\"value\":\"c1b10000-0000-4000-8000-000000000401\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"billing-onboard-submit\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"billing-onboard-result\"},{\"target\":\"billing-onboard-result\",\"text\":\"Onboarding opened for customer c1b10000-0000-4000-8000-000000000401.\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "onboard-a-new-customer-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenPaymentOnboarding",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-onboard-app-id\",\"value\":\"c1b10000-0000-4000-8000-000000000402\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"billing-onboard-submit\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"billing-onboard-result\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RegisterPaymentInstrument",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-register-customer-id\",\"value\":\"c1b10000-0000-4000-8000-000000000402\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"billing-register-submit\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"billing-register-result\"},{\"target\":\"billing-register-result\",\"text\":\"Customer registered c1b10000-0000-4000-8000-000000000402.\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-a-billing-cycle-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenBillingCycle",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-customer-id\",\"value\":\"c1b10000-0000-4000-8000-000000000501\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-cycle-id\",\"value\":\"2026-09\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"billing-cycle-lookup-submit\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"billing-cycle-result\"},{\"target\":\"billing-cycle-outcome\",\"text\":\"OPEN\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-a-billing-cycle-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenBillingCycle",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-customer-id\",\"value\":\"c1b10000-0000-4000-8000-000000000502\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-cycle-id\",\"value\":\"2026-09\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"billing-cycle-lookup-submit\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"billing-cycle-result\"},{\"target\":\"billing-cycle-outcome\",\"text\":\"CHARGED\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
       }
     }
   },
