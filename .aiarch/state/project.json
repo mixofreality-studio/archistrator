@@ -70167,6 +70167,253 @@
             ]
           }
         ]
+      },
+      "webClientProjects": {
+        "component": "webClientProjects",
+        "bindings": [
+          {
+            "scenario": "manage-projects-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CreateProject",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"new-project-button\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"new-project-name-input\",\"value\":\"dct-manage-projects-p1\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operating-model-selfOperated\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"create-project-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"home-base-screen\"},{\"visible\":\"review-policy-control\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "OpenProject",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"app-shell-brand\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"project-card-dct-manage-projects-p1\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"home-base-screen\"},{\"visible\":\"review-policy-control\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "SetReviewPolicy",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"review-policy-option-checkpoints\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"review-policy-option-checkpoints\"},{\"visible\":\"review-policy-floor-note\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "SubmitResearchInput",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"home-base-open-plan\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-row-requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"research-input-title\",\"value\":\"Founder brief\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"research-input-text\",\"value\":\"Teams lose track of commitments made in meetings; capture each action item with an owner and a due date, and remind the owner before it slips.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"research-input-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-screen\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CreateProject",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"new-project-button\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"new-project-name-input\",\"value\":\"dct-manage-projects-p2\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"operating-model-archistratorOperated\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"create-project-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"home-base-screen\"},{\"visible\":\"review-policy-control\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "OpenProject",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"app-shell-brand\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"project-card-dct-manage-projects-p2\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"home-base-screen\"},{\"visible\":\"review-policy-control\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "SetReviewPolicy",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"review-policy-option-checkpoints\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"review-policy-option-checkpoints\"},{\"visible\":\"review-policy-floor-note\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "SubmitResearchInput",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"home-base-open-plan\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-row-requirements\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"research-input-title\",\"value\":\"Founder brief\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"research-input-text\",\"value\":\"Teams lose track of commitments made in meetings; capture each action item with an owner and a due date, and remind the owner before it slips.\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"research-input-submit\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"activity-screen\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
       }
     }
   },
