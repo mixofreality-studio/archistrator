@@ -151,6 +151,11 @@ const (
 	// family), written by Phase-3 construction jobs, never by a design-slot session. For
 	// any design ambient slot it is therefore always an OTHER-slot finding.
 	attribTesting
+	// attribActivityExecution — the finding is owned by .activityExecution (the REC-*
+	// activity-record family, activityrecords.go): the ledger the delivery Manager and
+	// the construction venue write, never a design-slot session. For any design ambient
+	// slot it is therefore always an OTHER-owner finding.
+	attribActivityExecution
 )
 
 // ruleSlotAttributionPrefixes maps a RuleID prefix to the artifact slot whose own
@@ -183,6 +188,9 @@ var ruleSlotAttributionPrefixes = []struct {
 	{"DEP-", projectstate.KindOperationalConcepts, attribSlot},
 	{"STD-", projectstate.KindStandardCheck, attribSlot},
 	{"STP-", 0, attribTesting},
+	// App-side activity-record rules (activityrecords.go): the activity execution ledger
+	// against the checkout and the recorded runs. Construction-owned, like STP-*.
+	{"REC-", 0, attribActivityExecution},
 	// App-side cross-artifact rules (crossartifact.go). Attribution follows the subject
 	// slot exactly like DEP-*: the PA-RATECARD-* consistency is fixed by a
 	// PlanningAssumptions amendment. The ACT-* System×ActivityList join rules this
@@ -240,6 +248,9 @@ func applySlotScopeDowngrades(ambient projectstate.ArtifactKind, findings []meth
 		case attribTesting:
 			out[i].Severity = methodcheck.SeverityWarning
 			out[i].Message += slotScopeDowngradeNote("testingState")
+		case attribActivityExecution:
+			out[i].Severity = methodcheck.SeverityWarning
+			out[i].Message += slotScopeDowngradeNote("activityExecution")
 		case attribNone:
 			// structural / unknown — full severity.
 		}

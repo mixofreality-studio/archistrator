@@ -209,9 +209,12 @@ sumtype-check:
 # (../.aiarch/state/project.json), so a green run would otherwise cache and a
 # later project.json edit would never re-run. This is the FULL gate — layer
 # rules + design rules + alignment/conformance — and it is CI-enforced (see
-# the "Method conformance gate" step in server-checks.yml).
+# the "Method conformance gate" step in server-checks.yml). It also runs the
+# app-side activity-record rules (REC-*, cmd/aiarch-state-mcp/activityrecords.go,
+# TestMethodActivityRecords): the activity execution ledger against what this
+# checkout has built and the TestRuns it recorded.
 method-check:
-	GOWORK=off go test -tags methoddesign ./internal/... -run TestMethod -count=1 -v
+	GOWORK=off go test -tags methoddesign ./internal/... ./cmd/aiarch-state-mcp/ -run TestMethod -count=1 -v
 
 # ENCAPSULATION GATE. Enforces that the ONLY exported symbols in the
 # engine/resourceaccess/manager packages are the generated contract surface

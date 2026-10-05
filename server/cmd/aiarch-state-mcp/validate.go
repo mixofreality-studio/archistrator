@@ -105,7 +105,14 @@ func runValidate(args []string, out io.Writer) error {
 	if ferr != nil {
 		return fmt.Errorf("the committed state is not a coherent artifact set: %w", ferr)
 	}
-	findings = applyGateSeverityPolicies(proj, ambient, hasAmbient, findings)
+	// The activity-record rules (activityrecords.go) read the checkout itself — which
+	// components are built here — so they run at this seam, where the root is a
+	// parameter, and go through the same severity policies as every other finding.
+	records, rerr := activityRecordFindings(proj, newCheckout(os.DirFS(*root)), projectstate.ComponentScenarios)
+	if rerr != nil {
+		return fmt.Errorf("the activity records cannot be checked against the checkout: %w", rerr)
+	}
+	findings = applyGateSeverityPolicies(proj, ambient, hasAmbient, append(findings, records...))
 
 	errCount := 0
 	for _, f := range findings {
