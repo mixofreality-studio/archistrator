@@ -4,9 +4,333 @@
 package usage_test
 
 import (
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "usageAccess") }
+
+// inputBillTheUserForUsageP1S1 is step 1's parameters of ReadRange, decoded from the binding's inputs.
+type inputBillTheUserForUsageP1S1 struct {
+	Query usage.UsageRangeQuery `json:"query"`
+}
+
+// TestScenario_bill_the_user_for_usage_P1 — Bill the User for Usage — [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
+func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "usageAccess", "bill-the-user-for-usage-P1", func(t *testing.T) {
+		var subject usage.UsageAccess = newSubject(t, h)
+		// step 1: ReadRange (node read-hosting-usage; guards charge-succeeded=[yes])
+		var in1 inputBillTheUserForUsageP1S1
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001","CycleID":"2026-09","OperatedAppID":null}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepBillTheUserForUsageP1S1(t, h, subject, in1)
+		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0001\",\"Units\":{\"Amount\":12.5,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0002\",\"Units\":{\"Amount\":7.25,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+		// probe 1.1: usageAccess.ReadRange for read-hosting-usage
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Query usage.UsageRangeQuery `json:"query"`
+		}
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001","CycleID":"2026-09","OperatedAppID":null}}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadRange(callContext(t, h, "1.1"), probe1_1.Query)
+		expect(t, "bill-the-user-for-usage-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0001\",\"Units\":{\"Amount\":12.5,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0002\",\"Units\":{\"Amount\":7.25,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+	})
+}
+
+// inputBillTheUserForUsageP2S1 is step 1's parameters of ReadRange, decoded from the binding's inputs.
+type inputBillTheUserForUsageP2S1 struct {
+	Query usage.UsageRangeQuery `json:"query"`
+}
+
+// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] · [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → persistent-decline → note-escalation-is-state → customer-delinquent → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
+func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "usageAccess", "bill-the-user-for-usage-P2", func(t *testing.T) {
+		var subject usage.UsageAccess = newSubject(t, h)
+		// step 1: ReadRange (node read-hosting-usage; guards charge-succeeded=[no], retries-left=[no])
+		var in1 inputBillTheUserForUsageP2S1
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002","CycleID":"2026-09","OperatedAppID":null}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepBillTheUserForUsageP2S1(t, h, subject, in1)
+		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0001\",\"Units\":{\"Amount\":40.0,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0002\",\"Units\":{\"Amount\":3.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+		// probe 1.1: usageAccess.ReadRange for read-hosting-usage
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Query usage.UsageRangeQuery `json:"query"`
+		}
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002","CycleID":"2026-09","OperatedAppID":null}}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadRange(callContext(t, h, "1.1"), probe1_1.Query)
+		expect(t, "bill-the-user-for-usage-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0001\",\"Units\":{\"Amount\":40.0,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0002\",\"Units\":{\"Amount\":3.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+	})
+}
+
+// inputBillTheUserForUsageP3S1 is step 1's parameters of ReadRange, decoded from the binding's inputs.
+type inputBillTheUserForUsageP3S1 struct {
+	Query usage.UsageRangeQuery `json:"query"`
+}
+
+// TestScenario_bill_the_user_for_usage_P3 — Bill the User for Usage — [no] · [yes] · [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
+func TestScenario_bill_the_user_for_usage_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "usageAccess", "bill-the-user-for-usage-P3", func(t *testing.T) {
+		var subject usage.UsageAccess = newSubject(t, h)
+		// step 1: ReadRange (node read-hosting-usage; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
+		var in1 inputBillTheUserForUsageP3S1
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003","CycleID":"2026-09","OperatedAppID":null}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepBillTheUserForUsageP3S1(t, h, subject, in1)
+		expect(t, "bill-the-user-for-usage-P3", 1, out1, err1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p3-0001\",\"Units\":{\"Amount\":0.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+		// probe 1.1: usageAccess.ReadRange for read-hosting-usage
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Query usage.UsageRangeQuery `json:"query"`
+		}
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003","CycleID":"2026-09","OperatedAppID":null}}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadRange(callContext(t, h, "1.1"), probe1_1.Query)
+		expect(t, "bill-the-user-for-usage-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p3-0001\",\"Units\":{\"Amount\":0.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+	})
+}
+
+// inputOperateADeliveredSystemP4S1 is step 1's parameters of RecordComputeUsage, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP4S1 struct {
+	Events []usage.UsageEvent `json:"events"`
+}
+
+// TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "usageAccess", "operate-a-delivered-system-P4", func(t *testing.T) {
+		var subject usage.UsageAccess = newSubject(t, h)
+		// step 1: RecordComputeUsage (node record-status; guards state-transition=[yes], decision-nochange=[yes])
+		var in1 inputOperateADeliveredSystemP4S1
+		mustUnmarshal(t, `{"events":[{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0004","OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","CycleID":"2026-10","Units":{"Amount":0.25,"Unit":"vCPU-hour"},"RuntimeEventID":"rt-ops-p4-tick-0001","RawMeter":"eyJjcHUiOjEyLjV9","WindowStart":"2026-10-03T10:00:00Z","WindowEnd":"2026-10-03T10:15:00Z","OccurredAt":"2026-10-03T10:15:00Z","RecordedAt":"2026-10-03T10:15:00Z","Ref":"stp-usage-ops-p4-ref-1"}]}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.RecordComputeUsage(callContext(t, h, "1"), in1.Events)
+		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: usageAccess.ReadRange for compute-usage-recorded
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Query usage.UsageRangeQuery `json:"query"`
+		}
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0004","CycleID":"2026-10","OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadRange(callContext(t, h, "1.1"), probe1_1.Query)
+		expect(t, "operate-a-delivered-system-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0004\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p4-tick-0001\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+	})
+}
+
+// inputOperateADeliveredSystemP5S1 is step 1's parameters of RecordComputeUsage, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP5S1 struct {
+	Events []usage.UsageEvent `json:"events"`
+}
+
+// TestScenario_operate_a_delivered_system_P5 — Operate a Delivered System — [yes] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "usageAccess", "operate-a-delivered-system-P5", func(t *testing.T) {
+		var subject usage.UsageAccess = newSubject(t, h)
+		// step 1: RecordComputeUsage (node record-status; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
+		var in1 inputOperateADeliveredSystemP5S1
+		mustUnmarshal(t, `{"events":[{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005","OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","CycleID":"2026-10","Units":{"Amount":0.25,"Unit":"vCPU-hour"},"RuntimeEventID":"rt-ops-p5-tick-0001","RawMeter":"eyJjcHUiOjEyLjV9","WindowStart":"2026-10-03T10:00:00Z","WindowEnd":"2026-10-03T10:15:00Z","OccurredAt":"2026-10-03T10:15:00Z","RecordedAt":"2026-10-03T10:15:00Z","Ref":"stp-usage-ops-p5-ref-1"},{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005","OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","CycleID":"2026-10","Units":{"Amount":1.0,"Unit":"vCPU-hour"},"RuntimeEventID":"rt-ops-p5-tick-0002","RawMeter":"eyJjcHUiOjEyLjV9","WindowStart":"2026-10-03T10:15:00Z","WindowEnd":"2026-10-03T10:30:00Z","OccurredAt":"2026-10-03T10:30:00Z","RecordedAt":"2026-10-03T10:30:00Z","Ref":"stp-usage-ops-p5-ref-2"}]}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.RecordComputeUsage(callContext(t, h, "1"), in1.Events)
+		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: usageAccess.ReadRange for compute-usage-recorded
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Query usage.UsageRangeQuery `json:"query"`
+		}
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005","CycleID":"2026-10","OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadRange(callContext(t, h, "1.1"), probe1_1.Query)
+		expect(t, "operate-a-delivered-system-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p5-tick-0001\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p5-tick-0002\",\"Units\":{\"Amount\":1.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+	})
+}
+
+// inputViewOperatingCostProjectionP1S1 is step 1's parameters of ReadRange, decoded from the binding's inputs.
+type inputViewOperatingCostProjectionP1S1 struct {
+	Query usage.UsageRangeQuery `json:"query"`
+}
+
+// TestScenario_view_operating_cost_projection_P1 — View Operating-Cost Projection for a Deployed App — [yes] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → read-usage → project-costs → render → send-cost-projection → end).
+func TestScenario_view_operating_cost_projection_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "usageAccess", "view-operating-cost-projection-P1", func(t *testing.T) {
+		var subject usage.UsageAccess = newSubject(t, h)
+		// step 1: ReadRange (node read-usage; guards app-known=[yes])
+		var in1 inputViewOperatingCostProjectionP1S1
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006","CycleID":"2026-10","OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepViewOperatingCostProjectionP1S1(t, h, subject, in1)
+		expect(t, "view-operating-cost-projection-P1", 1, out1, err1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-view-p1-0001\",\"Units\":{\"Amount\":6.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+		// probe 1.1: usageAccess.ReadRange for read-usage
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Query usage.UsageRangeQuery `json:"query"`
+		}
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006","CycleID":"2026-10","OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadRange(callContext(t, h, "1.1"), probe1_1.Query)
+		expect(t, "view-operating-cost-projection-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-view-p1-0001\",\"Units\":{\"Amount\":6.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+	})
+}
+
+// inputWithdrawADeliveredSystemP2S1 is step 1's parameters of RecordComputeUsage, decoded from the binding's inputs.
+type inputWithdrawADeliveredSystemP2S1 struct {
+	Events []usage.UsageEvent `json:"events"`
+}
+
+// TestScenario_withdraw_a_delivered_system_P2 — Withdraw a Delivered System — [no: in flight] (use case withdraw-a-delivered-system; path start → request-withdraw → already-withdrawn → tear-down-runtime → record-final-usage → compute-usage-final → record-withdrawn → operated-system-withdrawn → merge-out → send-withdrawn → end).
+func TestScenario_withdraw_a_delivered_system_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "usageAccess", "withdraw-a-delivered-system-P2", func(t *testing.T) {
+		var subject usage.UsageAccess = newSubject(t, h)
+		// step 1: RecordComputeUsage (node record-final-usage; guards already-withdrawn=[no: in flight])
+		var in1 inputWithdrawADeliveredSystemP2S1
+		mustUnmarshal(t, `{"events":[{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007","OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","CycleID":"2026-10","Units":{"Amount":2.75,"Unit":"vCPU-hour"},"RuntimeEventID":"rt-withdraw-p2-final-0001","RawMeter":"eyJjcHUiOjEyLjV9","WindowStart":"2026-10-03T00:00:00Z","WindowEnd":"2026-10-03T11:42:00Z","OccurredAt":"2026-10-03T11:42:00Z","RecordedAt":"2026-10-03T11:42:00Z","Ref":"stp-usage-withdraw-p2-ref-final"}]}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.RecordComputeUsage(callContext(t, h, "1"), in1.Events)
+		expect(t, "withdraw-a-delivered-system-P2", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: usageAccess.ReadRange for record-final-usage
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Query usage.UsageRangeQuery `json:"query"`
+		}
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007","CycleID":"2026-10","OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadRange(callContext(t, h, "1.1"), probe1_1.Query)
+		expect(t, "withdraw-a-delivered-system-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+		// probe 1.2: usageAccess.ReadRange for compute-usage-final
+		var pout1_2 any
+		var perr1_2 error
+		var probe1_2 struct {
+			Query usage.UsageRangeQuery `json:"query"`
+		}
+		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007","CycleID":"2026-10","OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}}`, &probe1_2)
+		pout1_2, perr1_2 = subject.ReadRange(callContext(t, h, "1.2"), probe1_2.Query)
+		expect(t, "withdraw-a-delivered-system-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+	})
+}
+
+// callContext is the fwra call context a generated step calls the subject with:
+// the test's own context, a zero principal and, on an idempotent layer, a key
+// unique to the step. A step that needs an identity is a Hook:true step.
+func callContext(t *testing.T, h *scenariohost.Host, step string) fwra.Context {
+	t.Helper()
+	_ = step
+	return fwra.Context{Context: h.Context(t), IdempotencyKey: fwra.IdempotencyKey(t.Name() + "/" + step)}
+}
+
+func mustUnmarshal(t *testing.T, raw string, into any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(raw), into); err != nil {
+		t.Fatalf("testgen: decode %s: %v", raw, err)
+	}
+}
+
+// expect checks one step's outcome against its binding's expectation: an
+// expected error must arrive (carrying the expected code, when one is named);
+// an unexpected error fails; a named result must be a JSON subset of the
+// marshalled outcome.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	var want struct {
+		Result        string `json:"result"`
+		ErrorExpected bool   `json:"errorExpected"`
+		ErrorCode     string `json:"errorCode"`
+	}
+	mustUnmarshal(t, expectJSON, &want)
+	if want.ErrorExpected {
+		if err == nil {
+			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+		}
+		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
+			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+	}
+	if want.Result != "" && !resultMatches(want.Result, out) {
+		got, _ := json.Marshal(out)
+		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+	}
+}
+
+// errorHasCode matches the layer error's kind name, or the code as a substring
+// of the error text for a component-specific code.
+func errorHasCode(err error, code string) bool {
+	var le *fwra.Error
+	if errors.As(err, &le) && le.Kind.String() == code {
+		return true
+	}
+	return strings.Contains(err.Error(), code)
+}
+
+// resultMatches decodes the expectation (a JSON document, or a bare string)
+// and the marshalled outcome, and compares them as a subset.
+func resultMatches(wantRaw string, got any) bool {
+	var want any
+	if json.Unmarshal([]byte(wantRaw), &want) != nil {
+		want = wantRaw
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		return false
+	}
+	var g any
+	if json.Unmarshal(raw, &g) != nil {
+		return false
+	}
+	return subset(want, g)
+}
+
+// subset: every key of an expected object is present and matches; an expected
+// array matches element-wise; a scalar must be equal.
+func subset(want, got any) bool {
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			return false
+		}
+		for k, wv := range w {
+			gv, ok := g[k]
+			if !ok || !subset(wv, gv) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		g, ok := got.([]any)
+		if !ok || len(g) != len(w) {
+			return false
+		}
+		for i := range w {
+			if !subset(w[i], g[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(want, got)
+	}
+}
