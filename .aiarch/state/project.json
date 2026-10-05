@@ -69736,7 +69736,7 @@
                 "inputs": [
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b\"}",
                     "schemaRef": ""
                   },
                   {
@@ -69770,7 +69770,7 @@
                 "inputs": [
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a3\"}",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/191cd87e-5b8e-59f1-9e94-c6ed741cd456\"}",
                     "schemaRef": ""
                   },
                   {
@@ -69785,12 +69785,12 @@
                   },
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"fill\",\"target\":\"operations-register-project-ref\",\"value\":\"archistrator\"}",
+                    "value": "{\"kind\":\"fill\",\"target\":\"operations-register-project-ref\",\"value\":\"dct-ops-register-p1\"}",
                     "schemaRef": ""
                   },
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"fill\",\"target\":\"operations-register-bundle-ref\",\"value\":\"archistrator-bundle-v1\"}",
+                    "value": "{\"kind\":\"fill\",\"target\":\"operations-register-bundle-ref\",\"value\":\"dct-ops-register-p1-bundle-v1\"}",
                     "schemaRef": ""
                   },
                   {
@@ -69843,7 +69843,7 @@
                 "inputs": [
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/project/archistrator/activity/architecture\"}",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/project/dct-ops-health-p2/activity/architecture\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -69867,7 +69867,7 @@
                 "inputs": [
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a1\"}",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/a67e1e48-a933-5826-aeef-9207d829d9d9\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -69910,7 +69910,7 @@
                 "inputs": [
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a9\"}",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/29d2fb0c-6099-5ef7-a749-6c8838ac0cda\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -69953,7 +69953,7 @@
                 "inputs": [
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a2\"}",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/cdd7a707-eb28-5878-959b-4ab6a058a967\"}",
                     "schemaRef": ""
                   },
                   {
@@ -69987,7 +69987,7 @@
                 "inputs": [
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/6f1c2b9e-0a11-4c00-8000-0000000000a4\"}",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"http://localhost:5173/operations/2d1c7665-3732-5e87-90dc-9f4e72074c16\"}",
                     "schemaRef": ""
                   },
                   {
