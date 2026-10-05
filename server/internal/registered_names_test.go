@@ -85,6 +85,10 @@ func (f *fakeRegistry) RegisterActivityWithOptions(_ any, options activity.Regis
 // Deterministic component testing (Plan 2 Task 1) ADDS four: artifactAccess gained
 // getTestRunIndex and readTestRunFile, registered by the two Managers that depend on
 // the RA (delivery, operations). Additions are the safe direction — nothing to drain.
+//
+// Plan 5 round 1 ADDS four: projectStateAccess gained recordSdpReviewOutcome and
+// recordTrackingPoint (the M0 non-commit outcomes and the weekly tracking points),
+// registered by the two Managers that depend on the RA. Additions again: nothing to drain.
 var registeredTemporalNamesGolden = []string{
 	"activityExecutionAccess.appendReviewVerdict",
 	"activityExecutionAccess.decideReviewRound",
@@ -183,6 +187,10 @@ var registeredTemporalNamesGolden = []string{
 	"projectStateAccess.recordOperatorResumed",
 	"projectStateAccess.recordReviewPolicy",
 	"projectStateAccess.recordReviewPolicy",
+	"projectStateAccess.recordSdpReviewOutcome",
+	"projectStateAccess.recordSdpReviewOutcome",
+	"projectStateAccess.recordTrackingPoint",
+	"projectStateAccess.recordTrackingPoint",
 	"projectStateAccess.setOperatingModel",
 	"projectStateAccess.setOperatingModel",
 	"projectStateAccess.setResearchInput",
