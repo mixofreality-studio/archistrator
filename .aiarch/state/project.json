@@ -65934,7 +65934,1513 @@
       },
       "sourceControlAccess": {
         "component": "sourceControlAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadManagedFile",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-acq-p1",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "path",
+                    "value": ".claude/.method-assets-manifest.json"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Found\":true,\"Content\":\"eyJ2ZXJzaW9uIjoidjAuMTAuMSJ9\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadManagedFile",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-acq-p2",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "path",
+                    "value": ".claude/.method-assets-manifest.json"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Found\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadManagedFile",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-acq-p3",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "path",
+                    "value": ".claude/.method-assets-manifest.json"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Found\":true,\"Content\":\"eyJ2ZXJzaW9uIjoidjAuMTAuMSJ9\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadManagedFile",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-acq-p4",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "path",
+                    "value": ".claude/.method-assets-manifest.json"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Found\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetInstallationToken",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p1",
+                    "schemaRef": "#/$defs/RepoRef"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "OpenBranch",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p1",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-SCA",
+                    "schemaRef": "#/$defs/BranchName"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "OpenPullRequest",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p1",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "spec",
+                    "value": "{\"Head\":\"activity/C-SCA\",\"Base\":\"main\",\"Title\":\"C-SCA: construction\",\"Body\":\"Activity C-SCA output for review.\",\"Hints\":\"\"}",
+                    "schemaRef": "#/$defs/PullRequestSpec"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "local#activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "GetPullRequestStatus",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p1",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"CheckRollup\":1,\"Mergeable\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetInstallationToken",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p2",
+                    "schemaRef": "#/$defs/RepoRef"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "OpenBranch",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p2",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-SCA",
+                    "schemaRef": "#/$defs/BranchName"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "OpenPullRequest",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p2",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "spec",
+                    "value": "{\"Head\":\"activity/C-SCA\",\"Base\":\"main\",\"Title\":\"C-SCA: construction\",\"Body\":\"Activity C-SCA output for review.\",\"Hints\":\"\"}",
+                    "schemaRef": "#/$defs/PullRequestSpec"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "local#activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "GetPullRequestStatus",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p2",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"CheckRollup\":1,\"Mergeable\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "PostReview",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p3",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "review",
+                    "value": "{\"Verdict\":0,\"Body\":\"Approved: C-SCA output meets its exit criteria.\"}",
+                    "schemaRef": "#/$defs/ReviewSubmission"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "GetPullRequestStatus",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p3",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"CheckRollup\":1,\"Mergeable\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "MergePullRequest",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p3",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Merged\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "artifact-committed",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-sca-eapa-p3",
+                        "schemaRef": "#/$defs/ProjectID"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "main"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-sca-eapa-p3\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\"}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "review-pr-merged",
+                    "component": "sourceControlAccess",
+                    "operation": "GetPullRequestStatus",
+                    "inputs": [
+                      {
+                        "name": "repo",
+                        "value": "local|local/stp-sca-eapa-p3",
+                        "schemaRef": "#/$defs/RepoRef"
+                      },
+                      {
+                        "name": "pr",
+                        "value": "local#activity/C-SCA",
+                        "schemaRef": "#/$defs/PullRequestRef"
+                      },
+                      {
+                        "name": "cred",
+                        "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                        "schemaRef": "#/$defs/RepoCredential"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"CheckRollup\":1,\"Mergeable\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "PostReview",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p4",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "review",
+                    "value": "{\"Verdict\":0,\"Body\":\"Approved: C-SCA output meets its exit criteria.\"}",
+                    "schemaRef": "#/$defs/ReviewSubmission"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "GetPullRequestStatus",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p4",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"CheckRollup\":1,\"Mergeable\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "MergePullRequest",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p4",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Merged\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "artifact-committed",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-sca-eapa-p4",
+                        "schemaRef": "#/$defs/ProjectID"
+                      },
+                      {
+                        "name": "branch",
+                        "value": "main"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-sca-eapa-p4\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\"}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "review-pr-merged",
+                    "component": "sourceControlAccess",
+                    "operation": "GetPullRequestStatus",
+                    "inputs": [
+                      {
+                        "name": "repo",
+                        "value": "local|local/stp-sca-eapa-p4",
+                        "schemaRef": "#/$defs/RepoRef"
+                      },
+                      {
+                        "name": "pr",
+                        "value": "local#activity/C-SCA",
+                        "schemaRef": "#/$defs/PullRequestRef"
+                      },
+                      {
+                        "name": "cred",
+                        "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                        "schemaRef": "#/$defs/RepoCredential"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"CheckRollup\":1,\"Mergeable\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetInstallationToken",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p5",
+                    "schemaRef": "#/$defs/RepoRef"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "OpenBranch",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p5",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-SCA",
+                    "schemaRef": "#/$defs/BranchName"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "OpenPullRequest",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p5",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "spec",
+                    "value": "{\"Head\":\"activity/C-SCA\",\"Base\":\"main\",\"Title\":\"C-SCA: construction\",\"Body\":\"Activity C-SCA output for review.\",\"Hints\":\"\"}",
+                    "schemaRef": "#/$defs/PullRequestSpec"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "local#activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "GetPullRequestStatus",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p5",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"CheckRollup\":1,\"Mergeable\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "GetInstallationToken",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p5",
+                    "schemaRef": "#/$defs/RepoRef"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 6,
+                "operation": "OpenBranch",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p5",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-SCA",
+                    "schemaRef": "#/$defs/BranchName"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 7,
+                "operation": "OpenPullRequest",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p5",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "spec",
+                    "value": "{\"Head\":\"activity/C-SCA\",\"Base\":\"main\",\"Title\":\"C-SCA: construction\",\"Body\":\"Activity C-SCA output for review.\",\"Hints\":\"\"}",
+                    "schemaRef": "#/$defs/PullRequestSpec"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "local#activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 8,
+                "operation": "GetPullRequestStatus",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p5",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"CheckRollup\":1,\"Mergeable\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetInstallationToken",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p6",
+                    "schemaRef": "#/$defs/RepoRef"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "OpenBranch",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p6",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-SCA",
+                    "schemaRef": "#/$defs/BranchName"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "OpenPullRequest",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p6",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "spec",
+                    "value": "{\"Head\":\"activity/C-SCA\",\"Base\":\"main\",\"Title\":\"C-SCA: construction\",\"Body\":\"Activity C-SCA output for review.\",\"Hints\":\"\"}",
+                    "schemaRef": "#/$defs/PullRequestSpec"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "local#activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "GetPullRequestStatus",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p6",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"CheckRollup\":1,\"Mergeable\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetInstallationToken",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p7",
+                    "schemaRef": "#/$defs/RepoRef"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "OpenBranch",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p7",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/C-SCA",
+                    "schemaRef": "#/$defs/BranchName"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "OpenPullRequest",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p7",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "spec",
+                    "value": "{\"Head\":\"activity/C-SCA\",\"Base\":\"main\",\"Title\":\"C-SCA: construction\",\"Body\":\"Activity C-SCA output for review.\",\"Hints\":\"\"}",
+                    "schemaRef": "#/$defs/PullRequestSpec"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "local#activity/C-SCA",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "GetPullRequestStatus",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-eapa-p7",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "pr",
+                    "value": "local#activity/C-SCA",
+                    "schemaRef": "#/$defs/PullRequestRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"CheckRollup\":1,\"Mergeable\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AdoptProjectRepo",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"RepoName\":\"stp-sca-mp-p1\",\"Account\":\"local\",\"Title\":\"STP sourceControlAccess manage-projects P1\",\"Hints\":\"\"}",
+                    "schemaRef": "#/$defs/RepoAdoptionSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "local|local/stp-sca-mp-p1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "CommitManagedFiles",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-mp-p1",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "files",
+                    "value": "[{\"Path\":\".github/workflows/aiarch-design.yml\",\"Content\":\"bmFtZTogYWlhcmNoLWRlc2lnbgo=\"}]"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "SyncManagedScaffold",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-mp-p1",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "false",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-project-repo-adopted",
+                    "component": "sourceControlAccess",
+                    "operation": "ReadManagedFile",
+                    "inputs": [
+                      {
+                        "name": "repo",
+                        "value": "local|local/stp-sca-mp-p1",
+                        "schemaRef": "#/$defs/RepoRef"
+                      },
+                      {
+                        "name": "path",
+                        "value": ".github/workflows/aiarch-design.yml"
+                      },
+                      {
+                        "name": "cred",
+                        "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                        "schemaRef": "#/$defs/RepoCredential"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Found\":true,\"Content\":\"bmFtZTogYWlhcmNoLWRlc2lnbgo=\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "adopt-repo",
+                    "component": "sourceControlAccess",
+                    "operation": "ReadManagedFile",
+                    "inputs": [
+                      {
+                        "name": "repo",
+                        "value": "local|local/stp-sca-mp-p1",
+                        "schemaRef": "#/$defs/RepoRef"
+                      },
+                      {
+                        "name": "path",
+                        "value": ".github/workflows/aiarch-design.yml"
+                      },
+                      {
+                        "name": "cred",
+                        "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                        "schemaRef": "#/$defs/RepoCredential"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Found\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "AdoptProjectRepo",
+                "inputs": [
+                  {
+                    "name": "spec",
+                    "value": "{\"RepoName\":\"stp-sca-mp-p2\",\"Account\":\"local\",\"Title\":\"STP sourceControlAccess manage-projects P2\",\"Hints\":\"\"}",
+                    "schemaRef": "#/$defs/RepoAdoptionSpec"
+                  }
+                ],
+                "expect": {
+                  "result": "local|local/stp-sca-mp-p2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "CommitManagedFiles",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-mp-p2",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "files",
+                    "value": "[{\"Path\":\".github/workflows/aiarch-design.yml\",\"Content\":\"bmFtZTogYWlhcmNoLWRlc2lnbgo=\"}]"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "SyncManagedScaffold",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-mp-p2",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "false",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-project-repo-adopted",
+                    "component": "sourceControlAccess",
+                    "operation": "ReadManagedFile",
+                    "inputs": [
+                      {
+                        "name": "repo",
+                        "value": "local|local/stp-sca-mp-p2",
+                        "schemaRef": "#/$defs/RepoRef"
+                      },
+                      {
+                        "name": "path",
+                        "value": ".github/workflows/aiarch-design.yml"
+                      },
+                      {
+                        "name": "cred",
+                        "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                        "schemaRef": "#/$defs/RepoCredential"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Found\":true,\"Content\":\"bmFtZTogYWlhcmNoLWRlc2lnbgo=\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "adopt-repo",
+                    "component": "sourceControlAccess",
+                    "operation": "ReadManagedFile",
+                    "inputs": [
+                      {
+                        "name": "repo",
+                        "value": "local|local/stp-sca-mp-p2",
+                        "schemaRef": "#/$defs/RepoRef"
+                      },
+                      {
+                        "name": "path",
+                        "value": ".github/workflows/aiarch-design.yml"
+                      },
+                      {
+                        "name": "cred",
+                        "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                        "schemaRef": "#/$defs/RepoCredential"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Found\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetInstallationToken",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-rusc-p2",
+                    "schemaRef": "#/$defs/RepoRef"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "OpenBranch",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-rusc-p2",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "aiarch/session/amendment-1",
+                    "schemaRef": "#/$defs/BranchName"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "aiarch/session/amendment-1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "sourceControlAccess",
+                    "operation": "GetPullRequestStatus",
+                    "inputs": [
+                      {
+                        "name": "repo",
+                        "value": "local|local/stp-sca-rusc-p2",
+                        "schemaRef": "#/$defs/RepoRef"
+                      },
+                      {
+                        "name": "pr",
+                        "value": "local#aiarch/session/amendment-1",
+                        "schemaRef": "#/$defs/PullRequestRef"
+                      },
+                      {
+                        "name": "cred",
+                        "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                        "schemaRef": "#/$defs/RepoCredential"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"CheckRollup\":1,\"Mergeable\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "GetInstallationToken",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-rusc-p3",
+                    "schemaRef": "#/$defs/RepoRef"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "OpenBranch",
+                "inputs": [
+                  {
+                    "name": "repo",
+                    "value": "local|local/stp-sca-rusc-p3",
+                    "schemaRef": "#/$defs/RepoRef"
+                  },
+                  {
+                    "name": "branch",
+                    "value": "aiarch/session/amendment-1",
+                    "schemaRef": "#/$defs/BranchName"
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                    "schemaRef": "#/$defs/RepoCredential"
+                  }
+                ],
+                "expect": {
+                  "result": "aiarch/session/amendment-1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "sourceControlAccess",
+                    "operation": "GetPullRequestStatus",
+                    "inputs": [
+                      {
+                        "name": "repo",
+                        "value": "local|local/stp-sca-rusc-p3",
+                        "schemaRef": "#/$defs/RepoRef"
+                      },
+                      {
+                        "name": "pr",
+                        "value": "local#aiarch/session/amendment-1",
+                        "schemaRef": "#/$defs/PullRequestRef"
+                      },
+                      {
+                        "name": "cred",
+                        "value": "{\"Bytes\":\"bG9jYWw=\",\"ExpiresAt\":\"9999-12-31T00:00:00Z\"}",
+                        "schemaRef": "#/$defs/RepoCredential"
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"CheckRollup\":1,\"Mergeable\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          }
+        ]
       },
       "usageAccess": {
         "component": "usageAccess",
