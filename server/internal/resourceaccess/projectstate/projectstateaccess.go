@@ -806,10 +806,9 @@ func applyHeadState(summary *ProjectSummary, p Project, docUpdatedAt time.Time) 
 // an activity the plan no longer holds veto completion. A listed activity with no row
 // has not started. A row that is merely Done-but-not-integrated (the Skipped/TakenOver
 // shape RecordActivityExited leaves) or still Running/Failed keeps the project
-// incomplete: Phase alone is not sufficient. The fixture corpus at
-// testdata/operating_fixtures.json is shared byte-identically with the webApp TS side
-// (contracts/operating.ts deriveOperating), which applies the same list-driven rule
-// over the view-model's already-resolved rows. Unexported: only ListProjects (same
+// incomplete: Phase alone is not sufficient. The webApp TS side
+// (contracts/operating.ts deriveOperating) applies the same list-driven rule over the
+// view-model's already-resolved rows. Unexported: only ListProjects (same
 // package) calls it today.
 //
 // THE PHASE CLAUSE IS NOW THE ONLY GUARD, and that is worth saying out loud. "has a
@@ -2074,11 +2073,18 @@ func applyPhaseArtifactPayload(p *Project, mapKey string, payload PhaseArtifactP
 }
 
 // applyPhaseArtifactsPayload routes the PhaseArtifacts-group fields (keyed by
-// mapKey) from the payload into p.PhaseArtifacts, lazy-allocating as needed.
-// Split into two halves to keep each helper under the funlen threshold.
+// mapKey) from the payload into p.PhaseArtifacts, lazy-allocating as needed. Each
+// field is one putPhaseRecord: a nil payload field leaves its map untouched.
 func applyPhaseArtifactsPayload(p *Project, mapKey string, payload PhaseArtifactPayload) {
-	applyPhaseArtifactsSpecDesign(p, mapKey, payload)
-	applyPhaseArtifactsDeployDoc(p, mapKey, payload)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]SRSRecord { return &pa.SRS }, mapKey, payload.SRS)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]TestPlanRecord { return &pa.TestPlan }, mapKey, payload.TestPlan)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]IntegrationNoteRecord { return &pa.IntegrationNote }, mapKey, payload.IntegrationNote)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]UXRequirementsRecord { return &pa.UXRequirements }, mapKey, payload.UXRequirements)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]UIDesignRecord { return &pa.UIDesign }, mapKey, payload.UIDesign)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]ProvisioningSpecRecord { return &pa.ProvisioningSpec }, mapKey, payload.ProvisioningSpec)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DeployNoteRecord { return &pa.DeployNote }, mapKey, payload.DeployNote)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DocOutlineRecord { return &pa.DocOutline }, mapKey, payload.DocOutline)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DocNoteRecord { return &pa.DocNote }, mapKey, payload.DocNote)
 }
 
 // ensurePhaseArtifacts lazy-inits p.PhaseArtifacts and returns it.
@@ -2089,77 +2095,18 @@ func ensurePhaseArtifacts(p *Project) *PhaseArtifacts {
 	return p.PhaseArtifacts
 }
 
-// applyPhaseArtifactsSpecDesign handles the spec/design half of PhaseArtifacts
-// fields: SRS, TestPlan, IntegrationNote, UXRequirements, UIDesign.
-func applyPhaseArtifactsSpecDesign(p *Project, mapKey string, payload PhaseArtifactPayload) { //nolint:gocyclo // exhaustive nil-check per phase artifact field
-	if payload.SRS != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.SRS == nil {
-			pa.SRS = make(map[string]SRSRecord)
-		}
-		pa.SRS[mapKey] = *payload.SRS
+// putPhaseRecord stores rec under mapKey in the PhaseArtifacts map field selects,
+// lazy-allocating PhaseArtifacts and the map. A nil rec is a no-op (the payload did
+// not carry that artifact).
+func putPhaseRecord[T any](p *Project, field func(*PhaseArtifacts) *map[string]T, mapKey string, rec *T) {
+	if rec == nil {
+		return
 	}
-	if payload.TestPlan != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.TestPlan == nil {
-			pa.TestPlan = make(map[string]TestPlanRecord)
-		}
-		pa.TestPlan[mapKey] = *payload.TestPlan
+	m := field(ensurePhaseArtifacts(p))
+	if *m == nil {
+		*m = make(map[string]T)
 	}
-	if payload.IntegrationNote != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.IntegrationNote == nil {
-			pa.IntegrationNote = make(map[string]IntegrationNoteRecord)
-		}
-		pa.IntegrationNote[mapKey] = *payload.IntegrationNote
-	}
-	if payload.UXRequirements != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.UXRequirements == nil {
-			pa.UXRequirements = make(map[string]UXRequirementsRecord)
-		}
-		pa.UXRequirements[mapKey] = *payload.UXRequirements
-	}
-	if payload.UIDesign != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.UIDesign == nil {
-			pa.UIDesign = make(map[string]UIDesignRecord)
-		}
-		pa.UIDesign[mapKey] = *payload.UIDesign
-	}
-}
-
-// applyPhaseArtifactsDeployDoc handles the infra/doc half of PhaseArtifacts
-// fields: ProvisioningSpec, DeployNote, DocOutline, DocNote.
-func applyPhaseArtifactsDeployDoc(p *Project, mapKey string, payload PhaseArtifactPayload) {
-	if payload.ProvisioningSpec != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.ProvisioningSpec == nil {
-			pa.ProvisioningSpec = make(map[string]ProvisioningSpecRecord)
-		}
-		pa.ProvisioningSpec[mapKey] = *payload.ProvisioningSpec
-	}
-	if payload.DeployNote != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.DeployNote == nil {
-			pa.DeployNote = make(map[string]DeployNoteRecord)
-		}
-		pa.DeployNote[mapKey] = *payload.DeployNote
-	}
-	if payload.DocOutline != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.DocOutline == nil {
-			pa.DocOutline = make(map[string]DocOutlineRecord)
-		}
-		pa.DocOutline[mapKey] = *payload.DocOutline
-	}
-	if payload.DocNote != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.DocNote == nil {
-			pa.DocNote = make(map[string]DocNoteRecord)
-		}
-		pa.DocNote[mapKey] = *payload.DocNote
-	}
+	(*m)[mapKey] = *rec
 }
 
 // applyTestingStatePayload routes the TestingState-group fields (project-level
@@ -2893,7 +2840,7 @@ func (s *designSessionAccess) ReadProjectOnBranch(rc fwra.Context, projectID Pro
 // activity surfaced: fwmanager.MapError passes non-layer errors through untagged, so
 // the Temporal error type/retryability is unchanged.
 func (s *designSessionAccess) StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ModelEnvelope, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	decoded, err := model.Decode()
+	decoded, err := requireStagedModel("StageArtifactForReview", model)
 	if err != nil {
 		return 0, err
 	}
@@ -3008,15 +2955,45 @@ func EncodeModel(model ArtifactModel) (ModelEnvelope, error) {
 	return ModelEnvelope{Kind: model.Kind(), Model: raw}, nil
 }
 
-// Decode reconstructs the concrete typed model from its envelope.
+// HasModel reports whether the envelope carries a model. An empty payload IS the
+// documented "no model yet" state (a slot that has never been drafted); callers that
+// accept that state ask HasModel first and keep a nil model, and Decode refuses it.
+func (e ModelEnvelope) HasModel() bool {
+	return len(e.Model) > 0
+}
+
+// requireStagedModel is the stage writes' half of the read-back-parity invariant: a
+// model staged on a branch must satisfy the SAME required-field strictness the branch's
+// read-back (decodeSlotsMap) applies, or the stage succeeds and every later read of that
+// branch fails to decode — the write and the read disagreeing about what a valid model
+// is. A refusal is ContractMisuse: the caller sent a model its own reader would reject.
+func requireStagedModel(verb string, model ModelEnvelope) (ArtifactModel, error) {
+	if !model.HasModel() {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": empty model envelope")
+	}
+	if err := RequireModelFields(model.Kind, model.Model); err != nil {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": "+err.Error())
+	}
+	decoded, err := model.Decode()
+	if err != nil {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": undecodable model envelope: "+err.Error())
+	}
+	return decoded, nil
+}
+
+// Decode reconstructs the concrete typed model from its envelope. An empty envelope
+// is an error (ask HasModel first where "no model yet" is a legitimate value).
+//
+// Decode is STRUCTURAL only. It runs inside workflow code (ProjectEnvelope.Decode on a
+// read activity's result), so a semantic rule here would change what an already
+// recorded history decodes to the day the rule changes — a replay break — and would
+// refuse documents the read activity already accepted. Required-field strictness
+// (RequireModelFields) lives at the boundaries that must agree byte-for-byte: the
+// stage writes (requireStagedModel), putDraftModel, and the read-back codec
+// (decodeSlotsMap).
 func (e ModelEnvelope) Decode() (ArtifactModel, error) {
-	if len(e.Model) == 0 {
-		// Not an error: an empty payload IS the documented "no model yet" state
-		// (e.g. a slot that has never been drafted). Every call site checks err
-		// first, then uses a nil model as a legitimate value — a typed sentinel
-		// error would force every caller to unwrap-and-ignore it, which is exactly
-		// what returning a plain nil model already achieves.
-		return nil, nil //nolint:nilnil // (nil model, nil err) is the documented "no model yet" value; see the block comment above.
+	if !e.HasModel() {
+		return nil, fmt.Errorf("decode model %s: empty envelope (no model)", e.Kind)
 	}
 	model, ok := NewModelForKind(e.Kind)
 	if !ok {
@@ -3122,10 +3099,12 @@ func (s ArtifactSlot) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// decodeArtifactModelWireField decodes artifactSlotWire.Model's raw bytes into an
-// ArtifactModel, distinguishing three cases: (1) absent/JSON-null — no model yet,
-// (nil, nil); (2) a well-formed {"kind":...,"model":...} envelope — decoded via
-// ModelEnvelope.Decode; (3) anything else (a bare/flattened object with no "kind"
+// parseArtifactModelWireField parses artifactSlotWire.Model's raw bytes into its
+// {kind, model} ModelEnvelope, distinguishing three cases: (1) absent/JSON-null — the
+// zero envelope, whose HasModel is false ("no model yet"); (2) a well-formed
+// {"kind":...,"model":...} envelope — returned for ModelEnvelope.Decode (an envelope
+// with a kind but no model, which is how MarshalJSON writes a nil model, also has
+// HasModel false); (3) anything else (a bare/flattened object with no "kind"
 // discriminator, e.g. a producer that wrote json.Marshal(concreteModel) directly
 // instead of through EncodeModel) — an explicit error rather than silently
 // discarding the model (review finding: silent data loss is the wrong failure
@@ -3134,37 +3113,46 @@ func (s ArtifactSlot) MarshalJSON() ([]byte, error) {
 // the DECODED Kind value, because ArtifactKind's zero value (KindMission) is a
 // real kind — an absent key and a genuine Mission envelope are NOT
 // distinguishable after decoding into ModelEnvelope, only before.
-func decodeArtifactModelWireField(raw json.RawMessage) (ArtifactModel, error) {
+func parseArtifactModelWireField(raw json.RawMessage) (ModelEnvelope, error) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil //nolint:nilnil // absent/null IS the documented "no model yet" value.
+		return ModelEnvelope{}, nil
 	}
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &probe); err != nil {
-		return nil, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
+		return ModelEnvelope{}, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
 	}
 	if _, hasKind := probe["kind"]; !hasKind {
-		return nil, fmt.Errorf("decode ArtifactSlot.Model: present but not a {kind,model} envelope (no \"kind\" discriminator) — refusing to silently drop it")
+		return ModelEnvelope{}, fmt.Errorf("decode ArtifactSlot.Model: present but not a {kind,model} envelope (no \"kind\" discriminator) — refusing to silently drop it")
 	}
 	var env ModelEnvelope
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
+		return ModelEnvelope{}, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
 	}
-	return env.Decode()
+	return env, nil
 }
 
 // UnmarshalJSON is MarshalJSON's inverse: decode into the wire shadow, then
 // reconstruct the concrete ArtifactModel from its raw Model bytes
-// (decodeArtifactModelWireField, which dispatches on the envelope's own Kind —
-// the same NewModelForKind lookup decodeSlotsMap uses, just driven by the
-// envelope's kind field instead of an out-of-band map key).
+// (parseArtifactModelWireField + ModelEnvelope.Decode, which dispatches on the
+// envelope's own Kind — the same NewModelForKind lookup decodeSlotsMap uses, just
+// driven by the envelope's kind field instead of an out-of-band map key). An
+// envelope without a model leaves Model nil ("no model yet").
 func (s *ArtifactSlot) UnmarshalJSON(data []byte) error {
 	var w artifactSlotWire
 	if err := json.Unmarshal(data, &w); err != nil {
 		return err
 	}
-	model, err := decodeArtifactModelWireField(w.Model)
+	env, err := parseArtifactModelWireField(w.Model)
 	if err != nil {
 		return err
+	}
+	var model ArtifactModel
+	if env.HasModel() {
+		decoded, err := env.Decode()
+		if err != nil {
+			return err
+		}
+		model = decoded
 	}
 	s.Status = w.Status
 	s.Model = model
@@ -3376,9 +3364,13 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 		p.ReviewPolicy = *e.ReviewPolicy
 	}
 	for kind, se := range e.Slots {
-		model, err := se.Model.Decode()
-		if err != nil {
-			return Project{}, err
+		var model ArtifactModel
+		if se.Model.HasModel() {
+			decoded, err := se.Model.Decode()
+			if err != nil {
+				return Project{}, err
+			}
+			model = decoded
 		}
 		slot, ok := slotPtr(&p, kind)
 		if !ok {
@@ -9014,8 +9006,10 @@ func appendReviewComments(thread []ReviewComment, round int64, comments []Review
 			AuthorRole: c.AuthorRole,
 			Round:      round,
 			Status:     ReviewCommentOpen,
-			Replies:    nil,
-			Reopened:   false,
+			// Born with an EMPTY reply list, not a nil one: the contract's ReviewComment
+			// requires "replies" as an array, and nil encodes as JSON null.
+			Replies:  []ReviewCommentReply{},
+			Reopened: false,
 			// Carry the caller-supplied type/addressee (question-comments): a seeded
 			// question keeps its "question" type + addressee; a reject/amendment comment
 			// leaves them "" (a change-request, the migration-safe default).
@@ -9707,12 +9701,12 @@ func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID Pro
 		return StagedRef{}, execMisuse("StageTaskOutput", "empty activityID")
 	case taskID == "":
 		return StagedRef{}, execMisuse("StageTaskOutput", "empty taskID")
-	case len(model.Model) == 0:
+	case !model.HasModel():
 		return StagedRef{}, execMisuse("StageTaskOutput", "empty model envelope — there is nothing to stage (construction's output is staged on the branch and cited as attempt evidence)")
 	}
-	decoded, err := model.Decode()
+	decoded, err := requireStagedModel("StageTaskOutput", model)
 	if err != nil {
-		return StagedRef{}, execMisuse("StageTaskOutput", "undecodable model envelope: "+err.Error())
+		return StagedRef{}, err
 	}
 	v, err := a.store.stageArtifactForReviewOnBranch(rc.Context, projectID, expectedVersion, branch, decoded, cred, idempotencyKey)
 	if err != nil {
@@ -9943,8 +9937,11 @@ func applyRoundReviewBatch(thread []ReviewComment, round int64, comments []Revie
 			AuthorRole: c.AuthorRole,
 			Round:      round,
 			Status:     ReviewCommentOpen,
-			Type:       c.Type,
-			Addressee:  c.Addressee,
+			// Born with an EMPTY reply list, not a nil one: the contract's ReviewComment
+			// requires "replies" as an array, and nil encodes as JSON null.
+			Replies:   []ReviewCommentReply{},
+			Type:      c.Type,
+			Addressee: c.Addressee,
 		})
 	}
 	for _, r := range replies {
