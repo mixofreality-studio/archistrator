@@ -161,15 +161,23 @@ gen-lifecycles-check: gen-lifecycles
 # Depends on claude-assets: several tests read the .claude prompt surface, which
 # is materialized from the method-assets lib (not vendored), so it must be
 # present before the suite runs.
+# -p 1: every scenario package's TestMain boots the scenario host, whose Temporal
+# dev server (framework-go-infrastructure-temporal testinfra.StartDevServer) opens
+# ONE fixed SQLite file, .temporal/aiarch-test.db. Two test binaries running at
+# once both open it and one dies with SQLITE_BUSY ("database is locked") before
+# any scenario runs, so packages must run one at a time. Measured 2026-10-04 with
+# 16 scenario packages: parallel = 88 of 158 scenarios red, -p 1 = all green, the
+# whole -short suite in ~2.5 min.
 test: claude-assets
-	GOWORK=off go test ./...
+	GOWORK=off go test -p 1 ./...
 
 # CI quality gate. `-short` makes the model-gated integration tests' TestMain
 # skip (they require a live Ollama worker); everything else — including the
 # fake-backed workflow gating tests — still runs. Depends on claude-assets (see
 # `test`): the prompt-surface tests need the materialized .claude tree.
+# -p 1: see `test`.
 test-short: claude-assets
-	GOWORK=off go test -short ./...
+	GOWORK=off go test -short -p 1 ./...
 
 fmt:
 	gofmt -w .

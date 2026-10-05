@@ -22,7 +22,11 @@
 #   test-scenarios   — run every TestScenario_* as a `go test -json` stream into
 #                      test-results/go-test.jsonl (what the venue uploads); exits
 #                      with go test's status, which a bare `| tee` would mask
-#                      (and `set -o pipefail` is not portable to dash)
+#                      (and `set -o pipefail` is not portable to dash). -p 1:
+#                      every package's scenario host opens the one fixed
+#                      Temporal SQLite file (.temporal/aiarch-test.db), so two
+#                      packages at once fail with SQLITE_BUSY (see `test` in
+#                      Makefile)
 .PHONY: gen-tests gen-tests-check test-scenarios
 
 TESTGEN := github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen
@@ -35,4 +39,4 @@ gen-tests-check:
 
 test-scenarios:
 	mkdir -p test-results
-	GOWORK=off go test ./internal/... -run 'TestScenario_' -json > test-results/go-test.jsonl 2>&1; rc=$$?; cat test-results/go-test.jsonl; exit $$rc
+	GOWORK=off go test -p 1 ./internal/... -run 'TestScenario_' -json > test-results/go-test.jsonl 2>&1; rc=$$?; cat test-results/go-test.jsonl; exit $$rc
