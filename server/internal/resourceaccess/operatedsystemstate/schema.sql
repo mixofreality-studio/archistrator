@@ -30,10 +30,12 @@
 --                            publish, false on withdraw / delinquency-withdraw.
 --   deployable_bundle_ref  → OperatedSystem.DeployableBundleRef. Written by
 --                            RegisterOperatedSystem at onboarding.
---   customer_id            → the delinquency-sweep scope key for ReadInFlightOperatedApps
+--   customer_id            → OperatedSystem.CustomerID (zero UUID when NULL) and the
+--                            delinquency-sweep scope key for ReadInFlightOperatedApps
 --                            (InFlightScope.CustomerID). Written by RegisterOperatedSystem.
---   project_ref            → the project whose project.json supplies the deployment model
---                            the operationsManager renders from. A pointer, never a copy.
+--   project_ref            → OperatedSystem.ProjectRef: the project whose project.json
+--                            supplies the deployment model the operationsManager renders
+--                            from. A pointer, never a copy.
 --   last_reason            → the last DesiredStateReason a publish recorded (audit).
 --   last_delinquency       → the last DelinquencyAction recorded (audit).
 --   decision_*             → the last AutoscaleDecision a reason=autoscale publish
