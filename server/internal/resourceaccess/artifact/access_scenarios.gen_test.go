@@ -4,9 +4,410 @@
 package artifact_test
 
 import (
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 )
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "artifactAccess") }
+
+// inputExecuteAProjectActivityP1S1 is step 1's parameters of StoreConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP1S1 struct {
+	Content artifact.ConstructionOutput `json:"content"`
+}
+
+// inputExecuteAProjectActivityP1S2 is step 2's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP1S2 struct {
+	ContentAddress string `json:"contentAddress"`
+}
+
+// TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "execute-a-project-activity-P1", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: StoreConstructionOutput (node observe-validate; guards task-kind=dispatch, exit-met=yes)
+		var in1 inputExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"content":{"Bytes":"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDEiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsibWFpbi5nbyJdfQ==","MIMEType":"application/json"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.StoreConstructionOutput(callContext(t, h, "1"), in1.Content)
+		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"errorExpected":false}`)
+		// step 2: RetrieveConstructionOutput (node observe-validate; guards task-kind=dispatch, exit-met=yes)
+		var in2 inputExecuteAProjectActivityP1S2
+		mustUnmarshal(t, `{"contentAddress":"sha-from-store-step"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepExecuteAProjectActivityP1S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDEiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsibWFpbi5nbyJdfQ==\",\"MIMEType\":\"application/json\"}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP2S1 is step 1's parameters of StoreConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP2S1 struct {
+	Content artifact.ConstructionOutput `json:"content"`
+}
+
+// inputExecuteAProjectActivityP2S2 is step 2's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP2S2 struct {
+	ContentAddress string `json:"contentAddress"`
+}
+
+// TestScenario_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "execute-a-project-activity-P2", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: StoreConstructionOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in1 inputExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"content":{"Bytes":"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDIiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsiaGFuZGxlci5nbyJdfQ==","MIMEType":"application/json"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.StoreConstructionOutput(callContext(t, h, "1"), in1.Content)
+		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"errorExpected":false}`)
+		// step 2: RetrieveConstructionOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var in2 inputExecuteAProjectActivityP2S2
+		mustUnmarshal(t, `{"contentAddress":"sha-from-store-step"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepExecuteAProjectActivityP2S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDIiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsiaGFuZGxlci5nbyJdfQ==\",\"MIMEType\":\"application/json\"}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP3S1 is step 1's parameters of GetTestRunIndex, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP3S1 struct {
+	Run artifact.TestRunRef `json:"run"`
+}
+
+// TestScenario_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "execute-a-project-activity-P3", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: GetTestRunIndex (node requires-human; guards task-kind=review, requires-human=agents only, verdict=approve)
+		var in1 inputExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"run":{"RunID":"stp-artifact-P3-run-0001","Artifact":"scenario-results"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepExecuteAProjectActivityP3S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"{\"Expired\":false,\"Files\":[\"results.json\",\"scenarios/execute-a-project-activity-P3.log\"]}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP4S1 is step 1's parameters of GetTestRunIndex, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP4S1 struct {
+	Run artifact.TestRunRef `json:"run"`
+}
+
+// inputExecuteAProjectActivityP4S2 is step 2's parameters of ReadTestRunFile, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP4S2 struct {
+	Run  artifact.TestRunRef `json:"run"`
+	Path string              `json:"path"`
+}
+
+// TestScenario_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "execute-a-project-activity-P4", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: GetTestRunIndex (node requires-human; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in1 inputExecuteAProjectActivityP4S1
+		mustUnmarshal(t, `{"run":{"RunID":"stp-artifact-P4-run-0001","Artifact":"scenario-results"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepExecuteAProjectActivityP4S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"{\"Expired\":false,\"Files\":[\"results.json\",\"scenarios/execute-a-project-activity-P4.log\"]}","errorExpected":false}`)
+		// step 2: ReadTestRunFile (node human-decision; guards task-kind=review, requires-human=human required, verdict=approve)
+		var in2 inputExecuteAProjectActivityP4S2
+		mustUnmarshal(t, `{"run":{"RunID":"stp-artifact-P4-run-0001","Artifact":"scenario-results"},"path":"scenarios/execute-a-project-activity-P4.log"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadTestRunFile(callContext(t, h, "2"), in2.Run, in2.Path)
+		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"{\"Bytes\":\"LS0tIFBBU1M6IGV4ZWN1dGUtYS1wcm9qZWN0LWFjdGl2aXR5LVA0Cg==\"}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP5S1 is step 1's parameters of StoreConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S1 struct {
+	Content artifact.ConstructionOutput `json:"content"`
+}
+
+// inputExecuteAProjectActivityP5S2 is step 2's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S2 struct {
+	ContentAddress string `json:"contentAddress"`
+}
+
+// inputExecuteAProjectActivityP5S3 is step 3's parameters of StoreConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S3 struct {
+	Content artifact.ConstructionOutput `json:"content"`
+}
+
+// inputExecuteAProjectActivityP5S4 is step 4's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S4 struct {
+	ContentAddress string `json:"contentAddress"`
+}
+
+// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "execute-a-project-activity-P5", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: StoreConstructionOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in1 inputExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"content":{"Bytes":"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDUiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsic3RvcmUuZ28iXX0=","MIMEType":"application/json"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.StoreConstructionOutput(callContext(t, h, "1"), in1.Content)
+		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"errorExpected":false}`)
+		// step 2: RetrieveConstructionOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in2 inputExecuteAProjectActivityP5S2
+		mustUnmarshal(t, `{"contentAddress":"sha-from-store-step"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepExecuteAProjectActivityP5S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDUiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsic3RvcmUuZ28iXX0=\",\"MIMEType\":\"application/json\"}","errorExpected":false}`)
+		// step 3: StoreConstructionOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in3 inputExecuteAProjectActivityP5S3
+		mustUnmarshal(t, `{"content":{"Bytes":"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDUiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MiwiZmlsZXMiOlsic3RvcmUuZ28iLCJzdG9yZV9maXguZ28iXX0=","MIMEType":"application/json"}}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = subject.StoreConstructionOutput(callContext(t, h, "3"), in3.Content)
+		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"errorExpected":false}`)
+		// step 4: RetrieveConstructionOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var in4 inputExecuteAProjectActivityP5S4
+		mustUnmarshal(t, `{"contentAddress":"sha-from-store-step-3"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = stepExecuteAProjectActivityP5S4(t, h, subject, in4)
+		expect(t, "execute-a-project-activity-P5", 4, out4, err4, `{"result":"{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDUiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MiwiZmlsZXMiOlsic3RvcmUuZ28iLCJzdG9yZV9maXguZ28iXX0=\",\"MIMEType\":\"application/json\"}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP6S1 is step 1's parameters of StoreConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP6S1 struct {
+	Content artifact.ConstructionOutput `json:"content"`
+}
+
+// inputExecuteAProjectActivityP6S2 is step 2's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP6S2 struct {
+	ContentAddress string `json:"contentAddress"`
+}
+
+// TestScenario_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P6(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "execute-a-project-activity-P6", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: StoreConstructionOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in1 inputExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"content":{"Bytes":"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDYiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsiZW5naW5lLmdvIl19","MIMEType":"application/json"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.StoreConstructionOutput(callContext(t, h, "1"), in1.Content)
+		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"errorExpected":false}`)
+		// step 2: RetrieveConstructionOutput (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var in2 inputExecuteAProjectActivityP6S2
+		mustUnmarshal(t, `{"contentAddress":"sha-from-store-step"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepExecuteAProjectActivityP6S2(t, h, subject, in2)
+		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDYiLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MSwiZmlsZXMiOlsiZW5naW5lLmdvIl19\",\"MIMEType\":\"application/json\"}","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP7S1 is step 1's parameters of GetTestRunIndex, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S1 struct {
+	Run artifact.TestRunRef `json:"run"`
+}
+
+// inputExecuteAProjectActivityP7S2 is step 2's parameters of StoreConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S2 struct {
+	Content artifact.ConstructionOutput `json:"content"`
+}
+
+// inputExecuteAProjectActivityP7S3 is step 3's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S3 struct {
+	ContentAddress string `json:"contentAddress"`
+}
+
+// TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P7(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "execute-a-project-activity-P7", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: GetTestRunIndex (node requires-human; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in1 inputExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"run":{"RunID":"stp-artifact-P7-run-0001","Artifact":"scenario-results"}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepExecuteAProjectActivityP7S1(t, h, subject, in1)
+		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"{\"Expired\":false,\"Files\":[\"results.json\",\"scenarios/execute-a-project-activity-P7.log\"]}","errorExpected":false}`)
+		// step 2: StoreConstructionOutput (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in2 inputExecuteAProjectActivityP7S2
+		mustUnmarshal(t, `{"content":{"Bytes":"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDciLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MiwiZmlsZXMiOlsiY2xpZW50LmdvIl19","MIMEType":"application/json"}}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.StoreConstructionOutput(callContext(t, h, "2"), in2.Content)
+		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"errorExpected":false}`)
+		// step 3: RetrieveConstructionOutput (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var in3 inputExecuteAProjectActivityP7S3
+		mustUnmarshal(t, `{"contentAddress":"sha-from-store-step-2"}`, &in3)
+		var out3 any
+		var err3 error
+		out3, err3 = stepExecuteAProjectActivityP7S3(t, h, subject, in3)
+		expect(t, "execute-a-project-activity-P7", 3, out3, err3, `{"result":"{\"Bytes\":\"eyJhY3Rpdml0eSI6InN0cC1hY3QtUDciLCJ0YXNrIjoiYnVpbGQiLCJyZXZpc2lvbiI6MiwiZmlsZXMiOlsiY2xpZW50LmdvIl19\",\"MIMEType\":\"application/json\"}","errorExpected":false}`)
+	})
+}
+
+// inputOperateADeliveredSystemP1S1 is step 1's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP1S1 struct {
+	ContentAddress string `json:"contentAddress"`
+}
+
+// TestScenario_operate_a_delivered_system_P1 — Operate a Delivered System (use case operate-a-delivered-system; path start → publish-trigger → render-manifests-a → publish-a → desired-state-published-a → record-published-a → operated-system-recorded-a → publication-reason-note-a → end-a).
+func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "operate-a-delivered-system-P1", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: RetrieveConstructionOutput (node render-manifests-a)
+		var in1 inputOperateADeliveredSystemP1S1
+		mustUnmarshal(t, `{"contentAddress":"sha-of-hook-arranged-output"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOperateADeliveredSystemP1S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"Bytes\":\"YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHN0cC1vcGVyYXRlZC1hcHAK\",\"MIMEType\":\"application/yaml\"}","errorExpected":false}`)
+	})
+}
+
+// inputViewLiveDeploymentHealthP1S1 is step 1's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
+type inputViewLiveDeploymentHealthP1S1 struct {
+	ContentAddress string `json:"contentAddress"`
+}
+
+// TestScenario_view_live_deployment_health_P1 — View Live Deployment Health — [yes] (use case view-live-deployment-health; path start → open-deployment-diagram → request-health → anything-deployed → resolve-deployment → read-live-health → note-neutral-nodes → send-deployment-health → end).
+func TestScenario_view_live_deployment_health_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "view-live-deployment-health-P1", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: RetrieveConstructionOutput (node resolve-deployment; guards anything-deployed=[yes])
+		var in1 inputViewLiveDeploymentHealthP1S1
+		mustUnmarshal(t, `{"contentAddress":"sha-of-hook-arranged-output"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepViewLiveDeploymentHealthP1S1(t, h, subject, in1)
+		expect(t, "view-live-deployment-health-P1", 1, out1, err1, `{"result":"{\"Bytes\":\"YXBpVmVyc2lvbjogdjEKa2luZDogU2VydmljZQptZXRhZGF0YToKICBuYW1lOiBzdHAtaGVhbHRoLWFwcAo=\",\"MIMEType\":\"application/yaml\"}","errorExpected":false}`)
+	})
+}
+
+// callContext is the fwra call context a generated step calls the subject with:
+// the test's own context, a zero principal and, on an idempotent layer, a key
+// unique to the step. A step that needs an identity is a Hook:true step.
+func callContext(t *testing.T, h *scenariohost.Host, step string) fwra.Context {
+	t.Helper()
+	_ = step
+	return fwra.Context{Context: h.Context(t), IdempotencyKey: fwra.IdempotencyKey(t.Name() + "/" + step)}
+}
+
+func mustUnmarshal(t *testing.T, raw string, into any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(raw), into); err != nil {
+		t.Fatalf("testgen: decode %s: %v", raw, err)
+	}
+}
+
+// expect checks one step's outcome against its binding's expectation: an
+// expected error must arrive (carrying the expected code, when one is named);
+// an unexpected error fails; a named result must be a JSON subset of the
+// marshalled outcome.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	var want struct {
+		Result        string `json:"result"`
+		ErrorExpected bool   `json:"errorExpected"`
+		ErrorCode     string `json:"errorCode"`
+	}
+	mustUnmarshal(t, expectJSON, &want)
+	if want.ErrorExpected {
+		if err == nil {
+			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+		}
+		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
+			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+	}
+	if want.Result != "" && !resultMatches(want.Result, out) {
+		got, _ := json.Marshal(out)
+		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+	}
+}
+
+// errorHasCode matches the layer error's kind name, or the code as a substring
+// of the error text for a component-specific code.
+func errorHasCode(err error, code string) bool {
+	var le *fwra.Error
+	if errors.As(err, &le) && le.Kind.String() == code {
+		return true
+	}
+	return strings.Contains(err.Error(), code)
+}
+
+// resultMatches decodes the expectation (a JSON document, or a bare string)
+// and the marshalled outcome, and compares them as a subset.
+func resultMatches(wantRaw string, got any) bool {
+	var want any
+	if json.Unmarshal([]byte(wantRaw), &want) != nil {
+		want = wantRaw
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		return false
+	}
+	var g any
+	if json.Unmarshal(raw, &g) != nil {
+		return false
+	}
+	return subset(want, g)
+}
+
+// subset: every key of an expected object is present and matches; an expected
+// array matches element-wise; a scalar must be equal.
+func subset(want, got any) bool {
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			return false
+		}
+		for k, wv := range w {
+			gv, ok := g[k]
+			if !ok || !subset(wv, gv) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		g, ok := got.([]any)
+		if !ok || len(g) != len(w) {
+			return false
+		}
+		for i := range w {
+			if !subset(w[i], g[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(want, got)
+	}
+}
