@@ -72,6 +72,14 @@ on:
         description: "operator steer for this attempt, delivered to the agent through the aiarch-state MCP server, never the prompt (readers of this repo can see it in the run's inputs)"
         required: false
         type: string
+      # The attempt this job runs under ("<activity>:<task>:<n>"), minted by the
+      # dispatching Manager. The integration step's record-test-run stamps it on the
+      # TestRun as its revision, and the testing gate matches it against the attempt
+      # its round judges (DCT plan 5 r2). Validated as an id by the first step.
+      revision:
+        description: "the attempt this job runs under; recorded as the TestRun's revision"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -107,6 +115,7 @@ jobs:
           ACTIVITY_ID: ${{ inputs.activity_id }}
           COMPONENT_ID: ${{ inputs.component_id }}
           COMMAND: ${{ inputs.command }}
+          REVISION: ${{ inputs.revision }}
         run: |
           # valid VALUE ERE: a whole-line match of at most 128 characters, and a value
           # holding a newline is never an id (grep matches per line). The length bound
@@ -140,6 +149,10 @@ jobs:
           fi
           if ! valid "${COMMAND}" "${command_re}"; then
             echo "::error::command is not a valid command slug"
+            ok=0
+          fi
+          if [ -n "${REVISION}" ] && ! valid "${REVISION}" "${id_re}"; then
+            echo "::error::revision is not a valid attempt id"
             ok=0
           fi
           if [ "${ok}" != 1 ]; then
@@ -266,10 +279,11 @@ jobs:
       # binary's `record-test-run` BEFORE publishDraft, so the run rides the same
       # publish as the rest of the integration onto activity/<id> (a record written
       # after the agent published would stay in this runner). This step hands the
-      # agent what only the venue knows: the binary on PATH, the run id, and the
-      # artifact name the upload step below uses — one name, so the recorded run
-      # and the uploaded tree agree. activity_id was validated by the first step
-      # (no newline can reach $GITHUB_ENV).
+      # agent what only the venue knows: the binary on PATH, the attempt the run is
+      # recorded at (AIARCH_REVISION), the run id, and the artifact name the upload
+      # step below uses — one name, so the recorded run and the uploaded tree agree.
+      # activity_id and revision were validated by the first step (no newline can
+      # reach $GITHUB_ENV).
       # -----------------------------------------------------------------------
       - name: Expose the test-run recorder to the integration step
         if: ${{ inputs.phase == 'integration' }}
@@ -277,8 +291,10 @@ jobs:
           MCP_BIN: ${{ steps.statemcp.outputs.bin }}
           AIARCH_ACTIVITY_ID: ${{ inputs.activity_id }}
           AIARCH_RUN_ID: ${{ github.run_id }}
+          AIARCH_REVISION: ${{ inputs.revision }}
         run: |
           dirname "${MCP_BIN}" >> "$GITHUB_PATH"
+          printf 'AIARCH_REVISION=%s\n' "${AIARCH_REVISION}" >> "$GITHUB_ENV"
           printf 'AIARCH_TEST_RUN_ID=%s\n' "${AIARCH_RUN_ID}" >> "$GITHUB_ENV"
           printf 'AIARCH_TEST_ARTIFACT=test-results-%s-%s\n' "${AIARCH_ACTIVITY_ID}" "${AIARCH_RUN_ID}" >> "$GITHUB_ENV"
 
@@ -321,7 +337,7 @@ jobs:
         env:
           GOWORK: off
         run: |
-          go run github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen@v0.12.0 -project .aiarch/state/project.json -root . -uitests uitests/generated -check
+          go run github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen@v0.12.1 -project .aiarch/state/project.json -root . -uitests uitests/generated -check
 
       # The results tree the integration agent's run wrote and recorded: the go
       # test -json stream plus test-results/<component>/ (results.json and, for a

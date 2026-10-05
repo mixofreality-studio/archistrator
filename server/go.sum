@@ -173,8 +173,8 @@ github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v
 github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.3/go.mod h1:YbfS35fW8k0sFydWYKFYdWDP64y4BzigHXUDMJRRDSs=
 github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.3.0 h1:GMhHyIPtnrVwqnPqu1b3yJOVL6av55yJcT6JuFV+2HA=
 github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.3.0/go.mod h1:luUYTGdJmb87O+RLol0ysvd47nR76NA9rYgX5CLOz8Q=
-github.com/mixofreality-studio/archistrator-platform/method-assets v0.10.3 h1:BzKjjn76/8Rg7sLIHnb1GEkF23SJfQ+0wJqlUX84U8o=
-github.com/mixofreality-studio/archistrator-platform/method-assets v0.10.3/go.mod h1:qKlCW6xoGLF7usqM6sxby/crSkBWxI7/YPJzHeKPSBY=
+github.com/mixofreality-studio/archistrator-platform/method-assets v0.10.4 h1:cYBO/OkAL2uXp7UFXDHm/L4/3uq8l09eoYEg92pMrvI=
+github.com/mixofreality-studio/archistrator-platform/method-assets v0.10.4/go.mod h1:qKlCW6xoGLF7usqM6sxby/crSkBWxI7/YPJzHeKPSBY=
 github.com/moby/docker-image-spec v1.3.1 h1:jMKff3w6PgbfSa69GfNg+zN/XLhfXJGnEx3Nl2EsFP0=
 github.com/moby/docker-image-spec v1.3.1/go.mod h1:eKmb5VW8vQEh/BAr2yvVNvuiJuY6UIocYsFu/DxxRpo=
 github.com/moby/go-archive v0.2.0 h1:zg5QDUM2mi0JIM9fdQZWC7U8+2ZfixfTYoHL7rWUcP8=
