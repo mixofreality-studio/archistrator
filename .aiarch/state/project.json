@@ -9028,7 +9028,7 @@
                     "from": "architect-user",
                     "to": "mcp-client",
                     "mode": "sync",
-                    "label": "opens payment onboarding via the MCP surface (R4 cross-surface equivalence)",
+                    "label": "BillingOnboardPaymentIntegration(deployedAppID) — opens payment onboarding via the MCP surface (R4 cross-surface equivalence)",
                     "alt": "s1"
                   },
                   {
@@ -9073,7 +9073,7 @@
                     "from": "architect-user",
                     "to": "mcp-client",
                     "mode": "sync",
-                    "label": "registers via the MCP surface (R4 cross-surface equivalence)",
+                    "label": "BillingRegisterCustomer(customerID) — registers the customer via the MCP surface (R4 cross-surface equivalence)",
                     "alt": "s1"
                   },
                   {
@@ -30571,7 +30571,7 @@
       "layer": "Client",
       "goPackage": "internal/client/mcp/billing",
       "title": "mcpClientBilling contract",
-      "notes": "Facet of mcpClient: the billing tools (internal/client/mcp/billing) — only the read-only GetBillingCycle is exposed; the money-moving billing ops stay on the Temporal worker (spec §12 B1).",
+      "notes": "Facet of mcpClient: the billing tools (internal/client/mcp/billing) — the read-only GetBillingCycle (view-a-billing-cycle) and onboarding's OnboardPaymentIntegration and RegisterCustomer (onboard-a-new-customer, spec §12 B7); the scheduler-driven billing ops (closing a cycle, the shortfall sweep) stay on the Temporal worker (spec §12 B1).",
       "$defs": {
         "BillingCycleView": {
           "type": "object",
@@ -30632,6 +30632,46 @@
             "result"
           ],
           "additionalProperties": false
+        },
+        "BillingRef": {
+          "type": "object",
+          "properties": {
+            "customerId": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID",
+              "x-go-name": "CustomerID"
+            }
+          },
+          "required": [
+            "customerId"
+          ],
+          "additionalProperties": false
+        },
+        "BillingOnboardPaymentIntegrationOutput": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "$ref": "#/$defs/BillingRef"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "BillingRegisterCustomerOutput": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "$ref": "#/$defs/BillingRef"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -30659,6 +30699,42 @@
             ],
             "result": {
               "$ref": "#/$defs/BillingGetBillingCycleOutput"
+            },
+            "error": true
+          },
+          {
+            "name": "BillingOnboardPaymentIntegration",
+            "params": [
+              {
+                "name": "deployedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/BillingOnboardPaymentIntegrationOutput"
+            },
+            "error": true
+          },
+          {
+            "name": "BillingRegisterCustomer",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/BillingRegisterCustomerOutput"
             },
             "error": true
           }
@@ -38261,7 +38337,7 @@
       "component": "webClient",
       "layer": "Client",
       "title": "webClient contract",
-      "notes": "The web client's activity and review actions (the Activity Experience). One op per user action a use case names; its one param `action` is {kind, target data-testid, value?} and its result the observation (spec §12 B1). Anchors (UI_IDENTIFIERS): OpenActivity Plan.row/Plan.tile -> Activity.SCREEN; DecideReview GatePanel.APPROVE / DesignExperience.SUBMIT_BAR_PRIMARY; SendBackWithComments Margin.COMPOSER, DesignExperience.SUBMIT_BAR_PRIMARY; ReviewRedraft DesignExperience.ARTIFACT_RENDER, Margin.card; AskReviewQuestions Chat.TYPE_QUESTION, Chat.ADDRESSEE_PM/ADDRESSEE_ARCHITECT, Chat.INPUT, Chat.SEND; AmendArtifact DesignExperience.AMEND_COMPOSER/AMEND_RATIONALE/AMEND_SUBMIT, Activity.AMEND_ARCHITECTURE; MarkReviewedUnaffected DesignExperience.STALE_MARK_REVIEWED/STALE_ACK_NOTE/STALE_ACK_CONFIRM; SteerActivity Activity.STEER, Activity.OVERRIDE_NOTE; OpenFailedActivity Episodes.PANEL, Episodes.TIMELINE; RequeueActivity Activity.REOPEN, Activity.OVERRIDE_NOTE.",
+      "notes": "The web client's activity and review actions (the Activity Experience). One op per user action a use case names; its one param `action` is {kind, target data-testid, value?} and its result the observation (spec §12 B1). Anchors (UI_IDENTIFIERS): OpenActivity Plan.row/Plan.tile -> Activity.SCREEN; DecideReview GatePanel.APPROVE / DesignExperience.SUBMIT_BAR_PRIMARY; SendBackWithComments Margin.COMPOSER, DesignExperience.SUBMIT_BAR_PRIMARY; ReviewRedraft DesignExperience.ARTIFACT_RENDER, Margin.card; AskReviewQuestions Chat.TYPE_QUESTION, Chat.ADDRESSEE_PM/ADDRESSEE_ARCHITECT, Chat.INPUT, Chat.SEND; AmendArtifact Activity.AMEND_OPEN, DesignExperience.AMEND_COMPOSER/AMEND_RATIONALE/AMEND_SUBMIT (a committed design slot), Activity.AMEND_ARCHITECTURE (from M0); MarkReviewedUnaffected DesignExperience.STALE_MARK_REVIEWED/STALE_ACK_NOTE/STALE_ACK_CONFIRM; SteerActivity Activity.STEER, Activity.OVERRIDE_NOTE; OpenFailedActivity Episodes.PANEL, Episodes.TIMELINE; RequeueActivity Activity.REOPEN, Activity.OVERRIDE_NOTE.",
       "$defs": {
         "UIAction": {
           "type": "object",
@@ -38482,7 +38558,7 @@
       "component": "webClient",
       "layer": "Client",
       "title": "webClientBilling contract",
-      "notes": "Facet of webClient: billing. Anchors (UI_IDENTIFIERS): OpenBillingCycle Billing.CUSTOMER_ID_INPUT, Billing.CYCLE_ID_INPUT, Billing.CYCLE_LOOKUP_SUBMIT, Billing.CYCLE_RESULT; OpenPaymentOnboarding and RegisterPaymentInstrument the payment-onboarding screen.",
+      "notes": "Facet of webClient: billing. Anchors (UI_IDENTIFIERS): OpenBillingCycle Billing.CUSTOMER_ID_INPUT, Billing.CYCLE_ID_INPUT, Billing.CYCLE_LOOKUP_SUBMIT, Billing.CYCLE_RESULT; OpenPaymentOnboarding Billing.ONBOARD_APP_ID_INPUT, Billing.ONBOARD_SUBMIT; RegisterPaymentInstrument Billing.REGISTER_CUSTOMER_ID_INPUT, Billing.REGISTER_SUBMIT.",
       "$defs": {
         "UIAction": {
           "type": "object",
@@ -38598,7 +38674,7 @@
       "component": "webClient",
       "layer": "Client",
       "title": "webClientOperations contract",
-      "notes": "Facet of webClient: the operations console. Anchors (UI_IDENTIFIERS): DeployOperatedSystem Operations.DEPLOY_BUTTON/SCALE_BUTTON; OpenOperationsConsole Operations.ROOT; RequestCostProjection Operations.TAB_SCALING; WithdrawOperatedSystem Operations.WITHDRAW_BUTTON; OpenDeploymentDiagram Architecture.VIEW_SWITCH, Architecture.VIEW_DEPLOYMENT; RegisterDeliveredSystem the operations register control.",
+      "notes": "Facet of webClient: the operations console. Anchors (UI_IDENTIFIERS): DeployOperatedSystem Operations.DEPLOY_BUTTON/SCALE_BUTTON; OpenOperationsConsole Operations.ROOT; RequestCostProjection Operations.TAB_SCALING; WithdrawOperatedSystem Operations.WITHDRAW_BUTTON; OpenDeploymentDiagram Architecture.VIEW_SWITCH, Architecture.VIEW_DEPLOYMENT; RegisterDeliveredSystem Operations.REGISTER_BUTTON, Operations.REGISTER_CUSTOMER_ID/REGISTER_PROJECT_REF/REGISTER_BUNDLE_REF, Operations.REGISTER_SUBMIT.",
       "$defs": {
         "UIAction": {
           "type": "object",
@@ -38759,7 +38835,7 @@
       "component": "webClient",
       "layer": "Client",
       "title": "webClientPlan contract",
-      "notes": "Facet of webClient: the plan, the M0 gate and the construction console. Anchors (UI_IDENTIFIERS): OpenSdpReview SdpReview.ROOT; DecideSdpOption SdpReview.optionCard, SdpReview.COMMIT, SdpReview.REJECT_ALL/REJECT_FEEDBACK/REJECT_SUBMIT; RevokeCommitment the M0 gate's grace-window revoke; OpenProjectProgress Plan.SCREEN, HomeBase.ECONOMICS_STRIP; OpenStateHistory the state-history screen; OpenDeliveredSource Construction.tasksGitHub; OpenConstructionConsole Plan.LENS_TASKS, Construction.PAUSED_LABEL; ResumeConstruction Construction.RESUME_BUTTON; PauseConstruction the pause control and its reason field; BeginConstruction Construction.BEGIN_BUTTON, Construction.BEGIN_CONFIRM_DISPATCH.",
+      "notes": "Facet of webClient: the plan, the M0 gate and the construction console. Anchors (UI_IDENTIFIERS): OpenSdpReview SdpReview.ROOT; DecideSdpOption SdpReview.optionCard, DesignExperience.SUBMIT_BAR_PRIMARY (approve), SdpReview.REJECT_ALL/REJECT_FEEDBACK/REJECT_SUBMIT; RevokeCommitment SdpReview.REVOKE; OpenProjectProgress Plan.SCREEN, HomeBase.ECONOMICS_STRIP; OpenStateHistory HomeBase.OPEN_STATE_HISTORY -> StateHistory.SCREEN, StateHistory.entry, StateHistory.DETAIL; OpenDeliveredSource Construction.tasksGitHub; OpenConstructionConsole Plan.LENS_TASKS, Construction.PAUSED_LABEL; ResumeConstruction Construction.RESUME_BUTTON; PauseConstruction Construction.PAUSE_BUTTON, Construction.PAUSE_REASON, Construction.PAUSE_CONFIRM; BeginConstruction Construction.BEGIN_BUTTON, Construction.BEGIN_CONFIRM_DISPATCH.",
       "$defs": {
         "UIAction": {
           "type": "object",
@@ -38980,7 +39056,7 @@
       "component": "webClient",
       "layer": "Client",
       "title": "webClientProjects contract",
-      "notes": "Facet of webClient: the project catalog. Anchors (UI_IDENTIFIERS): CreateProject ProjectsLanding.NEW_PROJECT_BUTTON, ProjectsLanding.NEW_PROJECT_NAME_INPUT, ProjectsLanding.CREATE_PROJECT_SUBMIT; OpenProject ProjectsLanding.projectCard; SetReviewPolicy HomeBase.REVIEW_POLICY, HomeBase.reviewPolicyOption; SubmitResearchInput DesignExperience.RESEARCH_INPUT_TITLE/RESEARCH_INPUT_TEXT/RESEARCH_INPUT_SUBMIT.",
+      "notes": "Facet of webClient: the project catalog. Anchors (UI_IDENTIFIERS): CreateProject ProjectsLanding.NEW_PROJECT_BUTTON, ProjectsLanding.NEW_PROJECT_NAME_INPUT, ProjectsLanding.CREATE_PROJECT_SUBMIT; OpenProject ProjectsLanding.projectCard; SetReviewPolicy HomeBase.REVIEW_POLICY, HomeBase.reviewPolicyOption; CreateProject also ProjectsLanding.operatingModelOption; SubmitResearchInput DesignExperience.RESEARCH_INPUT_TITLE/RESEARCH_INPUT_TEXT/RESEARCH_INPUT_SUBMIT (the requirements activity's first dispatch).",
       "$defs": {
         "UIAction": {
           "type": "object",

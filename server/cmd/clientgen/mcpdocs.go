@@ -16,7 +16,9 @@ package main
 // cannot silently ship boilerplate again.
 var mcpOpDocs = map[string]map[string]string{
 	"BillingManager": {
-		"GetBillingCycle": "Return the recorded settlement of one billing period for a customer: whether the period has been closed, how its net routed (charged, or nothing owed) and whether a declined charge escalated the customer to delinquency (invoice unpaid). An open period reports closed=false — nothing has been charged for it yet. Read-only.",
+		"GetBillingCycle":           "Return the recorded settlement of one billing period for a customer: whether the period has been closed, how its net routed (charged, or nothing owed) and whether a declined charge escalated the customer to delinquency (invoice unpaid). An open period reports closed=false — nothing has been charged for it yet. Read-only.",
+		"OnboardPaymentIntegration": "Begin payment onboarding for a deployed application: resolve the app to its billing customer, bind the customer's gateway reference and register the customer's recurring settlement-cycle schedule (closeBillingCycle:<customerId>, idempotent by id). Idempotent on the deployed app: a repeated call joins the onboarding already running. Returns the customer's billing reference.",
+		"RegisterCustomer":          "Register a billing customer: validate the customer's stored payment instrument with a zero-amount authorization (idempotency key validate:<customerId>, so a replay never authorizes twice), read the validation back, and open the customer's billing record. Idempotent on the customer. Returns the customer's billing reference.",
 	},
 	"DeliveryManager": {
 		"AcknowledgeStaleBasis":     "Mark a stale committed artifact 'reviewed — unaffected': clear its stale-basis flag WITHOUT a redraft, recording the reviewer's note as a durable audit entry in the review thread. Use when an upstream change does not actually affect this artifact (so a reconcile amendment would be a byte-identical no-op). The activity's rail decides which artifact the task names.",

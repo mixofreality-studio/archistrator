@@ -71,7 +71,8 @@ var callerKeyedOps = map[string]map[string][]string{
 // managers is the CODE-GENERATED set: temporalgen emits contract/activities/
 // invokers/worker for each. It is the same three managers as the web-wired sets
 // (exposedManagers in cmd/clientgen, WebExposedManagers below), but billingManager
-// is web-mounted with its read-only GetBillingCycle only.
+// is web-mounted with its client-facing ops only (GetBillingCycle, and onboarding's
+// OnboardPaymentIntegration + RegisterCustomer).
 var managers = []string{"deliveryManager", "operationsManager", "billingManager"}
 
 func main() {
@@ -117,10 +118,11 @@ func main() {
 // policy. Four driver knobs the deployment model cannot express:
 //
 //   - WebExposedManagers = clientgen's exposedManagers (the 3 web-wired
-//     managers). billingManager is among them for its read-only GetBillingCycle
-//     (view-a-billing-cycle); clientgen narrows its generated
-//     internal/client/web/billing Handler to that op, so the money-moving ops stay
-//     unexposed.
+//     managers). billingManager is among them for GetBillingCycle
+//     (view-a-billing-cycle) and onboarding's OnboardPaymentIntegration +
+//     RegisterCustomer (onboard-a-new-customer); clientgen narrows its generated
+//     internal/client/web/billing Handler to those ops, so the scheduler-driven
+//     ops (CloseBillingCycle, RunShortfallSweep) stay unexposed.
 //   - VariantHookArgs for the variant ctors whose args the model cannot supply
 //     (G3): projectstate GitHub needs the sourcecontrol-backed catalog + minter
 //     PORTS (an RA→RA edge forbidden inside projectstate); artifact GitHubCloud

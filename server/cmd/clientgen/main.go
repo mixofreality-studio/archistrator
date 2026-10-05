@@ -3,7 +3,7 @@
 // reproducible driver behind `make gen-client`:
 //
 //   - reads the web-exposed manager contracts (exposedManagers: delivery,
-//     operations, and billing's read-only GetBillingCycle) from
+//     operations, and billing's client-facing ops) from
 //     .aiarch/state/project.json .serviceContracts,
 //   - runs the (fixed, standalone-green) framework-go-http-generator to emit per
 //     manager REST handlers (internal/client/web/<pkg>/) plus the single
@@ -60,12 +60,14 @@ const (
 // exposedManagers is the set of web-wired manager contracts to generate the
 // client layer for, each with the operations that reach it: nil exposes the
 // whole interface. Stage 4a collapsed the three design/construction Managers into
-// deliveryManager. billingManager exposes ONLY its read-only GetBillingCycle (use
-// case view-a-billing-cycle, web + MCP entry): its money-moving ops (closing a
-// cycle, the shortfall sweep, onboarding) run on its Temporal worker and SDK and
-// stay off the web and MCP surfaces.
+// deliveryManager. billingManager exposes the three ops a use case draws from a
+// client (spec §12 B7, the onboarding ruling T5-2): GetBillingCycle
+// (view-a-billing-cycle) and OnboardPaymentIntegration + RegisterCustomer
+// (onboard-a-new-customer, web + MCP entries). Its scheduler-driven ops (closing a
+// cycle, the shortfall sweep) run on its Temporal worker and stay off the web and
+// MCP surfaces.
 var exposedManagers = map[string][]string{
-	"billingManager":    {"GetBillingCycle"},
+	"billingManager":    {"GetBillingCycle", "OnboardPaymentIntegration", "RegisterCustomer"},
 	"deliveryManager":   nil,
 	"operationsManager": nil,
 }

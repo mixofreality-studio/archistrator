@@ -143,6 +143,43 @@ export const NO_CONSTRUCTION_RECORD =
 /** The navigation off the M0 gate: the plan changes by amending what it derives from (R7). */
 export const AMEND_ARCHITECTURE = 'Amend Architecture';
 
+/**
+ * The AMEND exit on a committed design slot (spec §12 B7; add-a-use-case-to-an-in-
+ * flight-project/capture-uc). The rationale seeds a redraft of the committed artifact,
+ * which then walks the same review gate; re-committing it flags downstream slots stale.
+ */
+export const AMEND_OPEN = 'Amend';
+export const AMEND_TITLE = 'Amend this committed artifact';
+export const AMEND_INTRO =
+  'Say what changes and why — a new use case (actor, trigger, outcome), or the change you need. It seeds a redraft of this artifact, which comes back to this gate for review; re-committing it marks the artifacts built on it stale.';
+export const AMEND_RATIONALE_LABEL = 'What changes, and why';
+export const AMEND_SUBMIT = 'Send for redraft';
+export const AMEND_CANCEL = 'Cancel';
+
+/** What an amendment the server refused said. */
+export function amendFailed(message: string): string {
+  return `The amendment was not sent: ${message}`;
+}
+
+/**
+ * The grace-window REVOKE on a decided M0 gate (commit-to-a-project-option/revoke).
+ * The window is the server's: the screen offers the verb on a committed plan and
+ * reports the refusal verbatim once the window has closed.
+ */
+export const REVOKE_LABEL = 'Revoke commitment';
+export const REVOKE_NOTE =
+  'The plan of record is committed. Within its grace window you can revoke the commitment: the SDP decision reopens and waits for a new one.';
+
+/** What a reject-all or a revoke the server refused said. */
+export function sdpDecisionFailed(message: string): string {
+  return `The decision was not recorded: ${message}`;
+}
+
+/** The research corpus refusal under the first-dispatch panel. */
+export function researchFailed(message: string): string {
+  return `The research input was not saved: ${message}`;
+}
+
 /** One proposed reviewer, as the live review set describes them. */
 export function reviewerChipLabel(reviewer: {
   role: string;

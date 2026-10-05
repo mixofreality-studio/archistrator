@@ -30,6 +30,8 @@ type Handler struct {
 // meanings, REST-matching optionality) so an agentic consumer needs no source.
 func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "billingGetBillingCycle", Description: "Return the recorded settlement of one billing period for a customer: whether the period has been closed, how its net routed (charged, or nothing owed) and whether a declined charge escalated the customer to delinquency (invoice unpaid). An open period reports closed=false — nothing has been charged for it yet. Read-only.", InputSchema: getBillingCycleInputSchema(), OutputSchema: getBillingCycleOutputSchema()}, h.handleGetBillingCycle)
+	mcp.AddTool(srv, &mcp.Tool{Name: "billingOnboardPaymentIntegration", Description: "Begin payment onboarding for a deployed application: resolve the app to its billing customer, bind the customer's gateway reference and register the customer's recurring settlement-cycle schedule (closeBillingCycle:<customerId>, idempotent by id). Idempotent on the deployed app: a repeated call joins the onboarding already running. Returns the customer's billing reference.", InputSchema: onboardPaymentIntegrationInputSchema(), OutputSchema: onboardPaymentIntegrationOutputSchema()}, h.handleOnboardPaymentIntegration)
+	mcp.AddTool(srv, &mcp.Tool{Name: "billingRegisterCustomer", Description: "Register a billing customer: validate the customer's stored payment instrument with a zero-amount authorization (idempotency key validate:<customerId>, so a replay never authorizes twice), read the validation back, and open the customer's billing record. Idempotent on the customer. Returns the customer's billing reference.", InputSchema: registerCustomerInputSchema(), OutputSchema: registerCustomerOutputSchema()}, h.handleRegisterCustomer)
 }
 
 type getBillingCycleInput struct {
@@ -39,6 +41,22 @@ type getBillingCycleInput struct {
 
 type getBillingCycleOutput struct {
 	Result mgr.BillingCycleView `json:"result"`
+}
+
+type onboardPaymentIntegrationInput struct {
+	DeployedAppID uuid.UUID `json:"deployedAppID"`
+}
+
+type onboardPaymentIntegrationOutput struct {
+	Result mgr.BillingRef `json:"result"`
+}
+
+type registerCustomerInput struct {
+	CustomerID uuid.UUID `json:"customerID"`
+}
+
+type registerCustomerOutput struct {
+	Result mgr.BillingRef `json:"result"`
 }
 
 // getBillingCycleInputSchema is the explicit MCP input schema for the GetBillingCycle operation.
@@ -51,6 +69,26 @@ func getBillingCycleInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// onboardPaymentIntegrationInputSchema is the explicit MCP input schema for the OnboardPaymentIntegration operation.
+func onboardPaymentIntegrationInputSchema() *jsonschema.Schema {
+	s := objectSchema[onboardPaymentIntegrationInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"deployedAppID"}
+	return s
+}
+
+// registerCustomerInputSchema is the explicit MCP input schema for the RegisterCustomer operation.
+func registerCustomerInputSchema() *jsonschema.Schema {
+	s := objectSchema[registerCustomerInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"customerID"}
+	return s
+}
+
 // getBillingCycleOutputSchema is the explicit MCP output schema for the GetBillingCycle operation.
 func getBillingCycleOutputSchema() *jsonschema.Schema {
 	s := objectSchema[getBillingCycleOutput]()
@@ -58,6 +96,26 @@ func getBillingCycleOutputSchema() *jsonschema.Schema {
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	describeContractFields(s, reflect.TypeFor[getBillingCycleOutput]())
+	return s
+}
+
+// onboardPaymentIntegrationOutputSchema is the explicit MCP output schema for the OnboardPaymentIntegration operation.
+func onboardPaymentIntegrationOutputSchema() *jsonschema.Schema {
+	s := objectSchema[onboardPaymentIntegrationOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[onboardPaymentIntegrationOutput]())
+	return s
+}
+
+// registerCustomerOutputSchema is the explicit MCP output schema for the RegisterCustomer operation.
+func registerCustomerOutputSchema() *jsonschema.Schema {
+	s := objectSchema[registerCustomerOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[registerCustomerOutput]())
 	return s
 }
 
@@ -135,6 +193,32 @@ func (h *Handler) handleGetBillingCycle(ctx context.Context, _ *mcp.CallToolRequ
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.GetBillingCycle(rc, in.CustomerID, in.CycleID)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleOnboardPaymentIntegration is the MCP tool handler for the OnboardPaymentIntegration operation.
+func (h *Handler) handleOnboardPaymentIntegration(ctx context.Context, _ *mcp.CallToolRequest, in onboardPaymentIntegrationInput) (*mcp.CallToolResult, onboardPaymentIntegrationOutput, error) {
+	var out onboardPaymentIntegrationOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.OnboardPaymentIntegration(rc, in.DeployedAppID)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleRegisterCustomer is the MCP tool handler for the RegisterCustomer operation.
+func (h *Handler) handleRegisterCustomer(ctx context.Context, _ *mcp.CallToolRequest, in registerCustomerInput) (*mcp.CallToolResult, registerCustomerOutput, error) {
+	var out registerCustomerOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.RegisterCustomer(rc, in.CustomerID)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}

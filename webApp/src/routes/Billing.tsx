@@ -3,7 +3,9 @@
  * PURE SERVICE VENDOR: it bills the USER for construction tokens + hosting,
  * usage-based, no subscription, no revenue share.
  *
- * ONE read is live: the billing-period lookup (BillingCycleLookup —
+ * Two surfaces are live: payment onboarding (BillingOnboarding —
+ * billingManager.OnboardPaymentIntegration + RegisterCustomer, use case
+ * onboard-a-new-customer) and the billing-period lookup (BillingCycleLookup —
  * billingManager.GetBillingCycle, use case view-a-billing-cycle). Everything else
  * the billing backend (billingManager + Stripe via merchantGatewayAccess) would show
  * has NO read endpoint yet, so the rest of the screen renders the INTENDED layout
@@ -22,6 +24,7 @@ import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
 import { BillingCycleLookupContainer } from '../containers/BillingCycleLookupContainer';
+import { BillingOnboardingContainer } from '../containers/BillingOnboardingContainer';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
@@ -91,6 +94,9 @@ function BillingBody({ projectId }: { projectId: string }): ReactNode {
         </Typography>
       </Box>
 
+      {/* payment onboarding: open it for a deployed app, then register the customer */}
+      <BillingOnboardingContainer />
+
       {/* the one live read: a billing period's recorded settlement */}
       <BillingCycleLookupContainer />
 
@@ -110,9 +116,9 @@ function BillingBody({ projectId }: { projectId: string }): ReactNode {
             sx={{ fontFamily: t.body, fontSize: 13, color: t.muted, mt: 0.5, lineHeight: 1.5 }}
           >
             The billing manager (Stripe via merchantGatewayAccess) answers one read today — the
-            billing-period lookup above. It has no read for the current invoice, the payment method,
-            the price book or the invoice history yet, so their intended layout is previewed below;
-            each activates once its read exists.
+            billing-period lookup above — beside the two onboarding writes. It has no read for the
+            current invoice, the payment method, the price book or the invoice history yet, so their
+            intended layout is previewed below; each activates once its read exists.
           </Typography>
         </Box>
       </Paper>

@@ -35,6 +35,10 @@ export const UI_IDENTIFIERS = {
     CREATE_PROJECT_SUBMIT: 'create-project-submit',
     CREATE_PROJECT_CANCEL: 'create-project-cancel',
     CREATE_PROJECT_PREREQS: 'create-project-prereqs',
+    // The operating-model choice (selfOperated | archistratorOperated) in the create
+    // dialog: the fieldset, and one radio per model keyed by its wire value.
+    OPERATING_MODEL: 'create-project-operating-model',
+    operatingModelOption: (model: string) => `operating-model-${model}`,
     projectCard: (projectId: string) => `project-card-${projectId}`,
   },
   HomeBase: {
@@ -55,6 +59,8 @@ export const UI_IDENTIFIERS = {
     REVIEW_POLICY: 'review-policy-control',
     reviewPolicyOption: (preset: string) => `review-policy-option-${preset}`,
     REVIEW_POLICY_FLOOR_NOTE: 'review-policy-floor-note',
+    // The door to the project's state history (use case view-the-project-state-log).
+    OPEN_STATE_HISTORY: 'home-base-open-state-history',
   },
   // The `DesignWizard` namespace (SCREEN, artifactStep) went with the design
   // wizard itself — the slim spine under `DesignExperience` is the only stepper
@@ -428,6 +434,14 @@ export const UI_IDENTIFIERS = {
     RESUME_BUTTON: 'construction-resume',
     PAUSED_LABEL: 'construction-paused-label',
     RESUME_OUTCOME: 'construction-resume-outcome',
+    // The PAUSE control (use case pause-construction): offered while construction runs,
+    // it asks for the reason the Manager requires before it sends anything.
+    PAUSE_BUTTON: 'construction-pause',
+    PAUSE_DIALOG: 'construction-pause-dialog',
+    PAUSE_REASON: 'construction-pause-reason',
+    PAUSE_CONFIRM: 'construction-pause-confirm',
+    PAUSE_CANCEL: 'construction-pause-cancel',
+    PAUSE_OUTCOME: 'construction-pause-outcome',
     TASKS_PAUSED_LABEL: 'construction-tasks-paused-label',
     beginConfirmCandidate: (activityId: string) => `construction-begin-candidate-${activityId}`,
     /** A TASKS row's pending-note line (pendingNotes.ts). */
@@ -532,6 +546,16 @@ export const UI_IDENTIFIERS = {
     BILLING_LINK: 'operations-billing-link',
     CAPABILITIES_UNREACHABLE: 'operations-capabilities-unreachable',
     CAPABILITIES_RETRY: 'operations-capabilities-retry',
+    // Register the delivered system for operation (use case register-a-delivered-
+    // system-for-operation): the button opens the form; the result names the
+    // head-state version the registration recorded.
+    REGISTER_BUTTON: 'operations-register',
+    REGISTER_FORM: 'operations-register-form',
+    REGISTER_CUSTOMER_ID: 'operations-register-customer-id',
+    REGISTER_PROJECT_REF: 'operations-register-project-ref',
+    REGISTER_BUNDLE_REF: 'operations-register-bundle-ref',
+    REGISTER_SUBMIT: 'operations-register-submit',
+    REGISTER_RESULT: 'operations-register-result',
   },
   ChangeRequests: {
     ROOT: 'change-requests-screen',
@@ -558,6 +582,16 @@ export const UI_IDENTIFIERS = {
     CYCLE_LOOKUP_SUBMIT: 'billing-cycle-lookup-submit',
     CYCLE_RESULT: 'billing-cycle-result',
     CYCLE_OUTCOME: 'billing-cycle-outcome',
+    // Payment onboarding (use case onboard-a-new-customer): open it for a deployed app
+    // (billingManager.OnboardPaymentIntegration), then register the customer's payment
+    // instrument (billingManager.RegisterCustomer). Each step shows what it returned.
+    ONBOARDING: 'billing-onboarding',
+    ONBOARD_APP_ID_INPUT: 'billing-onboard-app-id',
+    ONBOARD_SUBMIT: 'billing-onboard-submit',
+    ONBOARD_RESULT: 'billing-onboard-result',
+    REGISTER_CUSTOMER_ID_INPUT: 'billing-register-customer-id',
+    REGISTER_SUBMIT: 'billing-register-submit',
+    REGISTER_RESULT: 'billing-register-result',
   },
   Team: {
     ROOT: 'team-screen',
@@ -574,6 +608,12 @@ export const UI_IDENTIFIERS = {
     REJECT_FEEDBACK: 'sdp-reject-feedback',
     REJECT_SUBMIT: 'sdp-reject-submit',
     optionCard: (optionId: string) => `sdp-option-${optionId}`,
+    // The grace-window REVOKE on a decided M0 gate (commit-to-a-project-option/revoke):
+    // the strip, its button, and the line a refusal (window closed) writes.
+    REVOKE_STRIP: 'sdp-revoke-strip',
+    REVOKE: 'sdp-revoke',
+    // What a reject-all or a revoke the server refused said, verbatim.
+    DECISION_ERROR: 'sdp-decision-error',
   },
   // The `Gate` namespace was a second, older spelling of the design gate's
   // controls (STAGE_CHIP, REQUEST_DRAFT_BUTTON, APPROVE_BUTTON, …) that no
@@ -639,6 +679,16 @@ export const UI_IDENTIFIERS = {
     ARTIFACT_PANEL: 'activity-artifact-panel',
     ARTIFACT_UNAVAILABLE: 'activity-artifact-unavailable',
     AMEND_ARCHITECTURE: 'activity-amend-architecture',
+    // The AMEND exit on a COMMITTED design slot (use case add-a-use-case-to-an-in-flight-
+    // project/capture-uc): this opens the composer, which reuses the DesignExperience
+    // AMEND_COMPOSER / AMEND_RATIONALE / AMEND_SUBMIT / AMEND_CANCEL ids, so one selector
+    // set names the amendment on every surface that offers it.
+    AMEND_OPEN: 'activity-amend-open',
+    AMEND_ERROR: 'activity-amend-error',
+    // The research corpus asked for on the requirements activity's FIRST dispatch (use
+    // case manage-projects/capture-research): the panel itself carries the
+    // DesignExperience RESEARCH_INPUT* ids; this is the refusal line under it.
+    RESEARCH_ERROR: 'activity-research-error',
     // What the M0 gate's cost was computed on, when part of it was ASSUMED
     // (m0CostBasis.ts). Absent whenever nothing was.
     COST_BASIS: 'activity-cost-basis',
@@ -669,6 +719,19 @@ export const UI_IDENTIFIERS = {
     tile: (activityId: string) => `plan-tile-${activityId}`,
     milestone: (id: string) => `plan-milestone-${id}`,
     gutterRow: (row: string) => `plan-gutter-${row}`,
+  },
+  // The project's STATE HISTORY (`/project/$projectId/history`, use case
+  // view-the-project-state-log): every recorded change the head state carries, newest
+  // first, each one drillable into what it recorded.
+  StateHistory: {
+    SCREEN: 'state-history-screen',
+    LIST: 'state-history-list',
+    EMPTY: 'state-history-empty',
+    entry: (key: string) => `state-history-entry-${key}`,
+    DETAIL: 'state-history-detail',
+    // The honest line under a drilled change: the typed diff against its parent
+    // commit is not on the read model yet.
+    DIFF_UNAVAILABLE: 'state-history-diff-unavailable',
   },
   // The preview build's own chrome (src/previewShell/, design-renderer-data.md
   // §2′.1): the loud banner a fixture miss or a blocked request raises, and the

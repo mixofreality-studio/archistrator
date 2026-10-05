@@ -51,6 +51,8 @@ func TestMCPMountInitializeAndListTools(t *testing.T) {
 	// registered on the one server behind /mcp.
 	want := []string{
 		"billingGetBillingCycle",
+		"billingOnboardPaymentIntegration",
+		"billingRegisterCustomer",
 		"deliveryStartProject",
 		"deliveryDispatchActivityTask",
 		"deliveryExecuteNextActivity",
@@ -61,11 +63,12 @@ func TestMCPMountInitializeAndListTools(t *testing.T) {
 			t.Errorf("tools/list missing %q; got %d tools: %s", name, len(res.Tools), strings.Join(toolNames(res.Tools), ", "))
 		}
 	}
-	// billingManager reaches MCP with its read-only op only: the money-moving ops
-	// stay on its Temporal worker.
-	for _, name := range []string{"billingCloseBillingCycle", "billingRunShortfallSweep", "billingOnboardPaymentIntegration", "billingRegisterCustomer"} {
+	// billingManager reaches MCP with the ops a use case draws from a client — the
+	// cycle read and onboarding's two entries (spec §12 B7) — and nothing else: the
+	// scheduler-driven ops stay on its Temporal worker.
+	for _, name := range []string{"billingCloseBillingCycle", "billingRunShortfallSweep"} {
 		if got[name] {
-			t.Errorf("tools/list exposes the money-moving %q", name)
+			t.Errorf("tools/list exposes the scheduler-driven %q", name)
 		}
 	}
 }

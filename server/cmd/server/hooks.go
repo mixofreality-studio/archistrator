@@ -534,8 +534,9 @@ func (h *appHooks) DevConfig(cfg *Config) web.DevConfig {
 // — through either transport — is logged once server-side with op/projectID/cause.
 // Delivery and operations then take their project-scoped authorization guard on top
 // (projectScopedDeliveryManager / projectScopedOperationsManager), so a denial is
-// answered before any inner work, on either transport. Billing's one exposed op
-// (GetBillingCycle) is customer-scoped and takes no guard here: under the interim
+// answered before any inner work, on either transport. Billing's exposed ops
+// (GetBillingCycle, OnboardPaymentIntegration, RegisterCustomer) are customer- or
+// deployed-app-scoped and take no guard here: under the interim
 // authenticated-only PDP (authz.go) authentication is its gate on both transports, and
 // the REST handler's Authorize pre-step names the customer resource for when the Cedar
 // PDP lands.

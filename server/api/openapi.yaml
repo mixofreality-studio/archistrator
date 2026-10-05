@@ -27,6 +27,18 @@ components:
                 - routed
                 - escalated
             type: object
+        BillingBillingRef:
+            additionalProperties: false
+            properties:
+                customerId:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-name: CustomerID
+                    x-go-type: uuid.UUID
+            required:
+                - customerId
+            type: object
         BillingErrorResponse:
             additionalProperties: false
             properties:
@@ -4660,6 +4672,132 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/BillingBillingCycleView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/billing/onboard-payment-integration/{deployedAppID}:
+        post:
+            operationId: OnboardPaymentIntegration
+            parameters:
+                - in: path
+                  name: deployedAppID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingBillingRef'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/billing/register-customer/{customerID}:
+        post:
+            operationId: RegisterCustomer
+            parameters:
+                - in: path
+                  name: customerID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingBillingRef'
                     description: success
                 "400":
                     content:

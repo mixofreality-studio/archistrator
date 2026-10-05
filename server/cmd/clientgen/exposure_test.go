@@ -107,10 +107,12 @@ func TestExposedContract_UnknownOpFails(t *testing.T) {
 	}
 }
 
-// The committed model: billingManager reaches the client layer with its read-only
-// GetBillingCycle only — the money-moving ops (close, sweep, onboarding) stay off
-// the web and MCP surfaces.
-func TestExposedManagers_BillingIsReadOnly(t *testing.T) {
+// The committed model: billingManager reaches the client layer with exactly the ops a
+// use case draws from a client — GetBillingCycle (view-a-billing-cycle) and
+// onboarding's OnboardPaymentIntegration + RegisterCustomer (onboard-a-new-customer,
+// spec §12 B7) — and the scheduler-driven ops (close, sweep) stay off the web and MCP
+// surfaces.
+func TestExposedManagers_BillingIsClientDrawnOnly(t *testing.T) {
 	path := filepath.Join("..", "..", "..", ".aiarch", "state", "project.json") // the test runs in cmd/clientgen
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -125,8 +127,9 @@ func TestExposedManagers_BillingIsReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if names := opNames(t, got); !slices.Equal(names, []string{"GetBillingCycle"}) {
-		t.Fatalf("billingManager exposes %v, want [GetBillingCycle]", names)
+	want := []string{"GetBillingCycle", "OnboardPaymentIntegration", "RegisterCustomer"}
+	if names := opNames(t, got); !slices.Equal(names, want) {
+		t.Fatalf("billingManager exposes %v, want %v", names, want)
 	}
 	for _, key := range []string{"deliveryManager", "operationsManager"} {
 		if ops, ok := exposedManagers[key]; !ok || ops != nil {
