@@ -42,7 +42,7 @@ import { useUser } from '../utilities/auth/UserContext';
 import { currentPhaseOf, toArtifactTableOfContents } from '../contracts/adapters';
 import type { ProjectStateWithGit } from '../contracts/types';
 import { PHASE1_ORDER } from '../contracts/methodMetadata';
-import { PLAN_PATH, planSearch } from '../contracts/routePaths';
+import { PLAN_PATH, planSearch, STATE_HISTORY_PATH } from '../contracts/routePaths';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
@@ -303,6 +303,15 @@ function HomeBaseBody({
           </Box>
           <Button endIcon={<ArrowForwardIcon />} variant="outlined" onClick={openPlan}>
             Open plan
+          </Button>
+          {/* The project's recorded changes (use case view-the-project-state-log). */}
+          <Button
+            data-testid={UI_IDENTIFIERS.HomeBase.OPEN_STATE_HISTORY}
+            sx={{ color: t.muted }}
+            variant="text"
+            onClick={() => void navigate({ to: STATE_HISTORY_PATH, params: { projectId } })}
+          >
+            State history
           </Button>
         </Paper>
       </Box>

@@ -8,6 +8,7 @@
  *   /project/$projectId/home                      → HomeBase (wraps itself in the AppShell)
  *   /project/$projectId/plan                      → PlanScreen (the ONE plan surface, full-screen)
  *   /project/$projectId/activity/$activityId      → ActivityExperienceScreen (one activity, full-screen)
+ *   /project/$projectId/history                   → StateHistoryScreen (the project's recorded changes)
  *   /project/$projectId/design/system/{-$stepSlug}  → redirect to /plan
  *   /project/$projectId/design/project/{-$stepSlug} → redirect to /plan
  *   /project/$projectId/construction                → redirect to /plan
@@ -50,6 +51,7 @@ import { BillingScreen } from './Billing';
 import { TeamScreen } from './TeamView';
 import { PlanScreen } from './Plan';
 import { ActivityExperienceScreen } from './ActivityExperience';
+import { StateHistoryScreen } from './StateHistory';
 import { operationsBeforeLoad } from './operationsGuard';
 // One import for both new paths: activityRedirect owns the redirect the old rails
 // take and re-exports the literals it redirects between, so the path a route
@@ -61,7 +63,7 @@ import {
   planSearchFromLegacy,
   redirectToPlan,
 } from './activityRedirect';
-import { activitySearch } from '../contracts/routePaths';
+import { activitySearch, STATE_HISTORY_PATH } from '../contracts/routePaths';
 import { validateLensSearch } from '../components/construction/lens/useLensSelection';
 import type { Capabilities } from '../utilities/capabilities';
 
@@ -178,6 +180,12 @@ const billingRoute = createRoute({
   component: BillingScreen,
 });
 
+const stateHistoryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: STATE_HISTORY_PATH,
+  component: StateHistoryScreen,
+});
+
 const teamRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/project/$projectId/team',
@@ -196,6 +204,7 @@ const routeTree = rootRoute.addChildren([
   changeRequestsRoute,
   subprojectRoute,
   billingRoute,
+  stateHistoryRoute,
   teamRoute,
 ]);
 

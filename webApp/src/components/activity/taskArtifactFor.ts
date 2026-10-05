@@ -74,6 +74,14 @@ export const SLOT_KIND: Readonly<Record<string, ArtifactKindFull>> = {
 export const ARCHITECTURE_ACTIVITY_ID = 'architecture';
 
 /**
+ * The Requirements activity's id — the BOOTSTRAP activity StartProject starts once the
+ * research corpus is present (deliveryManager.startSystemDesign). Its first dispatch is
+ * where the Activity Experience asks for that corpus (spec §12 B7,
+ * manage-projects/capture-research).
+ */
+export const REQUIREMENTS_ACTIVITY_ID = 'requirements';
+
+/**
  * The artifact classifications this stage actually renders — ported from
  * `bodyDispatch.ts:64`, minus the two retired testing variants.
  *

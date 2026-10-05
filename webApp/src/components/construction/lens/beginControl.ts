@@ -506,3 +506,77 @@ export function resumeOutcomeCopy(outcome: ResumeOutcome): { headline: string; d
       };
   }
 }
+
+// ---------------------------------------------------------------------------
+// The PAUSE control (use case pause-construction; spec §12 B7). The other half of
+// SetProjectRunState: while construction runs and no pause is recorded, the console
+// offers Pause beside Begin. The Manager requires a non-empty reason (it is the
+// durable record of WHY), so the control asks for one before anything is sent. A pause
+// cancels nothing in flight: the activity already running finishes, and no further
+// activity is started — which the confirm step says before the operator presses it.
+// ---------------------------------------------------------------------------
+
+export interface PauseControl {
+  label: string;
+  disabled: boolean;
+  busy: boolean;
+}
+
+/**
+ * The Pause control, or `undefined` where there is nothing to pause: construction has
+ * not started, a pause is already recorded (Resume is offered instead), the project
+ * is operating, or its read is not in.
+ */
+export function pauseControlFor(input: {
+  constructionStarted: boolean | undefined;
+  operatorPaused: boolean | undefined;
+  operating: boolean | undefined;
+  projectLoading: boolean;
+  /** A pause request is in flight. */
+  pending: boolean;
+}): PauseControl | undefined {
+  if (input.projectLoading) return undefined;
+  if (input.constructionStarted !== true) return undefined;
+  if (input.operatorPaused === true || input.operating === true) return undefined;
+  return { label: 'Pause construction', disabled: input.pending, busy: input.pending };
+}
+
+/** What the pause confirm says before it sends anything. */
+export const PAUSE_EXPLAINER =
+  'Pausing stops construction from starting another activity. Nothing in flight is cancelled: the activity already running finishes. Resume clears the pause.';
+
+/** What a pause said: it landed, the server refused it, or no clean answer arrived. */
+export type PauseOutcome =
+  | { kind: 'paused' }
+  | { kind: 'rejected'; message: string }
+  | { kind: 'unknown'; message: string };
+
+/** The same status rule as Begin's and Resume's: only a 4xx is a refusal. */
+export function pauseOutcomeFor(status: number | undefined, message: string): PauseOutcome {
+  const d = dispatchOutcomeFor(status, message);
+  return d.kind === 'rejected'
+    ? { kind: 'rejected', message: d.message }
+    : { kind: 'unknown', message: d.message };
+}
+
+/** The words for one pause outcome. */
+export function pauseOutcomeCopy(outcome: PauseOutcome): { headline: string; detail: string } {
+  switch (outcome.kind) {
+    case 'paused':
+      return {
+        headline: 'Pause requested — no further activity will start.',
+        detail:
+          'The pause is applied asynchronously; the activity already running finishes. Resume clears it.',
+      };
+    case 'rejected':
+      return {
+        headline: `Pause refused: ${outcome.message}.`,
+        detail: 'The server refused the request, so construction continues.',
+      };
+    case 'unknown':
+      return {
+        headline: 'Outcome unknown — the pause may have landed; the console will show it.',
+        detail: `The request got no clean answer (${outcome.message}).`,
+      };
+  }
+}

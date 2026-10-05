@@ -13,7 +13,9 @@
  *   - the read-only cost-projection (GET /operations/{id}/cost-projection) drives
  *     the scale what-if curve;
  *   - the publish actions (Deploy / Scale / UpdateAutoscalerPolicy / Withdraw)
- *     call the real POST endpoints.
+ *     call the real POST endpoints;
+ *   - Register (RegisterOperatedApp, use case register-a-delivered-system-for-
+ *     operation) seeds the operated system's head state once, above every tab.
  *
  * Operations is CLOUD / k8s only — the local/embedded profile has no operate
  * surface. Every tab degrades to an honest awaiting state rather than an error
@@ -37,6 +39,7 @@ import { getRouteApi, useNavigate, Link as RouterLink } from '@tanstack/react-ro
 
 import { ApiError } from '../contracts/errors';
 import { useOperationsView } from '../hooks/useOperationsView';
+import { useRegisterOperatedApp } from '../hooks/useOperationsMutations';
 import { sloSummary } from '../contracts/operationsAdapters';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
@@ -46,6 +49,7 @@ import { StatusTab } from '../components/operations/StatusTab';
 import { DeploymentsTab } from '../components/operations/DeploymentsTab';
 import { ScalingCostTab } from '../components/operations/ScalingCostTab';
 import { InterventionsTab } from '../components/operations/InterventionsTab';
+import { RegisterPanel, type RegisterResult } from '../components/operations/RegisterPanel';
 
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
@@ -168,6 +172,15 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
 
   const active = TABS.find((x) => x.id === tab) ?? TABS[0];
 
+  const register = useRegisterOperatedApp(operatedAppId);
+  const registerResult: RegisterResult | undefined = register.isPending
+    ? { kind: 'pending' }
+    : register.data !== undefined
+      ? { kind: 'registered', version: register.data }
+      : register.error !== null
+        ? { kind: 'failed', message: register.error.message }
+        : undefined;
+
   return (
     <ExperienceChrome
       // Self: the tab bar is pinned and the tab BODY scrolls (see below). No margin.
@@ -279,6 +292,12 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
         </Box>
 
         <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
+          <RegisterPanel
+            result={registerResult}
+            onRegister={(vars) => {
+              register.mutate(vars);
+            }}
+          />
           <ConsoleHeader subtitle={active.subtitle} t={t} title={active.title} />
 
           {viewQuery.isLoading && !viewMissing ? (

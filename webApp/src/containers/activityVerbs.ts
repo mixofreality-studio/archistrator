@@ -37,6 +37,20 @@
  *              then ADVANCES; both are SubmitReviewDecision calls.
  *   sendBack → nothing. The plan is DERIVED, so changing it means amending the
  *              Architecture.
+ * …and gains the two verbs its use cases draw (spec §12 B7):
+ *   rejectAll → `reject` with non-empty feedback (commit-to-a-project-option
+ *               [reject-all + feedback], replan-under-scope-change [reject]). It is
+ *               NOT a send-back: no anchored change requests, no redraft of a judged
+ *               artifact — the decision is declined, with the reason, and the current
+ *               commitment stands.
+ *   revoke    → `withdraw` on the DECIDED gate, inside the grace window
+ *               (commit-to-a-project-option/revoke). The server owns the window.
+ *
+ * ── Amend, the design rails' third exit ─────────────────────────────────────
+ *   amend → DispatchActivityTask carrying the architect's rationale as feedback, on
+ *           a COMMITTED design slot (add-a-use-case-to-an-in-flight-project/
+ *           capture-uc, replan-under-scope-change/back-to-design). M0 amends by
+ *           navigating to the Architecture; construction has no slot to amend.
  */
 import { REVIEW_DECISION_APP_TO_ORDINAL } from '../contracts/enums.gen.ts';
 import type { components } from '../contracts/schema';
@@ -52,6 +66,7 @@ type WireReviewDecision = components['schemas']['DeliveryReviewDecision'];
 
 export const REVIEW_APPROVE = REVIEW_DECISION_APP_TO_ORDINAL.approve as WireReviewDecision;
 export const REVIEW_REJECT = REVIEW_DECISION_APP_TO_ORDINAL.reject as WireReviewDecision;
+export const REVIEW_WITHDRAW = REVIEW_DECISION_APP_TO_ORDINAL.withdraw as WireReviewDecision;
 export const REVIEW_ADVANCE = REVIEW_DECISION_APP_TO_ORDINAL.advance as WireReviewDecision;
 export const REVIEW_SET_COMMENT_STATUS =
   REVIEW_DECISION_APP_TO_ORDINAL.setCommentStatus as WireReviewDecision;
@@ -96,6 +111,13 @@ export interface VerbsFor {
    *  rationale; for M0 it is a NAVIGATION (amend the Architecture), which the
    *  container owns because this table names ops, not routes. */
   reconcileStale: VerbTarget;
+  /** Amend a COMMITTED slot with a rationale: a design redraft. `{ kind: 'none' }` on
+   *  M0 (amended by navigating to the Architecture) and on construction (no slot). */
+  amend: VerbTarget;
+  /** M0 only: decline every option, with feedback. `{ kind: 'none' }` elsewhere. */
+  rejectAll: VerbTarget;
+  /** M0 only: revoke a decided commitment inside its grace window. */
+  revoke: VerbTarget;
   allowSendBack: boolean;
   approveCopy?: { label: string; consequence: string };
   /** True where approve must also ADVANCE once it has committed (the M0 gate). */
@@ -127,6 +149,14 @@ const NO_SDP_SEND_BACK =
 
 const NO_SDP_RERUN =
   'The SDP review is re-derived from the committed plan, not re-run from this gate.';
+
+/** Why only the M0 gate offers reject-all and revoke: they decide a PLAN, not an artifact. */
+const M0_ONLY =
+  'Rejecting every option and revoking a commitment decide the plan of record, which only the Project Design M0 gate holds.';
+
+/** Why a construction activity offers no amendment: its rounds judge no design slot. */
+const NO_CONSTRUCTION_AMEND =
+  'A construction activity amends no committed design slot: its rounds judge their own work product, which a redraft re-runs.';
 
 /** The M0 approval says what it costs, because approving it starts spending. */
 const M0_APPROVE_COPY = {
@@ -160,6 +190,9 @@ export function verbsFor(input: {
       // The M0 plan is DERIVED: it is reconciled by amending what it derives from,
       // which is a navigation to the Architecture activity, not an op.
       reconcileStale: { kind: 'none', reason: NO_SDP_SEND_BACK },
+      amend: { kind: 'none', reason: NO_SDP_SEND_BACK },
+      rejectAll: { kind: 'decision', decision: REVIEW_REJECT },
+      revoke: { kind: 'decision', decision: REVIEW_WITHDRAW },
       allowSendBack: false,
       approveCopy: { ...M0_APPROVE_COPY },
       advanceAfterApprove: true,
@@ -183,6 +216,9 @@ export function verbsFor(input: {
         rerun: none,
         acknowledgeStale: none,
         reconcileStale: none,
+        amend: none,
+        rejectAll: none,
+        revoke: none,
         allowSendBack: false,
       };
     }
@@ -194,6 +230,9 @@ export function verbsFor(input: {
       rerun: { kind: 'dispatch' },
       acknowledgeStale: { kind: 'acknowledgeStale' },
       reconcileStale: { kind: 'dispatch' },
+      amend: { kind: 'dispatch' },
+      rejectAll: { kind: 'none', reason: M0_ONLY },
+      revoke: { kind: 'none', reason: M0_ONLY },
       allowSendBack: true,
     };
   }
@@ -215,6 +254,9 @@ export function verbsFor(input: {
     // reports a stale basis, and no construction gate judges one), and it is the
     // honest op for the day one does.
     reconcileStale: { kind: 'dispatch' },
+    amend: { kind: 'none', reason: NO_CONSTRUCTION_AMEND },
+    rejectAll: { kind: 'none', reason: M0_ONLY },
+    revoke: { kind: 'none', reason: M0_ONLY },
     allowSendBack: true,
   };
 }

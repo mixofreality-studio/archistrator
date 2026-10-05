@@ -61,6 +61,19 @@
  * caption saying it is the CURRENT one. There is no op that reads an artifact as
  * of a ref (GAP-5); saying so is honest where a silently-current artifact is not.
  *
+ * ── The verbs the use cases draw past the bar (spec §12 B7) ─────────────────
+ * Four surfaces sit beside the review bar, each on its own mutation observer so
+ * its pending state and refusal are its own:
+ *   - the requirements activity's FIRST dispatch asks for the research corpus
+ *     (`ResearchInputPanel`, manage-projects/capture-research) while the project has
+ *     none, and StartProject — addressed at this project, `start: true` — both saves
+ *     it and starts system design;
+ *   - a COMMITTED design slot on its head revision offers AMEND (add-a-use-case,
+ *     replan back-to-design): a redraft carrying the architect's rationale;
+ *   - the LIVE M0 gate offers REJECT ALL with feedback (commit-to-a-project-option,
+ *     replan-under-scope-change), which is not a send-back;
+ *   - a COMMITTED M0 plan offers the grace-window REVOKE.
+ *
  * ── Liveness ────────────────────────────────────────────────────────────────
  * A 404 from the activity read is an ERROR there, never a value, and is never
  * polled: it means the committed plan has no such activity, which the screen
@@ -83,6 +96,7 @@ import { DispatchBody } from '../components/activity/DispatchBody';
 import { HistoryBanner } from '../components/activity/HistoryBanner';
 import { LifecycleGraph } from '../components/activity/LifecycleGraph';
 import { ReviewBody } from '../components/activity/ReviewBody';
+import { ResearchInputPanel } from '../components/design/ResearchInputPanel';
 import {
   ACTIVITY_LOADING,
   ACTIVITY_NOT_IN_PLAN,
@@ -92,6 +106,7 @@ import {
   notDispatchedYet,
   planIndexFor,
   RECONCILE_RATIONALE,
+  researchFailed,
 } from '../components/activity/activityCopy.ts';
 import { activityCommentKey } from '../components/activity/pendingCommentKey.ts';
 import { lastPlanLens } from '../components/activity/planLensMemory.ts';
@@ -113,10 +128,12 @@ import { openThreadCount, toReviewThread } from '../components/activity/threadAd
 import { askEntriesFor, decisionFeedbackFor } from '../components/comments/reviewBatch.ts';
 import {
   ARCHITECTURE_ACTIVITY_ID,
+  REQUIREMENTS_ACTIVITY_ID,
   taskArtifactFor,
 } from '../components/activity/taskArtifactFor.ts';
 import { REVIEW_ADVANCE, REVIEW_SET_COMMENT_STATUS, verbsFor } from './activityVerbs.ts';
 import { toC4View } from '../contracts/adapters';
+import { ARTIFACT_STAGE_ORDINAL_TO_APP } from '../contracts/enums.gen.ts';
 import { narrowProject } from '../contracts/projectAdapters';
 import { contractJoinFor } from '../contracts/serviceContracts';
 import type { ProjectArtifactModelEnvelope } from '../contracts/types';
@@ -140,8 +157,10 @@ import {
   useAskQuestions,
   useDispatchActivityTask,
   useOverrideActivity,
+  useStartProject,
   useSubmitReviewDecision,
 } from '../hooks/useDeliveryMutations';
+import { useUser } from '../utilities/auth/UserContext';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
@@ -293,6 +312,13 @@ export function ActivityExperienceContainer({
   const dispatchTask = useDispatchActivityTask(projectId);
   const overrideActivity = useOverrideActivity(projectId);
   const acknowledgeStale = useAcknowledgeStaleBasis(projectId);
+  // The B7 surfaces, each its own observer (see the file header): the M0 reject-all and
+  // revoke share one, because they are never on screen together (a live gate vs a
+  // decided one); the amendment and the research corpus have their own.
+  const sdpDecision = useSubmitReviewDecision(projectId);
+  const amendTask = useDispatchActivityTask(projectId);
+  const startProject = useStartProject();
+  const owner = useUser().sub;
 
   // The option the M0 bar will commit. `SdpReviewView` reports its standing
   // choice (its own recommendation, until the reader picks another) — an approve
@@ -569,6 +595,37 @@ export function ActivityExperienceContainer({
     });
   };
 
+  /**
+   * M0: decline every option, with the required feedback (spec §12 B7). The wire is
+   * `reject` carrying the feedback as notes; it is not a send-back — no anchored
+   * change request rides it, so the staged margin notes are left where they are.
+   */
+  const rejectAll = (feedback: string): void => {
+    if (verbs.rejectAll.kind !== 'decision') return;
+    sdpDecision.mutate({
+      ...ref,
+      artifactKind: decidedKind,
+      decision: { decision: verbs.rejectAll.decision },
+      feedback: { notes: feedback },
+    });
+  };
+
+  /** M0: revoke the committed plan inside its grace window — `withdraw` on the gate. */
+  const revokeCommitment = (): void => {
+    if (verbs.revoke.kind !== 'decision') return;
+    sdpDecision.mutate({
+      ...ref,
+      artifactKind: decidedKind,
+      decision: { decision: verbs.revoke.decision },
+    });
+  };
+
+  /** A committed design slot: redraft it with the architect's rationale as feedback. */
+  const amendSlot = (rationale: string): void => {
+    if (verbs.amend.kind !== 'dispatch') return;
+    amendTask.mutate({ ...ref, artifactKind: decidedKind, feedback: rationale });
+  };
+
   // One OP behind both, but three observers of it (decision / advance / comment
   // status), so each surface reports only its own work in flight.
   const statusPending = commentStatus.isPending;
@@ -580,6 +637,24 @@ export function ActivityExperienceContainer({
   // blocks — both exits below are offered, neither is required.
   const staleSlot =
     artifact.kind === 'slot' ? slots.find((s) => s.kind === artifact.artifactKind) : undefined;
+
+  // A decision is owed on THIS revision — not merely "the task is at a gate" — AND
+  // this rail can take one. An earlier, decided round offers no bar; neither does a
+  // gate whose artifact kind would not resolve, because every button on it would be
+  // a no-op.
+  const liveGate =
+    !historical && revisionWire?.outcome === 'awaitingHuman' && verbs.approve.kind !== 'none';
+  // The head revision of a gate that PASSED and has nothing re-running upstream of it:
+  // what the amendment and the revoke act on. `node.state === 'done'` is what keeps
+  // both off a gate whose redraft is already in flight.
+  const decidedHead = !historical && node?.state === 'done' && revisionWire?.outcome === 'passed';
+  const slotCommitted =
+    staleSlot !== undefined && ARTIFACT_STAGE_ORDINAL_TO_APP[staleSlot.stage] === 'committed';
+
+  // The requirements activity's first dispatch needs the research corpus (StartProject
+  // refuses to start system design without it). Shown while the project holds none.
+  const needsResearch =
+    activityId === REQUIREMENTS_ACTIVITY_ID && project?.research.sources.length === 0;
 
   // ── What the M0 cost was computed on (Step 3a; re-pointed at stage 4b2 Task 9) ──
   // The Project-Design compute defaults any planning-assumption family the founder
@@ -761,6 +836,36 @@ export function ActivityExperienceContainer({
           />
         ) : null}
 
+        {/* The research corpus, asked for on the FIRST dispatch of the requirements
+            activity and nowhere else: it is the precondition of the whole walk, not a
+            fact about the task on screen. StartProject addressed at this project saves
+            it and starts system design in one call. */}
+        {needsResearch ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <ResearchInputPanel
+              pending={startProject.isPending}
+              onSubmit={(research) => {
+                startProject.mutate({
+                  projectId,
+                  name: projectId,
+                  owner,
+                  research,
+                  start: true,
+                });
+              }}
+            />
+            {startProject.error !== null ? (
+              <Typography
+                data-testid={UI_IDENTIFIERS.Activity.RESEARCH_ERROR}
+                role="alert"
+                sx={{ fontSize: 13, color: t.dangerFg, lineHeight: 1.5 }}
+              >
+                {researchFailed(startProject.error.message)}
+              </Typography>
+            ) : null}
+          </Box>
+        ) : null}
+
         {/* The operator's override, above the body: it is about the ACTIVITY, not
             about the task on screen, and exactly one of the two is possible at a
             time (activityOverride.ts). Absent — not disabled — when neither is. */}
@@ -817,6 +922,15 @@ export function ActivityExperienceContainer({
             advance={advanceSurface}
             allowAsk={canAsk}
             allowSendBack={verbs.allowSendBack}
+            amend={
+              decidedHead && slotCommitted && verbs.amend.kind === 'dispatch'
+                ? {
+                    pending: amendTask.isPending,
+                    error: amendTask.error?.message,
+                    onSubmit: amendSlot,
+                  }
+                : undefined
+            }
             approveCopy={verbs.approveCopy}
             artifact={artifact}
             askPending={askQuestionsMut.isPending}
@@ -829,15 +943,7 @@ export function ActivityExperienceContainer({
             // (GAP-5). The caption says so, and its presence is what puts the
             // panel in read-only mode.
             historyCaption={historical ? HISTORY_ARTIFACT_CAPTION : undefined}
-            // A decision is owed on THIS revision — not merely "the task is at a
-            // gate" — AND this rail can take one. An earlier, decided round
-            // offers no bar; neither does a gate whose artifact kind would not
-            // resolve, because every button on it would be a no-op.
-            live={
-              !historical &&
-              revisionWire?.outcome === 'awaitingHuman' &&
-              verbs.approve.kind !== 'none'
-            }
+            live={liveGate}
             note={revisionWire?.note}
             openThreads={openThreads}
             project={project}
@@ -848,8 +954,23 @@ export function ActivityExperienceContainer({
             reviewSetError={historical ? undefined : taskGate.reviewSetError}
             revision={sel.revision}
             revisions={node.revisions}
+            revoke={
+              decidedHead && verbs.revoke.kind === 'decision'
+                ? { pending: sdpDecision.isPending, onRevoke: revokeCommitment }
+                : undefined
+            }
             roster={revisionWire?.reviewers}
-            sdp={historical ? undefined : { onChoose: setSdpOption }}
+            sdp={
+              historical
+                ? undefined
+                : {
+                    onChoose: setSdpOption,
+                    ...(liveGate && verbs.rejectAll.kind === 'decision'
+                      ? { onRejectAll: rejectAll, rejectPending: sdpDecision.isPending }
+                      : {}),
+                  }
+            }
+            sdpDecisionError={sdpDecision.error?.message}
             slots={slots}
             stagedChangeRequests={changeRequestCount}
             stagedQuestions={questionCount}

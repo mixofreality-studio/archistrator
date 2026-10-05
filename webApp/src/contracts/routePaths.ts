@@ -17,6 +17,8 @@
  */
 export const PLAN_PATH = '/project/$projectId/plan' as const;
 export const ACTIVITY_PATH = '/project/$projectId/activity/$activityId' as const;
+/** The project's state history (use case view-the-project-state-log). */
+export const STATE_HISTORY_PATH = '/project/$projectId/history' as const;
 
 export const LENS_IDS = ['list', 'graph', 'tasks'] as const;
 export type PlanLensId = (typeof LENS_IDS)[number];

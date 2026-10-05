@@ -7,10 +7,13 @@
  * Code GitHub App on their repo. The dialog therefore carries a prerequisites panel
  * spelling out the one-time onboarding the user must complete before creating.
  *
- * Wired to the real StartProject mutation. Research input is captured later in
- * System Design, so this stays a one-field gate (the mock's customer/research
- * fields are dropped against the typed CreateProject contract, which takes only the
- * repo name).
+ * Wired to the real StartProject mutation. Research input is captured later, on
+ * the first dispatch of the requirements activity (the Activity Experience's
+ * ResearchInputPanel, use case manage-projects/capture-research), so this stays a
+ * one-field gate plus the operating-model choice. It CREATES with `start: false`:
+ * StartProject refuses to start system design while the research corpus is absent
+ * (FailedPrecondition "research not populated"), and the research panel is what
+ * starts it — the same op, addressed at the existing project, with `start: true`.
  */
 import { useState, type ReactNode } from 'react';
 import Button from '@mui/material/Button';
@@ -191,7 +194,7 @@ function OperatingModelChoice({
   return (
     <FormControl
       component="fieldset"
-      data-testid="create-project-operating-model"
+      data-testid={UI_IDENTIFIERS.ProjectsLanding.OPERATING_MODEL}
       sx={{ border: `1.5px solid ${t.line}`, borderRadius: t.radius / 8 + 0.5, px: 2, py: 1.25 }}
     >
       <FormLabel
@@ -214,7 +217,12 @@ function OperatingModelChoice({
       >
         {options.map((o) => (
           <FormControlLabel
-            control={<Radio data-testid={`operating-model-${o.value}`} size="small" />}
+            control={
+              <Radio
+                data-testid={UI_IDENTIFIERS.ProjectsLanding.operatingModelOption(o.value)}
+                size="small"
+              />
+            }
             key={o.value}
             label={
               <Box sx={{ py: 0.25 }}>

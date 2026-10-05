@@ -1,7 +1,8 @@
 /**
  * UC4 operations write mutations. deploy is operations/deploy-after-construction
  * (reason=DeployAfterConstruction, patchKind=FullBundle); withdraw is
- * operations/withdraw-system. Each mints a fresh changeId and invalidates the
+ * operations/withdraw-system; register is operations/register-operated-app. Deploy
+ * and withdraw each mint a fresh changeId, and every write invalidates the
  * operations view so the console re-reads fresh server state.
  *
  * SCALE AND AUTOSCALER-POLICY ARE NOT SUPPORTED IN THIS SLICE (2026-08-08 final
@@ -98,6 +99,37 @@ export function useWithdrawOperatedApp(
       );
       return { operatedAppId, withdrawn: data.withdrawn };
     },
+    onSuccess: () => client.invalidateQueries({ queryKey: operationsViewKey(operatedAppId) }),
+  });
+}
+
+export interface RegisterVars {
+  customerId: string;
+  projectRef: string;
+  deployableBundleRef: string;
+}
+
+/**
+ * Register the delivered system for operation (operations/register-operated-app —
+ * operationsManager.RegisterOperatedApp, use case register-a-delivered-system-for-
+ * operation). Registration happens ONCE: a replay answers the version already
+ * recorded, and a second registration under a different key is a terminal Conflict,
+ * which the console shows as the refusal it is. Answers the head-state version.
+ */
+export function useRegisterOperatedApp(
+  operatedAppId: string
+): UseMutationResult<number, Error, RegisterVars> {
+  const client = useQueryClient();
+  const { ops } = useOpsClient();
+  return useMutation<number, Error, RegisterVars>({
+    mutationFn: async (vars) =>
+      ops.callForBody<OpResult<'operationsRegisterOperatedApp'>>('operationsRegisterOperatedApp', {
+        path: { operatedAppID: operatedAppId, customerID: vars.customerId },
+        body: {
+          projectRef: vars.projectRef,
+          deployableBundleRef: vars.deployableBundleRef,
+        } satisfies OpBody<'operationsRegisterOperatedApp'>,
+      }),
     onSuccess: () => client.invalidateQueries({ queryKey: operationsViewKey(operatedAppId) }),
   });
 }
