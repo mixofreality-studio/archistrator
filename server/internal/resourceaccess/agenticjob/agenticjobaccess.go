@@ -192,8 +192,7 @@ type access struct {
 	client ghActionsClient
 	// resolveAttempts / resolveDelay bound the post-dispatch run-resolution poll
 	// (GitHub creates the run asynchronously after a 204 dispatch). Defaults applied
-	// in New when zero; tests may inject a faster clock-free fake whose dispatch
-	// creates the run synchronously (one attempt suffices).
+	// in newAccess.
 	resolveAttempts int
 	resolveDelay    time.Duration
 }
@@ -220,13 +219,10 @@ func liveOrSucceeded(runs []ghRun) []ghRun {
 	return out
 }
 
-// newAccess builds an access over the supplied GitHub-Actions client seam. It is
-// the hand-written core both the generated NewGitHubActionsAgenticJobAccess
-// constructor (via newGitHubActionsAgenticJobAccess, which wires the
-// concrete ghActionsRESTClient seam over the App identity) and the in-package tests
-// (which pass a fake ghActionsClient) build through. Returns the concrete *access so
-// the in-package tests can tune resolveAttempts/resolveDelay; the public path returns
-// the AgenticJobAccess interface.
+// newAccess builds an access over the supplied GitHub-Actions client seam — the
+// hand-written core the generated NewGitHubActionsAgenticJobAccess constructor
+// builds through (via newGitHubActionsAgenticJobAccess, which wires the concrete
+// ghActionsRESTClient seam over the App identity).
 func newAccess(client ghActionsClient) (*access, error) {
 	if client == nil {
 		return nil, fwra.New(fwra.ContractMisuse, "agenticjob.NewGitHubActionsAgenticJobAccess: nil actions client")
@@ -1146,6 +1142,11 @@ type localRun struct {
 	episodeID string
 	startedAt time.Time
 
+	// agentStep is the name of the spec step this run realises (agentStepOf), set
+	// at construction and never written again. A failed run reports it as the
+	// observation's FailedStep; "" when the run realises no single step.
+	agentStep string
+
 	mu         sync.Mutex
 	status     localRunStatus
 	diagnostic string
@@ -1194,15 +1195,6 @@ type localExecAccess struct {
 
 	mu   sync.Mutex
 	runs map[string]*localRun // keyed by dedupToken(idempotencyKey)
-
-	// openTrace, when non-nil, REPLACES the per-episode trace file open
-	// (openEpisodeTrace). It exists for THIS PACKAGE'S OWN TESTS only — a
-	// mid-run write fault is the one traceSink behaviour no portable filesystem
-	// manipulation can provoke reliably (an already-open fd stays writable
-	// through chmod, unmount races are not portable, and a FIFO turns the open
-	// itself into a rendezvous). Production NEVER sets it: the constructor
-	// leaves it nil and openEpisodeTrace falls through to openTraceFileOnDisk.
-	openTrace func(path string) (traceWriteCloser, error)
 }
 
 var _ AgenticJobAccess = (*localExecAccess)(nil)
@@ -1357,7 +1349,9 @@ func (a *localExecAccess) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (
 	// passed through VERBATIM — never trimmed — and absent from the rig when empty.
 	operatorNote := spec.DispatchInputs[dispatchInputOperatorNoteKey]
 
-	return a.submitClaudeRun(rc, constructDispatchPlan(a.dispatchProjectID(spec), activityID, command, componentID, operatorNote))
+	plan := constructDispatchPlan(a.dispatchProjectID(spec), activityID, command, componentID, operatorNote)
+	plan.agentStep = agentStepOf(spec)
+	return a.submitClaudeRun(rc, plan)
 }
 
 // dispatchProjectID resolves the AIARCH_PROJECT_ID to stamp on a dispatch: the
@@ -1393,7 +1387,9 @@ func (a *localExecAccess) submitDesignJob(rc fwra.Context, spec PipelineSpec, jo
 		return "", fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: missing DispatchInputs["target_branch"] for a design job`)
 	}
 	artifactKind := strings.TrimSpace(spec.DispatchInputs[dispatchInputArtifactKindKey])
-	return a.submitClaudeRun(rc, designDispatchPlan(a.dispatchProjectID(spec), jobMode, command, targetBranch, artifactKind))
+	plan := designDispatchPlan(a.dispatchProjectID(spec), jobMode, command, targetBranch, artifactKind)
+	plan.agentStep = agentStepOf(spec)
+	return a.submitClaudeRun(rc, plan)
 }
 
 // submitClaudeRun converges the caller-supplied idempotencyKey on a single in-memory
@@ -1414,7 +1410,7 @@ func (a *localExecAccess) submitClaudeRun(rc fwra.Context, plan localDispatchPla
 		a.mu.Unlock()
 		return existing.handle, nil
 	}
-	run := &localRun{handle: handle, status: localRunRunning, episodeID: token, startedAt: time.Now().UTC()}
+	run := &localRun{handle: handle, status: localRunRunning, episodeID: token, startedAt: time.Now().UTC(), agentStep: plan.agentStep}
 	a.runs[token] = run
 	a.mu.Unlock()
 
@@ -1470,6 +1466,20 @@ type localDispatchPlan struct {
 	// AIARCH_COMMAND in rig, read by cmd/aiarch-state-mcp), and the built-in
 	// tool complement (--disallowedTools).
 	command string
+	// agentStep is the spec step this one agent run realises (agentStepOf) — the
+	// step a failed run is attributed to.
+	agentStep string
+}
+
+// agentStepOf names the spec step a local agent run realises. This arm runs the
+// WHOLE spec as one claude process, so a failure is attributable to a step only
+// when the spec has exactly one; a multi-step spec yields "" — the run failed,
+// but which of its steps did is not observable from the one process outcome.
+func agentStepOf(spec PipelineSpec) string {
+	if len(spec.Steps) != 1 {
+		return ""
+	}
+	return spec.Steps[0].Name
 }
 
 // constructDispatchPlan builds the plan for a CONSTRUCTION dispatch: the activity branch
@@ -2016,30 +2026,52 @@ func (a *localExecAccess) openEpisodeTrace(episodeID, gitDir string) (string, tr
 	if err := ensureTracesDir(dir); err != nil {
 		return "", nil, fwra.Wrap(fwra.Infrastructure, err, "localexec: create traces dir")
 	}
-	path := filepath.Join(dir, episodeID+".jsonl")
-	open := a.openTrace // nil in production — see the field's doc comment
-	if open == nil {
-		open = openTraceFileOnDisk
-	}
-	f, err := open(path)
+	name := episodeID + ".jsonl"
+	f, err := openTraceFileOnDisk(dir, name)
 	if err != nil {
 		return "", nil, fwra.Wrap(fwra.Infrastructure, err, "localexec: open episode trace file")
 	}
-	return path, f, nil
+	return filepath.Join(dir, name), f, nil
 }
 
 // traceWriteCloser is the trace file's surface as the tee and the close path use
-// it: write the stream, flush it, close it. Narrow on purpose — it is what makes
-// localExecAccess.openTrace substitutable in this package's own tests.
+// it: write the stream, flush it, close it.
 type traceWriteCloser interface {
 	io.Writer
 	Sync() error
 	Close() error
 }
 
-// openTraceFileOnDisk is the production trace-file open: truncating, owner-only.
-func openTraceFileOnDisk(path string) (traceWriteCloser, error) {
-	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- episodeID is a 32-hex dedupToken digest under a fixed dir
+// openTraceFileOnDisk is the production trace-file open: truncating, owner-only,
+// and confined to the traces directory (an os.Root refuses a name that escapes it).
+func openTraceFileOnDisk(dir, name string) (traceWriteCloser, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	f, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// openInDir opens name for reading, confined to dir (an os.Root refuses a name
+// that escapes it).
+func openInDir(dir, name string) (*os.File, error) {
+	return os.OpenInRoot(dir, name)
+}
+
+// readFileInDir reads name, confined to dir (an os.Root refuses a name that
+// escapes it).
+func readFileInDir(dir, name string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(name)
 }
 
 // ensureTracesDir creates the traces directory and writes the self-ignoring
@@ -2050,7 +2082,12 @@ func ensureTracesDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, ".gitignore"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- fixed literal filename under dir
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	f, err := root.OpenFile(".gitignore", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		if os.IsExist(err) {
 			return nil
@@ -2154,7 +2191,7 @@ func closeEpisodeTrace(traceFile traceWriteCloser, tracePath string) {
 //     and WHEN, never what it did. "The agent called Write twice" therefore means
 //     the agent itself, and a subagent's tool calls appear in no count at all.
 //   - Outcome keys on `is_error`, NOT on subtype. A real captured failure
-//     (testdata/streamjson/failure.jsonl) is subtype "success" with
+//     stream ends in a terminal event of subtype "success" with
 //     is_error true — a CLI quirk that a subtype-only reading would report as a
 //     successful episode.
 //   - NO TERMINAL EVENT ⇒ GAP. Not a success, not a failure: the stream stopped
@@ -2619,7 +2656,7 @@ func (a *localExecAccess) mineEpisode(run *localRun, tracePath string, endedAt t
 
 // readEpisodeTrace is mineEpisode's IO half: open, parse, or degrade to a gap.
 func (a *localExecAccess) readEpisodeTrace(run *localRun, tracePath string, endedAt time.Time) (EpisodeSummary, string) {
-	f, err := os.Open(tracePath) // #nosec G304 -- the path this dispatch itself opened for writing
+	f, err := openInDir(episodeTracesDir(a.repoPath), run.episodeID+".jsonl")
 	if err != nil {
 		return EpisodeSummary{
 			EpisodeID: run.episodeID,
@@ -2650,8 +2687,9 @@ func (a *localExecAccess) readEpisodeTrace(run *localRun, tracePath string, ende
 // realisation cannot attest would be exactly the fake success state the local
 // arm's outcome table refuses everywhere else.
 func (a *localExecAccess) orphanedTraceEpisode(token string) *EpisodeSummary {
-	path := filepath.Join(episodeTracesDir(a.repoPath), token+".jsonl")
-	f, err := os.Open(path) // #nosec G304 -- token is the handle's 32-hex dedup digest under a fixed dir
+	dir, name := episodeTracesDir(a.repoPath), token+".jsonl"
+	path := filepath.Join(dir, name)
+	f, err := openInDir(dir, name)
 	if err != nil {
 		return nil
 	}
@@ -2871,6 +2909,7 @@ func (a *localExecAccess) ObserveAgenticJob(_ fwra.Context, handle PipelineHandl
 	obs := PipelineObservation{Handle: run.handle, Phase: localPhase(run.status)}
 	if run.status == localRunFailed {
 		obs.Diagnostic = run.diagnostic
+		obs.FailedStep = run.agentStep
 	}
 	obs.Episode = copyEpisodeSummary(run.episode)
 	return obs, nil
@@ -4038,7 +4077,7 @@ func mergeStateDocWithMainsEnvelope(cloneDir string) (merged, diagnosticSuffix s
 	if _, merr := runGit(cloneDir, "merge-file", "--quiet", oursFile, baseFile, theirsFile); merr != nil {
 		return "", " (the conflict is in " + localStateDocPath + "'s CONTENT, not its envelope)", false
 	}
-	mergedNeutral, rerr := os.ReadFile(oursFile) //nolint:gosec // oursFile is this function's own MkdirTemp path with a literal basename
+	mergedNeutral, rerr := readFileInDir(work, filepath.Base(oursFile))
 	if rerr != nil {
 		return "", " (could not read the envelope-neutral merge result)", false
 	}
