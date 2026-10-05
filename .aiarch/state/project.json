@@ -57965,6 +57965,796 @@
           }
         ]
       },
+      "mcpClientOperations": {
+        "component": "mcpClientOperations",
+        "bindings": [
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsApplyDelinquencyPolicy",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "delinquencyContext",
+                    "value": "{\"action\":0}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "directive-named",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Status\":2,\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsApplyDelinquencyPolicy",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "delinquencyContext",
+                    "value": "{\"action\":1}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "system-delinquency-recorded",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsApplyDelinquencyPolicy",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "delinquencyContext",
+                    "value": "{\"action\":2}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "system-delinquency-recorded",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"InFlight\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsDeployAfterConstruction",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "change",
+                    "value": "{\"reason\":1,\"patchKind\":1,\"changeId\":\"stp-mcpops-op-P1-deploy\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"published\":true}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "operated-system-recorded-a",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsReconcileOperatedState",
+                "inputs": [
+                  {
+                    "name": "tickID",
+                    "value": "stp-mcpops-op-P2-tick",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "scope",
+                    "value": "{\"appIds\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"observed\":1,\"transitions\":0,\"republished\":0}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "state-transition",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsReconcileOperatedState",
+                "inputs": [
+                  {
+                    "name": "tickID",
+                    "value": "stp-mcpops-op-P3-tick",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "scope",
+                    "value": "{\"appIds\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"observed\":1,\"transitions\":0,\"republished\":1}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "desired-state-published-c",
+                    "component": "mcpClientOperations",
+                    "operation": "OperationsQueryOperatedSystemView",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "requestID",
+                        "value": "stp-mcpops-op-P3-view",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":2,\"Autoscaler\":{\"Decisions\":[{\"Action\":1,\"Published\":true}]}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "operated-system-recorded-c",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsReconcileOperatedState",
+                "inputs": [
+                  {
+                    "name": "tickID",
+                    "value": "stp-mcpops-op-P4-tick",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "scope",
+                    "value": "{\"appIds\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"observed\":1,\"transitions\":1,\"republished\":0}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "operated-system-status-changed",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "record-status",
+                    "component": "mcpClientOperations",
+                    "operation": "OperationsQueryOperatedSystemView",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "requestID",
+                        "value": "stp-mcpops-op-P4-view",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3,\"RecentEvents\":[{\"From\":2,\"To\":3}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsReconcileOperatedState",
+                "inputs": [
+                  {
+                    "name": "tickID",
+                    "value": "stp-mcpops-op-P5-tick",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "scope",
+                    "value": "{\"appIds\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"observed\":1,\"transitions\":1,\"republished\":1}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "operated-system-status-changed",
+                    "component": "mcpClientOperations",
+                    "operation": "OperationsQueryOperatedSystemView",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "requestID",
+                        "value": "stp-mcpops-op-P5-view",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3,\"RecentEvents\":[{\"From\":2,\"To\":3}],\"Autoscaler\":{\"Decisions\":[{\"Action\":1,\"Published\":true}]}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "operated-system-recorded-c",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"InFlight\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "register-a-delivered-system-for-operation-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsRegisterOperatedApp",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "6f1c2b9e-0a11-4c00-8000-0000000000a2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "customerID",
+                    "value": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "projectRef",
+                    "value": "stp-mcpops-project",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "deployableBundleRef",
+                    "value": "bundle:stp-mcpops-0001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":1}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "system-registered",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"stp-mcpops-project\",\"DeployableBundleRef\":\"bundle:stp-mcpops-0001\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsQueryDeploymentHealth",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"Nodes\":[{\"ModelKey\":\"stp-operated-app\",\"Health\":1},{\"ModelKey\":\"stp-architect-laptop\",\"Health\":0}]}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-live-deployment-health-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsQueryDeploymentHealth",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "6f1c2b9e-0a11-4c00-8000-0000000000a3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "FailedPrecondition"
+                },
+                "probes": [
+                  {
+                    "for": "anything-deployed",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a3\",\"Version\":1,\"InFlight\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-operating-cost-projection-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsQueryOperatedSystemView",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "requestID",
+                    "value": "stp-mcpops-cost-P1-view",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":2,\"InFlight\":true}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "OperationsQueryCostProjection",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "requestID",
+                    "value": "stp-mcpops-cost-P1-projection",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "points",
+                    "value": "{\"points\":[{\"replicas\":1},{\"replicas\":3}]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"CurrentRunRate\":{\"Currency\":\"USD\"},\"ProjectedMonthlyCost\":{\"Currency\":\"USD\"},\"ScaleWhatIfCurve\":{\"Points\":[{\"Replicas\":1},{\"Replicas\":3}]}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-operating-cost-projection-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsQueryOperatedSystemView",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "6f1c2b9e-0a11-4c00-8000-0000000000ff",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "requestID",
+                    "value": "stp-mcpops-cost-P2-view",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "OperationsQueryCostProjection",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "6f1c2b9e-0a11-4c00-8000-0000000000ff",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "requestID",
+                    "value": "stp-mcpops-cost-P2-projection",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "points",
+                    "value": "{\"points\":[{\"replicas\":2}]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "FailedPrecondition"
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsWithdrawSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "changeID",
+                    "value": "stp-mcpops-wd-P1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "reason",
+                    "value": "{\"notes\":\"stp: operator re-withdraws an already-withdrawn system\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"withdrawn\":true}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "already-withdrawn",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OperationsWithdrawSystem",
+                "inputs": [
+                  {
+                    "name": "operatedAppID",
+                    "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "changeID",
+                    "value": "stp-mcpops-wd-P2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "reason",
+                    "value": "{\"notes\":\"stp: operator withdraws the in-flight fixture system\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"withdrawn\":true}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "operated-system-withdrawn",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
+      },
       "merchantGatewayAccess": {
         "component": "merchantGatewayAccess",
         "bindings": []
