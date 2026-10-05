@@ -16088,6 +16088,174 @@
                     ]
                   },
                   {
+                    "Signature": "RecordSdpReviewOutcome(projectID: ProjectID, expectedVersion: Version, outcome: ArtifactReviewStatus, feedback: string, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "Version",
+                        "Fields": [
+                          {
+                            "Name": "expectedVersion",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "ArtifactReviewStatus",
+                        "Fields": [
+                          {
+                            "Name": "outcome",
+                            "Type": "ArtifactReviewStatus",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "feedback",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.IdempotencyKey",
+                        "Fields": [
+                          {
+                            "Name": "idempotencyKey",
+                            "Type": "fwra.IdempotencyKey",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "Version",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "RecordTrackingPoint(projectID: ProjectID, expectedVersion: Version, point: EvPoint, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "Version",
+                        "Fields": [
+                          {
+                            "Name": "expectedVersion",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "EvPoint",
+                        "Fields": [
+                          {
+                            "Name": "week",
+                            "Type": "int",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "earnedPct",
+                            "Type": "float64",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "plannedPct",
+                            "Type": "float64",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "note",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "acPct",
+                            "Type": "float64",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.IdempotencyKey",
+                        "Fields": [
+                          {
+                            "Name": "idempotencyKey",
+                            "Type": "fwra.IdempotencyKey",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "Version",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "Version",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
                     "Signature": "SetOperatingModel(projectID: ProjectID, expectedVersion: Version, model: OperatingModel) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
