@@ -69446,6 +69446,727 @@
             ]
           }
         ]
+      },
+      "webClientPlan": {
+        "component": "webClientPlan",
+        "bindings": [
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenSdpReview",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/activity/projectDesign\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-opt-normal\"},{\"visible\":\"sdp-option-opt-decompressed\"},{\"visible\":\"sdp-reject-all\"}]"
+                }
+              },
+              {
+                "seq": 2,
+                "operation": "DecideSdpOption",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-option-opt-normal\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"sdp-revoke-strip\"},{\"visible\":\"sdp-revoke\"}]"
+                }
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenSdpReview",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/activity/projectDesign\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-opt-normal\"},{\"visible\":\"sdp-option-opt-decompressed\"},{\"visible\":\"sdp-reject-all\"}]"
+                }
+              },
+              {
+                "seq": 2,
+                "operation": "DecideSdpOption",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-option-opt-normal\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"sdp-revoke-strip\"},{\"visible\":\"sdp-revoke\"}]"
+                }
+              },
+              {
+                "seq": 3,
+                "operation": "RevokeCommitment",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-revoke\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-reject-all\"}]"
+                }
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenSdpReview",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/activity/projectDesign\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-opt-normal\"},{\"visible\":\"sdp-option-opt-decompressed\"},{\"visible\":\"sdp-reject-all\"}]"
+                }
+              },
+              {
+                "seq": 2,
+                "operation": "DecideSdpOption",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-reject-all\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"sdp-reject-feedback\",\"value\":\"None of the four options staffs the billing engine before the merchant gateway; resequence C-billing-engine after C-merchant-gateway-access and re-price.\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-reject-submit\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"visible\":\"sdp-review\"}"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "download-generated-source-code-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenDeliveredSource",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-lens-tasks\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-tasks-lens\"},{\"visible\":\"construction-tasks-github-C-review-engine:codeReview:1\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "download-generated-source-code-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenDeliveredSource",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-lens-tasks\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-tasks-lens\"},{\"visible\":\"construction-tasks-github-C-review-engine:codeReview:1\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BeginConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin-confirm-dispatch\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"plan-screen\"},{\"visible\":\"plan-row-C-review-engine\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BeginConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin-confirm-dispatch\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"plan-screen\"},{\"visible\":\"plan-row-C-review-engine\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BeginConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin-confirm-dispatch\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"plan-screen\"},{\"visible\":\"plan-row-C-review-engine\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BeginConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin-confirm-dispatch\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"plan-screen\"},{\"visible\":\"plan-row-C-review-engine\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BeginConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin-confirm-dispatch\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"plan-screen\"},{\"visible\":\"plan-row-C-review-engine\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BeginConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin-confirm-dispatch\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"plan-screen\"},{\"visible\":\"plan-row-C-review-engine\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BeginConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-begin-confirm-dispatch\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"plan-screen\"},{\"visible\":\"plan-row-C-review-engine\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "pause-construction-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "PauseConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-pause\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"construction-pause-reason\",\"value\":\"Holding construction while the billing engine's failing integration run is triaged.\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-pause-confirm\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-pause-outcome\"},{\"visible\":\"construction-paused-label\"},{\"visible\":\"construction-resume\"}]"
+                }
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenProjectProgress",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/home\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"home-base-open-plan\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"visible\":\"plan-screen\"}"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenProjectProgress",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/home\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"home-base-open-plan\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"visible\":\"plan-screen\"}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "OpenSdpReview",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/activity/projectDesign\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-opt-normal\"},{\"visible\":\"sdp-option-opt-decompressed\"},{\"visible\":\"sdp-reject-all\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "DecideSdpOption",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-option-opt-normal\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"submit-bar-primary\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"sdp-revoke-strip\"},{\"visible\":\"sdp-revoke\"}]"
+                }
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenProjectProgress",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/home\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"home-base-open-plan\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"visible\":\"plan-screen\"}"
+                },
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "OpenSdpReview",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/activity/projectDesign\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-opt-normal\"},{\"visible\":\"sdp-option-opt-decompressed\"},{\"visible\":\"sdp-reject-all\"}]"
+                },
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "DecideSdpOption",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-reject-all\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"sdp-reject-feedback\",\"value\":\"Rejected: the revision moves M0 out by three weeks for a scope addition management has not funded; keep the current commitment.\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-reject-submit\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"visible\":\"sdp-review\"}"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenConstructionConsole",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-lens-tasks\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-tasks-lens\"},{\"visible\":\"construction-paused-label\"},{\"visible\":\"construction-resume\"}]"
+                }
+              },
+              {
+                "seq": 2,
+                "operation": "ResumeConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-resume\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-resume-outcome\"},{\"visible\":\"construction-begin\"}]"
+                }
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenConstructionConsole",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-lens-tasks\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-tasks-lens\"},{\"visible\":\"construction-paused-label\"},{\"visible\":\"construction-resume\"}]"
+                }
+              },
+              {
+                "seq": 2,
+                "operation": "ResumeConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-resume\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-resume-outcome\"},{\"visible\":\"construction-paused-label\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenProjectProgress",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/home\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"home-base-screen\"},{\"visible\":\"economics-strip\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenProjectProgress",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/home\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"home-base-screen\"},{\"visible\":\"economics-strip\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenProjectProgress",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/home\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"home-base-screen\"},{\"visible\":\"economics-strip\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenProjectProgress",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/home\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"home-base-screen\"},{\"visible\":\"economics-strip\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-the-project-state-log-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenStateHistory",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/home\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"home-base-open-state-history\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"state-history-screen\"},{\"visible\":\"state-history-detail\"}]"
+                },
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-the-project-state-log-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenStateHistory",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/home\"}"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"home-base-open-state-history\"}"
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"state-history-screen\"},{\"visible\":\"state-history-list\"}]"
+                }
+              }
+            ]
+          }
+        ]
       }
     }
   },
