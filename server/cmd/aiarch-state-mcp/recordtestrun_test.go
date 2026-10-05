@@ -6,6 +6,8 @@ package main
 // testing design, §6.1/§6.2).
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,5 +169,127 @@ func TestOneShotDispatch_RecordTestRun(t *testing.T) {
 	}
 	if err == nil || !strings.HasPrefix(err.Error(), "record-test-run:") {
 		t.Fatalf("want a prefixed failure, got %v", err)
+	}
+}
+
+// writeContractResults writes dir/<contract>/results.json with one passing scenario.
+func writeContractResults(t *testing.T, dir, contract string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, contract), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `[{"scenario":"` + contract + `-P1","status":"pass","durationMs":1}]`
+	if err := os.WriteFile(filepath.Join(dir, contract, "results.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRecordTestRun_KebabComponentFindsTheContractResults: the venue passes the
+// activity's component kebab ("billing-manager") while the scenario host writes under
+// the contract name ("billingManager"); the run is found and recorded under the
+// contract name (DCT plan 5 r2: a real integration run could not find its results).
+func TestRecordTestRun_KebabComponentFindsTheContractResults(t *testing.T) {
+	dir := writeResultsIndex(t, `[{"scenario":"s1","status":"pass","durationMs":1}]`)
+	flags := recordTestRunFlags(dir)
+	flags[3] = "billing-manager"
+	var got []projectstate.TestRun
+	if err := runRecordTestRun(flags, func(r projectstate.TestRun) error { got = append(got, r); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Component != "billingManager" || got[0].ID != "1" {
+		t.Fatalf("want one run of billingManager with the run id verbatim, got %+v", got)
+	}
+}
+
+// TestRecordTestRun_RecordsEveryFacetOfTheComponent: one integration runs every
+// contract of its component (projectStateAccess's facets), so the real write records
+// one run per facet, each id suffixed with its contract, and refuses when a facet the
+// project binds a plan for has no results.
+func TestRecordTestRun_RecordsEveryFacetOfTheComponent(t *testing.T) {
+	p := minimalProject()
+	p.ServiceContracts = map[string]projectstate.ServiceContract{
+		"projectStateAccess":      {Component: "projectStateAccess"},
+		"activityExecutionAccess": {Component: "projectStateAccess"},
+		"reviewEngine":            {Component: "reviewEngine"},
+	}
+	s, _ := seedProject(t, p, jobModeConstruct, 0)
+	dir := filepath.Join(s.StateRoot, "test-results")
+	writeContractResults(t, dir, "projectStateAccess")
+	writeContractResults(t, dir, "activityExecutionAccess")
+	writeContractResults(t, dir, "reviewEngine")
+	t.Setenv(envJobMode, "")
+	t.Setenv(envArtifactKind, "")
+	t.Setenv(envStateRoot, s.StateRoot)
+	t.Setenv(envProjectID, "")
+	t.Setenv(envActivityID, "")
+
+	flags := recordTestRunFlags(dir)
+	flags[1], flags[3] = "C-project-state-access", "project-state-access"
+	if err := runRecordTestRun(flags, nil); err != nil {
+		t.Fatalf("record-test-run: %v", err)
+	}
+	proj, _, err := s.readProject()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj.ID != p.ID {
+		t.Fatalf("the document's id must survive the write: %q, want %q", proj.ID, p.ID)
+	}
+	var ids []string
+	for _, r := range proj.TestingState.TestRuns {
+		ids = append(ids, r.ID+"="+r.Component+"@"+r.Activity)
+	}
+	want := "1-activityExecutionAccess=activityExecutionAccess@C-project-state-access 1-projectStateAccess=projectStateAccess@C-project-state-access"
+	if got := strings.Join(ids, " "); got != want {
+		t.Fatalf("runs = %s, want %s", got, want)
+	}
+}
+
+// TestRecordTestRun_KeepsTheCommittedDocument: recording onto archistrator's own
+// committed project.json, with no AIARCH_PROJECT_ID (DCT plan 5 r2: the write renamed
+// the project after the checkout directory and zeroed updatedAt), changes nothing but
+// .testingState.testRuns.
+func TestRecordTestRun_KeepsTheCommittedDocument(t *testing.T) {
+	_, raw := copyCommittedProject(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, statePathPrefix), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, statePathPrefix, projectFile), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "test-results")
+	writeContractResults(t, dir, "messageBus")
+	t.Setenv(envJobMode, "")
+	t.Setenv(envArtifactKind, "")
+	t.Setenv(envStateRoot, root)
+	t.Setenv(envProjectID, "")
+	t.Setenv(envActivityID, "")
+	flags := recordTestRunFlags(dir)
+	flags[1], flags[3] = "C-message-bus", "messageBus"
+	if err := runRecordTestRun(flags, nil); err != nil {
+		t.Fatalf("record-test-run: %v", err)
+	}
+	after, err := os.ReadFile(filepath.Join(root, statePathPrefix, projectFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before, got map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &before); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(after, &got); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range before {
+		if k == "testingState" {
+			continue
+		}
+		if !bytes.Equal(v, got[k]) {
+			t.Errorf("member %q changed by recording a run", k)
+		}
+	}
+	if len(got) != len(before) {
+		t.Errorf("members: %d before, %d after", len(before), len(got))
 	}
 }

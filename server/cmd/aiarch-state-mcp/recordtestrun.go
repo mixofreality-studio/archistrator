@@ -9,7 +9,8 @@ package main
 //	aiarch-state-mcp record-test-run --activity A --component C --run-id R \
 //	    --artifact NAME --results DIR [--revision REV]
 //
-// DIR/<component>/results.json is the scenariohost.ScenarioResult[] index the
+// DIR/<contract>/results.json, for every contract of the component, is the
+// scenariohost.ScenarioResult[] index the
 // generated TestMain (server) or the Playwright reporter (uitests) wrote. The run is
 // recorded with PhaseArtifactPayload{TestRun: &run} through the SAME construction-
 // mutation path recordPhaseArtifact / recordTestingState use (applyConstructionMutation:
@@ -29,36 +30,46 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	scenariohost "github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// envRevision is the construction revision the venue stamps on the job (the commit
-// the scenario tests ran against). --revision overrides it; one of the two is required.
+// envRevision is the revision the run is "at": the integration attempt id
+// ("<activity>:integration:<n>") the dispatch stamps on the job, which the testing gate
+// matches against the attempt its round judges (DCT plan 5 r2 ruling: the walk holds
+// the attempt, never a commit SHA, and a SHA could not name the commit that records
+// the run anyway). --revision overrides it; one of the two is required.
 const envRevision = "AIARCH_REVISION"
 
 // resultsIndexFile is the per-component index the scenario host flushes.
 const resultsIndexFile = "results.json"
 
-// testRunSink receives the assembled run. nil selects the real working-tree write
-// (recordTestRunToCheckout); tests inject a capture.
+// testRunSink receives each assembled run. nil selects the real working-tree write
+// (recordTestRunInSession over the ambient construct session, which also lets the
+// facets of a component resolve against the committed project); tests inject a
+// capture.
 type testRunSink func(projectstate.TestRun) error
 
-// runRecordTestRun parses the flags, reads DIR/<component>/results.json, assembles the
-// TestRun and hands it to sink (the checkout write when nil).
+// runRecordTestRun parses the flags, reads DIR/<contract>/results.json for every
+// contract of --component (resultContracts), assembles one TestRun per contract and
+// hands each to sink (the checkout write when nil). A component with several
+// contracts records one run per contract, its id suffixed "-<contract>".
 func runRecordTestRun(args []string, sink testRunSink) error {
 	flags := flag.NewFlagSet("record-test-run", flag.ContinueOnError)
 	activity := flags.String("activity", "", "activity id the tests belong to (e.g. C-BG)")
-	component := flags.String("component", "", "component the scenarios were bound for; names DIR/<component>/results.json")
+	component := flags.String("component", "", "the activity's component (kebab or contract name); every contract of it with a DIR/<contract>/results.json is recorded")
 	runID := flags.String("run-id", "", "venue run id (GitHub run id or local uuid)")
 	artifact := flags.String("artifact", "", "where the test-results tree lives: the GitHub artifact name or the local path")
 	results := flags.String("results", "", "the test-results directory the scenario host flushed into")
-	revision := flags.String("revision", "", "construction revision tested (default: $"+envRevision+")")
+	revision := flags.String("revision", "", "the integration attempt the run was produced under (default: $"+envRevision+", which the dispatch stamps)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -74,22 +85,113 @@ func runRecordTestRun(args []string, sink testRunSink) error {
 		rev = strings.TrimSpace(os.Getenv(envRevision))
 	}
 	if rev == "" {
-		return fmt.Errorf("--revision is required when %s is unset: a run without the construction revision it tested can never satisfy the testing gate", envRevision)
+		return fmt.Errorf("--revision is required when %s is unset: a run without the integration attempt it was produced under can never satisfy the testing gate", envRevision)
 	}
 
-	run, err := buildTestRun(*results, strings.TrimSpace(*component))
+	if !anyResultsIndex(*results) {
+		return fmt.Errorf("no %s under %s: the scenario host wrote nothing — the tests did not run, refusing to record an empty run", resultsIndexFile, *results)
+	}
+	var (
+		proj  *projectstate.Project
+		write testRunSink = sink
+	)
+	if sink == nil {
+		s, err := constructSessionFromEnv()
+		if err != nil {
+			return err
+		}
+		p, _, err := s.readProject()
+		if err != nil {
+			return err
+		}
+		proj = &p
+		write = func(run projectstate.TestRun) error { return recordTestRunInSession(s, run) }
+	}
+	contracts, err := resultContracts(*results, strings.TrimSpace(*component), proj)
 	if err != nil {
 		return err
 	}
-	run.ID = strings.TrimSpace(*runID)
-	run.Activity = strings.TrimSpace(*activity)
-	run.Revision = rev
-	run.Artifact = strings.TrimSpace(*artifact)
-
-	if sink == nil {
-		sink = recordTestRunToCheckout
+	runs := make([]projectstate.TestRun, 0, len(contracts))
+	for _, contract := range contracts {
+		run, err := buildTestRun(*results, contract)
+		if err != nil {
+			return err
+		}
+		run.ID = strings.TrimSpace(*runID)
+		if len(contracts) > 1 {
+			run.ID += "-" + contract
+		}
+		run.Activity = strings.TrimSpace(*activity)
+		run.Revision = rev
+		run.Artifact = strings.TrimSpace(*artifact)
+		runs = append(runs, run)
 	}
-	return sink(run)
+	for _, run := range runs {
+		if err := write(run); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// anyResultsIndex reports whether some DIR/<contract>/results.json exists — checked
+// before anything else, so a run that wrote nothing fails as loudly in an empty
+// checkout as in a seated one.
+func anyResultsIndex(dir string) bool {
+	matches, err := filepath.Glob(filepath.Join(dir, "*", resultsIndexFile))
+	return err == nil && len(matches) > 0
+}
+
+// resultContracts names the contracts whose results the run records, each the name
+// of a DIR/<contract>/results.json the scenario host flushed. The venue names the
+// activity's component (kebab, "review-engine") while the host writes under the
+// contract name ("reviewEngine"), so a directory matches when its name normalizes
+// to the component's (scenario.Normalize, the join the plan view uses). With the
+// committed project at hand, every contract whose component normalizes to it
+// matches too — the facets of one component (projectStateAccess's four), which one
+// integration runs together — and a facet the project binds a test plan for but the
+// host wrote nothing for is a hard failure, like an empty run: its tests did not
+// run. --component may also name one contract, which then matches alone.
+func resultContracts(dir, component string, proj *projectstate.Project) ([]string, error) {
+	want := scenario.Normalize(component)
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("read %s: %w", dir, err)
+	}
+	present := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() {
+			present[e.Name()] = true
+		}
+	}
+	matched := map[string]bool{}
+	for name := range present {
+		if scenario.Normalize(name) == want {
+			matched[name] = true
+		}
+	}
+	if proj != nil {
+		for name, sc := range proj.ServiceContracts {
+			if scenario.Normalize(sc.Component) != want {
+				continue
+			}
+			if present[name] {
+				matched[name] = true
+				continue
+			}
+			if proj.PhaseArtifacts != nil {
+				if _, bound := proj.PhaseArtifacts.TestPlan[name]; bound {
+					return nil, fmt.Errorf("no %s under %s: contract %q of component %q has a test plan but the scenario host wrote nothing for it — its tests did not run, refusing to record a partial run",
+						resultsIndexFile, filepath.Join(dir, name), name, component)
+				}
+			}
+		}
+	}
+	if len(matched) == 0 {
+		return nil, fmt.Errorf("no %s under %s for component %q: the scenario host wrote nothing for it — the tests did not run, refusing to record an empty run",
+			resultsIndexFile, dir, component)
+	}
+	return slices.Sorted(maps.Keys(matched)), nil
 }
 
 // buildTestRun reads DIR/<component>/results.json into the run's scenarios and derives
@@ -172,16 +274,15 @@ func mtimeSpan(root string) (earliest, latest time.Time, err error) {
 	return earliest, latest, nil
 }
 
-// recordTestRunToCheckout is the real sink: a construct-mode session over the ambient
-// env (state root, project id, target branch — exactly what the construct job already
-// stamps) writes the run through applyConstructionMutation, the same gate
-// recordTestingState passes. The job mode is FORCED to construct: this subcommand only
-// ever runs in a construction venue, and the construct mode is the one that needs no
-// ambient artifact kind. The run's own activity is the ambient activity.
-func recordTestRunToCheckout(run projectstate.TestRun) error {
+// constructSessionFromEnv is the session the real write goes through: a
+// construct-mode session over the ambient env (state root, project id, target branch —
+// exactly what the construct job already stamps). The job mode is FORCED to construct:
+// this subcommand only ever runs in a construction venue, and the construct mode is the
+// one that needs no ambient artifact kind.
+func constructSessionFromEnv() (*Session, error) {
 	wd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("resolve working directory: %w", err)
+		return nil, fmt.Errorf("resolve working directory: %w", err)
 	}
 	getenv := func(k string) string {
 		if k == envJobMode {
@@ -189,10 +290,13 @@ func recordTestRunToCheckout(run projectstate.TestRun) error {
 		}
 		return os.Getenv(k)
 	}
-	s, err := newSessionFromEnv(getenv, wd)
-	if err != nil {
-		return err
-	}
+	return newSessionFromEnv(getenv, wd)
+}
+
+// recordTestRunInSession writes the run through applyConstructionMutation, the same
+// gate recordTestingState passes. The run's own activity is the ambient activity when
+// the env names none.
+func recordTestRunInSession(s *Session, run projectstate.TestRun) error {
 	if s.ActivityID == "" {
 		s.ActivityID = run.Activity
 	}
