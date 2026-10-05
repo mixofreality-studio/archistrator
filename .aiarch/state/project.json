@@ -58757,7 +58757,342 @@
       },
       "merchantGatewayAccess": {
         "component": "merchantGatewayAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "bill-the-user-for-usage-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ChargeCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d1110000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "amount",
+                    "value": "{\"MinorUnits\":4200,\"Currency\":\"USD\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle:d1110000-0000-4000-8000-000000000001:2026-09:1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "charge-user"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ChargeCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d1120000-0000-4000-8000-000000000002",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "amount",
+                    "value": "{\"MinorUnits\":4200,\"Currency\":\"USD\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle:d1120000-0000-4000-8000-000000000002:2026-09:1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "Auth"
+                },
+                "probes": [],
+                "unobservable": [
+                  "charge-user"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ChargeCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d1130000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "amount",
+                    "value": "{\"MinorUnits\":4200,\"Currency\":\"USD\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle:d1130000-0000-4000-8000-000000000003:2026-09:1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "Auth"
+                },
+                "probes": [],
+                "unobservable": [
+                  "charge-user"
+                ],
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ChargeCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d1130000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "amount",
+                    "value": "{\"MinorUnits\":4200,\"Currency\":\"USD\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle:d1130000-0000-4000-8000-000000000003:2026-09:2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "charge-user"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "onboard-a-new-customer-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ValidateStoredInstrument",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d2210000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "validate:d2210000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadStoredInstrument",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d2210000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Validated\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-instrument-validated",
+                    "component": "merchantGatewayAccess",
+                    "operation": "ReadStoredInstrument",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "d2210000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Validated\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "validate-instrument",
+                    "component": "merchantGatewayAccess",
+                    "operation": "ReadStoredInstrument",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "d2210000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Validated\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ChargeCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d3310000-0000-4000-8000-000000000001",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "amount",
+                    "value": "{\"MinorUnits\":4200,\"Currency\":\"USD\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle:d3310000-0000-4000-8000-000000000001:2026-09:2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "recharge"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ChargeCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d3340000-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "amount",
+                    "value": "{\"MinorUnits\":4200,\"Currency\":\"USD\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle:d3340000-0000-4000-8000-000000000004:2026-09:2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "Auth"
+                },
+                "probes": [],
+                "unobservable": [
+                  "recharge"
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ChargeCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d3340000-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "amount",
+                    "value": "{\"MinorUnits\":4200,\"Currency\":\"USD\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "settle:d3340000-0000-4000-8000-000000000004:2026-09:3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "recharge"
+                ],
+                "hook": true
+              }
+            ]
+          }
+        ],
+        "hookNotes": {
+          "bill-the-user-for-usage-P1/1": "Setup: ValidateStoredInstrument(customer, validate:{customer}) so the charge-succeeded [yes] guard holds. Then ChargeCustomer under the :1 key. Check: replaying the same key returns nil again (at most one charge per (customer, cycle, attempt)).",
+          "bill-the-user-for-usage-P3/2": "Setup: ValidateStoredInstrument(customer, validate:{customer}) after the step-1 decline, so retries-left [yes] then charge-succeeded [yes]. Check: a replay of the step-1 key :1 still returns Auth (a recorded decline replays). Then ChargeCustomer under the :2 key returns nil.",
+          "onboard-a-new-customer-P2/1": "Check: ValidateStoredInstrument called twice under validate:{customer} returns nil both times (a replayed registration must not authorize twice). Then reuse the same key with a different customerID and expect ContractMisuse.",
+          "retry-a-declined-service-invoice-P1/1": "Setup for the charge-declined entry: ChargeCustomer under :1 with no instrument, expect Auth. Then ValidateStoredInstrument. Then the bound ChargeCustomer under the :2 key returns nil.",
+          "retry-a-declined-service-invoice-P4/1": "Setup for the charge-declined entry: ChargeCustomer under :1 with no instrument, expect Auth. Then the bound :2 recharge, still with no instrument, returns Auth (charge-ok [no: declined again]).",
+          "retry-a-declined-service-invoice-P4/2": "Setup: ValidateStoredInstrument. Check: a replay of the :2 key still returns Auth (a retry under the same key can never succeed). Then the bound :3 recharge returns nil."
+        },
+        "designGap": "ChargeCustomer outputs (nodes charge-user and recharge) are declared unobservable. No read-only op on any contract exposes the gateway's charge ledger (merchant_gateway_request), so 'at most one charge per (customer, cycle, attempt)' can only be checked through replays in hooks, not by a probe. Under A7 the fix is a read-only op such as ReadCharge(idempotencyKey) -> {Declined, Amount}; that would turn these into probes."
       },
       "operatedRuntimeAccess": {
         "component": "operatedRuntimeAccess",
