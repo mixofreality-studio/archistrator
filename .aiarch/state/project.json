@@ -59972,7 +59972,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":1}]",
+                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":2}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -59989,7 +59989,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":1}]",
+                      "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":2}]",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -60009,7 +60009,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "1",
+                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -60024,7 +60024,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "2",
+                  "result": "3",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -60041,7 +60041,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":2}",
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":3}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -60058,7 +60058,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":2}",
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\",\"Version\":3}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -60083,7 +60083,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":1}]",
+                  "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":2}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -60100,7 +60100,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":1}]",
+                      "result": "[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":2}]",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -60120,7 +60120,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "1",
+                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -60135,7 +60135,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "2",
+                  "result": "3",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -60152,7 +60152,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":2}",
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":3}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -60169,7 +60169,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":2}",
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\",\"Version\":3}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -60194,7 +60194,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":1,\"InFlight\":true,\"DeployableBundleRef\":\"bundle-osa-0003\"}",
+                  "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true,\"DeployableBundleRef\":\"bundle-osa-0003\"}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -60213,7 +60213,7 @@
                   },
                   {
                     "name": "expectedVersion",
-                    "value": "1",
+                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -60228,7 +60228,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "2",
+                  "result": "3",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -60245,7 +60245,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true}",
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -60262,7 +60262,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true}",
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
