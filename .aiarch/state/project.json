@@ -50754,7 +50754,1524 @@
       },
       "designSessionAccess": {
         "component": "designSessionAccess",
-        "bindings": []
+        "bindings": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-auc-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "20",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "founder@stp.test",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "architect",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "21",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "use-case-model-recommitted",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-dsa-auc-p1\",\"CoreUseCases\":{\"Status\":2,\"Revisions\":2,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"architect\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "downstream-artifacts-stale",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"SystemDesign\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "commit-stale",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":21,\"CoreUseCases\":{\"Revisions\":2},\"SystemDesign\":{\"StaleBasis\":true}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-auc-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "20",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "founder@stp.test",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "architect",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "21",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "use-case-model-recommitted",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-dsa-auc-p2\",\"CoreUseCases\":{\"Status\":2,\"Revisions\":2,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"architect\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "downstream-artifacts-stale",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"SystemDesign\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "commit-stale",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":21,\"CoreUseCases\":{\"Revisions\":2},\"SystemDesign\":{\"StaleBasis\":true}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-auc-p3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "20",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "founder@stp.test",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "architect",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "21",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "use-case-model-recommitted",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-dsa-auc-p3\",\"CoreUseCases\":{\"Status\":2,\"Revisions\":2,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"architect\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "downstream-artifacts-stale",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"SystemDesign\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "commit-stale",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":21,\"CoreUseCases\":{\"Revisions\":2},\"SystemDesign\":{\"StaleBasis\":true}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-auc-p4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "20",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "founder@stp.test",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "architect",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "21",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "use-case-model-recommitted",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-dsa-auc-p4\",\"CoreUseCases\":{\"Status\":2,\"Revisions\":2,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"architect\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "downstream-artifacts-stale",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"SystemDesign\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\",\"upstreamRevision\":2}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "commit-stale",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-auc-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":21,\"CoreUseCases\":{\"Revisions\":2},\"SystemDesign\":{\"StaleBasis\":true}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SeedReviewCommentsOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-acq-p3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "40",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "round",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "comments",
+                    "value": "[{\"id\":\"\",\"anchor\":\"components.designSessionAccess\",\"anchorText\":\"designSessionAccess\",\"text\":\"Why does ReconcileBranchFromMain live on the design-session facet rather than sourceControlAccess?\",\"authorRole\":\"founder\",\"round\":1,\"status\":\"open\",\"replies\":[],\"reopened\":false,\"type\":\"question\",\"addressee\":\"architect\"}]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-dsa-acq-p3:seed:1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "41",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "thread-seeded-on-main",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-acq-p3",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"slots\":{\"5\":{\"status\":2,\"reviewThread\":[{\"id\":\"r1c1\",\"round\":1,\"type\":\"question\",\"addressee\":\"architect\",\"status\":\"open\",\"authorRole\":\"founder\",\"replies\":[]}]}},\"id\":\"stp-dsa-acq-p3\",\"version\":41}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "seed-main-thread",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-acq-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"SystemDesign\":{\"Status\":2,\"reviewThread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SeedReviewCommentsOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-acq-p4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "40",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "round",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "comments",
+                    "value": "[{\"id\":\"\",\"anchor\":\"components.designSessionAccess\",\"anchorText\":\"designSessionAccess\",\"text\":\"Why does ReconcileBranchFromMain live on the design-session facet rather than sourceControlAccess?\",\"authorRole\":\"founder\",\"round\":1,\"status\":\"open\",\"replies\":[],\"reopened\":false,\"type\":\"question\",\"addressee\":\"architect\"}]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "replies",
+                    "value": "[]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-dsa-acq-p4:seed:1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "41",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "thread-seeded-on-main",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-acq-p4",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"slots\":{\"5\":{\"status\":2,\"reviewThread\":[{\"id\":\"r1c1\",\"round\":1,\"type\":\"question\",\"addressee\":\"architect\",\"status\":\"open\",\"authorRole\":\"founder\",\"replies\":[]}]}},\"id\":\"stp-dsa-acq-p4\",\"version\":41}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "seed-main-thread",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-acq-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"SystemDesign\":{\"Status\":2,\"reviewThread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProjectOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/requirements",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"id\":\"stp-dsa-eapa-p1\",\"version\":11,\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Drafted by the dispatched job; read back for the exit criterion.\",\"rejectionReason\":\"\"}]}}}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProjectOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/requirements",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"id\":\"stp-dsa-eapa-p2\",\"version\":10}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StageArtifactForReviewOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "30",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"network\",\"model\":{\"dependencies\":[{\"activity\":\"architecture\",\"dependsOn\":[\"requirements\"]},{\"activity\":\"projectDesign\",\"dependsOn\":[\"architecture\"]}],\"criticalPath\":[\"architecture\",\"projectDesign\",\"requirements\"]}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-dsa-eapa-p3:m0:stage:network",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "31",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-eapa-p3",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-dsa-eapa-p3\",\"version\":31,\"slots\":{\"10\":{\"status\":1,\"model\":{\"kind\":\"network\"}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "31",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "10",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "founder@stp.test",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "platform:estimation-engine",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "32",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-eapa-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":32,\"Network\":{\"Status\":2,\"Revisions\":1,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"platform:estimation-engine\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReconcileBranchFromMain",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "31",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/projectDesign",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kinds",
+                    "value": "[8]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-dsa-eapa-p3:reconcile:1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "32",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-eapa-p3",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/projectDesign",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-dsa-eapa-p3\",\"version\":32,\"slots\":{\"8\":{\"status\":1},\"10\":{\"status\":2,\"model\":{\"kind\":\"network\"}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StageArtifactForReviewOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "30",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"network\",\"model\":{\"dependencies\":[{\"activity\":\"architecture\",\"dependsOn\":[\"requirements\"]},{\"activity\":\"projectDesign\",\"dependsOn\":[\"architecture\"]}],\"criticalPath\":[\"architecture\",\"projectDesign\",\"requirements\"]}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-dsa-eapa-p4:m0:stage:network",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "31",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-eapa-p4",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-dsa-eapa-p4\",\"version\":31,\"slots\":{\"10\":{\"status\":1,\"model\":{\"kind\":\"network\"}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "31",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "10",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "founder@stp.test",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "platform:estimation-engine",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "32",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-eapa-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":32,\"Network\":{\"Status\":2,\"Revisions\":1,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"platform:estimation-engine\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReconcileBranchFromMain",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "31",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/projectDesign",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kinds",
+                    "value": "[8]",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-dsa-eapa-p4:reconcile:1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "32",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-eapa-p4",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "activity/projectDesign",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-dsa-eapa-p4\",\"version\":32,\"slots\":{\"8\":{\"status\":1},\"10\":{\"status\":2,\"model\":{\"kind\":\"network\"}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProjectOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/requirements",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"id\":\"stp-dsa-eapa-p5\",\"version\":10}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProjectOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/requirements",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"id\":\"stp-dsa-eapa-p5\",\"version\":11,\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Drafted by the dispatched job; read back for the exit criterion.\",\"rejectionReason\":\"\"}]}}}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProjectOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p6",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/requirements",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"id\":\"stp-dsa-eapa-p6\",\"version\":10}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProjectOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-eapa-p7",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "activity/requirements",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"id\":\"stp-dsa-eapa-p7\",\"version\":12,\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-revised-use-case\",\"name\":\"STP Revised Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Revision n+1 after the reviewer's sendBack.\",\"rejectionReason\":\"\"}]}}}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StageArtifactForReviewOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-mp-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"activityList\",\"model\":{\"activities\":[{\"name\":\"requirements\",\"title\":\"Requirements\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"architecture\",\"title\":\"Architecture\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"projectDesign\",\"title\":\"Project Design\",\"effortDays\":5,\"workerClass\":\"project-manager\",\"coding\":false,\"riskBucket\":2}]}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-dsa-mp-p1:birth:stage:activityList",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-mp-p1",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-dsa-mp-p1\",\"version\":2,\"slots\":{\"9\":{\"status\":1,\"model\":{\"kind\":\"activityList\"}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-mp-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "9",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "platform:project-birth",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "platform:design-prefix-derivation",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-project-head-state-created",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-mp-p1",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-dsa-mp-p1\",\"version\":3,\"slots\":{\"9\":{\"status\":2,\"model\":{\"kind\":\"activityList\",\"model\":{\"activities\":[{\"name\":\"requirements\",\"title\":\"Requirements\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"architecture\",\"title\":\"Architecture\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"projectDesign\",\"title\":\"Project Design\",\"effortDays\":5,\"workerClass\":\"project-manager\",\"coding\":false,\"riskBucket\":2}]}}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "create-head-state",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-mp-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-dsa-mp-p1\",\"ActivityList\":{\"Status\":2,\"Revisions\":1,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"platform:project-birth\",\"draftedBy\":\"platform:design-prefix-derivation\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "StageArtifactForReviewOnBranch",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-mp-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "branch",
+                    "value": "",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "model",
+                    "value": "{\"kind\":\"activityList\",\"model\":{\"activities\":[{\"name\":\"requirements\",\"title\":\"Requirements\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"architecture\",\"title\":\"Architecture\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"projectDesign\",\"title\":\"Project Design\",\"effortDays\":5,\"workerClass\":\"project-manager\",\"coding\":false,\"riskBucket\":2}]}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-dsa-mp-p2:birth:stage:activityList",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-mp-p2",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-dsa-mp-p2\",\"version\":2,\"slots\":{\"9\":{\"status\":1,\"model\":{\"kind\":\"activityList\"}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-mp-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "9",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "platform:project-birth",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "platform:design-prefix-derivation",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-project-head-state-created",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-mp-p2",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-dsa-mp-p2\",\"version\":3,\"slots\":{\"9\":{\"status\":2,\"model\":{\"kind\":\"activityList\",\"model\":{\"activities\":[{\"name\":\"requirements\",\"title\":\"Requirements\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"architecture\",\"title\":\"Architecture\",\"effortDays\":5,\"workerClass\":\"system-architect\",\"coding\":false,\"riskBucket\":2},{\"name\":\"projectDesign\",\"title\":\"Project Design\",\"effortDays\":5,\"workerClass\":\"project-manager\",\"coding\":false,\"riskBucket\":2}]}}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "create-head-state",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-mp-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-dsa-mp-p2\",\"ActivityList\":{\"Status\":2,\"Revisions\":1,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"platform:project-birth\",\"draftedBy\":\"platform:design-prefix-derivation\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-rusc-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "50",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "16",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "founder@stp.test",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "project-manager",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "51",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "sdp-revision-adopted",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-rusc-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-dsa-rusc-p2\",\"SdpReview\":{\"Status\":2,\"Revisions\":2,\"StaleBasis\":false,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "committed-network-revised",
+                    "component": "designSessionAccess",
+                    "operation": "ReadProjectOnBranch",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-rusc-p2",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "branch",
+                        "value": "",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"id\":\"stp-dsa-rusc-p2\",\"version\":51,\"slots\":{\"16\":{\"status\":2,\"model\":{\"kind\":\"sdpReview\",\"model\":{\"recommendation\":\"opt-compressed\"}}}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "adopt",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-rusc-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":51,\"SdpReview\":{\"Status\":2,\"Revisions\":2}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
       },
       "episodeAccess": {
         "component": "episodeAccess",
