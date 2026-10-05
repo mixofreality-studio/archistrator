@@ -61900,7 +61900,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":1,\"Status\":2,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":3,\"Status\":2,\"InFlight\":true}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -61947,7 +61947,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":2,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":4,\"InFlight\":true}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -62105,7 +62105,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":1,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":3,\"InFlight\":true}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -62442,7 +62442,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "[{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"Version\":1}]",
+                      "result": "[]",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -62506,7 +62506,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":2,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":4,\"InFlight\":true}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -62533,7 +62533,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"Nodes\":[{\"ModelKey\":\"stp-operated-app\",\"Health\":1},{\"ModelKey\":\"stp-architect-laptop\",\"Health\":0}]}",
+                  "result": "{\"Nodes\":[{\"ModelKey\":\"stp-ns-stp-ops-fixture-project\",\"Health\":0},{\"ModelKey\":\"stp-infra-gateway\",\"Health\":1},{\"ModelKey\":\"stp-infra-idp\",\"Health\":0},{\"ModelKey\":\"stp-infra-db\",\"Health\":1},{\"ModelKey\":\"stp-operated-app\",\"Health\":1},{\"ModelKey\":\"stp-architect-laptop\",\"Health\":0}]}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
