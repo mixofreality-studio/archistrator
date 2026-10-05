@@ -266,7 +266,7 @@ type inputViewOperatingCostProjectionP1S1 struct {
 	ScaleWhatIfPoints  []operationestimation.ScalePoint       `json:"scaleWhatIfPoints"`
 }
 
-// TestScenario_view_operating_cost_projection_P1 — View Operating-Cost Projection for a Deployed App — [yes] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → read-usage → project-costs → render → send-cost-projection → end).
+// TestScenario_view_operating_cost_projection_P1 — View Operating-Cost Projection — [yes] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → read-usage → project-costs → render → send-cost-projection → end).
 func TestScenario_view_operating_cost_projection_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationEstimationEngine", "view-operating-cost-projection-P1", func(t *testing.T) {

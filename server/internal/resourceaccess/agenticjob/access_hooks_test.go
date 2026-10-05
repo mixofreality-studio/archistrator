@@ -812,7 +812,7 @@ func probeReplanUnderScopeChangeP1S1N1(t *testing.T, h *scenariohost.Host, subje
 	return probeBranch(t, h, subject, "stp-aja-rsc-P1", systemSessionBranch)
 }
 
-// stepRequeueAFailedConstructionActivityP1S1 — Re-queue a Failed Construction Activity, step 1: SubmitAgenticJob
+// stepRequeueAFailedConstructionActivityP1S1 — Requeue a Failed Construction Activity, step 1: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":1,"node":"resume-activity","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"SubmitAgenticJob","call":"requeue-a-failed-construction-activity/resume-activity/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-rfa-P1\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-rfa-P1-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\",\"operator_note\":\"requeue: the prior attempt failed on a flaky venue step; resume from the staged branch\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-rfa-P1\"},\"WorkflowFile\":\"aiarch-construct.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arrangement: a prior attempt staged work on the activity branch; the re-queued run resumes from it.

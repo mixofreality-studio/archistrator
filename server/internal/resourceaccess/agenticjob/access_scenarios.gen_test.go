@@ -610,7 +610,7 @@ type inputRequeueAFailedConstructionActivityP1S1 struct {
 	Spec agenticjob.PipelineSpec `json:"spec"`
 }
 
-// TestScenario_requeue_a_failed_construction_activity_P1 — Re-queue a Failed Construction Activity (use case requeue-a-failed-construction-activity; path start → review-failure → read-attempts → read-failed-trace → show-failure-evidence → write-change → record-reopen → activity-reopened-state → failed-attempt-kept-state → requeue-note-pending-state → requeue-note-binding-hint → pump-fires → resume-activity → activity-resumed-state → requeue-note-delivered-state → resume-binding-hint → end).
+// TestScenario_requeue_a_failed_construction_activity_P1 — Requeue a Failed Construction Activity (use case requeue-a-failed-construction-activity; path start → review-failure → read-attempts → read-failed-trace → show-failure-evidence → write-change → record-reopen → activity-reopened-state → failed-attempt-kept-state → requeue-note-pending-state → requeue-note-binding-hint → pump-fires → resume-activity → activity-resumed-state → requeue-note-delivered-state → resume-binding-hint → end).
 func TestScenario_requeue_a_failed_construction_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "requeue-a-failed-construction-activity-P1", func(t *testing.T) {

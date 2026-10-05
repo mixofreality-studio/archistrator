@@ -255,7 +255,7 @@ func stepViewLiveDeploymentHealthP2S1(t *testing.T, h *scenariohost.Host, subjec
 	return subject.ReadOperatedSystem(callContext(t, h, "1"), in.OperatedAppID)
 }
 
-// stepViewOperatingCostProjectionP1S1 — View Operating-Cost Projection for a Deployed App — [yes], step 1: ReadOperatedSystem
+// stepViewOperatingCostProjectionP1S1 — View Operating-Cost Projection — [yes], step 1: ReadOperatedSystem
 // Projected stimulus (JSON): {"seq":1,"node":"request-projection","input":{"kind":"call","from":"operations-manager","to":"operatedsystemstateaccess","op":"ReadOperatedSystem","call":"view-operating-cost-projection/request-projection/4"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"0c5a0000-0000-4000-8000-00000000000b"}],"expect":{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-00000000000b\",\"Version\":1,\"InFlight\":true}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Guard app-known=[yes]: the app is operated. Arranged: brought into operation

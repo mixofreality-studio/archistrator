@@ -4651,7 +4651,7 @@
           {
             "useCase": {
               "id": "view-operating-cost-projection",
-              "name": "View Operating-Cost Projection for a Deployed App",
+              "name": "View Operating-Cost Projection",
               "actors": [
                 {
                   "id": "operator",
@@ -5570,7 +5570,7 @@
           {
             "useCase": {
               "id": "requeue-a-failed-construction-activity",
-              "name": "Re-queue a Failed Construction Activity",
+              "name": "Requeue a Failed Construction Activity",
               "actors": [
                 {
                   "id": "operator",
@@ -9903,7 +9903,7 @@
           {
             "useCaseId": "view-operating-cost-projection",
             "key": "var-view-cost-projection",
-            "title": "View Operating-Cost Projection for a Deployed App",
+            "title": "View Operating-Cost Projection",
             "steps": [
               {
                 "activityNodeId": "open-console",
@@ -10407,7 +10407,7 @@
           {
             "useCaseId": "requeue-a-failed-construction-activity",
             "key": "var-requeue-failed-activity",
-            "title": "Re-queue a Failed Construction Activity",
+            "title": "Requeue a Failed Construction Activity",
             "steps": [
               {
                 "activityNodeId": "review-failure",

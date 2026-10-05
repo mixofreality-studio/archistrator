@@ -501,7 +501,7 @@ type inputViewOperatingCostProjectionP1S2 struct {
 	Scope operatedsystemstate.InFlightScope `json:"scope"`
 }
 
-// TestScenario_view_operating_cost_projection_P1 — View Operating-Cost Projection for a Deployed App — [yes] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → read-usage → project-costs → render → send-cost-projection → end).
+// TestScenario_view_operating_cost_projection_P1 — View Operating-Cost Projection — [yes] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → read-usage → project-costs → render → send-cost-projection → end).
 func TestScenario_view_operating_cost_projection_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedSystemStateAccess", "view-operating-cost-projection-P1", func(t *testing.T) {
@@ -529,7 +529,7 @@ type inputViewOperatingCostProjectionP2S1 struct {
 	OperatedAppID uuid.UUID `json:"operatedAppID"`
 }
 
-// TestScenario_view_operating_cost_projection_P2 — View Operating-Cost Projection for a Deployed App — [no] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → report-unknown → send-app-not-operated → end).
+// TestScenario_view_operating_cost_projection_P2 — View Operating-Cost Projection — [no] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → report-unknown → send-app-not-operated → end).
 func TestScenario_view_operating_cost_projection_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedSystemStateAccess", "view-operating-cost-projection-P2", func(t *testing.T) {

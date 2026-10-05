@@ -171,7 +171,7 @@ func probeReplanUnderScopeChangeP3S1N2(t *testing.T, h *scenariohost.Host, _ epi
 	return readAmendmentSession(t, h, "dct-ep-replan-P3", "aiarch/amend/dct-ep-replan-P3/activityList")
 }
 
-// stepRequeueAFailedConstructionActivityP1S1 — Re-queue a Failed Construction Activity, step 1: ListEpisodes
+// stepRequeueAFailedConstructionActivityP1S1 — Requeue a Failed Construction Activity, step 1: ListEpisodes
 // Projected stimulus (JSON): {"seq":1,"node":"read-attempts","input":{"kind":"call","from":"delivery-manager","to":"episodeaccess","op":"ListEpisodes","call":"requeue-a-failed-construction-activity/read-attempts/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ListEpisodes","inputs":[{"name":"query","value":"{\"ProjectID\":\"dct-ep-requeue-P1\",\"TargetRef\":\"C-dct-ep-foxtrot\"}"}],"expect":{"result":"[{\"EpisodeID\":\"ep-rq-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-foxtrot\",\"Outcome\":1,\"NumTurns\":18,\"CostUSD\":1.2,\"TracePath\":\"episodes/traces/ep-rq-a1.jsonl\"},{\"EpisodeID\":\"ep-rq-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-foxtrot\",\"Outcome\":3,\"GapReason\":\"trace stream lost: runner terminated before result event\"}]","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 //
