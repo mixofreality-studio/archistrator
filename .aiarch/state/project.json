@@ -49731,11 +49731,11 @@
                   },
                   {
                     "name": "start",
-                    "value": "true"
+                    "value": "false"
                   }
                 ],
                 "expect": {
-                  "result": "{\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                  "result": "{\"projectId\":\"dct-gtd-app\"}"
                 },
                 "hook": true
               },
@@ -49745,11 +49745,11 @@
                 "inputs": [
                   {
                     "name": "query",
-                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}"
                   }
                 ],
                 "expect": {
-                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\",\"Phase\":0,\"operatingModel\":\"selfOperated\"}}"
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\",\"Phase\":0,\"operatingModel\":\"selfOperated\"}}"
                 },
                 "probes": [
                   {
@@ -49763,7 +49763,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\"}]}"
+                      "result": "{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\"}]}"
                     }
                   }
                 ],
@@ -49775,7 +49775,7 @@
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "dct-owner/dct-gtd-app"
+                    "value": "dct-gtd-app"
                   },
                   {
                     "name": "policy",
@@ -49791,7 +49791,7 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}"
                       }
                     ],
                     "expect": {
@@ -49815,7 +49815,7 @@
                   },
                   {
                     "name": "projectID",
-                    "value": "dct-owner/dct-gtd-app"
+                    "value": "dct-gtd-app"
                   },
                   {
                     "name": "research",
@@ -49823,11 +49823,11 @@
                   },
                   {
                     "name": "start",
-                    "value": "false"
+                    "value": "true"
                   }
                 ],
                 "expect": {
-                  "result": "{\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                  "result": "{\"projectId\":\"dct-gtd-app\"}"
                 },
                 "probes": [
                   {
@@ -49837,11 +49837,11 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}"
                       }
                     ],
                     "expect": {
-                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"content\":\"Capture, clarify, organize, reflect, engage. Weekly review is mandatory.\"}]}}}"
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}"
                     }
                   }
                 ],
@@ -49870,11 +49870,11 @@
                   },
                   {
                     "name": "start",
-                    "value": "true"
+                    "value": "false"
                   }
                 ],
                 "expect": {
-                  "result": "{\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                  "result": "{\"projectId\":\"dct-gtd-app\"}"
                 },
                 "hook": true
               },
@@ -49884,11 +49884,11 @@
                 "inputs": [
                   {
                     "name": "query",
-                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}"
                   }
                 ],
                 "expect": {
-                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\",\"Phase\":0,\"operatingModel\":\"archistratorOperated\"}}"
+                  "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\",\"Phase\":0,\"operatingModel\":\"archistratorOperated\"}}"
                 },
                 "probes": [
                   {
@@ -49902,7 +49902,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\"}]}"
+                      "result": "{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\"}]}"
                     }
                   }
                 ],
@@ -49914,7 +49914,7 @@
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "dct-owner/dct-gtd-app"
+                    "value": "dct-gtd-app"
                   },
                   {
                     "name": "policy",
@@ -49930,7 +49930,7 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}"
                       }
                     ],
                     "expect": {
@@ -49954,7 +49954,7 @@
                   },
                   {
                     "name": "projectID",
-                    "value": "dct-owner/dct-gtd-app"
+                    "value": "dct-gtd-app"
                   },
                   {
                     "name": "research",
@@ -49962,11 +49962,11 @@
                   },
                   {
                     "name": "start",
-                    "value": "false"
+                    "value": "true"
                   }
                 ],
                 "expect": {
-                  "result": "{\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                  "result": "{\"projectId\":\"dct-gtd-app\"}"
                 },
                 "probes": [
                   {
@@ -49976,11 +49976,11 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-gtd-app\"}"
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}"
                       }
                     ],
                     "expect": {
-                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"content\":\"Capture, clarify, organize, reflect, engage. Weekly review is mandatory.\"}]}}}"
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}"
                     }
                   }
                 ],
@@ -50752,7 +50752,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"status\":\"resolved\"},{\"anchor\":\"$.containers[3].responsibilities\",\"status\":\"resolved\"}]}}"
+                      "result": "{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\"},{\"anchor\":\"$.containers[3].responsibilities\",\"status\":\"resolved\"}]}}"
                     }
                   }
                 ],
