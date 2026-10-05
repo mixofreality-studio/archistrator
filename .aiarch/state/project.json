@@ -62372,6 +62372,3023 @@
           }
         ]
       },
+      "projectStateAccess": {
+        "component": "projectStateAccess",
+        "bindings": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-auc-p1\",\"Version\":10,\"CoreUseCases\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "use-case-model-amendment-open",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-auc-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"CoreUseCases\":{\"Status\":2,\"StaleBasis\":false}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "AcknowledgeStaleBasis",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "11",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "note",
+                    "value": "reviewed — unaffected",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-auc-p1:ack:system",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "12",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-auc-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"reviewed — unaffected\"}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-auc-p2\",\"Version\":10,\"CoreUseCases\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "use-case-model-amendment-open",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-auc-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"CoreUseCases\":{\"Status\":2,\"StaleBasis\":false}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "AcknowledgeStaleBasis",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "11",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "note",
+                    "value": "reviewed — unaffected",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-auc-p2:ack:system",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "12",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-auc-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"reviewed — unaffected\"}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-auc-p2\",\"Version\":12}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "replan-trigger-recorded",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-auc-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ActivityList\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\"}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-auc-p3\",\"Version\":10,\"Phase\":2,\"Volatilities\":{\"Status\":2},\"SystemDesign\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-auc-p3\",\"Version\":10,\"CoreUseCases\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "use-case-model-amendment-open",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-auc-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"CoreUseCases\":{\"Status\":2,\"StaleBasis\":false}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "AcknowledgeStaleBasis",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "11",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "note",
+                    "value": "reviewed — unaffected",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-auc-p3:ack:system",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "12",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-auc-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"reviewed — unaffected\"}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p4",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-auc-p4\",\"Version\":10,\"Phase\":2,\"Volatilities\":{\"Status\":2},\"SystemDesign\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p4",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-auc-p4\",\"Version\":10,\"CoreUseCases\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "use-case-model-amendment-open",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-auc-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"CoreUseCases\":{\"Status\":2,\"StaleBasis\":false}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "AcknowledgeStaleBasis",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "11",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "5",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "note",
+                    "value": "reviewed — unaffected",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-auc-p4:ack:system",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "12",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "stale-artifacts-reconciled",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-auc-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":12,\"SystemDesign\":{\"Status\":2,\"StaleBasis\":false,\"reviewThread\":[{\"type\":\"staleAck\",\"authorRole\":\"architect\",\"text\":\"reviewed — unaffected\"}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-auc-p4",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-auc-p4\",\"Version\":12}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "replan-trigger-recorded",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-auc-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ActivityList\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\"}},\"Network\":{\"Status\":2,\"StaleBasis\":true,\"StaleBasisCause\":{\"upstreamKind\":\"coreUseCases\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-acq-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-acq-p1\",\"Version\":6,\"Phase\":0,\"Mission\":{\"Status\":0}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-acq-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"answered\",\"addressee\":\"system-architect\"}]}]}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "warn-open-questions"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-acq-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-acq-p2\",\"Version\":6,\"Phase\":0,\"Mission\":{\"Status\":0}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-acq-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-acq-p2\",\"Version\":6}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "question-still-open",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-acq-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\",\"addressee\":\"system-architect\"}]}]}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-acq-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\",\"addressee\":\"system-architect\"}]}]}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "warn-open-questions"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-acq-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-acq-p3\",\"Version\":6,\"Phase\":0,\"Mission\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-acq-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"answered\",\"addressee\":\"system-architect\"}]}]}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "warn-open-questions"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-acq-p4",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-acq-p4\",\"Version\":6,\"Phase\":0,\"Mission\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-acq-p4",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-acq-p4\",\"Version\":6}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "question-still-open",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-acq-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\",\"addressee\":\"system-architect\"}]}]}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-acq-p4",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ActivityExecution\":{\"D-REQ\":{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"q-1\",\"type\":\"question\",\"status\":\"open\",\"addressee\":\"system-architect\"}]}]}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "warn-open-questions"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-cpo-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-cpo-p1\",\"Version\":20,\"Phase\":1,\"SdpReview\":{\"Status\":1}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "AdvancePhase",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-cpo-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "21",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "22",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-cpo-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-cpo-p1\",\"Phase\":2}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "sdp-review-committed",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-cpo-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Phase\":2,\"SdpReview\":{\"Status\":2}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "construction-work-items-opened",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-cpo-p1",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-project-state-access",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"C-project-state-access\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "commit-option",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-cpo-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Phase\":2,\"SdpReview\":{\"Status\":2}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-cpo-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-cpo-p2\",\"Version\":20,\"Phase\":1,\"SdpReview\":{\"Status\":1}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "AdvancePhase",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-cpo-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "21",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "22",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-cpo-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-cpo-p2\",\"Phase\":2}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "sdp-review-committed",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-cpo-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Phase\":2,\"SdpReview\":{\"Status\":2}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "construction-work-items-opened",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-cpo-p2",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-project-state-access",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"C-project-state-access\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "commit-option",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-cpo-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Phase\":2,\"SdpReview\":{\"Status\":2}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-cpo-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-cpo-p2\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "sdp-review-revoked",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-cpo-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"SdpReview\":{\"Status\":4}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-cpo-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-cpo-p3\",\"Version\":20,\"Phase\":1,\"SdpReview\":{\"Status\":1}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-cpo-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-cpo-p3\",\"Phase\":1}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "sdp-review-rejected",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-cpo-p3",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "P-SDP",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"reviews\":[{\"roundId\":\"P-SDP:sdpReview:sdpReview:1\",\"outcome\":\"sentBack\",\"thread\":[{\"id\":\"fb-1\",\"text\":\"Reject all options: the compressed option exceeds the build-cost ceiling.\"}]}]}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "sdp-review-rejected",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-cpo-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Phase\":1,\"SdpReview\":{\"Status\":1}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "download-generated-source-code-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-dgs-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-dgs-p1\",\"Phase\":2,\"ActivityGit\":{\"C-project-state-access\":{\"ActivityID\":\"C-project-state-access\",\"BranchName\":\"activity/C-project-state-access\",\"PullRequestRef\":\"stp-psa-dgs-p1#pr-1\",\"IsRevert\":false}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "show-repo-location"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "download-generated-source-code-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-dgs-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-dgs-p2\",\"Phase\":2,\"ActivityGit\":{\"C-project-state-access\":{\"ActivityID\":\"C-project-state-access\",\"BranchName\":\"activity/C-project-state-access\",\"PullRequestRef\":\"stp-psa-dgs-p2#pr-1\",\"IsRevert\":false}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "show-repo-location"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-epa-p1\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-epa-p2\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ActivityExecution\":{\"D-REQ\":{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"kind\":2,\"text\":\"Narrow the glossary to the billing terms and retry.\"}]}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "operator-note-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-epa-p2",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"kind\":2,\"text\":\"Narrow the glossary to the billing terms and retry.\"}]}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-epa-p3\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "AdvancePhase",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "15",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "16",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "project-phase-advanced",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-epa-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":16,\"Phase\":1}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p4",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-epa-p4\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "AdvancePhase",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p4",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "15",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "16",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "project-phase-advanced",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-epa-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":16,\"Phase\":1}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-epa-p5\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p6",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-epa-p6\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p6",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ActivityExecution\":{\"D-REQ\":{\"activityID\":\"D-REQ\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "escalate-operator"
+                ],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p6",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ActivityExecution\":{\"D-REQ\":{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"kind\":2,\"text\":\"Narrow the glossary to the billing terms and retry.\"}]}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "operator-note-recorded",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-epa-p6",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-REQ",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"operatorNotes\":[{\"kind\":2,\"text\":\"Narrow the glossary to the billing terms and retry.\"}]}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-epa-p7",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-epa-p7\",\"Version\":4,\"Phase\":0,\"ActivityList\":{\"Status\":2},\"Network\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CreateProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-mp-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "owner",
+                    "value": "stp-psa-owner-mp-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "name",
+                    "value": "STP Manage Projects P1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-project-head-state-created",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-mp-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-psa-mp-p1\",\"Version\":1,\"Phase\":0,\"Owner\":\"stp-psa-owner-mp-p1\",\"Name\":\"STP Manage Projects P1\",\"OperatingModel\":\"selfOperated\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-mp-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-mp-p1\",\"Version\":1,\"Owner\":\"stp-psa-owner-mp-p1\",\"Name\":\"STP Manage Projects P1\",\"Phase\":0}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ListProjects",
+                "inputs": [
+                  {
+                    "name": "owner",
+                    "value": "stp-psa-owner-mp-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ProjectID\":\"stp-psa-mp-p1\",\"Name\":\"STP Manage Projects P1\",\"Owner\":\"stp-psa-owner-mp-p1\",\"Phase\":0}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "RecordReviewPolicy",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-mp-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"preset\":\"full\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-mp-p1:policy",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-review-policy-set",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-mp-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":2,\"reviewPolicy\":{\"preset\":\"full\"}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "SetResearchInput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-mp-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "research",
+                    "value": "{\"Sources\":[{\"Title\":\"Founder brief\",\"Content\":\"Archistrator designs, builds and operates software with The Method.\"}]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-research-input-captured",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-mp-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":3,\"Research\":{\"sources\":[{\"title\":\"Founder brief\",\"path\":\".aiarch/state/research/00-founder-brief.txt\",\"contentBytes\":67}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "manage-projects-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CreateProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-mp-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "owner",
+                    "value": "stp-psa-owner-mp-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "name",
+                    "value": "STP Manage Projects P2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "1",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-project-head-state-created",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-mp-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-psa-mp-p2\",\"Version\":1,\"Phase\":0,\"Owner\":\"stp-psa-owner-mp-p2\",\"Name\":\"STP Manage Projects P2\",\"OperatingModel\":\"selfOperated\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "SetOperatingModel",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-mp-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "model",
+                    "value": "archistratorOperated",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "2",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-operating-model-operated",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-mp-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":2,\"OperatingModel\":\"archistratorOperated\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-mp-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-mp-p2\",\"Version\":2,\"Owner\":\"stp-psa-owner-mp-p2\",\"Name\":\"STP Manage Projects P2\",\"Phase\":0}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "ListProjects",
+                "inputs": [
+                  {
+                    "name": "owner",
+                    "value": "stp-psa-owner-mp-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ProjectID\":\"stp-psa-mp-p2\",\"Name\":\"STP Manage Projects P2\",\"Owner\":\"stp-psa-owner-mp-p2\",\"Phase\":0}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 5,
+                "operation": "RecordReviewPolicy",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-mp-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "policy",
+                    "value": "{\"preset\":\"checkpoints\",\"gatedPhasesByType\":{\"service\":[\"detailed_design\",\"construction\"]}}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-mp-p2:policy",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-review-policy-set",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-mp-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":3,\"reviewPolicy\":{\"preset\":\"checkpoints\",\"gatedPhasesByType\":{\"service\":[\"detailed_design\",\"construction\"]}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 6,
+                "operation": "SetResearchInput",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-mp-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "research",
+                    "value": "{\"Sources\":[{\"Title\":\"Founder brief\",\"Content\":\"Archistrator designs, builds and operates software with The Method.\"}]}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "4",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-research-input-captured",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-mp-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":4,\"Research\":{\"sources\":[{\"title\":\"Founder brief\",\"path\":\".aiarch/state/research/00-founder-brief.txt\",\"contentBytes\":67}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-ods-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-ods-p1\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "pause-construction-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordOperatorPaused",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-pc-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "8",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "reason",
+                    "value": "Operator pause: upstream incident under investigation",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-pc-p1:pause",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "9",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "run-state-paused",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-pc-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"OperatorPaused\":true,\"PauseReason\":\"Operator pause: upstream incident under investigation\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "record-paused",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-pc-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":9,\"Phase\":2,\"OperatorPaused\":true,\"PauseReason\":\"Operator pause: upstream incident under investigation\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rsc-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rsc-p1\",\"Version\":50,\"Phase\":2,\"ActivityExecution\":{\"C-project-state-access\":{\"activityID\":\"C-project-state-access\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rsc-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rsc-p1\",\"Version\":50,\"SystemDesign\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rsc-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rsc-p2\",\"Version\":50,\"Phase\":2,\"ActivityExecution\":{\"C-project-state-access\":{\"activityID\":\"C-project-state-access\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rsc-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rsc-p3\",\"Version\":50,\"Phase\":2,\"ActivityExecution\":{\"C-project-state-access\":{\"activityID\":\"C-project-state-access\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "requeue-a-failed-construction-activity-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rq-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rq-p1\",\"Phase\":2,\"ActivityExecution\":{\"C-project-state-access\":{\"activityID\":\"C-project-state-access\",\"failureDetail\":\"pipeline failed: build red\"}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rq-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rq-p1\",\"Phase\":2,\"OperatorPaused\":false,\"ActivityExecution\":{\"C-project-state-access\":{\"activityID\":\"C-project-state-access\",\"operatorNotes\":[{\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-rq-p1",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-project-state-access",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"C-project-state-access\",\"operatorNotes\":[{\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rs-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rs-p1\",\"Version\":9,\"Phase\":2,\"OperatorPaused\":true,\"PauseReason\":\"Operator pause: upstream incident under investigation\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RecordOperatorResumed",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rs-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "9",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-psa-rs-p1:resume",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "10",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "run-state-running",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-rs-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"OperatorPaused\":false,\"PauseReason\":\"\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "record-resume",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-rs-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":10,\"OperatorPaused\":false,\"PauseReason\":\"\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rs-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rs-p1\",\"Version\":10,\"Phase\":2,\"OperatorPaused\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rs-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rs-p2\",\"Version\":9,\"Phase\":2,\"OperatorPaused\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "run-state-still-paused",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-rs-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Version\":9,\"OperatorPaused\":true,\"PauseReason\":\"Operator pause: upstream incident under investigation\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "retry-later"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p1\",\"Version\":60,\"Phase\":2,\"ConstructionProgress\":{\"Week\":3,\"points\":[{\"week\":1},{\"week\":2}]}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p1\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "tracking-point-no-trend",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3,\"note\":\"no trend: fewer than four points\"}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p1\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "progress-record-appended",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "record-point",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"Week\":3,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 4,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p1\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "replan-trigger-pending",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3,\"note\":\"corrective action: replan trigger pending\"}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "show-weekly-progress"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p2\",\"Version\":60,\"Phase\":2,\"ConstructionProgress\":{\"Week\":3,\"points\":[{\"week\":1},{\"week\":2}]}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p2\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "tracking-point-no-trend",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3,\"note\":\"no trend: fewer than four points\"}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p2\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "progress-record-appended",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "record-point",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"Week\":3,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "show-weekly-progress"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p3\",\"Version\":60,\"Phase\":2,\"ConstructionProgress\":{\"Week\":5,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4}]}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p3\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "progress-record-appended",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4},{\"week\":5}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "record-point",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"Week\":5,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4},{\"week\":5}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p3\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "replan-trigger-pending",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p3",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4},{\"week\":5,\"note\":\"corrective action: replan trigger pending\"}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "show-weekly-progress"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "track-weekly-project-progress-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p4",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p4\",\"Version\":60,\"Phase\":2,\"ConstructionProgress\":{\"Week\":5,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4}]}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-twp-p4",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-twp-p4\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "progress-record-appended",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4},{\"week\":5}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "record-point",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-twp-p4",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ConstructionProgress\":{\"Week\":5,\"points\":[{\"week\":1},{\"week\":2},{\"week\":3},{\"week\":4},{\"week\":5}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "show-weekly-progress"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-vdh-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-vdh-p1\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "view-the-project-state-log-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProjectVersion",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-vsl-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "read-commits"
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProjectVersion",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-vsl-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "show-state-log"
+                ],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadProjectVersion",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-vsl-p1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "project-state-unchanged",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProjectVersion",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-vsl-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "3",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "project-state-unchanged",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-psa-vsl-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-psa-vsl-p1\",\"Version\":3,\"OperatingModel\":\"archistratorOperated\",\"reviewPolicy\":{\"preset\":\"full\"}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "show-slot-diff"
+                ],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "view-the-project-state-log-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProjectVersion",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-vsl-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "read-commits"
+                ],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadProjectVersion",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-vsl-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "3",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "show-state-log"
+                ],
+                "hook": false
+              }
+            ]
+          }
+        ]
+      },
       "reviewEngine": {
         "component": "reviewEngine",
         "bindings": [
