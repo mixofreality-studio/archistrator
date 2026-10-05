@@ -331,7 +331,7 @@ type fakeMessageBus struct {
 	signalCalls   int
 }
 
-func (b *fakeMessageBus) DeliverSignal(fwra.Context, messagebus.ExecutionID, messagebus.SignalName, messagebus.ExecutionPayload) error {
+func (b *fakeMessageBus) DeliverSignal(fwra.Context, messagebus.ExecutionID, messagebus.SignalName, messagebus.ExecutionPayload, *messagebus.ExecutionStart) error {
 	b.signalCalls++
 	return nil
 }
@@ -381,7 +381,7 @@ func TestFinalizeMessageBus_DryRun_SkipsConstructionSchedules(t *testing.T) {
 	}
 
 	// DeliverSignal must always pass through, regardless of dry-run.
-	if err := wrapped.DeliverSignal(fwra.Context{}, "wf-1", "sig", messagebus.ExecutionPayload{}); err != nil {
+	if err := wrapped.DeliverSignal(fwra.Context{}, "wf-1", "sig", messagebus.ExecutionPayload{}, nil); err != nil {
 		t.Fatalf("DeliverSignal: %v", err)
 	}
 	if inner.signalCalls != 1 {

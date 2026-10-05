@@ -12206,7 +12206,7 @@ type recordingSignalBus struct {
 	onDeliver func()
 }
 
-func (b *recordingSignalBus) DeliverSignal(_ fwra.Context, target messagebus.ExecutionID, name messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+func (b *recordingSignalBus) DeliverSignal(_ fwra.Context, target messagebus.ExecutionID, name messagebus.SignalName, payload messagebus.ExecutionPayload, _ *messagebus.ExecutionStart) error {
 	if b.onDeliver != nil {
 		b.onDeliver()
 	}
@@ -12763,7 +12763,7 @@ type fakeScheduleBus struct {
 	ids   []messagebus.ScheduleID
 }
 
-func (b *fakeScheduleBus) DeliverSignal(fwra.Context, messagebus.ExecutionID, messagebus.SignalName, messagebus.ExecutionPayload) error {
+func (b *fakeScheduleBus) DeliverSignal(fwra.Context, messagebus.ExecutionID, messagebus.SignalName, messagebus.ExecutionPayload, *messagebus.ExecutionStart) error {
 	return nil
 }
 
@@ -29951,8 +29951,8 @@ type leaseProbeBus struct {
 	notFoundAfter int
 }
 
-func (b *leaseProbeBus) DeliverSignal(rc fwra.Context, target messagebus.ExecutionID, name messagebus.SignalName, payload messagebus.ExecutionPayload) error {
-	_ = b.recordingSignalBus.DeliverSignal(rc, target, name, payload)
+func (b *leaseProbeBus) DeliverSignal(rc fwra.Context, target messagebus.ExecutionID, name messagebus.SignalName, payload messagebus.ExecutionPayload, start *messagebus.ExecutionStart) error {
+	_ = b.recordingSignalBus.DeliverSignal(rc, target, name, payload, start)
 	b.mu.Lock()
 	n := len(b.targets)
 	b.mu.Unlock()

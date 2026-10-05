@@ -31949,6 +31949,23 @@
           ],
           "additionalProperties": false
         },
+        "ExecutionStart": {
+          "type": "object",
+          "description": "Starts the target execution when none is running (signal-with-start): the registered kind it runs as and its start payload. A queued Manager\u2192Manager message whose receiver is born by the message (operations' {customerId}:delinquency) carries it; a signal to an execution that must already be running (the delivery pump) does not, and fails NotFound when it is gone.",
+          "properties": {
+            "Kind": {
+              "$ref": "#/$defs/ExecutionKind"
+            },
+            "Payload": {
+              "$ref": "#/$defs/ExecutionPayload"
+            }
+          },
+          "required": [
+            "Kind",
+            "Payload"
+          ],
+          "additionalProperties": false
+        },
         "ScheduleDescription": {
           "type": "object",
           "properties": {
@@ -32023,6 +32040,13 @@
                 "name": "payload",
                 "schema": {
                   "$ref": "#/$defs/ExecutionPayload"
+                }
+              },
+              {
+                "name": "start",
+                "pointer": true,
+                "schema": {
+                  "$ref": "#/$defs/ExecutionStart"
                 }
               }
             ],

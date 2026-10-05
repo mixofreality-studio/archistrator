@@ -195,7 +195,7 @@ func stepPauseConstructionP1S1(t *testing.T, h *scenariohost.Host, subject messa
 		t.Fatalf("hooks: start the receiving execution %s: %v", in.TargetExecutionID, err)
 	}
 
-	err = subject.DeliverSignal(rcFor(t, h, "1"), in.TargetExecutionID, in.SignalName, in.Payload)
+	err = subject.DeliverSignal(rcFor(t, h, "1"), in.TargetExecutionID, in.SignalName, in.Payload, in.Start)
 	if err == nil {
 		requireReceived(t, h, run, in)
 	}

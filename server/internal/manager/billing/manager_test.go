@@ -440,7 +440,7 @@ type fakeMessageBus struct {
 	contentTypes int
 }
 
-func (d *fakeMessageBus) DeliverSignal(_ fwra.Context, _ messagebus.ExecutionID, _ messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+func (d *fakeMessageBus) DeliverSignal(_ fwra.Context, _ messagebus.ExecutionID, _ messagebus.SignalName, payload messagebus.ExecutionPayload, _ *messagebus.ExecutionStart) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var p deliveredDelinquencySignal

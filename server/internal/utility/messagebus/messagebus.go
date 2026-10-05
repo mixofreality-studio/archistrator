@@ -153,8 +153,12 @@ func newTemporalMessageBus(cl client.Client, table map[ExecutionKind]KindBinding
 
 // DeliverSignal implements the cross-execution fire-and-forget signal — the
 // transport under a queued Manager→Manager edge. void return; at-least-once to
-// the channel.
-func (r *temporalMessageBus) DeliverSignal(rc fwra.Context, targetExecutionID ExecutionID, signalName SignalName, payload ExecutionPayload) error {
+// the channel. With start, the target is started when no execution of it is
+// running (signal-with-start): the registered kind names what it runs as and
+// start.Payload is its start argument, so a receiver the message itself brings
+// into being (operations' {customerId}:delinquency) never misses it. Without
+// start, a target that is not running fails NotFound.
+func (r *temporalMessageBus) DeliverSignal(rc fwra.Context, targetExecutionID ExecutionID, signalName SignalName, payload ExecutionPayload, start *ExecutionStart) error {
 	ctx := rc.Context
 	if targetExecutionID == "" {
 		return fwra.New(fwra.ContractMisuse, "messagebus.DeliverSignal: empty targetExecutionID")
@@ -162,7 +166,19 @@ func (r *temporalMessageBus) DeliverSignal(rc fwra.Context, targetExecutionID Ex
 	if signalName == "" {
 		return fwra.New(fwra.ContractMisuse, "messagebus.DeliverSignal: empty signalName")
 	}
-	if err := r.cl.SignalWorkflow(ctx, string(targetExecutionID), "", string(signalName), payload.Bytes); err != nil {
+	if start == nil {
+		if err := r.cl.SignalWorkflow(ctx, string(targetExecutionID), "", string(signalName), payload.Bytes); err != nil {
+			return mapSignalError(err)
+		}
+		return nil
+	}
+	binding, ok := r.registry.resolve(start.Kind)
+	if !ok {
+		return fwra.New(fwra.ContractMisuse, "messagebus.DeliverSignal: unknown start executionKind "+string(start.Kind))
+	}
+	opts := client.StartWorkflowOptions{ID: string(targetExecutionID), TaskQueue: binding.taskQueue}
+	if _, err := r.cl.SignalWithStartWorkflow(ctx, string(targetExecutionID), string(signalName), payload.Bytes,
+		opts, binding.workflowType, scheduleWorkflowArgs(start.Payload)...); err != nil {
 		return mapSignalError(err)
 	}
 	return nil

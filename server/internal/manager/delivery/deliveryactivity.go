@@ -3860,7 +3860,7 @@ func (wf *csWorkflows) requestMainWriteLease(
 	if derr := wf.Acts.MessageBusDeliverSignal(ctx,
 		messagebus.ExecutionID(pumpWorkflowID(in.ProjectID)),
 		messagebus.SignalName(signalActivityLeaseRequested),
-		messagebus.ExecutionPayload{Bytes: b}); derr != nil {
+		messagebus.ExecutionPayload{Bytes: b}, nil); derr != nil {
 		logger.Error("delivery.lease.unreachable",
 			"activityId", in.ActivityID, "err", derr.Error(),
 			"consequence", "the merge tail runs UNLEASED; the per-row CAS and the branch-file version guard still serialise per row")
@@ -3944,7 +3944,7 @@ func (wf *csWorkflows) signalActivityFinished(
 	if derr := wf.Acts.MessageBusDeliverSignal(ctx,
 		messagebus.ExecutionID(pumpWorkflowID(in.ProjectID)),
 		messagebus.SignalName(signalActivityFinished),
-		messagebus.ExecutionPayload{Bytes: b}); derr != nil && !isSignalTargetNotFound(derr) {
+		messagebus.ExecutionPayload{Bytes: b}, nil); derr != nil && !isSignalTargetNotFound(derr) {
 		logger.Error("delivery.finish.undelivered",
 			"activityId", in.ActivityID, "epoch", epoch, "err", derr.Error(),
 			"consequence", "the pump learns this terminal from its 30s reconcile instead of at once")

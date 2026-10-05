@@ -69,6 +69,12 @@ const (
 // the messageBus utility, not a direct call).
 const signalApplyDelinquencyPolicy = "applyDelinquencyPolicy"
 
+// executionKindDelinquency is the messageBus ExecutionKind of operations' delinquency
+// enforcement workflow — a string literal for the same reason as the signal name
+// (billing may not import operations); the composition root's kind table pairs it
+// with operations' registered workflow type and task queue.
+const executionKindDelinquency = "operationsDelinquencyEnforcement"
+
 // deliverDelinquencySignal invokes messageBus.deliverSignal — the one
 // sanctioned queued M→M edge (applyDelinquencyPolicy → operationsManager). Fire-and-
 // forget; dedup is the receiving handler's concern (D-DA §9 OQ3). The target is the
@@ -102,9 +108,20 @@ func (wf *workflows) deliverDelinquencySignal(ctx workflow.Context, cid customer
 	if err != nil {
 		return err
 	}
+	// The receiver is born by the message: no operations execution runs for a customer
+	// until its first delinquency, so the signal starts {customerId}:delinquency when
+	// none is running (signal-with-start, the model's queued edge). Its start argument
+	// is the operations workflow's input, {CustomerID}.
+	start, err := json.Marshal(struct {
+		CustomerID customerID `json:"CustomerID"`
+	}{CustomerID: cid})
+	if err != nil {
+		return err
+	}
 	targetWorkflowID := fmt.Sprintf("%s:delinquency", cid)
 	return wf.Acts.MessageBusDeliverSignal(ctx,
 		messagebus.ExecutionID(targetWorkflowID),
 		messagebus.SignalName(signalApplyDelinquencyPolicy),
-		messagebus.ExecutionPayload{Bytes: bytes})
+		messagebus.ExecutionPayload{Bytes: bytes},
+		&messagebus.ExecutionStart{Kind: executionKindDelinquency, Payload: messagebus.ExecutionPayload{Bytes: start}})
 }

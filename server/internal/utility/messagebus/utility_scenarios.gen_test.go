@@ -106,6 +106,7 @@ type inputPauseConstructionP1S1 struct {
 	TargetExecutionID messagebus.ExecutionID      `json:"targetExecutionID"`
 	SignalName        messagebus.SignalName       `json:"signalName"`
 	Payload           messagebus.ExecutionPayload `json:"payload"`
+	Start             *messagebus.ExecutionStart  `json:"start"`
 }
 
 // TestScenario_pause_construction_P1 — Pause Construction (use case pause-construction; path start → choose-pause → note-pause-run-state → decide-pause-plan → note-plan-cancels → record-paused → run-state-paused → stop-pump → end).
