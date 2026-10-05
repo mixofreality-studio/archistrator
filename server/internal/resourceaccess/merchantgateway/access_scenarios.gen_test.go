@@ -4,9 +4,318 @@
 package merchantgateway_test
 
 import (
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 )
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "merchantGatewayAccess") }
+
+// inputBillTheUserForUsageP1S1 is step 1's parameters of ChargeCustomer, decoded from the binding's inputs.
+type inputBillTheUserForUsageP1S1 struct {
+	CustomerID     uuid.UUID             `json:"customerID"`
+	Amount         merchantgateway.Money `json:"amount"`
+	IdempotencyKey string                `json:"idempotencyKey"`
+}
+
+// TestScenario_bill_the_user_for_usage_P1 — Bill the User for Usage — [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
+func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "merchantGatewayAccess", "bill-the-user-for-usage-P1", func(t *testing.T) {
+		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		// step 1: ChargeCustomer (node charge-user; guards charge-succeeded=[yes])
+		var in1 inputBillTheUserForUsageP1S1
+		mustUnmarshal(t, `{"customerID":"d1110000-0000-4000-8000-000000000001","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d1110000-0000-4000-8000-000000000001:2026-09:1"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepBillTheUserForUsageP1S1(t, h, subject, in1)
+		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"errorExpected":false}`)
+		// unobservable: charge-user
+	})
+}
+
+// inputBillTheUserForUsageP2S1 is step 1's parameters of ChargeCustomer, decoded from the binding's inputs.
+type inputBillTheUserForUsageP2S1 struct {
+	CustomerID     uuid.UUID             `json:"customerID"`
+	Amount         merchantgateway.Money `json:"amount"`
+	IdempotencyKey string                `json:"idempotencyKey"`
+}
+
+// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] · [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → persistent-decline → note-escalation-is-state → customer-delinquent → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
+func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "merchantGatewayAccess", "bill-the-user-for-usage-P2", func(t *testing.T) {
+		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		// step 1: ChargeCustomer (node charge-user; guards charge-succeeded=[no], retries-left=[no])
+		var in1 inputBillTheUserForUsageP2S1
+		mustUnmarshal(t, `{"customerID":"d1120000-0000-4000-8000-000000000002","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d1120000-0000-4000-8000-000000000002:2026-09:1"}`, &in1)
+		var out1 any
+		var err1 error
+		err1 = subject.ChargeCustomer(callContext(t, h, "1"), in1.CustomerID, in1.Amount, in1.IdempotencyKey)
+		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"errorExpected":true,"errorCode":"Auth"}`)
+		// unobservable: charge-user
+	})
+}
+
+// inputBillTheUserForUsageP3S1 is step 1's parameters of ChargeCustomer, decoded from the binding's inputs.
+type inputBillTheUserForUsageP3S1 struct {
+	CustomerID     uuid.UUID             `json:"customerID"`
+	Amount         merchantgateway.Money `json:"amount"`
+	IdempotencyKey string                `json:"idempotencyKey"`
+}
+
+// inputBillTheUserForUsageP3S2 is step 2's parameters of ChargeCustomer, decoded from the binding's inputs.
+type inputBillTheUserForUsageP3S2 struct {
+	CustomerID     uuid.UUID             `json:"customerID"`
+	Amount         merchantgateway.Money `json:"amount"`
+	IdempotencyKey string                `json:"idempotencyKey"`
+}
+
+// TestScenario_bill_the_user_for_usage_P3 — Bill the User for Usage — [no] · [yes] · [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
+func TestScenario_bill_the_user_for_usage_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "merchantGatewayAccess", "bill-the-user-for-usage-P3", func(t *testing.T) {
+		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		// step 1: ChargeCustomer (node charge-user; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
+		var in1 inputBillTheUserForUsageP3S1
+		mustUnmarshal(t, `{"customerID":"d1130000-0000-4000-8000-000000000003","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d1130000-0000-4000-8000-000000000003:2026-09:1"}`, &in1)
+		var out1 any
+		var err1 error
+		err1 = subject.ChargeCustomer(callContext(t, h, "1"), in1.CustomerID, in1.Amount, in1.IdempotencyKey)
+		expect(t, "bill-the-user-for-usage-P3", 1, out1, err1, `{"errorExpected":true,"errorCode":"Auth"}`)
+		// unobservable: charge-user
+		// step 2: ChargeCustomer (node charge-user; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
+		var in2 inputBillTheUserForUsageP3S2
+		mustUnmarshal(t, `{"customerID":"d1130000-0000-4000-8000-000000000003","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d1130000-0000-4000-8000-000000000003:2026-09:2"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepBillTheUserForUsageP3S2(t, h, subject, in2)
+		expect(t, "bill-the-user-for-usage-P3", 2, out2, err2, `{"errorExpected":false}`)
+		// unobservable: charge-user
+	})
+}
+
+// inputOnboardANewCustomerP2S1 is step 1's parameters of ValidateStoredInstrument, decoded from the binding's inputs.
+type inputOnboardANewCustomerP2S1 struct {
+	CustomerID     uuid.UUID `json:"customerID"`
+	IdempotencyKey string    `json:"idempotencyKey"`
+}
+
+// inputOnboardANewCustomerP2S2 is step 2's parameters of ReadStoredInstrument, decoded from the binding's inputs.
+type inputOnboardANewCustomerP2S2 struct {
+	CustomerID uuid.UUID `json:"customerID"`
+}
+
+// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "merchantGatewayAccess", "onboard-a-new-customer-P2", func(t *testing.T) {
+		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		// step 1: ValidateStoredInstrument (node validate-instrument; guards registered=[no])
+		var in1 inputOnboardANewCustomerP2S1
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001","idempotencyKey":"validate:d2210000-0000-4000-8000-000000000001"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOnboardANewCustomerP2S1(t, h, subject, in1)
+		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"errorExpected":false}`)
+		// step 2: ReadStoredInstrument (node validate-instrument; guards registered=[no])
+		var in2 inputOnboardANewCustomerP2S2
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadStoredInstrument(callContext(t, h, "2"), in2.CustomerID)
+		expect(t, "onboard-a-new-customer-P2", 2, out2, err2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		// probe 2.1: merchantGatewayAccess.ReadStoredInstrument for obj-instrument-validated
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			CustomerID uuid.UUID `json:"customerID"`
+		}
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadStoredInstrument(callContext(t, h, "2.1"), probe2_1.CustomerID)
+		expect(t, "onboard-a-new-customer-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		// probe 2.2: merchantGatewayAccess.ReadStoredInstrument for validate-instrument
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			CustomerID uuid.UUID `json:"customerID"`
+		}
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadStoredInstrument(callContext(t, h, "2.2"), probe2_2.CustomerID)
+		expect(t, "onboard-a-new-customer-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+	})
+}
+
+// inputRetryADeclinedServiceInvoiceP1S1 is step 1's parameters of ChargeCustomer, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP1S1 struct {
+	CustomerID     uuid.UUID             `json:"customerID"`
+	Amount         merchantgateway.Money `json:"amount"`
+	IdempotencyKey string                `json:"idempotencyKey"`
+}
+
+// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "merchantGatewayAccess", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
+		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		// step 1: ChargeCustomer (node recharge; guards retry-budget=[yes: retry], charge-ok=[yes])
+		var in1 inputRetryADeclinedServiceInvoiceP1S1
+		mustUnmarshal(t, `{"customerID":"d3310000-0000-4000-8000-000000000001","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d3310000-0000-4000-8000-000000000001:2026-09:2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepRetryADeclinedServiceInvoiceP1S1(t, h, subject, in1)
+		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"errorExpected":false}`)
+		// unobservable: recharge
+	})
+}
+
+// inputRetryADeclinedServiceInvoiceP4S1 is step 1's parameters of ChargeCustomer, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP4S1 struct {
+	CustomerID     uuid.UUID             `json:"customerID"`
+	Amount         merchantgateway.Money `json:"amount"`
+	IdempotencyKey string                `json:"idempotencyKey"`
+}
+
+// inputRetryADeclinedServiceInvoiceP4S2 is step 2's parameters of ChargeCustomer, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP4S2 struct {
+	CustomerID     uuid.UUID             `json:"customerID"`
+	Amount         merchantgateway.Money `json:"amount"`
+	IdempotencyKey string                `json:"idempotencyKey"`
+}
+
+// TestScenario_retry_a_declined_service_invoice_P4 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] · [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "merchantGatewayAccess", "retry-a-declined-service-invoice-P4", func(t *testing.T) {
+		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		// step 1: ChargeCustomer (node recharge; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
+		var in1 inputRetryADeclinedServiceInvoiceP4S1
+		mustUnmarshal(t, `{"customerID":"d3340000-0000-4000-8000-000000000004","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d3340000-0000-4000-8000-000000000004:2026-09:2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepRetryADeclinedServiceInvoiceP4S1(t, h, subject, in1)
+		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"errorExpected":true,"errorCode":"Auth"}`)
+		// unobservable: recharge
+		// step 2: ChargeCustomer (node recharge; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
+		var in2 inputRetryADeclinedServiceInvoiceP4S2
+		mustUnmarshal(t, `{"customerID":"d3340000-0000-4000-8000-000000000004","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d3340000-0000-4000-8000-000000000004:2026-09:3"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepRetryADeclinedServiceInvoiceP4S2(t, h, subject, in2)
+		expect(t, "retry-a-declined-service-invoice-P4", 2, out2, err2, `{"errorExpected":false}`)
+		// unobservable: recharge
+	})
+}
+
+// callContext is the fwra call context a generated step calls the subject with:
+// the test's own context, a zero principal and, on an idempotent layer, a key
+// unique to the step. A step that needs an identity is a Hook:true step.
+func callContext(t *testing.T, h *scenariohost.Host, step string) fwra.Context {
+	t.Helper()
+	_ = step
+	return fwra.Context{Context: h.Context(t), IdempotencyKey: fwra.IdempotencyKey(t.Name() + "/" + step)}
+}
+
+func mustUnmarshal(t *testing.T, raw string, into any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(raw), into); err != nil {
+		t.Fatalf("testgen: decode %s: %v", raw, err)
+	}
+}
+
+// expect checks one step's outcome against its binding's expectation: an
+// expected error must arrive (carrying the expected code, when one is named);
+// an unexpected error fails; a named result must be a JSON subset of the
+// marshalled outcome.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	var want struct {
+		Result        string `json:"result"`
+		ErrorExpected bool   `json:"errorExpected"`
+		ErrorCode     string `json:"errorCode"`
+	}
+	mustUnmarshal(t, expectJSON, &want)
+	if want.ErrorExpected {
+		if err == nil {
+			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+		}
+		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
+			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+	}
+	if want.Result != "" && !resultMatches(want.Result, out) {
+		got, _ := json.Marshal(out)
+		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+	}
+}
+
+// errorHasCode matches the layer error's kind name, or the code as a substring
+// of the error text for a component-specific code.
+func errorHasCode(err error, code string) bool {
+	var le *fwra.Error
+	if errors.As(err, &le) && le.Kind.String() == code {
+		return true
+	}
+	return strings.Contains(err.Error(), code)
+}
+
+// resultMatches decodes the expectation (a JSON document, or a bare string)
+// and the marshalled outcome, and compares them as a subset.
+func resultMatches(wantRaw string, got any) bool {
+	var want any
+	if json.Unmarshal([]byte(wantRaw), &want) != nil {
+		want = wantRaw
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		return false
+	}
+	var g any
+	if json.Unmarshal(raw, &g) != nil {
+		return false
+	}
+	return subset(want, g)
+}
+
+// subset: every key of an expected object is present and matches; an expected
+// array matches element-wise; a scalar must be equal.
+func subset(want, got any) bool {
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			return false
+		}
+		for k, wv := range w {
+			gv, ok := g[k]
+			if !ok || !subset(wv, gv) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		g, ok := got.([]any)
+		if !ok || len(g) != len(w) {
+			return false
+		}
+		for i := range w {
+			if !subset(w[i], g[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(want, got)
+	}
+}
