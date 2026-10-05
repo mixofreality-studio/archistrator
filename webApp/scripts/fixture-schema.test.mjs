@@ -256,16 +256,17 @@ void test('the schema keys ops by exactly the OpsClient OpIds, composition route
   assert.ok(schemaOps.includes('compositionGetUserinfo'));
   // The whole roster, MEASURED off the bindings rather than typed here: stage 4a
   // took it from 51 ops to 23, stage 4b2 to 22 (deliveryManager 12 -> 11 as ReplanProject
-  // went), dct Plan 4 to 23 (billingGetBillingCycle: billingManager's one client-exposed
-  // op, use case view-a-billing-cycle), and a floor written by hand would be the one thing
-  // in this file that does not move when the contract does.
+  // went), dct Plan 4 to 23 (billingGetBillingCycle, use case view-a-billing-cycle), dct
+  // Plan 5 to 25 (onboarding's two entries, use case onboard-a-new-customer, spec §12 B7),
+  // and a floor written by hand would be the one thing in this file that does not move
+  // when the contract does.
   assert.equal(schemaOps.filter((o) => o.startsWith('delivery')).length, 11);
   assert.deepEqual(
     schemaOps.filter((o) => o.startsWith('billing')),
-    ['billingGetBillingCycle'],
-    'billingManager reaches the client with its read-only op only'
+    ['billingGetBillingCycle', 'billingOnboardPaymentIntegration', 'billingRegisterCustomer'],
+    'billingManager reaches the client with the ops a use case draws from it, and no other'
   );
-  assert.equal(schemaOps.length, 23);
+  assert.equal(schemaOps.length, 25);
 });
 
 void test(`${VIEW_OP} is keyed by the OAS view kinds, not by one answer`, () => {

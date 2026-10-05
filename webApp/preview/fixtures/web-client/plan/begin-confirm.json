@@ -21944,11 +21944,92 @@
             ]
            }
           ]
+         },
+         {
+          "Signature": "BillingOnboardPaymentIntegration(deployedAppID: uuid.UUID) → (BillingOnboardPaymentIntegrationOutput, error)",
+          "Stereotype": "",
+          "Note": "",
+          "Inputs": [
+           {
+            "Name": "uuid.UUID",
+            "Fields": [
+             {
+              "Name": "deployedAppID",
+              "Type": "uuid.UUID",
+              "Note": ""
+             }
+            ]
+           }
+          ],
+          "Outputs": [
+           {
+            "Name": "BillingOnboardPaymentIntegrationOutput",
+            "Fields": [
+             {
+              "Name": "result",
+              "Type": "BillingRef",
+              "Note": ""
+             }
+            ]
+           },
+           {
+            "Name": "error",
+            "Fields": [
+             {
+              "Name": "fault",
+              "Type": "error",
+              "Note": ""
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "Signature": "BillingRegisterCustomer(customerID: uuid.UUID) → (BillingRegisterCustomerOutput, error)",
+          "Stereotype": "",
+          "Note": "",
+          "Inputs": [
+           {
+            "Name": "uuid.UUID",
+            "Fields": [
+             {
+              "Name": "customerID",
+              "Type": "uuid.UUID",
+              "Note": ""
+             }
+            ]
+           }
+          ],
+          "Outputs": [
+           {
+            "Name": "BillingRegisterCustomerOutput",
+            "Fields": [
+             {
+              "Name": "result",
+              "Type": "BillingRef",
+              "Note": ""
+             }
+            ]
+           },
+           {
+            "Name": "error",
+            "Fields": [
+             {
+              "Name": "fault",
+              "Type": "error",
+              "Note": ""
+             }
+            ]
+           }
+          ]
          }
         ],
         "DataContracts": [
          "BillingCycleView",
          "BillingGetBillingCycleOutput",
+         "BillingOnboardPaymentIntegrationOutput",
+         "BillingRef",
+         "BillingRegisterCustomerOutput",
          "RoutingDirective"
         ],
         "ErrorModel": "Operations fail with error — the typed Client fault.",
