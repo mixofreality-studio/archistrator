@@ -58,7 +58,7 @@ func (wf *workflows) WithdrawWorkflow(ctx workflow.Context, in withdrawInput) (W
 		return WithdrawResult{}, aerr
 	}
 	if attribution.RuntimeEventID != "" {
-		if uerr := wf.recordFinalUsage(ctx, in.OperatedAppID, attribution); uerr != nil {
+		if uerr := wf.recordFinalUsage(ctx, in.OperatedAppID, op.CustomerID, attribution); uerr != nil {
 			return WithdrawResult{}, uerr
 		}
 	}
@@ -81,8 +81,8 @@ func (wf *workflows) withdrawRuntime(ctx workflow.Context, appID operatedAppID) 
 // before the runtime is pruned, appended through the same usageAccess.recordComputeUsage
 // verb every reconcile tick uses (append; dedup-id idempotent). "Final" is the business
 // moment this workflow step chooses, not a distinct ResourceAccess verb.
-func (wf *workflows) recordFinalUsage(ctx workflow.Context, appID operatedAppID, attribution operatedruntime.ComputeAttribution) error {
-	_, err := wf.Acts.UsageRecordComputeUsage(ctx, []usage.UsageEvent{wf.usageEvent(ctx, appID, attribution)})
+func (wf *workflows) recordFinalUsage(ctx workflow.Context, appID operatedAppID, customer customerID, attribution operatedruntime.ComputeAttribution) error {
+	_, err := wf.Acts.UsageRecordComputeUsage(ctx, []usage.UsageEvent{usageEvent(ctx, appID, customer, attribution)})
 	return err
 }
 

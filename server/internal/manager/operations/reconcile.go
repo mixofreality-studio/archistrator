@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"time"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -70,9 +71,15 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 
 	version := app.Version
 
-	// Record observed compute as a Usage Log event (append-only; dedup-id idempotent).
+	// Record observed compute as a Usage Log event (append-only; dedup-id idempotent),
+	// attributed to the app's OWN customer: the in-flight summary carries no customer, so
+	// the head-state row is read for it — only when there is compute to attribute.
 	if attribution.RuntimeEventID != "" {
-		if uerr := wf.recordComputeUsage(ctx, app.ID, attribution); uerr != nil {
+		op, oerr := wf.readOperatedSystem(ctx, app.ID)
+		if oerr != nil {
+			return false, false, oerr
+		}
+		if uerr := wf.recordComputeUsage(ctx, app.ID, op.CustomerID, attribution); uerr != nil {
 			return false, false, uerr
 		}
 	}
@@ -208,34 +215,57 @@ func (wf *workflows) getSloStatus(ctx workflow.Context, appID operatedAppID) (op
 }
 
 // readComputeAttribution invokes operatedRuntimeAccess.readComputeAttribution (pure
-// read). The Manager pins the window to a default (open) window here; the RA attributes
-// since last observation. Task 4: the former Manager-local computeAttribution mirror is
-// retired.
+// read) over computeAttributionWindow. Task 4: the former Manager-local
+// computeAttribution mirror is retired.
 // Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) readComputeAttribution(ctx workflow.Context, appID operatedAppID) (operatedruntime.ComputeAttribution, error) {
-	return wf.Acts.OperatedRuntimeReadComputeAttribution(ctx, appID, operatedruntime.AttributionWindow{})
+	return wf.Acts.OperatedRuntimeReadComputeAttribution(ctx, appID, computeAttributionWindow(workflow.Now(ctx)))
+}
+
+// computeAttributionWindow is the window one observation attributes compute over: the
+// reconcile interval ending at now, in whole seconds. The Manager names the window — the
+// ResourceAccess measures it and refuses one shorter than a second (ContractMisuse) — and
+// the window used to be the zero value, so the real runtime refused every reconcile tick
+// and every withdraw's final capture. now is the workflow clock, so a replayed tick asks
+// for the same window, and the RuntimeEventID the RA derives from it keeps the usage
+// append idempotent.
+func computeAttributionWindow(now time.Time) operatedruntime.AttributionWindow {
+	to := now.UTC().Truncate(time.Second)
+	return operatedruntime.AttributionWindow{From: to.Add(-reconcileInterval), To: to}
 }
 
 // recordComputeUsage invokes usageAccess.recordComputeUsage (append; dedup-id
 // idempotent). The single-event slice-wrap lives here now (was in the retired activity).
-func (wf *workflows) recordComputeUsage(ctx workflow.Context, appID operatedAppID, attribution operatedruntime.ComputeAttribution) error {
-	_, err := wf.Acts.UsageRecordComputeUsage(ctx, []usage.UsageEvent{wf.usageEvent(ctx, appID, attribution)})
+func (wf *workflows) recordComputeUsage(ctx workflow.Context, appID operatedAppID, customer customerID, attribution operatedruntime.ComputeAttribution) error {
+	_, err := wf.Acts.UsageRecordComputeUsage(ctx, []usage.UsageEvent{usageEvent(ctx, appID, customer, attribution)})
 	return err
 }
 
-// usageEvent assembles one contract UsageEvent from an observed attribution. The
-// RuntimeEventID is the append-only ledger's dedup token (usageAccess.md §2/§3).
-// OccurredAt is read from the deterministic workflow clock (replay-safe).
+// usageEvent assembles one contract UsageEvent from an observed attribution, attributed
+// to the operated app's own customer (its head-state row's CustomerID) and to the
+// billing cycle the observation falls in. The RuntimeEventID is the append-only
+// ledger's dedup token (usageAccess.md §2/§3). OccurredAt — and so the cycle — is read
+// from the deterministic workflow clock (replay-safe).
 // Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
-func (wf *workflows) usageEvent(ctx workflow.Context, appID operatedAppID, attribution operatedruntime.ComputeAttribution) usage.UsageEvent {
+func usageEvent(ctx workflow.Context, appID operatedAppID, customer customerID, attribution operatedruntime.ComputeAttribution) usage.UsageEvent {
+	now := workflow.Now(ctx)
 	return usage.UsageEvent{
 		OperatedAppID:  appID,
-		CustomerID:     wf.CustomerID,
-		CycleID:        usage.CycleID(wf.CurrentCycleID),
+		CustomerID:     customer,
+		CycleID:        usageCycleID(now),
 		Units:          usage.ComputeUnits{Amount: attribution.Units.Amount, Unit: attribution.Units.Unit},
 		RuntimeEventID: usage.RuntimeEventID(attribution.RuntimeEventID),
-		OccurredAt:     workflow.Now(ctx),
+		OccurredAt:     now,
 	}
+}
+
+// usageCycleID is the billing cycle an instant falls in: its calendar month in UTC,
+// "YYYY-MM". Usage is written to, and read back from, the cycle of the workflow clock
+// — the same clock on both sides, so an observation and the read that follows it in
+// the same month meet in the same cycle.
+// Shared workflow-context helper (used by 4 workflows); lives in its first caller's file per the file-layout standard.
+func usageCycleID(at time.Time) usage.CycleID {
+	return usage.CycleID(at.UTC().Format("2006-01"))
 }
 
 // recordRuntimeStatusChange applies the observed-status head-state transition. Task 4:

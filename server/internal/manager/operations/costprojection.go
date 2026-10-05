@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
@@ -25,15 +26,25 @@ type costProjectionInput struct {
 //  1. ReadUsageRangeActivity (usageAccess.readRange) + ReadOperatedSystemActivity.
 //  2. operationEstimationEngine.ProjectForOperatedApp (direct in-workflow). NO mutation.
 func (wf *workflows) CostProjectionWorkflow(ctx workflow.Context, in costProjectionInput) (costProjection, error) {
-	// Read recent desired-state history (head-state read) — establishes the app exists.
-	if _, err := wf.readOperatedSystem(ctx, in.OperatedAppID); err != nil {
+	// Read the head-state row — establishes the app is operated, and names the customer
+	// its usage is attributed to. An app with no head-state row is not operated, so
+	// there is nothing to project (view-operating-cost-projection, app-known=[no] →
+	// "app not operated"): a FailedPrecondition, not an opaque NotFound from deep inside
+	// the ResourceAccess.
+	op, err := wf.readOperatedSystem(ctx, in.OperatedAppID)
+	if err != nil {
+		if isReadNotFound(err) {
+			return costProjection{}, temporal.NewNonRetryableApplicationError(
+				"operated app "+in.OperatedAppID.String()+" is not operated (no head-state row), so it has no operating cost to project",
+				fwmgr.ErrType(fwmgr.FailedPrecondition), err)
+		}
 		return costProjection{}, err
 	}
 
 	appID := in.OperatedAppID
 	events, uerr := wf.readUsageRange(ctx, usage.UsageRangeQuery{
-		CustomerID:    wf.CustomerID,
-		CycleID:       usage.CycleID(wf.CurrentCycleID),
+		CustomerID:    op.CustomerID,
+		CycleID:       usageCycleID(workflow.Now(ctx)),
 		OperatedAppID: &appID,
 	})
 	if uerr != nil {
