@@ -389,6 +389,7 @@ void test('the activity-experience fixtures are recorded where the preview can o
     'requirements-backfilled.json',
     'review-set-error.json',
     'service-fork-sent-back.json',
+    'service-parallel-testplan.json',
     'sub-attempts.json',
   ]);
 });

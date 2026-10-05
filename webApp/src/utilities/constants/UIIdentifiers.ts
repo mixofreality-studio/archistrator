@@ -646,6 +646,16 @@ export const UI_IDENTIFIERS = {
   ActivityLifecycle: {
     GRAPH: 'lifecycle-graph',
     MINI: 'lifecycle-graph-mini',
+    /** The graph's own horizontal scroller (scroll lens): the selected task is
+     *  always scrolled into it. */
+    SCROLLER: 'lifecycle-graph-scroller',
+    /** The two lenses: actual size, scrolling — and every task fitted on screen
+     *  (scaled to the width, or wrapped into phase rows where scaling would make
+     *  the pips too small to hit). Exclusive; the choice outlives the screen. */
+    LENS_SCROLL: 'lifecycle-lens-scroll',
+    LENS_FIT: 'lifecycle-lens-fit',
+    /** The fit lens's wrapped form (narrow widths): every task as a chip, by phase. */
+    WRAP: 'lifecycle-graph-wrap',
     node: (nodeId: string) => `lifecycle-node-${nodeId}`,
     nodeMenuButton: (nodeId: string) => `lifecycle-node-menu-${nodeId}`,
     phase: (phaseId: string) => `lifecycle-phase-${phaseId}`,
