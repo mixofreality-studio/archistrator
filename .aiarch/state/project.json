@@ -50647,6 +50647,111 @@
           }
         ]
       },
+      "designHealthEngine": {
+        "component": "designHealthEngine",
+        "bindings": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EvaluateDesignHealth",
+                "inputs": [
+                  {
+                    "name": "project",
+                    "value": "\"{\\\"slots\\\":{\\\"coreUseCases\\\":{\\\"kind\\\":4,\\\"model\\\":{\\\"decisions\\\":[{\\\"useCase\\\":{\\\"id\\\":\\\"export-a-report\\\",\\\"name\\\":\\\"Export a Report\\\",\\\"classification\\\":\\\"core\\\",\\\"trigger\\\":\\\"The architect asks for a report\\\",\\\"actors\\\":[{\\\"id\\\":\\\"architect-user\\\",\\\"name\\\":\\\"Architect\\\"}],\\\"activity\\\":{\\\"nodes\\\":[{\\\"id\\\":\\\"start\\\",\\\"kind\\\":\\\"start\\\",\\\"label\\\":\\\"start\\\"},{\\\"id\\\":\\\"export\\\",\\\"kind\\\":\\\"action\\\",\\\"label\\\":\\\"Export the report\\\",\\\"linkedActorId\\\":\\\"architect-user\\\"},{\\\"id\\\":\\\"end\\\",\\\"kind\\\":\\\"end\\\",\\\"label\\\":\\\"end\\\"}],\\\"edges\\\":[{\\\"from\\\":\\\"start\\\",\\\"to\\\":\\\"export\\\",\\\"kind\\\":\\\"controlFlow\\\"},{\\\"from\\\":\\\"export\\\",\\\"to\\\":\\\"end\\\",\\\"kind\\\":\\\"controlFlow\\\"}]}},\\\"essenceRationale\\\":\\\"Reporting is how the business is accountable\\\"}]}}}}\"",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ruleId\":\"DH-COV-UC-DYNAMIC\",\"severity\":\"error\",\"location\":{\"ordinal\":0,\"section\":\"useCase export-a-report\"}},{\"ruleId\":\"USECASE-DYNAMIC-MISSING\",\"severity\":\"error\",\"location\":{\"ordinal\":0,\"section\":\"use case Export a Report\"}}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "design-health-findings-signal"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EvaluateDesignHealth",
+                "inputs": [
+                  {
+                    "name": "project",
+                    "value": "\"{\\\"slots\\\":{\\\"coreUseCases\\\":{\\\"kind\\\":4,\\\"model\\\":{\\\"decisions\\\":[{\\\"useCase\\\":{\\\"id\\\":\\\"export-a-report\\\",\\\"name\\\":\\\"Export a Report\\\",\\\"classification\\\":\\\"core\\\",\\\"trigger\\\":\\\"The architect asks for a report\\\",\\\"actors\\\":[{\\\"id\\\":\\\"architect-user\\\",\\\"name\\\":\\\"Architect\\\"}],\\\"activity\\\":{\\\"nodes\\\":[{\\\"id\\\":\\\"start\\\",\\\"kind\\\":\\\"start\\\",\\\"label\\\":\\\"start\\\"},{\\\"id\\\":\\\"export\\\",\\\"kind\\\":\\\"action\\\",\\\"label\\\":\\\"Export the report\\\",\\\"linkedActorId\\\":\\\"architect-user\\\"},{\\\"id\\\":\\\"end\\\",\\\"kind\\\":\\\"end\\\",\\\"label\\\":\\\"end\\\"}],\\\"edges\\\":[{\\\"from\\\":\\\"start\\\",\\\"to\\\":\\\"export\\\",\\\"kind\\\":\\\"controlFlow\\\"},{\\\"from\\\":\\\"export\\\",\\\"to\\\":\\\"end\\\",\\\"kind\\\":\\\"controlFlow\\\"}]}},\\\"essenceRationale\\\":null}]}}}}\"",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ruleId\":\"DH-COV-UC-DYNAMIC\",\"severity\":\"error\",\"location\":{\"ordinal\":0,\"section\":\"useCase export-a-report\"}},{\"ruleId\":\"DH-UC-ESSENCE-MISSING\",\"severity\":\"warning\",\"location\":{\"ordinal\":0,\"section\":\"useCase export-a-report\"}},{\"ruleId\":\"USECASE-DYNAMIC-MISSING\",\"severity\":\"error\",\"location\":{\"ordinal\":0,\"section\":\"use case Export a Report\"}}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "design-health-findings-signal"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EvaluateDesignHealth",
+                "inputs": [
+                  {
+                    "name": "project",
+                    "value": "\"{\\\"slots\\\":{\\\"glossary\\\":{\\\"kind\\\":1,\\\"model\\\":{\\\"items\\\":[{\\\"term\\\":\\\"Architect\\\",\\\"definition\\\":\\\"The user who designs the system\\\",\\\"category\\\":\\\"Who\\\"},{\\\"term\\\":\\\"Use Case\\\",\\\"definition\\\":\\\"A required behavior of the system\\\",\\\"category\\\":\\\"What\\\"},{\\\"term\\\":\\\"Review\\\",\\\"definition\\\":\\\"How an artifact is approved\\\",\\\"category\\\":\\\"How\\\"},{\\\"term\\\":\\\"Repository\\\",\\\"definition\\\":\\\"Where project state lives\\\",\\\"category\\\":\\\"Where\\\"}]}},\\\"requirements\\\":{\\\"kind\\\":2,\\\"model\\\":{\\\"items\\\":[{\\\"id\\\":\\\"R1\\\",\\\"statement\\\":\\\"The system shall commit a reviewed artifact.\\\"}]}}}}\"",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "EvaluateDesignHealth",
+                "inputs": [
+                  {
+                    "name": "project",
+                    "value": "\"{\\\"slots\\\":{\\\"glossary\\\":{\\\"kind\\\":1,\\\"model\\\":{\\\"items\\\":[{\\\"term\\\":\\\"Architect\\\",\\\"definition\\\":\\\"The user who designs the system\\\",\\\"category\\\":\\\"Who\\\"},{\\\"term\\\":\\\"Use Case\\\",\\\"definition\\\":\\\"A required behavior of the system\\\",\\\"category\\\":\\\"What\\\"},{\\\"term\\\":\\\"Review\\\",\\\"definition\\\":\\\"How an artifact is approved\\\",\\\"category\\\":\\\"How\\\"}]}},\\\"requirements\\\":{\\\"kind\\\":2,\\\"model\\\":{\\\"items\\\":[{\\\"id\\\":\\\"R1\\\",\\\"statement\\\":\\\"The system shall commit a reviewed artifact.\\\"}]}}}}\"",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"ruleId\":\"GLOSS-FOURQ\",\"severity\":\"warning\",\"location\":{\"ordinal\":0,\"section\":\"glossary\"}}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          }
+        ]
+      },
       "designSessionAccess": {
         "component": "designSessionAccess",
         "bindings": []
