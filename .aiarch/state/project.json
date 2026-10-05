@@ -51934,7 +51934,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"kind\":\"timeline\",\"timeline\":{\"record\":{\"episodeId\":\"dct-ep-review-engine-0003\",\"outcome\":1}}}",
+                  "result": "{\"kind\":\"timeline\",\"timeline\":{\"record\":{\"outcome\":1}}}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
