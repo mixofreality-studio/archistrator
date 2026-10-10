@@ -25,45 +25,63 @@ type registerInput struct {
 	ProjectID  string
 }
 
-// RegisterCustomerWorkflow drives ncuc1 (billingManager.md §6.3):
-//  1. ValidateStoredInstrumentActivity (merchantGatewayAccess; zero-amount auth), read
+// RegisterCustomerWorkflow drives ncuc1 (billingManager.md §6.3; use case
+// onboard-a-new-customer, registered [no]):
+//  1. ReadBillingActivity — a record that is already open skips straight to step 5: a
+//     re-run registration answers the recorded one, never authorizing the instrument
+//     twice nor reopening the record.
+//  2. ValidateStoredInstrumentActivity (merchantGatewayAccess; zero-amount auth), read
 //     back through ReadStoredInstrument: a customer whose instrument the gateway does
 //     not hold as validated is never registered.
-//  2. The terms (DCT §12 B13): the project's committed SDP option's compute-cost regime,
+//  3. The terms (DCT §12 B13): the project's committed SDP option's compute-cost regime,
 //     read through projectStateAccess and validated by the billingEngine
 //     (ProjectCommitTimeComputeCost refuses an unknown regime), in the project's cost
 //     currency — billing reads the commitment, it never asks another Manager.
-//  3. RegisterCustomerActivity (head-state; opens the aggregate under those terms;
+//  4. RegisterCustomerActivity (head-state; opens the aggregate under those terms;
 //     Conflict loop).
+//  5. completeOnboarding — bind the gateway and register the cycle-close Schedule: the
+//     registration is the customer's answer to an onboarding that found no record, so
+//     it finishes that onboarding (merge-reg → bind-gateway → register-schedule).
 func (wf *workflows) RegisterCustomerWorkflow(ctx workflow.Context, in registerInput) (BillingRef, error) {
 	logger := workflow.GetLogger(ctx)
 
-	if verr := wf.validateStoredInstrument(ctx, in.CustomerID); verr != nil {
-		return BillingRef{}, verr
+	billing, err := wf.readBilling(ctx, in.CustomerID)
+	if err != nil {
+		return BillingRef{}, err
 	}
-	instrument, ierr := wf.Acts.MerchantGatewayReadStoredInstrument(ctx, in.CustomerID)
-	if ierr != nil {
-		return BillingRef{}, ierr
-	}
-	if !instrument.Validated {
-		return BillingRef{}, temporal.NewNonRetryableApplicationError(
-			"the stored instrument did not validate: the gateway holds no validated instrument for the customer",
-			fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
+	if !billing.Registered {
+		if verr := wf.validateStoredInstrument(ctx, in.CustomerID); verr != nil {
+			return BillingRef{}, verr
+		}
+		instrument, ierr := wf.Acts.MerchantGatewayReadStoredInstrument(ctx, in.CustomerID)
+		if ierr != nil {
+			return BillingRef{}, ierr
+		}
+		if !instrument.Validated {
+			return BillingRef{}, temporal.NewNonRetryableApplicationError(
+				"the stored instrument did not validate: the gateway holds no validated instrument for the customer",
+				fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
+		}
+
+		terms, terr := wf.committedTerms(ctx, in.ProjectID)
+		if terr != nil {
+			return BillingRef{}, terr
+		}
+
+		// Open the aggregate. A fresh registration seeds expectedVersion 0; the Conflict
+		// loop recovers a racing register.
+		profile := billingstate.CustomerProfile{ProjectID: in.ProjectID, Terms: terms}
+		v, rerr := wf.registerCustomer(ctx, in.CustomerID, 0, profile)
+		if rerr != nil {
+			return BillingRef{}, rerr
+		}
+		billing = billingstate.Billing{ID: in.CustomerID, Version: v, Registered: true, Terms: terms}
+		logger.Info("customer registered", "customerId", in.CustomerID.String(), "projectId", in.ProjectID)
 	}
 
-	terms, terr := wf.committedTerms(ctx, in.ProjectID)
-	if terr != nil {
-		return BillingRef{}, terr
+	if cerr := wf.completeOnboarding(ctx, billing); cerr != nil {
+		return BillingRef{}, cerr
 	}
-
-	// Open the aggregate. A fresh registration seeds expectedVersion 0; the Conflict
-	// loop recovers a racing register.
-	profile := billingstate.CustomerProfile{ProjectID: in.ProjectID, Terms: terms}
-	if _, rerr := wf.registerCustomer(ctx, in.CustomerID, 0, profile); rerr != nil {
-		return BillingRef{}, rerr
-	}
-
-	logger.Info("customer registered", "customerId", in.CustomerID.String(), "projectId", in.ProjectID)
 	return BillingRef{CustomerID: in.CustomerID}, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
@@ -19,16 +20,33 @@ type shortfallSweepInput struct {
 	ProjectID string // optional scope narrow; empty ⇒ platform-wide
 }
 
-// ShortfallSweepWorkflow drives ncuc5 (billingManager.md §6.3):
-//  1. ReadDelinquentActivity → the persistently-delinquent customer set.
-//  2. for each, DeliverDelinquencySignalActivity → the queued applyDelinquencyPolicy
-//     Signal to operationsManager (the single sanctioned queued M→M edge).
+// ShortfallSweepWorkflow drives ncuc5 (billingManager.md §6.3; use case
+// retry-a-declined-service-invoice):
+//  1. ReadDeclinedCycles → every settled cycle whose charge stands declined and is not
+//     escalated, each with its retry history (attempts made, sweeps aged).
+//  2. for each, retryDeclined: the interventionEngine decides under settlementPolicy —
+//     re-charge under the next attempt's key, leave it for the next sweep, or escalate
+//     it — and ResettleCycle records the result.
+//  3. ReadDelinquentActivity → the persistently-delinquent customer set; for each,
+//     DeliverDelinquencySignalActivity → the queued applyDelinquencyPolicy Signal to
+//     operationsManager (the single sanctioned queued M→M edge).
 //
 // Does NOT pause/withdraw apps itself — that is operationsManager's scope downstream.
 func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSweepInput) (ShortfallSweepResult, error) {
 	logger := workflow.GetLogger(ctx)
+	scope := billingstate.DelinquencyScope(in)
 
-	customers, err := wf.readDelinquent(ctx, billingstate.DelinquencyScope(in))
+	declined, err := wf.Acts.BillingStateReadDeclinedCycles(ctx, scope)
+	if err != nil {
+		return ShortfallSweepResult{}, err
+	}
+	for _, c := range declined {
+		if rerr := wf.retryDeclined(ctx, c); rerr != nil {
+			return ShortfallSweepResult{}, rerr
+		}
+	}
+
+	customers, err := wf.readDelinquent(ctx, scope)
 	if err != nil {
 		return ShortfallSweepResult{}, err
 	}
@@ -41,8 +59,37 @@ func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSw
 		result.SignalledCustomers = append(result.SignalledCustomers, c.ID)
 	}
 
-	logger.Info("shortfall sweep complete", "signalled", len(result.SignalledCustomers))
+	logger.Info("shortfall sweep complete", "declined", len(declined), "signalled", len(result.SignalledCustomers))
 	return result, nil
+}
+
+// retryDeclined runs one declined cycle through the retry use case (consult-policy →
+// retry-budget → recharge / tolerance → delay-sweep / escalate-delinquent) and records
+// the result on the cycle. The charge is the declined net's magnitude, under the next
+// attempt's key settle:{customerId}:{cycleId}:{attempt} (B6). A cycle the sweep leaves
+// declined or escalates has aged one more sweep; one whose charge lands is paid.
+func (wf *workflows) retryDeclined(ctx workflow.Context, c billingstate.DeclinedCycle) error {
+	amount := merchantgateway.Money{MinorUnits: -c.Outcome.Net.MinorUnits, Currency: c.Outcome.Net.Currency}
+	history := chargeRecord{attempts: c.Outcome.Attempts, declined: true}
+	rec, err := wf.chargeWithRetries(ctx, c.CustomerID, c.Cycle, amount, history, c.Outcome.SweepsAged, settlementPolicy())
+	if err != nil {
+		return err
+	}
+	correction := c.Outcome
+	correction.Attempts = rec.attempts
+	correction.Declined = rec.declined
+	correction.Escalated = rec.escalated
+	if rec.declined {
+		correction.SweepsAged++
+	}
+	billing, err := wf.readBilling(ctx, c.CustomerID)
+	if err != nil {
+		return err
+	}
+	_, err = wf.applyRecovering(ctx, c.CustomerID, billing.Version, func(expected billingstate.Version) (billingstate.Version, error) {
+		return wf.Acts.BillingStateResettleCycle(ctx, c.CustomerID, expected, c.Cycle, correction)
+	})
+	return err
 }
 
 // readDelinquent invokes billingStateAccess.readPersistentlyDelinquentCustomers
