@@ -79453,6 +79453,1317 @@
             "traceRef": ""
           }
         ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-operations-manager",
+        "activity": "C-operations-manager",
+        "component": "operationsManager",
+        "revision": "C-operations-manager:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:11:00.092528123Z",
+        "endedAt": "2026-10-10T03:11:00.092528123Z",
+        "scenarios": [
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P1",
+            "status": "pass",
+            "durationMs": 2188,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P2",
+            "status": "pass",
+            "durationMs": 2345,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P3",
+            "status": "pass",
+            "durationMs": 2537,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "status": "pass",
+            "durationMs": 1866,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P2",
+            "status": "pass",
+            "durationMs": 2688,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "status": "pass",
+            "durationMs": 3466,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P4",
+            "status": "pass",
+            "durationMs": 3451,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "status": "pass",
+            "durationMs": 3991,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "register-a-delivered-system-for-operation-P1",
+            "status": "pass",
+            "durationMs": 1646,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P3",
+            "status": "pass",
+            "durationMs": 2339,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "status": "pass",
+            "durationMs": 2598,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-live-deployment-health-P2",
+            "status": "pass",
+            "durationMs": 1643,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-operating-cost-projection-P1",
+            "status": "pass",
+            "durationMs": 3031,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-operating-cost-projection-P2",
+            "status": "pass",
+            "durationMs": 1550,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P1",
+            "status": "pass",
+            "durationMs": 1776,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P2",
+            "status": "pass",
+            "durationMs": 2139,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-operated-runtime-access",
+        "activity": "C-operated-runtime-access",
+        "component": "operatedRuntimeAccess",
+        "revision": "C-operated-runtime-access:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:11:59.528938022Z",
+        "endedAt": "2026-10-10T03:11:59.528938022Z",
+        "scenarios": [
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P3",
+            "status": "pass",
+            "durationMs": 197,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "status": "pass",
+            "durationMs": 114,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P2",
+            "status": "pass",
+            "durationMs": 52,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "status": "pass",
+            "durationMs": 122,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P4",
+            "status": "pass",
+            "durationMs": 40,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "status": "pass",
+            "durationMs": 119,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "status": "pass",
+            "durationMs": 18,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P2",
+            "status": "pass",
+            "durationMs": 198,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-operated-system-state-access",
+        "activity": "C-operated-system-state-access",
+        "component": "operatedSystemStateAccess",
+        "revision": "C-operated-system-state-access:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:12:21.111689158Z",
+        "endedAt": "2026-10-10T03:12:21.111689158Z",
+        "scenarios": [
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P2",
+            "status": "pass",
+            "durationMs": 1166,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "enforce-customer-delinquency-on-operated-systems-P3",
+            "status": "pass",
+            "durationMs": 1165,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "status": "pass",
+            "durationMs": 1155,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P2",
+            "status": "pass",
+            "durationMs": 1154,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "status": "pass",
+            "durationMs": 1148,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P4",
+            "status": "pass",
+            "durationMs": 1138,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "status": "pass",
+            "durationMs": 1160,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "register-a-delivered-system-for-operation-P1",
+            "status": "pass",
+            "durationMs": 1135,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "status": "pass",
+            "durationMs": 1151,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-live-deployment-health-P2",
+            "status": "pass",
+            "durationMs": 1138,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-operating-cost-projection-P1",
+            "status": "pass",
+            "durationMs": 1138,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-operating-cost-projection-P2",
+            "status": "pass",
+            "durationMs": 1126,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P1",
+            "status": "pass",
+            "durationMs": 1143,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P2",
+            "status": "pass",
+            "durationMs": 1135,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-artifact-access",
+        "activity": "C-artifact-access",
+        "component": "artifactAccess",
+        "revision": "C-artifact-access:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:11:21.516275957Z",
+        "endedAt": "2026-10-10T03:11:21.516275957Z",
+        "scenarios": [
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "status": "pass",
+            "durationMs": 142,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "status": "pass",
+            "durationMs": 130,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "status": "pass",
+            "durationMs": 326,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "status": "pass",
+            "durationMs": 140,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "status": "pass",
+            "durationMs": 144,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "status": "pass",
+            "durationMs": 119,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "status": "pass",
+            "durationMs": 87,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "status": "pass",
+            "durationMs": 86,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "status": "pass",
+            "durationMs": 121,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-project-state-access-activityExecutionAccess",
+        "activity": "C-project-state-access",
+        "component": "activityExecutionAccess",
+        "revision": "C-project-state-access:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:13:03.508775919Z",
+        "endedAt": "2026-10-10T03:13:03.508775919Z",
+        "scenarios": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P1",
+            "status": "pass",
+            "durationMs": 340,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P2",
+            "status": "pass",
+            "durationMs": 325,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "status": "pass",
+            "durationMs": 332,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "status": "pass",
+            "durationMs": 325,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P1",
+            "status": "pass",
+            "durationMs": 514,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P2",
+            "status": "pass",
+            "durationMs": 451,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "status": "pass",
+            "durationMs": 303,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "status": "pass",
+            "durationMs": 487,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "status": "pass",
+            "durationMs": 528,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "status": "pass",
+            "durationMs": 569,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "status": "pass",
+            "durationMs": 686,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "status": "pass",
+            "durationMs": 638,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "status": "pass",
+            "durationMs": 701,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "status": "pass",
+            "durationMs": 800,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "status": "pass",
+            "durationMs": 763,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "status": "pass",
+            "durationMs": 911,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "status": "pass",
+            "durationMs": 455,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "status": "pass",
+            "durationMs": 441,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "requeue-a-failed-construction-activity-P1",
+            "status": "pass",
+            "durationMs": 620,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "resume-paused-construction-P1",
+            "status": "pass",
+            "durationMs": 320,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P1",
+            "status": "pass",
+            "durationMs": 613,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P2",
+            "status": "pass",
+            "durationMs": 756,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-project-state-access-designSessionAccess",
+        "activity": "C-project-state-access",
+        "component": "designSessionAccess",
+        "revision": "C-project-state-access:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:13:03.508838336Z",
+        "endedAt": "2026-10-10T03:13:03.508838336Z",
+        "scenarios": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P1",
+            "status": "pass",
+            "durationMs": 344,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P2",
+            "status": "pass",
+            "durationMs": 333,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "status": "pass",
+            "durationMs": 323,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "status": "pass",
+            "durationMs": 346,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "status": "pass",
+            "durationMs": 343,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P4",
+            "status": "pass",
+            "durationMs": 331,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "status": "pass",
+            "durationMs": 313,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "status": "pass",
+            "durationMs": 354,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "status": "pass",
+            "durationMs": 369,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "status": "pass",
+            "durationMs": 337,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "status": "pass",
+            "durationMs": 575,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "status": "pass",
+            "durationMs": 585,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "status": "pass",
+            "durationMs": 599,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "status": "pass",
+            "durationMs": 344,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "status": "pass",
+            "durationMs": 374,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "manage-projects-P1",
+            "status": "pass",
+            "durationMs": 390,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "manage-projects-P2",
+            "status": "pass",
+            "durationMs": 390,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "status": "pass",
+            "durationMs": 340,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-project-state-access-gitActivityStatusAccess",
+        "activity": "C-project-state-access",
+        "component": "gitActivityStatusAccess",
+        "revision": "C-project-state-access:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:13:03.508892503Z",
+        "endedAt": "2026-10-10T03:13:03.508892503Z",
+        "scenarios": [
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "status": "pass",
+            "durationMs": 364,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "status": "pass",
+            "durationMs": 355,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "status": "pass",
+            "durationMs": 300,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "status": "pass",
+            "durationMs": 285,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "status": "pass",
+            "durationMs": 476,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "status": "pass",
+            "durationMs": 362,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "status": "pass",
+            "durationMs": 365,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-project-state-access-projectStateAccess",
+        "activity": "C-project-state-access",
+        "component": "projectStateAccess",
+        "revision": "C-project-state-access:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:13:03.508977421Z",
+        "endedAt": "2026-10-10T03:13:03.508977421Z",
+        "scenarios": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P1",
+            "status": "pass",
+            "durationMs": 440,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P2",
+            "status": "pass",
+            "durationMs": 451,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "status": "pass",
+            "durationMs": 481,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "status": "pass",
+            "durationMs": 493,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P1",
+            "status": "pass",
+            "durationMs": 367,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P2",
+            "status": "pass",
+            "durationMs": 401,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "status": "pass",
+            "durationMs": 242,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P4",
+            "status": "pass",
+            "durationMs": 268,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "status": "pass",
+            "durationMs": 430,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "status": "pass",
+            "durationMs": 601,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P3",
+            "status": "pass",
+            "durationMs": 706,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "download-generated-source-code-P1",
+            "status": "pass",
+            "durationMs": 247,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "download-generated-source-code-P2",
+            "status": "pass",
+            "durationMs": 236,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "status": "pass",
+            "durationMs": 236,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "status": "pass",
+            "durationMs": 450,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "status": "pass",
+            "durationMs": 454,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "status": "pass",
+            "durationMs": 426,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "status": "pass",
+            "durationMs": 240,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "status": "pass",
+            "durationMs": 467,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "status": "pass",
+            "durationMs": 234,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "manage-projects-P1",
+            "status": "pass",
+            "durationMs": 401,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "manage-projects-P2",
+            "status": "pass",
+            "durationMs": 494,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "onboard-a-new-customer-P2",
+            "status": "pass",
+            "durationMs": 231,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P1",
+            "status": "pass",
+            "durationMs": 238,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "status": "pass",
+            "durationMs": 233,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "status": "pass",
+            "durationMs": 235,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "pause-construction-P1",
+            "status": "pass",
+            "durationMs": 303,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P1",
+            "status": "pass",
+            "durationMs": 241,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "status": "pass",
+            "durationMs": 234,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "status": "pass",
+            "durationMs": 230,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "requeue-a-failed-construction-activity-P1",
+            "status": "pass",
+            "durationMs": 377,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "resume-paused-construction-P1",
+            "status": "pass",
+            "durationMs": 362,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "resume-paused-construction-P2",
+            "status": "pass",
+            "durationMs": 248,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "track-weekly-project-progress-P1",
+            "status": "pass",
+            "durationMs": 474,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "track-weekly-project-progress-P2",
+            "status": "pass",
+            "durationMs": 405,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "track-weekly-project-progress-P3",
+            "status": "pass",
+            "durationMs": 438,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "track-weekly-project-progress-P4",
+            "status": "pass",
+            "durationMs": 325,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-live-deployment-health-P1",
+            "status": "pass",
+            "durationMs": 229,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-the-project-state-log-P1",
+            "status": "pass",
+            "durationMs": 386,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-the-project-state-log-P2",
+            "status": "pass",
+            "durationMs": 336,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-billing-state-access",
+        "activity": "C-billing-state-access",
+        "component": "billingStateAccess",
+        "revision": "C-billing-state-access:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:11:39.283506283Z",
+        "endedAt": "2026-10-10T03:11:39.283506283Z",
+        "scenarios": [
+          {
+            "scenario": "bill-the-user-for-usage-P1",
+            "status": "pass",
+            "durationMs": 1151,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P2",
+            "status": "pass",
+            "durationMs": 1148,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P3",
+            "status": "pass",
+            "durationMs": 1173,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "onboard-a-new-customer-P1",
+            "status": "pass",
+            "durationMs": 1170,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "onboard-a-new-customer-P2",
+            "status": "pass",
+            "durationMs": 1180,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P1",
+            "status": "pass",
+            "durationMs": 1143,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P2",
+            "status": "pass",
+            "durationMs": 1168,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P3",
+            "status": "pass",
+            "durationMs": 1143,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P4",
+            "status": "pass",
+            "durationMs": 1140,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-a-billing-cycle-P1",
+            "status": "pass",
+            "durationMs": 1137,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-a-billing-cycle-P2",
+            "status": "pass",
+            "durationMs": 1148,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-billing-engine",
+        "activity": "C-billing-engine",
+        "component": "billingEngine",
+        "revision": "C-billing-engine:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:09:48.128953037Z",
+        "endedAt": "2026-10-10T03:09:48.128953037Z",
+        "scenarios": [
+          {
+            "scenario": "bill-the-user-for-usage-P1",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P2",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P3",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P3",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "onboard-a-new-customer-P2",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "status": "pass",
+            "durationMs": 0,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
+      },
+      {
+        "id": "local-2026-10-09-r3arch-usage-access",
+        "activity": "C-usage-access",
+        "component": "usageAccess",
+        "revision": "C-usage-access:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "startedAt": "2026-10-10T03:13:26.379315946Z",
+        "endedAt": "2026-10-10T03:13:26.379315946Z",
+        "scenarios": [
+          {
+            "scenario": "bill-the-user-for-usage-P1",
+            "status": "pass",
+            "durationMs": 1131,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P2",
+            "status": "pass",
+            "durationMs": 1134,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "bill-the-user-for-usage-P3",
+            "status": "pass",
+            "durationMs": 1129,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P4",
+            "status": "pass",
+            "durationMs": 1125,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "status": "pass",
+            "durationMs": 1113,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-operating-cost-projection-P1",
+            "status": "pass",
+            "durationMs": 1131,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "withdraw-a-delivered-system-P2",
+            "status": "pass",
+            "durationMs": 1123,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
       }
     ]
   },
