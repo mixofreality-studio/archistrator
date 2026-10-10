@@ -946,44 +946,6 @@ func desiredStateReasonToState(r DesiredStateReason) operatedsystemstate.Desired
 	}
 }
 
-// autoscaleActionToState bridges the autoscaler Engine's own DecisionKind straight to
-// operatedsystemstate's persisted AutoscaleAction — two independently generated enums
-// that happen to share order/values today (an explicit switch, not a raw cast, so a
-// future re-order on either side stays safe). Task 5 collapsed the former two-hop path
-// (autoscaler.DecisionKind -> this package's own façade AutoscaleAction ->
-// operatedsystemstate.AutoscaleAction) into this one direct converter, now that the
-// Engine is reached through its published contract and no longer folds its decision
-// into the façade's own enum along the way.
-func autoscaleActionToState(k autoscaler.DecisionKind) operatedsystemstate.AutoscaleAction {
-	switch k {
-	case autoscaler.DecisionNoChange:
-		// no-op decision, nothing to do — explicit mapping to the state package's own
-		// no-op constant.
-		return operatedsystemstate.AutoscaleNoChange
-	case autoscaler.DecisionScaleUp:
-		return operatedsystemstate.AutoscaleScaleUp
-	case autoscaler.DecisionScaleDown:
-		return operatedsystemstate.AutoscaleScaleDown
-	case autoscaler.DecisionPause:
-		return operatedsystemstate.AutoscalePause
-	case autoscaler.DecisionResume:
-		return operatedsystemstate.AutoscaleResume
-	default:
-		return operatedsystemstate.AutoscaleNoChange
-	}
-}
-
-func autoscaleDecisionToState(d *autoscaler.Decision) *operatedsystemstate.AutoscaleDecision {
-	if d == nil {
-		return nil
-	}
-	return &operatedsystemstate.AutoscaleDecision{
-		Action:     autoscaleActionToState(d.Kind),
-		Delta:      d.Delta,
-		ToBaseline: d.ToBaseline,
-	}
-}
-
 // ===========================================================================
 // operatedRuntimeAccess -> operatedsystemstate contract converter (the
 // operatedRuntimeAdapter struct is retired; see the operatedSystemStateAccess note).
@@ -1258,6 +1220,9 @@ const (
 
 	// reconcileInterval is the reconcile-tick cadence (30s; the single tunable knob).
 	reconcileInterval = 30 * time.Second
+	// scaleDownGrace is how long a scale must stand before CPU below half the scaling
+	// policy's target may shrink it again (the autoscaler's anti-flap window).
+	scaleDownGrace = 10 * time.Minute
 )
 
 // ---------------------------------------------------------------------------

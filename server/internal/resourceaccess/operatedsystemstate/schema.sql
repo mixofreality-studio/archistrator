@@ -38,8 +38,12 @@
 --                            from. A pointer, never a copy.
 --   last_reason            → the last DesiredStateReason a publish recorded (audit).
 --   last_delinquency       → the last DelinquencyAction recorded (audit).
---   decision_*             → the last AutoscaleDecision a reason=autoscale publish
---                            carried (audit; nullable — most publishes carry none).
+--   scale_*                → OperatedSystem.Scale: the desired scale the last publish
+--                            recorded — the server replicas it published and the
+--                            project's scaling policy (min/max replicas, target CPU
+--                            utilization, scale-to-zero) — and when it was published
+--                            (scaled_at; NULL until the first publish). The autoscaler
+--                            reads it as the current desired state and its policy.
 
 CREATE TABLE IF NOT EXISTS operated_system (
     operated_app_id       uuid        PRIMARY KEY,
@@ -51,12 +55,27 @@ CREATE TABLE IF NOT EXISTS operated_system (
     project_ref           text        NOT NULL DEFAULT '',
     last_reason           smallint    NOT NULL DEFAULT 0,
     last_delinquency      smallint    NOT NULL DEFAULT 0,
-    decision_action       smallint    NULL,
-    decision_delta        bigint      NULL,
-    decision_to_baseline  bigint      NULL,
+    scale_replicas        bigint      NOT NULL DEFAULT 0,
+    scale_min_replicas    bigint      NOT NULL DEFAULT 0,
+    scale_max_replicas    bigint      NOT NULL DEFAULT 0,
+    scale_target_util_pct bigint      NOT NULL DEFAULT 0,
+    scale_to_zero         boolean     NOT NULL DEFAULT false,
+    scaled_at             timestamptz NULL,
     created_at            timestamptz NOT NULL DEFAULT now(),
     updated_at            timestamptz NOT NULL DEFAULT now()
 );
+
+-- A row created before the desired scale replaced the recorded autoscale decision
+-- (2026-10-09) carries the decision_* columns and no scale_* ones: reconcile it in place.
+ALTER TABLE operated_system DROP COLUMN IF EXISTS decision_action;
+ALTER TABLE operated_system DROP COLUMN IF EXISTS decision_delta;
+ALTER TABLE operated_system DROP COLUMN IF EXISTS decision_to_baseline;
+ALTER TABLE operated_system ADD COLUMN IF NOT EXISTS scale_replicas        bigint      NOT NULL DEFAULT 0;
+ALTER TABLE operated_system ADD COLUMN IF NOT EXISTS scale_min_replicas    bigint      NOT NULL DEFAULT 0;
+ALTER TABLE operated_system ADD COLUMN IF NOT EXISTS scale_max_replicas    bigint      NOT NULL DEFAULT 0;
+ALTER TABLE operated_system ADD COLUMN IF NOT EXISTS scale_target_util_pct bigint      NOT NULL DEFAULT 0;
+ALTER TABLE operated_system ADD COLUMN IF NOT EXISTS scale_to_zero         boolean     NOT NULL DEFAULT false;
+ALTER TABLE operated_system ADD COLUMN IF NOT EXISTS scaled_at             timestamptz NULL;
 
 -- ReadInFlightOperatedApps: the reconcile-tick / delinquency-sweep cross-row scan is
 -- always scoped to in_flight rows. Partial index — withdrawn/terminal rows never match.

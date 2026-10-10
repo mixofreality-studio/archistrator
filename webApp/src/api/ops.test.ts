@@ -450,7 +450,7 @@ void test('mcp refuses an op with no MCP tool with ApiError(501, no_mcp_tool), w
   const { app, calls } = spyApp(() => ({ structuredContent: {}, content: [] }));
   const ops = mcpOpsClient(app as never);
   for (const run of [
-    (): Promise<unknown> => ops.call('compositionGetCapabilities'),
+    (): Promise<unknown> => ops.call('compositionGetOperatedAppId', { path: { projectID: 'p' } }),
     (): Promise<unknown> => ops.callForBody('compositionGetUserinfo'),
   ]) {
     await assert.rejects(run(), (err: unknown) => {

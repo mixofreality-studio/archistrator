@@ -17,8 +17,8 @@
  * REST paths and the OpsClient bindings can never drift from one another.
  *
  * The hand-declared COMPOSITION ROUTES (scripts/composition-routes.mjs:
- * capabilities, the operated-app id, /api/userinfo) are bound beside them with
- * `tool: null`. They are REST-only, and binding them here closes the three
+ * the operated-app id, /api/userinfo) are bound beside them with
+ * `tool: null`. They are REST-only, and binding them here closes the
  * raw-fetch bypasses of the seam (design-renderer-data.md §2′.0 P2), so the
  * preview's fixture transport (src/api/fixtureOps.ts) can answer them too.
  */

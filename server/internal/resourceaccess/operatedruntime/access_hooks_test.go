@@ -48,11 +48,12 @@ type stubApp struct {
 
 // runtimeStub is the operated runtime's substrate for one scenario: the live Argo
 // Applications the Kubernetes API lists, plus the per-namespace series Prometheus answers
-// the real profile's two queries from.
+// the real profile's three queries from.
 type runtimeStub struct {
 	mu        sync.Mutex
 	apps      []stubApp
 	cpu       map[string]float64            // namespace -> CPU-seconds over the queried window
+	util      map[string]float64            // namespace -> server CPU use over its request (unset: no series)
 	shortfall map[string]map[string]float64 // namespace -> deployment -> replicas unavailable
 
 	cluster *httptest.Server
@@ -65,7 +66,7 @@ var stub *runtimeStub
 
 func newRuntimeStub(t *testing.T) *runtimeStub {
 	t.Helper()
-	st := &runtimeStub{cpu: map[string]float64{}, shortfall: map[string]map[string]float64{}}
+	st := &runtimeStub{cpu: map[string]float64{}, util: map[string]float64{}, shortfall: map[string]map[string]float64{}}
 	st.cluster = httptest.NewTLSServer(http.HandlerFunc(st.serveCluster))
 	t.Cleanup(st.cluster.Close)
 	st.prom = httptest.NewServer(http.HandlerFunc(st.servePrometheus))
@@ -131,6 +132,12 @@ func (st *runtimeStub) servePrometheus(w http.ResponseWriter, r *http.Request) {
 	defer st.mu.Unlock()
 	result := []any{}
 	switch {
+	case strings.Contains(query, "kube_pod_container_resource_requests"):
+		// The server's CPU utilization (use over request) — checked before the plain CPU
+		// series, whose metric name this query also contains.
+		if v, ok := st.util[ns]; ok {
+			result = append(result, map[string]any{"metric": map[string]any{}, "value": []any{at, strconv.FormatFloat(v, 'f', -1, 64)}})
+		}
 	case strings.Contains(query, "container_cpu_usage_seconds_total"):
 		if v, ok := st.cpu[ns]; ok {
 			result = append(result, map[string]any{"metric": map[string]any{}, "value": []any{at, strconv.FormatFloat(v, 'f', -1, 64)}})
@@ -166,6 +173,13 @@ func (st *runtimeStub) usage(namespace string, cpuSeconds float64) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.cpu[namespace] = cpuSeconds
+}
+
+// utilization arranges the server workload's CPU use over its request in namespace.
+func (st *runtimeStub) utilization(namespace string, fraction float64) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.util[namespace] = fraction
 }
 
 // short arranges deployment in namespace to be missing replicas (an SLO violation).
@@ -273,9 +287,11 @@ func stepOperateADeliveredSystemP2S1(t *testing.T, h *scenariohost.Host, subject
 func stepOperateADeliveredSystemP3S1(t *testing.T, h *scenariohost.Host, subject operatedruntime.OperatedRuntimeAccess, in inputOperateADeliveredSystemP3S1) (any, error) {
 	t.Helper()
 	// No state transition (still Healthy, SLO holds); a full CPU-day of usage over the
-	// window is what drives the autoscaler to scale.
+	// window, the server running at 90% of its CPU request — what drives the autoscaler
+	// to scale.
 	stub.live(stubApp{AppID: in.AppID.String(), Name: "gtd", Namespace: "op-gtd", Health: "Healthy", Resources: workloadResources("gtd", "op-gtd", "Healthy")})
 	stub.usage("op-gtd", 86400)
+	stub.utilization("op-gtd", 0.9)
 	return subject.GetApplicationHealth(callContext(t, h, "1"), in.AppID)
 }
 
@@ -300,10 +316,12 @@ func stepOperateADeliveredSystemP4S1(t *testing.T, h *scenariohost.Host, subject
 func stepOperateADeliveredSystemP5S1(t *testing.T, h *scenariohost.Host, subject operatedruntime.OperatedRuntimeAccess, in inputOperateADeliveredSystemP5S1) (any, error) {
 	t.Helper()
 	// A state transition (Degraded, a replica short, SLO violated) AND a full CPU-day of
-	// usage, so the autoscaler republishes.
+	// usage at 40% of the server's CPU request; the burning SLO makes the autoscaler
+	// republish.
 	stub.live(stubApp{AppID: in.AppID.String(), Name: "gtd", Namespace: "op-gtd", Health: "Degraded", Resources: workloadResources("gtd", "op-gtd", "Degraded")})
 	stub.short("op-gtd", "gtd-server", 1)
 	stub.usage("op-gtd", 86400)
+	stub.utilization("op-gtd", 0.4)
 	return subject.GetApplicationHealth(callContext(t, h, "1"), in.AppID)
 }
 

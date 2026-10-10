@@ -554,8 +554,6 @@ export const UI_IDENTIFIERS = {
     AUTOSCALER_POLICY_BUTTON: 'operations-autoscaler-policy',
     WITHDRAW_BUTTON: 'operations-withdraw',
     BILLING_LINK: 'operations-billing-link',
-    CAPABILITIES_UNREACHABLE: 'operations-capabilities-unreachable',
-    CAPABILITIES_RETRY: 'operations-capabilities-retry',
     // Register the delivered system for operation (use case register-a-delivered-
     // system-for-operation): the button opens the form; the result names the
     // head-state version the registration recorded.

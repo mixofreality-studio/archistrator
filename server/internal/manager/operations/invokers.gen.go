@@ -52,9 +52,9 @@ func (i genInvokers) options(ctx workflow.Context, name string) workflow.Context
 }
 
 // OperatedSystemStatePublishDesiredState invokes activity "operatedSystemStateAccess.publishDesiredState".
-func (i genInvokers) OperatedSystemStatePublishDesiredState(ctx workflow.Context, operatedAppID uuid.UUID, expectedVersion operatedsystemstate.Version, reason operatedsystemstate.DesiredStateReason, decision *operatedsystemstate.AutoscaleDecision) (operatedsystemstate.Version, error) {
+func (i genInvokers) OperatedSystemStatePublishDesiredState(ctx workflow.Context, operatedAppID uuid.UUID, expectedVersion operatedsystemstate.Version, reason operatedsystemstate.DesiredStateReason, scale operatedsystemstate.DesiredScale) (operatedsystemstate.Version, error) {
 	var out operatedsystemstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "operatedSystemStateAccess.publishDesiredState"), "operatedSystemStateAccess.publishDesiredState", operatedAppID, expectedVersion, reason, decision).Get(ctx, &out)
+	err := workflow.ExecuteActivity(i.options(ctx, "operatedSystemStateAccess.publishDesiredState"), "operatedSystemStateAccess.publishDesiredState", operatedAppID, expectedVersion, reason, scale).Get(ctx, &out)
 	return out, err
 }
 
@@ -131,6 +131,13 @@ func (i genInvokers) OperatedRuntimePublishDesiredState(ctx workflow.Context, ap
 func (i genInvokers) OperatedRuntimeReadComputeAttribution(ctx workflow.Context, appID uuid.UUID, window operatedruntime.AttributionWindow) (operatedruntime.ComputeAttribution, error) {
 	var out operatedruntime.ComputeAttribution
 	err := workflow.ExecuteActivity(i.options(ctx, "operatedRuntimeAccess.readComputeAttribution"), "operatedRuntimeAccess.readComputeAttribution", appID, window).Get(ctx, &out)
+	return out, err
+}
+
+// OperatedRuntimeReadWorkloadTelemetry invokes activity "operatedRuntimeAccess.readWorkloadTelemetry".
+func (i genInvokers) OperatedRuntimeReadWorkloadTelemetry(ctx workflow.Context, appID uuid.UUID) (operatedruntime.WorkloadTelemetry, error) {
+	var out operatedruntime.WorkloadTelemetry
+	err := workflow.ExecuteActivity(i.options(ctx, "operatedRuntimeAccess.readWorkloadTelemetry"), "operatedRuntimeAccess.readWorkloadTelemetry", appID).Get(ctx, &out)
 	return out, err
 }
 

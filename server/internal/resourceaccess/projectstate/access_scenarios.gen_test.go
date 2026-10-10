@@ -4292,6 +4292,46 @@ func TestScenario_ProjectStateAccess_operate_a_delivered_system_P1(t *testing.T)
 	})
 }
 
+// inputProjectStateAccessOperateADeliveredSystemP3S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessOperateADeliveredSystemP3S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_operate_a_delivered_system_P3 — Operate a Delivered System — [no] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+func TestScenario_ProjectStateAccess_operate_a_delivered_system_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "operate-a-delivered-system-P3", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node render-manifests-c; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
+		var in1 inputProjectStateAccessOperateADeliveredSystemP3S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-ods-p3"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessOperateADeliveredSystemP3S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P3", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-ods-p3\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessOperateADeliveredSystemP5S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessOperateADeliveredSystemP5S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_operate_a_delivered_system_P5 — Operate a Delivered System — [yes] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+func TestScenario_ProjectStateAccess_operate_a_delivered_system_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "operate-a-delivered-system-P5", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node render-manifests-c; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
+		var in1 inputProjectStateAccessOperateADeliveredSystemP5S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-ods-p5"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessOperateADeliveredSystemP5S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-ods-p5\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
 // inputProjectStateAccessPauseConstructionP1S1 is step 1's parameters of RecordOperatorPaused, decoded from the binding's inputs.
 type inputProjectStateAccessPauseConstructionP1S1 struct {
 	ProjectID       projectstate.ProjectID `json:"projectID"`

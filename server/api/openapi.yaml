@@ -4252,41 +4252,6 @@ components:
                 - megatokensInPerDay
                 - megatokensOutPerDay
             type: object
-        OperationsAutoscaleAction:
-            enum:
-                - 0
-                - 1
-                - 2
-                - 3
-                - 4
-            type: integer
-            x-enum-varnames:
-                - AutoscaleNoChange
-                - AutoscaleScaleUp
-                - AutoscaleScaleDown
-                - AutoscalePause
-                - AutoscaleResume
-            x-go-base: int
-        OperationsAutoscaleDecisionView:
-            additionalProperties: false
-            properties:
-                Action:
-                    $ref: '#/components/schemas/OperationsAutoscaleAction'
-                At:
-                    format: date-time
-                    type: string
-                    x-go-import: time
-                    x-go-type: time.Time
-                Published:
-                    type: boolean
-                Reason:
-                    type: string
-            required:
-                - At
-                - Action
-                - Reason
-                - Published
-            type: object
         OperationsAutoscalerMode:
             enum:
                 - 0
@@ -4301,17 +4266,10 @@ components:
         OperationsAutoscalerView:
             additionalProperties: false
             properties:
-                Decisions:
-                    items:
-                        $ref: '#/components/schemas/OperationsAutoscaleDecisionView'
-                    type:
-                        - "null"
-                        - array
                 Mode:
                     $ref: '#/components/schemas/OperationsAutoscalerMode'
             required:
                 - Mode
-                - Decisions
             type: object
         OperationsCostProjectionSeam:
             additionalProperties: false
@@ -4477,12 +4435,6 @@ components:
                     x-go-type: uuid.UUID
                 Phase:
                     $ref: '#/components/schemas/OperationsRuntimeStatusSeam'
-                RecentEvents:
-                    items:
-                        $ref: '#/components/schemas/OperationsRuntimeStatusEventView'
-                    type:
-                        - "null"
-                        - array
                 Slos:
                     items:
                         $ref: '#/components/schemas/OperationsSloRowView'
@@ -4495,7 +4447,6 @@ components:
                 - InFlight
                 - Health
                 - Slos
-                - RecentEvents
                 - Autoscaler
                 - CurrentRunRate
             type: object
@@ -4539,26 +4490,6 @@ components:
                         - "null"
                         - array
                     x-go-name: AppIDs
-            type: object
-        OperationsRuntimeStatusEventView:
-            additionalProperties: false
-            properties:
-                At:
-                    format: date-time
-                    type: string
-                    x-go-import: time
-                    x-go-type: time.Time
-                From:
-                    $ref: '#/components/schemas/OperationsRuntimeStatusSeam'
-                Note:
-                    type: string
-                To:
-                    $ref: '#/components/schemas/OperationsRuntimeStatusSeam'
-            required:
-                - At
-                - From
-                - To
-                - Note
             type: object
         OperationsRuntimeStatusSeam:
             enum:

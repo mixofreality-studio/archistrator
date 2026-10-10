@@ -46,6 +46,7 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.OperatedRuntimeGetSloStatus, activity.RegisterOptions{Name: "operatedRuntimeAccess.getSloStatus"})
 	w.RegisterActivityWithOptions(acts.OperatedRuntimePublishDesiredState, activity.RegisterOptions{Name: "operatedRuntimeAccess.publishDesiredState"})
 	w.RegisterActivityWithOptions(acts.OperatedRuntimeReadComputeAttribution, activity.RegisterOptions{Name: "operatedRuntimeAccess.readComputeAttribution"})
+	w.RegisterActivityWithOptions(acts.OperatedRuntimeReadWorkloadTelemetry, activity.RegisterOptions{Name: "operatedRuntimeAccess.readWorkloadTelemetry"})
 	w.RegisterActivityWithOptions(acts.OperatedRuntimeWithdraw, activity.RegisterOptions{Name: "operatedRuntimeAccess.withdraw"})
 	w.RegisterActivityWithOptions(acts.OperatedSystemStatePublishDesiredState, activity.RegisterOptions{Name: "operatedSystemStateAccess.publishDesiredState"})
 	w.RegisterActivityWithOptions(acts.OperatedSystemStateReadInFlightOperatedApps, activity.RegisterOptions{Name: "operatedSystemStateAccess.readInFlightOperatedApps"})

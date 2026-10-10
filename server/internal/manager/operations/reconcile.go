@@ -68,6 +68,10 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 	if aerr != nil {
 		return false, false, aerr
 	}
+	workload, werr := wf.readWorkloadTelemetry(ctx, app.ID)
+	if werr != nil {
+		return false, false, werr
+	}
 
 	version := app.Version
 
@@ -138,52 +142,164 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 	}
 
 	// --- Path C (autoscale) ---
-	republished, err = wf.autoscaleOne(ctx, app, version)
+	republished, err = wf.autoscaleOne(ctx, app, version, observation{health: health, sloMet: slo.SloMet, workload: workload})
 	if err != nil {
 		return transitioned, false, err
 	}
 	return transitioned, republished, nil
 }
 
-// autoscaleOne runs Path C (autoscale) for one in-flight app: propose a desired state
-// and, on a non-NoChange decision, publish + record the republish. version is the
-// head-state version as advanced by Path B's status transition (if any). Extracted from
-// reconcileOne to satisfy the gocyclo gate — the workflow-command order is identical to
-// the pre-extraction inline body.
-func (wf *workflows) autoscaleOne(ctx workflow.Context, app operatedsystemstate.OperatedSystemSummary, version operatedsystemstate.Version) (republished bool, err error) {
-	// autoscalerPolicyToEngine bridges the Manager's own façade AutoscalerPolicy onto
-	// the Engine's published AutoscalerPolicy (adapters.go) — the one call site that
-	// needs the Engine's own Mode shape.
-	decision, aerr2 := wf.Autoscaler.ProposeDesiredState(
+// observation is what one tick observed of an app: its health, whether its SLO holds,
+// and its workload telemetry — the autoscaler's inputs beside the head-state scale.
+type observation struct {
+	health   operatedsystemstate.RuntimeStatus
+	sloMet   bool
+	workload operatedruntime.WorkloadTelemetry
+}
+
+// autoscaleOne runs Path C (autoscale) for one in-flight app: the autoscalerEngine weighs
+// the tick's observation against the head-state desired scale (the replicas last
+// published and the scaling policy they were published under) and, on a decision that
+// changes the replicas, the app's desired state is re-rendered at the new replica count
+// (render-manifests-c: the same bundle and deployment model a deploy renders from),
+// published to the runtime and recorded with reason=autoscale. version is the head-state
+// version as advanced by Path B's status transition (if any). An app whose head state
+// records no scale (never deployed with one) is never autoscaled.
+func (wf *workflows) autoscaleOne(ctx workflow.Context, app operatedsystemstate.OperatedSystemSummary, version operatedsystemstate.Version, obs observation) (republished bool, err error) {
+	if app.Scale.MaxReplicas == 0 {
+		return false, nil
+	}
+	decision, derr := wf.Autoscaler.ProposeDesiredState(
 		fweng.Context{Context: context.Background()},
-		autoscaler.Telemetry{CurrentReplicas: 0},
-		autoscaler.DesiredState{InfrastructureKind: wf.InfrastructureKind},
-		autoscalerPolicyToEngine(wf.AutoscalerPolicy),
+		autoscalerTelemetry(app, obs, workflow.Now(ctx)),
+		autoscaler.DesiredState{
+			OperatedAppID:      app.ID,
+			InfrastructureKind: wf.InfrastructureKind,
+			Replicas:           app.Scale.Replicas,
+			LastDecisionAt:     app.Scale.ScaledAt,
+		},
+		autoscalerPolicyFor(wf.AutoscalerPolicy, app.Scale, obs.workload.Measured),
 		wf.InfrastructureKind,
 	)
-	if aerr2 != nil {
-		return false, fwmgr.MapError(aerr2)
+	if derr != nil {
+		return false, fwmgr.MapError(derr)
 	}
-	if decision.Kind == autoscaler.DecisionNoChange {
+	replicas := scaledReplicas(app.Scale, decision)
+	if decision.Kind == autoscaler.DecisionNoChange || replicas == app.Scale.Replicas {
 		return false, nil
 	}
 
-	// Non-NoChange ⇒ record the autoscale decision in head-state. Deliberately does
-	// NOT call the runtime publish (review finding 2, same reasoning as the
-	// HealthRetry comment above): assembleDesiredState has no replica-override
-	// input yet, so the only state this path COULD publish is either the static
-	// model-declared replica count (silently WRONG for a scale decision — it
-	// would not actually reflect ScaleUp/ScaleDown/Pause) or the empty struct
-	// (the exact half-rendered-deployment hazard the fail-loud fold exists to
-	// prevent). Recording the decision in head-state without a matching runtime
-	// publish is honest about what this task actually wires; real autoscale
-	// republish needs a replica-override extension to assembleDesiredState,
-	// earmarked as a follow-up.
-	dec := decision
-	if _, rerr := wf.recordPublishDesiredState(ctx, app.ID, version, ReasonAutoscale, &dec); rerr != nil {
-		return false, rerr
+	// render-manifests-c: the revision basis is the app's own head state, bundle and
+	// deployment model, re-rendered with the decision's replica count.
+	op, err := wf.readOperatedSystem(ctx, app.ID)
+	if err != nil {
+		return false, err
+	}
+	bundle, err := wf.retrieveBundle(ctx, op.DeployableBundleRef)
+	if err != nil {
+		return false, err
+	}
+	proj, err := wf.readProject(ctx, op.ProjectRef)
+	if err != nil {
+		return false, err
+	}
+	desired, err := assembleDesiredState(proj, bundle, op)
+	if err != nil {
+		return false, temporal.NewNonRetryableApplicationError(
+			"failed to assemble the desired state from the project's deployment model",
+			fwmgr.ErrType(fwmgr.FailedPrecondition), err)
+	}
+	desired.Server.Replicas = replicas
+	if err := wf.publishDesiredState(ctx, app.ID, desired); err != nil {
+		return false, err
+	}
+	scale := app.Scale
+	scale.Replicas = replicas
+	scale.ScaledAt = workflow.Now(ctx)
+	if _, err := wf.recordPublishDesiredState(ctx, app.ID, version, ReasonAutoscale, scale); err != nil {
+		return false, err
 	}
 	return true, nil
+}
+
+// readWorkloadTelemetry invokes operatedRuntimeAccess.readWorkloadTelemetry (pure read):
+// the workload's measured CPU utilization, the autoscaler's utilization signal.
+func (wf *workflows) readWorkloadTelemetry(ctx workflow.Context, appID operatedAppID) (operatedruntime.WorkloadTelemetry, error) {
+	return wf.Acts.OperatedRuntimeReadWorkloadTelemetry(ctx, appID)
+}
+
+// autoscalerTelemetry is the autoscalerEngine's telemetry snapshot for one tick: the
+// workload's CPU utilization, the observed health, and the SLO posture (an SLO that does
+// not hold is budget being burned), observed at the workflow clock.
+func autoscalerTelemetry(app operatedsystemstate.OperatedSystemSummary, obs observation, at time.Time) autoscaler.Telemetry {
+	slo := autoscaler.SLOWithinBudget
+	if !obs.sloMet {
+		slo = autoscaler.SLOBurningBudget
+	}
+	return autoscaler.Telemetry{
+		OperatedAppID:   app.ID,
+		ObservedAt:      at,
+		CurrentReplicas: app.Scale.Replicas,
+		CPUUtilization:  obs.workload.CPUUtilization,
+		Health:          autoscalerHealth(obs.health),
+		SLOStatus:       slo,
+	}
+}
+
+// autoscalerPolicyFor is the autoscalerEngine's policy for an app, from the scaling
+// policy its head state recorded at deploy. The floor is never below one replica: a
+// scale to zero is an idle pause, which needs a traffic signal no runtime read reports,
+// so idle-pause stays disabled (zero IdleThreshold). The CPU rules weigh the workload's
+// utilization against the policy's target — up at the target, down below half of it
+// once the last scale has stood for scaleDownGrace — and only when the runtime measured
+// the workload: an unmeasured workload is never read as idle.
+func autoscalerPolicyFor(configured autoscalerPolicy, scale operatedsystemstate.DesiredScale, measured bool) autoscaler.AutoscalerPolicy {
+	p := autoscalerPolicyToEngine(configured)
+	floor := max(scale.MinReplicas, 1)
+	p.MinReplicas = floor
+	p.MaxReplicas = scale.MaxReplicas
+	p.BaselineReplicas = floor
+	p.MaxStepDelta = 1
+	if measured && scale.TargetUtilizationPct > 0 {
+		p.ScaleUpCPU = float64(scale.TargetUtilizationPct) / 100
+		p.ScaleDownCPU = p.ScaleUpCPU / 2
+		p.ScaleDownGrace = scaleDownGrace
+	}
+	return p
+}
+
+// scaledReplicas is the replica count a decision leaves the server at, within the
+// recorded policy's bounds and never below one.
+func scaledReplicas(scale operatedsystemstate.DesiredScale, d autoscaler.Decision) int64 {
+	n := scale.Replicas
+	switch d.Kind {
+	case autoscaler.DecisionScaleUp:
+		n += d.Delta
+	case autoscaler.DecisionScaleDown:
+		n -= d.Delta
+	case autoscaler.DecisionResume:
+		n = d.ToBaseline
+	case autoscaler.DecisionPause, autoscaler.DecisionNoChange:
+		return scale.Replicas
+	}
+	return min(max(n, scale.MinReplicas, 1), scale.MaxReplicas)
+}
+
+// autoscalerHealth bridges the observed head-state status onto the autoscalerEngine's
+// own HealthStatus enum (two generated enums; an explicit switch).
+func autoscalerHealth(s operatedsystemstate.RuntimeStatus) autoscaler.HealthStatus {
+	switch s {
+	case operatedsystemstate.RuntimeStatusHealthy:
+		return autoscaler.HealthHealthy
+	case operatedsystemstate.RuntimeStatusDegraded:
+		return autoscaler.HealthDegraded
+	case operatedsystemstate.RuntimeStatusWithdrawn:
+		return autoscaler.HealthUnhealthy
+	case operatedsystemstate.RuntimeStatusUnknown, operatedsystemstate.RuntimeStatusPending:
+		return autoscaler.HealthUnknown
+	default:
+		return autoscaler.HealthUnknown
+	}
 }
 
 // readInFlightOperatedApps invokes operatedSystemStateAccess.readInFlightOperatedApps.

@@ -22,7 +22,7 @@
 //     bare GitOps repository and reads the cluster API and Prometheus. Those two backends
 //     are the one Resource the host does not boot, so they are doubled at the Resource
 //     boundary (runtimeDouble below): an Argo that lists what is committed to the GitOps
-//     repository once it syncs, and a Prometheus that answers the two queries the profile
+//     repository once it syncs, and a Prometheus that answers the three queries the profile
 //     makes from per-namespace series the hooks arrange;
 //   - interventionEngine, autoscalerEngine and operationEstimationEngine are the real
 //     pure engines; messageBus is nil, as WorkerManifest threads it.
@@ -232,17 +232,27 @@ func probeOperateADeliveredSystemP2S1N1(t *testing.T, h *scenariohost.Host, subj
 
 // stepOperateADeliveredSystemP3S1 — Operate a Delivered System — [no] · [no: scale/pause/resume], step 1: ReconcileOperatedState
 // Projected stimulus (JSON): {"seq":1,"node":"schedule-fires","input":{"kind":"timeEvent","from":"scheduler-client","to":"operationsmanager","op":"ReconcileOperatedState","call":"operate-a-delivered-system/schedule-fires/0","via":["scheduler-client","mcp-client"]},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"ReconcileOperatedState","inputs":[{"name":"tickID","value":"stp-ops-P3-tick-0001"},{"name":"scope","value":"{\"appIds\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}"}],"expect":{"result":"{\"observed\":1,\"transitions\":0,\"republished\":1}","errorExpected":false},"probes":[{"for":"desired-state-published-c","component":"operationsManager","operation":"QueryOperatedSystemView","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"requestID","value":"stp-ops-P3-probe-view"}],"expect":{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":2,\"Autoscaler\":{\"Decisions\":[{\"Action\":1,\"Published\":true}]}}","errorExpected":false}},{"for":"operated-system-recorded-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":2,\"InFlight\":true}","errorExpected":false}}],"unobservable":[],"hook":true}
-// Hook: the app is an operating system (v3, Healthy) burning a full CPU-day over the tick's window with every replica available: no transition, and the load is what the autoscaler is asked to scale for.
+// Binding (JSON): {"seq":1,"operation":"ReconcileOperatedState","inputs":[{"name":"tickID","value":"stp-ops-P3-tick-0001"},{"name":"scope","value":"{\"appIds\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}"}],"expect":{"result":"{\"observed\":1,\"transitions\":0,\"republished\":1}","errorExpected":false},"probes":[{"for":"desired-state-published-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}},{"for":"operated-system-recorded-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":4,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Hook: the app is an operating system (v3, Healthy, two replicas under a 1..4 policy targeting 70% CPU) burning a full CPU-day with every replica available and its server at 90% of its CPU request: no transition, and the autoscaler scales it up to three.
 func stepOperateADeliveredSystemP3S1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager, in inputOperateADeliveredSystemP3S1) (any, error) {
 	t.Helper()
 	operating(t, h, subject, planApp.ID)
-	stackOf(t, subject).runtime.usage(planProjectRef, 86400)
+	rt := stackOf(t, subject).runtime
+	rt.usage(planProjectRef, 86400)
+	rt.utilization(planProjectRef, 0.9)
 	return subject.ReconcileOperatedState(callContext(t, h, "1"), in.TickID, in.Scope)
 }
 
+// probeOperateADeliveredSystemP3S1N1 — Operate a Delivered System — [no] · [no: scale/pause/resume], step 1, probe 1: operatedSystemStateAccess.ReadOperatedSystem proves desired-state-published-c.
+// Probe (JSON): {"for":"desired-state-published-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}}
+// Hook: read the app's head-state row (its recorded desired scale).
+func probeOperateADeliveredSystemP3S1N1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
+	t.Helper()
+	return readApp(t, h, subject, planApp.ID)
+}
+
 // probeOperateADeliveredSystemP3S1N2 — Operate a Delivered System — [no] · [no: scale/pause/resume], step 1, probe 2: operatedSystemStateAccess.ReadOperatedSystem proves operated-system-recorded-c.
-// Probe (JSON): {"for":"operated-system-recorded-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":2,\"InFlight\":true}","errorExpected":false}}
+// Probe (JSON): {"for":"operated-system-recorded-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":4,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}}
 // Hook: read the app's head-state row.
 func probeOperateADeliveredSystemP3S1N2(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
 	t.Helper()
@@ -251,19 +261,19 @@ func probeOperateADeliveredSystemP3S1N2(t *testing.T, h *scenariohost.Host, subj
 
 // stepOperateADeliveredSystemP4S1 — Operate a Delivered System — [yes] · [yes], step 1: ReconcileOperatedState
 // Projected stimulus (JSON): {"seq":1,"node":"schedule-fires","input":{"kind":"timeEvent","from":"scheduler-client","to":"operationsmanager","op":"ReconcileOperatedState","call":"operate-a-delivered-system/schedule-fires/0","via":["scheduler-client","mcp-client"]},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"ReconcileOperatedState","inputs":[{"name":"tickID","value":"stp-ops-P4-tick-0001"},{"name":"scope","value":"{\"appIds\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}"}],"expect":{"result":"{\"observed\":1,\"transitions\":1,\"republished\":0}","errorExpected":false},"probes":[{"for":"operated-system-status-changed","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":2,\"InFlight\":true}","errorExpected":false}},{"for":"record-status","component":"operationsManager","operation":"QueryOperatedSystemView","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"requestID","value":"stp-ops-P4-probe-view"}],"expect":{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3,\"RecentEvents\":[{\"From\":2,\"To\":3}]}","errorExpected":false}},{"for":"compute-usage-recorded","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}],"unobservable":[],"hook":true}
-// Hook: the app is an operating system (v3, Healthy); its server Deployment then degrades a replica short (an SLO violation) while it burns an hour of CPU, so the tick observes a Healthy→Degraded transition and records the compute.
+// Binding (JSON): {"seq":1,"operation":"ReconcileOperatedState","inputs":[{"name":"tickID","value":"stp-ops-P4-tick-0001"},{"name":"scope","value":"{\"appIds\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}"}],"expect":{"result":"{\"observed\":1,\"transitions\":1,\"republished\":0}","errorExpected":false},"probes":[{"for":"operated-system-status-changed","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":4,\"InFlight\":true}","errorExpected":false}},{"for":"record-status","component":"operationsManager","operation":"QueryOperatedSystemView","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"requestID","value":"stp-ops-P4-probe-view"}],"expect":{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}","errorExpected":false}},{"for":"compute-usage-recorded","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}],"unobservable":[],"hook":true}
+// Hook: the app is an operating system (v3, Healthy); Argo then reports it Degraded with every replica available (its SLO holds) while it burns an hour of CPU, so the tick observes a Healthy→Degraded transition, records the compute, and has nothing to scale for.
 func stepOperateADeliveredSystemP4S1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager, in inputOperateADeliveredSystemP4S1) (any, error) {
 	t.Helper()
 	operating(t, h, subject, planApp.ID)
 	rt := stackOf(t, subject).runtime
-	rt.degrade(planProjectRef, planProjectRef+"-server", 1)
+	rt.degradeHealth(planProjectRef)
 	rt.usage(planProjectRef, 3600)
 	return subject.ReconcileOperatedState(callContext(t, h, "1"), in.TickID, in.Scope)
 }
 
 // probeOperateADeliveredSystemP4S1N1 — Operate a Delivered System — [yes] · [yes], step 1, probe 1: operatedSystemStateAccess.ReadOperatedSystem proves operated-system-status-changed.
-// Probe (JSON): {"for":"operated-system-status-changed","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":2,\"InFlight\":true}","errorExpected":false}}
+// Probe (JSON): {"for":"operated-system-status-changed","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":4,\"InFlight\":true}","errorExpected":false}}
 // Hook: read the app's head-state row.
 func probeOperateADeliveredSystemP4S1N1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
 	t.Helper()
@@ -271,7 +281,7 @@ func probeOperateADeliveredSystemP4S1N1(t *testing.T, h *scenariohost.Host, subj
 }
 
 // probeOperateADeliveredSystemP4S1N3 — Operate a Delivered System — [yes] · [yes], step 1, probe 3: usageAccess.ReadRange proves compute-usage-recorded.
-// Probe (JSON): {"for":"compute-usage-recorded","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}
+// Probe (JSON): {"for":"compute-usage-recorded","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}
 // Hook: read the usage the subject attributed to the app's customer in the cycle of its own clock.
 func probeOperateADeliveredSystemP4S1N3(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
 	t.Helper()
@@ -280,8 +290,8 @@ func probeOperateADeliveredSystemP4S1N3(t *testing.T, h *scenariohost.Host, subj
 
 // stepOperateADeliveredSystemP5S1 — Operate a Delivered System — [yes] · [no: scale/pause/resume], step 1: ReconcileOperatedState
 // Projected stimulus (JSON): {"seq":1,"node":"schedule-fires","input":{"kind":"timeEvent","from":"scheduler-client","to":"operationsmanager","op":"ReconcileOperatedState","call":"operate-a-delivered-system/schedule-fires/0","via":["scheduler-client","mcp-client"]},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"ReconcileOperatedState","inputs":[{"name":"tickID","value":"stp-ops-P5-tick-0001"},{"name":"scope","value":"{\"appIds\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}"}],"expect":{"result":"{\"observed\":1,\"transitions\":1,\"republished\":1}","errorExpected":false},"probes":[{"for":"operated-system-status-changed","component":"operationsManager","operation":"QueryOperatedSystemView","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"requestID","value":"stp-ops-P5-probe-view-status"}],"expect":{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3,\"RecentEvents\":[{\"From\":2,\"To\":3}]}","errorExpected":false}},{"for":"compute-usage-recorded","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}},{"for":"desired-state-published-c","component":"operationsManager","operation":"QueryOperatedSystemView","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"requestID","value":"stp-ops-P5-probe-view-autoscale"}],"expect":{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Autoscaler\":{\"Decisions\":[{\"Action\":1,\"Published\":true}]}}","errorExpected":false}},{"for":"operated-system-recorded-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":3,\"InFlight\":true}","errorExpected":false}}],"unobservable":[],"hook":true}
-// Hook: the app is an operating system (v3, Healthy); its server Deployment then degrades a replica short while it burns a full CPU-day, so the tick observes a transition and the autoscaler is asked to scale.
+// Binding (JSON): {"seq":1,"operation":"ReconcileOperatedState","inputs":[{"name":"tickID","value":"stp-ops-P5-tick-0001"},{"name":"scope","value":"{\"appIds\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}"}],"expect":{"result":"{\"observed\":1,\"transitions\":1,\"republished\":1}","errorExpected":false},"probes":[{"for":"operated-system-status-changed","component":"operationsManager","operation":"QueryOperatedSystemView","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"requestID","value":"stp-ops-P5-probe-view-status"}],"expect":{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}","errorExpected":false}},{"for":"compute-usage-recorded","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}},{"for":"desired-state-published-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}},{"for":"operated-system-recorded-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":5,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Hook: the app is an operating system (v3, Healthy, two replicas); its server Deployment then degrades a replica short (an SLO violation) while it burns a full CPU-day, so the tick observes a transition and the burning SLO scales it up to three.
 func stepOperateADeliveredSystemP5S1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager, in inputOperateADeliveredSystemP5S1) (any, error) {
 	t.Helper()
 	operating(t, h, subject, planApp.ID)
@@ -292,15 +302,23 @@ func stepOperateADeliveredSystemP5S1(t *testing.T, h *scenariohost.Host, subject
 }
 
 // probeOperateADeliveredSystemP5S1N2 — Operate a Delivered System — [yes] · [no: scale/pause/resume], step 1, probe 2: usageAccess.ReadRange proves compute-usage-recorded.
-// Probe (JSON): {"for":"compute-usage-recorded","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}
+// Probe (JSON): {"for":"compute-usage-recorded","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}
 // Hook: read the usage the subject attributed to the app's customer in the cycle of its own clock.
 func probeOperateADeliveredSystemP5S1N2(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
 	t.Helper()
 	return readUsage(t, h, subject, planApp.CustomerID, planApp.ID)
 }
 
+// probeOperateADeliveredSystemP5S1N3 — Operate a Delivered System — [yes] · [no: scale/pause/resume], step 1, probe 3: operatedSystemStateAccess.ReadOperatedSystem proves desired-state-published-c.
+// Probe (JSON): {"for":"desired-state-published-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}}
+// Hook: read the app's head-state row (its recorded desired scale).
+func probeOperateADeliveredSystemP5S1N3(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
+	t.Helper()
+	return readApp(t, h, subject, planApp.ID)
+}
+
 // probeOperateADeliveredSystemP5S1N4 — Operate a Delivered System — [yes] · [no: scale/pause/resume], step 1, probe 4: operatedSystemStateAccess.ReadOperatedSystem proves operated-system-recorded-c.
-// Probe (JSON): {"for":"operated-system-recorded-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":3,\"InFlight\":true}","errorExpected":false}}
+// Probe (JSON): {"for":"operated-system-recorded-c","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":5,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}}
 // Hook: read the app's head-state row.
 func probeOperateADeliveredSystemP5S1N4(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
 	t.Helper()
@@ -371,7 +389,7 @@ func stepViewLiveDeploymentHealthP2S1(t *testing.T, h *scenariohost.Host, subjec
 	return subject.QueryDeploymentHealth(callContext(t, h, "1"), in.OperatedAppID)
 }
 
-// stepViewOperatingCostProjectionP1S1 — View Operating-Cost Projection for a Deployed App — [yes], step 1: QueryOperatedSystemView
+// stepViewOperatingCostProjectionP1S1 — View Operating-Cost Projection — [yes], step 1: QueryOperatedSystemView
 // Projected stimulus (JSON): {"seq":1,"node":"open-console","input":{"kind":"call","from":"web-client","to":"operationsmanager","op":"QueryOperatedSystemView","call":"view-operating-cost-projection/open-console/2","via":["web-client","mcp-client"]},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"QueryOperatedSystemView","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"requestID","value":"stp-ops-cost-P1-view"}],"expect":{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":2,\"InFlight\":true}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Hook: the app is an operating system (v3, Healthy) whose one observed tick measured an hour of CPU; open its operator view.
@@ -381,17 +399,17 @@ func stepViewOperatingCostProjectionP1S1(t *testing.T, h *scenariohost.Host, sub
 	return subject.QueryOperatedSystemView(callContext(t, h, "1"), in.OperatedAppID, in.RequestID)
 }
 
-// stepViewOperatingCostProjectionP1S2 — View Operating-Cost Projection for a Deployed App — [yes], step 2: QueryCostProjection
+// stepViewOperatingCostProjectionP1S2 — View Operating-Cost Projection — [yes], step 2: QueryCostProjection
 // Projected stimulus (JSON): {"seq":2,"node":"request-projection","input":{"kind":"call","from":"web-client","to":"operationsmanager","op":"QueryCostProjection","call":"view-operating-cost-projection/request-projection/2","via":["web-client","mcp-client"]},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":2,"operation":"QueryCostProjection","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"requestID","value":"stp-ops-cost-P1-projection"},{"name":"points","value":"{\"points\":[{\"replicas\":1},{\"replicas\":3}]}"}],"expect":{"result":"{\"CurrentRunRate\":{\"Currency\":\"USD\"},\"ProjectedMonthlyCost\":{\"Currency\":\"USD\"}}","errorExpected":false},"probes":[{"for":"read-usage","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":2,"operation":"QueryCostProjection","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"requestID","value":"stp-ops-cost-P1-projection"},{"name":"points","value":"{\"points\":[{\"replicas\":1},{\"replicas\":3}]}"}],"expect":{"result":"{\"CurrentRunRate\":{\"Currency\":\"USD\"},\"ProjectedMonthlyCost\":{\"Currency\":\"USD\"}}","errorExpected":false},"probes":[{"for":"read-usage","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}],"unobservable":[],"hook":true}
 // Hook: no further arrangement — the state step 1 read IS this step's precondition; project the app's operating cost.
 func stepViewOperatingCostProjectionP1S2(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager, in inputViewOperatingCostProjectionP1S2) (any, error) {
 	t.Helper()
 	return subject.QueryCostProjection(callContext(t, h, "2"), in.OperatedAppID, in.RequestID, in.Points)
 }
 
-// probeViewOperatingCostProjectionP1S2N1 — View Operating-Cost Projection for a Deployed App — [yes], step 2, probe 1: usageAccess.ReadRange proves read-usage.
-// Probe (JSON): {"for":"read-usage","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}
+// probeViewOperatingCostProjectionP1S2N1 — View Operating-Cost Projection — [yes], step 2, probe 1: usageAccess.ReadRange proves read-usage.
+// Probe (JSON): {"for":"read-usage","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}
 // Hook: read the usage the subject attributed to the app's customer in the cycle of its own clock.
 func probeViewOperatingCostProjectionP1S2N1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
 	t.Helper()
@@ -421,7 +439,7 @@ func probeWithdrawADeliveredSystemP1S1N1(t *testing.T, h *scenariohost.Host, sub
 
 // stepWithdrawADeliveredSystemP2S1 — Withdraw a Delivered System — [no: in flight], step 1: WithdrawSystem
 // Projected stimulus (JSON): {"seq":1,"node":"request-withdraw","input":{"kind":"call","from":"web-client","to":"operationsmanager","op":"WithdrawSystem","call":"withdraw-a-delivered-system/request-withdraw/2","via":["web-client","mcp-client"]},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"WithdrawSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"changeID","value":"stp-ops-wd-P2-0001"},{"name":"reason","value":"{\"notes\":\"stp: operator withdraws the fixture system\"}"}],"expect":{"result":"{\"withdrawn\":true}","errorExpected":false},"probes":[{"for":"operated-system-withdrawn","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}","errorExpected":false}},{"for":"compute-usage-final","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}},{"for":"tear-down-runtime","component":"operatedSystemStateAccess","operation":"ReadInFlightOperatedApps","inputs":[{"name":"scope","value":"{\"AppIDs\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}"}],"expect":{"result":"[]","errorExpected":false}}],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"WithdrawSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"},{"name":"changeID","value":"stp-ops-wd-P2-0001"},{"name":"reason","value":"{\"notes\":\"stp: operator withdraws the fixture system\"}"}],"expect":{"result":"{\"withdrawn\":true}","errorExpected":false},"probes":[{"for":"operated-system-withdrawn","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}","errorExpected":false}},{"for":"compute-usage-final","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}},{"for":"tear-down-runtime","component":"operatedSystemStateAccess","operation":"ReadInFlightOperatedApps","inputs":[{"name":"scope","value":"{\"AppIDs\":[\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"]}"}],"expect":{"result":"[]","errorExpected":false}}],"unobservable":[],"hook":true}
 // Hook: the app is deployed and in flight (v2) and Argo has synced it; half an hour of CPU is still unbilled when the operator withdraws it.
 func stepWithdrawADeliveredSystemP2S1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager, in inputWithdrawADeliveredSystemP2S1) (any, error) {
 	t.Helper()
@@ -439,7 +457,7 @@ func probeWithdrawADeliveredSystemP2S1N1(t *testing.T, h *scenariohost.Host, sub
 }
 
 // probeWithdrawADeliveredSystemP2S1N2 — Withdraw a Delivered System — [no: in flight], step 1, probe 2: usageAccess.ReadRange proves compute-usage-final.
-// Probe (JSON): {"for":"compute-usage-final","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}
+// Probe (JSON): {"for":"compute-usage-final","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}"}],"expect":{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}}
 // Hook: read the usage the subject attributed to the app's customer in the cycle of its own clock.
 func probeWithdrawADeliveredSystemP2S1N2(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
 	t.Helper()
@@ -722,6 +740,9 @@ func fixtureProject() projectstate.Project {
 	}
 	laptop := projectstate.DeploymentNode{Key: "stp-architect-laptop", Name: "Architect's laptop", Technology: "macOS, Windows or Linux"}
 	model := &projectstate.DeploymentOperationsModel{
+		// The committed scaling policy a deploy records with the published replicas: the
+		// server's two instances may scale between one and four, targeting 70% CPU.
+		ScalingPolicy: projectstate.ScalingPolicy{MinInstances: 1, MaxInstances: 4, TargetUtilizationPct: 70},
 		Deployment: projectstate.DeploymentTopology{
 			Environments: []projectstate.DeploymentEnvironment{{
 				Profile: projectstate.ProfileCloud,
@@ -806,7 +827,7 @@ type liveApp struct {
 // polls; a commit is not yet a running app) and, for a withdrawal, not until the next
 // sync (Argo prunes asynchronously, so the withdrawn app still runs, and burns CPU, when
 // the subject captures its final usage). Every synced object reports Healthy unless the
-// scenario degrades its app. Its Prometheus answers the profile's two queries from the
+// scenario degrades its app. Its Prometheus answers the profile's three queries from the
 // per-namespace series the scenario arranges.
 type runtimeDouble struct {
 	gitops ghtestinfra.LocalGitRepo
@@ -815,6 +836,7 @@ type runtimeDouble struct {
 	live      []liveApp
 	degraded  map[string]bool               // namespace -> the app's server is degraded
 	cpu       map[string]float64            // namespace -> CPU-seconds over any window
+	util      map[string]float64            // namespace -> server CPU use over its request (unset: no series)
 	shortfall map[string]map[string]float64 // namespace -> deployment -> replicas unavailable
 
 	cluster *httptest.Server
@@ -823,7 +845,7 @@ type runtimeDouble struct {
 
 func newRuntimeDouble(t *testing.T, gitops ghtestinfra.LocalGitRepo) *runtimeDouble {
 	t.Helper()
-	rt := &runtimeDouble{gitops: gitops, degraded: map[string]bool{}, cpu: map[string]float64{}, shortfall: map[string]map[string]float64{}}
+	rt := &runtimeDouble{gitops: gitops, degraded: map[string]bool{}, cpu: map[string]float64{}, util: map[string]float64{}, shortfall: map[string]map[string]float64{}}
 	rt.cluster = httptest.NewTLSServer(http.HandlerFunc(rt.serveCluster))
 	t.Cleanup(rt.cluster.Close)
 	rt.prom = httptest.NewServer(http.HandlerFunc(rt.servePrometheus))
@@ -882,6 +904,21 @@ func (rt *runtimeDouble) degrade(namespace, deployment string, replicas float64)
 		rt.shortfall[namespace] = map[string]float64{}
 	}
 	rt.shortfall[namespace][deployment] = replicas
+}
+
+// degradeHealth arranges the app in namespace degraded with every replica available:
+// Argo reports it Degraded, and its SLO still holds.
+func (rt *runtimeDouble) degradeHealth(namespace string) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.degraded[namespace] = true
+}
+
+// utilization arranges the server workload's CPU use over its request in namespace.
+func (rt *runtimeDouble) utilization(namespace string, fraction float64) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.util[namespace] = fraction
 }
 
 // usage arranges the CPU-seconds Prometheus reports for namespace (0: none).
@@ -947,6 +984,12 @@ func (rt *runtimeDouble) servePrometheus(w http.ResponseWriter, r *http.Request)
 	defer rt.mu.Unlock()
 	result := []any{}
 	switch {
+	case strings.Contains(query, "kube_pod_container_resource_requests"):
+		// The server's CPU utilization — checked before the plain CPU series, whose
+		// metric name this query also contains.
+		if v, ok := rt.util[ns]; ok {
+			result = append(result, map[string]any{"metric": map[string]any{}, "value": []any{at, strconv.FormatFloat(v, 'f', -1, 64)}})
+		}
 	case strings.Contains(query, "container_cpu_usage_seconds_total"):
 		if v := rt.cpu[ns]; v > 0 {
 			result = append(result, map[string]any{"metric": map[string]any{}, "value": []any{at, strconv.FormatFloat(v, 'f', -1, 64)}})

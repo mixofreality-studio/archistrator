@@ -47,12 +47,6 @@ export const OP_BINDINGS = {
     path: '/api/v1/billing/register-customer/{customerID}',
     tool: 'billingRegisterCustomer',
   },
-  compositionGetCapabilities: {
-    method: 'GET',
-    path: '/api/v1/capabilities',
-    tool: null,
-    composition: true,
-  },
   compositionGetOperatedAppId: {
     method: 'GET',
     path: '/api/v1/projects/{projectID}/operated-app-id',

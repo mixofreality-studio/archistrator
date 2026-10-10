@@ -3,11 +3,6 @@
   "title": "Activity Experience — service activity mid-fork, design review sent back once, STP running",
   "note": "Both branches of Figure A-1's fork are live: Design Review is at revision 2 awaiting the human (revision 1 was sent back with two anchored comments, both since answered) while STP runs in parallel. Today's construct workflow walks lifecycle phases one at a time and cannot produce this; it is the stage-4 parallel child's shape, which the stage-0 contract already carries. A running task polls at 2s even though a gate is owed. Design Review is the row's ROUND-BACKED gate (stage-3 tasks 5 and 7): its revisions are read from the persisted rounds — roster, verdicts, thread and subject — and are `observed`, while SRS Review predates the ledger and still reconstructs from a send-back note, which is what `backfilled` means. Revision 2's round is open, so it carries no decision and cites no gate attempt: the rail writes that attempt only when the round is decided. Task 9 (the review body) reads the committed project as well as the lifecycle — the slots a design review judges, the construction row a renderer draws from, the contracts the activity → component → contract JOIN resolves — so this fixture now answers the summary project view with a live capture of the archistrator project, verbatim apart from GitRows (the server marshals a nil Go map as JSON null; the generated schema types it as a plain object). Task 12 re-anchored the first of round 1's two comments. It carried \"$.interface.operations[2]\", a JSON pointer NOTHING in the app produces or resolves, so it could only ever land in the margin's UNPLACED group — and the one thing this fixture is uniquely placed to prove (§7.5 gap 2: ContractSignatureList's OpRow enrols every operation under contractOpAnchor, so a design-review comment on an op sits LEVEL with it) was proved nowhere. It now carries the anchor the app's own Comment-on-this-operation button writes, over an operation the CURRENT contract really has, and its prose is about that operation. The second comment is deliberately left on its struct-field pointer: it is the control — a comment whose anchor the artifact cannot resolve belongs in UNPLACED, and one card in each group is what proves placement discriminates. Task 12 added the timeline project view (N-STP's, from done.json, as Task 8 added it to the other four). The fixture's own route opens a REVIEW task, which reads no timeline — but clicking ANY of its dispatch tasks does, and every one of them cites an episode, so the screen raised a real fixture-miss alarm the moment a reader moved off the gate. The transport keys the merged project read by VIEW KIND, not by the episode asked for, so this one timeline record answers whichever episode is asked.",
   "ops": {
-    "compositionGetCapabilities": {
-      "result": {
-        "operations": false
-      }
-    },
     "compositionGetOperatedAppId": {
       "result": {
         "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
@@ -23413,8 +23408,6 @@
                   }
                 ],
                 "DataContracts": [
-                  "AutoscaleAction",
-                  "AutoscaleDecisionView",
                   "AutoscalerMode",
                   "AutoscalerView",
                   "CostProjectionSeam",
@@ -23439,7 +23432,6 @@
                   "PatchKind",
                   "ReconcileResult",
                   "ReconcileScope",
-                  "RuntimeStatusEventView",
                   "RuntimeStatusSeam",
                   "ScalePoint",
                   "ScaleWhatIfPoints",
@@ -24125,6 +24117,50 @@
                     ]
                   },
                   {
+                    "Signature": "ReadWorkloadTelemetry(appID: uuid.UUID) → (WorkloadTelemetry, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "appID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "WorkloadTelemetry",
+                        "Fields": [
+                          {
+                            "Name": "Measured",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "CPUUtilization",
+                            "Type": "float64",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
                     "Signature": "Withdraw(appID: uuid.UUID, idempotencyKey: fwra.IdempotencyKey) → fwra.Error",
                     "Stereotype": "",
                     "Note": "",
@@ -24174,7 +24210,8 @@
                   "RuntimeDesiredState",
                   "RuntimeStatus",
                   "SloStatus",
-                  "Workload"
+                  "Workload",
+                  "WorkloadTelemetry"
                 ],
                 "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.",
                 "Idempotency": "",
@@ -24269,7 +24306,7 @@
                     ]
                   },
                   {
-                    "Signature": "PublishDesiredState(operatedAppID: uuid.UUID, expectedVersion: Version, reason: DesiredStateReason, decision: *AutoscaleDecision, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "PublishDesiredState(operatedAppID: uuid.UUID, expectedVersion: Version, reason: DesiredStateReason, scale: DesiredScale, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -24304,21 +24341,36 @@
                         ]
                       },
                       {
-                        "Name": "AutoscaleDecision",
+                        "Name": "DesiredScale",
                         "Fields": [
                           {
-                            "Name": "Action",
-                            "Type": "AutoscaleAction",
+                            "Name": "Replicas",
+                            "Type": "int64",
                             "Note": ""
                           },
                           {
-                            "Name": "Delta",
-                            "Type": "int",
+                            "Name": "MinReplicas",
+                            "Type": "int64",
                             "Note": ""
                           },
                           {
-                            "Name": "ToBaseline",
-                            "Type": "int",
+                            "Name": "MaxReplicas",
+                            "Type": "int64",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "TargetUtilizationPct",
+                            "Type": "int64",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ScaleToZero",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ScaledAt",
+                            "Type": "time.Time",
                             "Note": ""
                           }
                         ]
@@ -24454,6 +24506,11 @@
                           {
                             "Name": "ProjectRef",
                             "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Scale",
+                            "Type": "DesiredScale",
                             "Note": ""
                           }
                         ]
@@ -24669,9 +24726,8 @@
                   }
                 ],
                 "DataContracts": [
-                  "AutoscaleAction",
-                  "AutoscaleDecision",
                   "DelinquencyAction",
+                  "DesiredScale",
                   "DesiredStateReason",
                   "InFlightScope",
                   "OperatedSystem",
@@ -25160,11 +25216,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "RecentEvents",
-                            "Type": "[]RuntimeStatusEventView",
-                            "Note": ""
-                          },
-                          {
                             "Name": "Autoscaler",
                             "Type": "AutoscalerView",
                             "Note": ""
@@ -25377,8 +25428,6 @@
                   }
                 ],
                 "DataContracts": [
-                  "AutoscaleAction",
-                  "AutoscaleDecisionView",
                   "AutoscalerMode",
                   "AutoscalerView",
                   "CostProjectionSeam",
@@ -25396,7 +25445,6 @@
                   "PatchKind",
                   "ReconcileResult",
                   "ReconcileScope",
-                  "RuntimeStatusEventView",
                   "RuntimeStatusSeam",
                   "ScalePoint",
                   "ScaleWhatIfPoints",

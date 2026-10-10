@@ -440,120 +440,43 @@ func TestConstructionExecutionKinds_MatchesConstructionTaskQueue(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ExtraMounts — GET /api/v1/capabilities + the local-profile operations
-// unmount (operations-argocd-deployment Task 11, spec D9: the local profile
-// holds no deployment credential and must not APPEAR to operate).
+// ExtraMounts — every profile serves the operations routes (DCT §12 B16: the
+// local profile operates in dry-run).
 // ---------------------------------------------------------------------------
 
 func newTestAppHooks() *appHooks {
 	return &appHooks{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 }
 
-func TestExtraMounts_Capabilities_ReportsProfile(t *testing.T) {
-	cases := []struct {
-		name     string
-		gitLocal bool
-		want     bool
-	}{
-		{"local profile reports operations disabled", true, false},
-		{"cloud profile reports operations enabled", false, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+// TestExtraMounts_OperationsRoutesStayMountedOnEveryProfile drives the real mux
+// shape main.gen.go builds — root.Handle("/", genServer) runs BEFORE ExtraMounts, so
+// a stand-in "genServer" here proves whether a request actually reached the
+// generated handler — and proves no profile shadows /api/v1/operations/.
+func TestExtraMounts_OperationsRoutesStayMountedOnEveryProfile(t *testing.T) {
+	for _, gitLocal := range []bool{true, false} {
+		t.Run(map[bool]string{true: "local", false: "cloud"}[gitLocal], func(t *testing.T) {
 			h := newTestAppHooks()
-			cfg := &Config{ProjectStateGitLocal: tc.gitLocal}
+			cfg := &Config{ProjectStateGitLocal: gitLocal}
 			root := http.NewServeMux()
+			var hit bool
+			root.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hit = true
+				w.WriteHeader(http.StatusOK)
+			}))
 			h.ExtraMounts(root, cfg, web.DevConfig{Enabled: true}, nil, WebManagers{})
 
 			ts := httptest.NewServer(root)
 			defer ts.Close()
 
-			resp, err := http.Get(ts.URL + "/api/v1/capabilities")
+			resp, err := http.Get(ts.URL + "/api/v1/operations/query-operated-system-view/some-id")
 			if err != nil {
-				t.Fatalf("GET /api/v1/capabilities: %v", err)
+				t.Fatalf("GET operations route: %v", err)
 			}
 			defer func() { _ = resp.Body.Close() }()
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("status = %d, want 200", resp.StatusCode)
-			}
-			var got capabilitiesResponse
-			if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
-				t.Fatalf("decode: %v", err)
-			}
-			if got.Operations != tc.want {
-				t.Fatalf("Operations = %v, want %v", got.Operations, tc.want)
+			if !hit {
+				t.Fatalf("status %d: the operations route did not reach the generated handler", resp.StatusCode)
 			}
 		})
-	}
-}
-
-// TestExtraMounts_LocalProfile_UnmountsOperationsRoutes proves the local
-// profile does not merely HIDE the operations nav — it unmounts the routes
-// server-side, exactly as if they were never registered. Mirrors main.gen.go's
-// real mux shape: root.Handle("/", genServer) runs BEFORE ExtraMounts, so a
-// stand-in "genServer" here proves whether a request actually reached the
-// underlying handler.
-func TestExtraMounts_LocalProfile_UnmountsOperationsRoutes(t *testing.T) {
-	h := newTestAppHooks()
-	cfg := &Config{ProjectStateGitLocal: true}
-	root := http.NewServeMux()
-	var hit bool
-	root.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hit = true
-		w.WriteHeader(http.StatusOK)
-	}))
-	h.ExtraMounts(root, cfg, web.DevConfig{Enabled: true}, nil, WebManagers{})
-
-	ts := httptest.NewServer(root)
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/api/v1/operations/query-operated-system-view/some-id")
-	if err != nil {
-		t.Fatalf("GET operations route: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404 (operations routes must be unmounted on local)", resp.StatusCode)
-	}
-	if hit {
-		t.Fatal("request reached the underlying handler — operations route was NOT unmounted")
-	}
-
-	// A non-operations /api/v1/ request must still reach the underlying handler.
-	resp2, err := http.Get(ts.URL + "/api/v1/construction/whatever")
-	if err != nil {
-		t.Fatalf("GET non-operations route: %v", err)
-	}
-	defer func() { _ = resp2.Body.Close() }()
-	if !hit {
-		t.Fatal("expected a non-operations /api/v1/ request to still reach the underlying handler")
-	}
-}
-
-// TestExtraMounts_CloudProfile_OperationsRoutesStayMounted proves the local-only
-// shadow is not accidentally blanket: a cloud profile boot must leave
-// /api/v1/operations/... routed through to the real handler.
-func TestExtraMounts_CloudProfile_OperationsRoutesStayMounted(t *testing.T) {
-	h := newTestAppHooks()
-	cfg := &Config{ProjectStateGitLocal: false}
-	root := http.NewServeMux()
-	var hit bool
-	root.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hit = true
-		w.WriteHeader(http.StatusOK)
-	}))
-	h.ExtraMounts(root, cfg, web.DevConfig{Enabled: true}, nil, WebManagers{})
-
-	ts := httptest.NewServer(root)
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/api/v1/operations/query-operated-system-view/some-id")
-	if err != nil {
-		t.Fatalf("GET operations route: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if !hit {
-		t.Fatal("expected the cloud profile to leave operations routes mounted")
 	}
 }
 

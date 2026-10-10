@@ -16,25 +16,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 	"go.temporal.io/sdk/client"
-	"time"
 )
-
-type AutoscaleAction int
-
-const (
-	AutoscaleNoChange  AutoscaleAction = 0
-	AutoscaleScaleUp   AutoscaleAction = 1
-	AutoscaleScaleDown AutoscaleAction = 2
-	AutoscalePause     AutoscaleAction = 3
-	AutoscaleResume    AutoscaleAction = 4
-)
-
-type AutoscaleDecisionView struct {
-	At        time.Time       `json:"At"`
-	Action    AutoscaleAction `json:"Action"`
-	Reason    string          `json:"Reason"`
-	Published bool            `json:"Published"`
-}
 
 type AutoscalerMode int
 
@@ -45,8 +27,7 @@ const (
 )
 
 type AutoscalerView struct {
-	Mode      AutoscalerMode          `json:"Mode"`
-	Decisions []AutoscaleDecisionView `json:"Decisions"`
+	Mode AutoscalerMode `json:"Mode"`
 }
 
 type CostProjectionSeam struct {
@@ -117,14 +98,13 @@ type NodeHealth struct {
 }
 
 type OperatedSystemView struct {
-	OperatedAppID  uuid.UUID                `json:"OperatedAppID"`
-	Phase          RuntimeStatusSeam        `json:"Phase"`
-	InFlight       bool                     `json:"InFlight"`
-	Health         HealthSnapshotView       `json:"Health"`
-	Slos           []SloRowView             `json:"Slos"`
-	RecentEvents   []RuntimeStatusEventView `json:"RecentEvents"`
-	Autoscaler     AutoscalerView           `json:"Autoscaler"`
-	CurrentRunRate Money                    `json:"CurrentRunRate"`
+	OperatedAppID  uuid.UUID          `json:"OperatedAppID"`
+	Phase          RuntimeStatusSeam  `json:"Phase"`
+	InFlight       bool               `json:"InFlight"`
+	Health         HealthSnapshotView `json:"Health"`
+	Slos           []SloRowView       `json:"Slos"`
+	Autoscaler     AutoscalerView     `json:"Autoscaler"`
+	CurrentRunRate Money              `json:"CurrentRunRate"`
 }
 
 type PatchKind int
@@ -144,13 +124,6 @@ type ReconcileResult struct {
 
 type ReconcileScope struct {
 	AppIDs []uuid.UUID `json:"appIds,omitempty"`
-}
-
-type RuntimeStatusEventView struct {
-	At   time.Time         `json:"At"`
-	From RuntimeStatusSeam `json:"From"`
-	To   RuntimeStatusSeam `json:"To"`
-	Note string            `json:"Note"`
 }
 
 type RuntimeStatusSeam int

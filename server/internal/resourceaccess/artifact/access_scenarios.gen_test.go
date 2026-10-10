@@ -286,6 +286,46 @@ func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 	})
 }
 
+// inputOperateADeliveredSystemP3S1 is step 1's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP3S1 struct {
+	ContentAddress string `json:"contentAddress"`
+}
+
+// TestScenario_operate_a_delivered_system_P3 — Operate a Delivered System — [no] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "operate-a-delivered-system-P3", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: RetrieveConstructionOutput (node render-manifests-c; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
+		var in1 inputOperateADeliveredSystemP3S1
+		mustUnmarshal(t, `{"contentAddress":"sha-of-hook-arranged-output"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOperateADeliveredSystemP3S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P3", 1, out1, err1, `{"result":"{\"Bytes\":\"YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHN0cC1vcGVyYXRlZC1hcHAK\",\"MIMEType\":\"application/yaml\"}","errorExpected":false}`)
+	})
+}
+
+// inputOperateADeliveredSystemP5S1 is step 1's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP5S1 struct {
+	ContentAddress string `json:"contentAddress"`
+}
+
+// TestScenario_operate_a_delivered_system_P5 — Operate a Delivered System — [yes] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "artifactAccess", "operate-a-delivered-system-P5", func(t *testing.T) {
+		var subject artifact.ArtifactAccess = newSubject(t, h)
+		// step 1: RetrieveConstructionOutput (node render-manifests-c; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
+		var in1 inputOperateADeliveredSystemP5S1
+		mustUnmarshal(t, `{"contentAddress":"sha-of-hook-arranged-output"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOperateADeliveredSystemP5S1(t, h, subject, in1)
+		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"{\"Bytes\":\"YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHN0cC1vcGVyYXRlZC1hcHAK\",\"MIMEType\":\"application/yaml\"}","errorExpected":false}`)
+	})
+}
+
 // inputViewLiveDeploymentHealthP1S1 is step 1's parameters of RetrieveConstructionOutput, decoded from the binding's inputs.
 type inputViewLiveDeploymentHealthP1S1 struct {
 	ContentAddress string `json:"contentAddress"`

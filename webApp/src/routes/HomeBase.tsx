@@ -33,10 +33,8 @@ import { StaleBasisMarker } from '../components/design/StaleBasisChip';
 import { ApiError } from '../contracts/errors';
 import { useDesignHealth } from '../hooks/useDeliveryQueries';
 import { useProject } from '../hooks/useDeliveryQueries';
-import { useCapabilities } from '../hooks/useCapabilities';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
-import { operationsEnabled } from '../utilities/capabilities';
 import { useSetProjectExecutionPolicy, useStartProject } from '../hooks/useDeliveryMutations';
 import { useUser } from '../utilities/auth/UserContext';
 import { currentPhaseOf, toArtifactTableOfContents } from '../contracts/adapters';
@@ -216,14 +214,11 @@ function HomeBaseBody({
   const { data: designHealth } = useDesignHealth(projectId);
   // The ArtifactPane's Architecture Deployment lens' live health tint (see
   // DeploymentHealthProvider below) — the same dormant-by-default arrangement the
-  // two design containers use: nothing fires unless the operations capability is
-  // on (D9) and the derived operated-app id has landed, and an absent overlay
+  // two design containers use: nothing fires until the derived operated-app id has
+  // landed, and an absent overlay
   // renders the diagram untinted, never red.
   const operatedAppId = useOperatedAppId(projectId);
-  const { data: deploymentHealth } = useDeploymentHealth(
-    operatedAppId ?? '',
-    operationsEnabled(useCapabilities())
-  );
+  const { data: deploymentHealth } = useDeploymentHealth(operatedAppId ?? '');
 
   // SYSTEM-DESIGN ONLY — the Phase-1 artifacts still in the drafting sequence
   // (PHASE1_ORDER), in Method order. The retired-in-place kinds are filtered out by

@@ -59,12 +59,9 @@ void test('mounts StructureFindingsProvider so the architecture diagram carries 
 
 void test('mounts DeploymentHealthProvider so the deployment lens can tint an observed node', () => {
   assert.match(container, /<DeploymentHealthProvider healthByKey=\{deploymentHealth\}>/);
-  // Dormant by default, exactly as at the other two mounts: no operations capability
-  // and no derived operated-app id means an absent overlay, never a red diagram.
-  assert.match(
-    container,
-    /useDeploymentHealth\(\s*operatedAppId \?\? '',\s*operationsEnabled\(useCapabilities\(\)\)\s*\)/
-  );
+  // Dormant by default, exactly as at the other two mounts: no derived operated-app
+  // id means an absent overlay, never a red diagram.
+  assert.match(container, /useDeploymentHealth\(operatedAppId \?\? ''\)/);
 });
 
 void test('feeds the providers the SAME project head-state the container already reads', () => {

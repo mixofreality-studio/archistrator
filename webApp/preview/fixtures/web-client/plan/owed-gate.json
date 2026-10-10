@@ -22544,8 +22544,6 @@
          }
         ],
         "DataContracts": [
-         "AutoscaleAction",
-         "AutoscaleDecisionView",
          "AutoscalerMode",
          "AutoscalerView",
          "CostProjectionSeam",
@@ -22570,7 +22568,6 @@
          "PatchKind",
          "ReconcileResult",
          "ReconcileScope",
-         "RuntimeStatusEventView",
          "RuntimeStatusSeam",
          "ScalePoint",
          "ScaleWhatIfPoints",
@@ -23256,6 +23253,50 @@
           ]
          },
          {
+          "Signature": "ReadWorkloadTelemetry(appID: uuid.UUID) → (WorkloadTelemetry, fwra.Error)",
+          "Stereotype": "",
+          "Note": "",
+          "Inputs": [
+           {
+            "Name": "uuid.UUID",
+            "Fields": [
+             {
+              "Name": "appID",
+              "Type": "uuid.UUID",
+              "Note": ""
+             }
+            ]
+           }
+          ],
+          "Outputs": [
+           {
+            "Name": "WorkloadTelemetry",
+            "Fields": [
+             {
+              "Name": "Measured",
+              "Type": "bool",
+              "Note": ""
+             },
+             {
+              "Name": "CPUUtilization",
+              "Type": "float64",
+              "Note": ""
+             }
+            ]
+           },
+           {
+            "Name": "fwra.Error",
+            "Fields": [
+             {
+              "Name": "fault",
+              "Type": "fwra.Error",
+              "Note": ""
+             }
+            ]
+           }
+          ]
+         },
+         {
           "Signature": "Withdraw(appID: uuid.UUID, idempotencyKey: fwra.IdempotencyKey) → fwra.Error",
           "Stereotype": "",
           "Note": "",
@@ -23305,7 +23346,8 @@
          "RuntimeDesiredState",
          "RuntimeStatus",
          "SloStatus",
-         "Workload"
+         "Workload",
+         "WorkloadTelemetry"
         ],
         "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.",
         "Idempotency": "",
@@ -23400,7 +23442,7 @@
           ]
          },
          {
-          "Signature": "PublishDesiredState(operatedAppID: uuid.UUID, expectedVersion: Version, reason: DesiredStateReason, decision: *AutoscaleDecision, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+          "Signature": "PublishDesiredState(operatedAppID: uuid.UUID, expectedVersion: Version, reason: DesiredStateReason, scale: DesiredScale, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
           "Stereotype": "",
           "Note": "",
           "Inputs": [
@@ -23435,21 +23477,36 @@
             ]
            },
            {
-            "Name": "AutoscaleDecision",
+            "Name": "DesiredScale",
             "Fields": [
              {
-              "Name": "Action",
-              "Type": "AutoscaleAction",
+              "Name": "Replicas",
+              "Type": "int64",
               "Note": ""
              },
              {
-              "Name": "Delta",
-              "Type": "int",
+              "Name": "MinReplicas",
+              "Type": "int64",
               "Note": ""
              },
              {
-              "Name": "ToBaseline",
-              "Type": "int",
+              "Name": "MaxReplicas",
+              "Type": "int64",
+              "Note": ""
+             },
+             {
+              "Name": "TargetUtilizationPct",
+              "Type": "int64",
+              "Note": ""
+             },
+             {
+              "Name": "ScaleToZero",
+              "Type": "bool",
+              "Note": ""
+             },
+             {
+              "Name": "ScaledAt",
+              "Type": "time.Time",
               "Note": ""
              }
             ]
@@ -23585,6 +23642,11 @@
              {
               "Name": "ProjectRef",
               "Type": "string",
+              "Note": ""
+             },
+             {
+              "Name": "Scale",
+              "Type": "DesiredScale",
               "Note": ""
              }
             ]
@@ -23800,9 +23862,8 @@
          }
         ],
         "DataContracts": [
-         "AutoscaleAction",
-         "AutoscaleDecision",
          "DelinquencyAction",
+         "DesiredScale",
          "DesiredStateReason",
          "InFlightScope",
          "OperatedSystem",
@@ -24291,11 +24352,6 @@
               "Note": ""
              },
              {
-              "Name": "RecentEvents",
-              "Type": "[]RuntimeStatusEventView",
-              "Note": ""
-             },
-             {
               "Name": "Autoscaler",
               "Type": "AutoscalerView",
               "Note": ""
@@ -24508,8 +24564,6 @@
          }
         ],
         "DataContracts": [
-         "AutoscaleAction",
-         "AutoscaleDecisionView",
          "AutoscalerMode",
          "AutoscalerView",
          "CostProjectionSeam",
@@ -24527,7 +24581,6 @@
          "PatchKind",
          "ReconcileResult",
          "ReconcileScope",
-         "RuntimeStatusEventView",
          "RuntimeStatusSeam",
          "ScalePoint",
          "ScaleWhatIfPoints",

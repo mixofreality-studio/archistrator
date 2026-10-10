@@ -7874,7 +7874,7 @@
             "from": "operations-manager",
             "to": "operated-runtime-access",
             "mode": "sync",
-            "label": "publishDesiredState / withdraw | getApplicationHealth / getSloStatus / readComputeAttribution"
+            "label": "publishDesiredState / withdraw | getApplicationHealth / getSloStatus / readComputeAttribution / readWorkloadTelemetry"
           },
           {
             "from": "operations-manager",
@@ -7946,7 +7946,7 @@
             "from": "operated-runtime-access",
             "to": "operated-runtime",
             "mode": "sync",
-            "label": "publish desired state / withdraw / read application health / read SLO / read compute attribution"
+            "label": "publish desired state / withdraw / read application health / read SLO / read compute attribution / read workload CPU utilization"
           },
           {
             "from": "usage-access",
@@ -8373,7 +8373,7 @@
                     "from": "operations-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "readProject(projectRef) → deployment model (render inputs: cloud environment namespace, host, workloads, roles)"
+                    "label": "readProject(projectRef) → deployment model + scaling policy (render inputs: cloud environment namespace, host, workloads, roles; the committed operationalConcepts.scalingPolicy)"
                   }
                 ]
               },
@@ -8401,7 +8401,7 @@
                     "from": "operations-manager",
                     "to": "operated-system-state-access",
                     "mode": "sync",
-                    "label": "publishDesiredState(reason=operator | deployAfterConstruction)"
+                    "label": "publishDesiredState(reason=operator | deployAfterConstruction, scale = the published replicas + the committed scaling policy)"
                   },
                   {
                     "from": "operated-system-state-access",
@@ -8444,7 +8444,7 @@
                     "from": "operations-manager",
                     "to": "operated-system-state-access",
                     "mode": "sync",
-                    "label": "readInFlightOperatedApps (lastKnownStatus)"
+                    "label": "readInFlightOperatedApps (lastKnownStatus, desired scale + scaling policy)"
                   }
                 ]
               },
@@ -8455,13 +8455,13 @@
                     "from": "operations-manager",
                     "to": "operated-runtime-access",
                     "mode": "sync",
-                    "label": "getApplicationHealth / getSloStatus / readComputeAttribution(appIds)"
+                    "label": "getApplicationHealth / getSloStatus / readComputeAttribution / readWorkloadTelemetry(appIds)"
                   },
                   {
                     "from": "operated-runtime-access",
                     "to": "operated-runtime",
                     "mode": "sync",
-                    "label": "read application health / SLO / capacity metrics"
+                    "label": "read application health / SLO / capacity metrics / workload CPU utilization"
                   }
                 ]
               },
@@ -8501,7 +8501,7 @@
                     "from": "operations-manager",
                     "to": "autoscaler-engine",
                     "mode": "sync",
-                    "label": "ProposeDesiredState(telemetry, currentDesired, policy, infrastructureKind) → {NoChange | ScaleUp | ScaleDown | Pause | Resume}"
+                    "label": "ProposeDesiredState(telemetry, currentDesired, policy, infrastructureKind) → {NoChange | ScaleUp | ScaleDown | Pause | Resume} — telemetry = health + SLO + workload CPU utilization; currentDesired + policy = the head-state desired scale"
                   }
                 ]
               },
@@ -8512,7 +8512,19 @@
                     "from": "operations-manager",
                     "to": "operated-system-state-access",
                     "mode": "sync",
-                    "label": "readOperatedSystem — revision basis (current desired state + version)"
+                    "label": "readOperatedSystem — revision basis (deployable bundle, project, desired scale + version)"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "artifact-access",
+                    "mode": "sync",
+                    "label": "retrieveConstructionOutput(deployableBundleRef) → deployable bundle"
+                  },
+                  {
+                    "from": "operations-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject(projectRef) → deployment model (the same render inputs as a deploy; the decision overrides the server replicas)"
                   }
                 ]
               },
@@ -8534,7 +8546,7 @@
                     "from": "operations-manager",
                     "to": "operated-system-state-access",
                     "mode": "sync",
-                    "label": "publishDesiredState(reason=autoscale, decision)"
+                    "label": "publishDesiredState(reason=autoscale, scale = the revised replicas)"
                   }
                 ]
               }
@@ -12446,7 +12458,10 @@
                   ]
                 },
                 "local": {
-                  "variant": "NoOp"
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
                 }
               }
             },
@@ -12461,7 +12476,10 @@
                   ]
                 },
                 "local": {
-                  "variant": "NoOp"
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
                 }
               }
             },
@@ -17614,7 +17632,7 @@
                 "null"
               ],
               "$ref": "#/$defs/ArtifactKind",
-              "description": "The artifact this round judges, when the round is about one. PRESENT on a design round and ABSENT on a construction round, whose subject is a commit rather than a slot model. It is a FIELD for two reasons. A review task's ID does not determine what it judges: `designReview` names a task in eight lifecycles and `testing` in nine, each carrying no artifactKind of its own and resolving its subject through `reviews`, so a round keyed (taskId, round) alone can only be resolved by re-fetching the activity's lifecycle. And several artifact kinds are designed to share one lifecycle phase \u2014 the four-part design RoundID exists for exactly that \u2014 so the day one gate task judges two kinds, a reader that joins on (taskId, round) binds both into one revision. The kind is ALSO inside that RoundID, and nothing may parse a RoundID: this is the field that makes the join honest. ABSENT on a round written before this field existed, which the readers treat as the legacy case it is rather than as a construction round."
+              "description": "The artifact this round judges, when the round is about one. PRESENT on a design round and ABSENT on a construction round, whose subject is a commit rather than a slot model. It is a FIELD for two reasons. A review task's ID does not determine what it judges: `designReview` names a task in eight lifecycles and `testing` in nine, each carrying no artifactKind of its own and resolving its subject through `reviews`, so a round keyed (taskId, round) alone can only be resolved by re-fetching the activity's lifecycle. And several artifact kinds are designed to share one lifecycle phase — the four-part design RoundID exists for exactly that — so the day one gate task judges two kinds, a reader that joins on (taskId, round) binds both into one revision. The kind is ALSO inside that RoundID, and nothing may parse a RoundID: this is the field that makes the join honest. ABSENT on a round written before this field existed, which the readers treat as the legacy case it is rather than as a construction round."
             },
             "round": {
               "type": "integer",
@@ -17681,7 +17699,7 @@
             "provenance"
           ],
           "additionalProperties": false,
-          "description": "One append-only review round: its subject, its roster, its verdicts, its thread, and \u2014 once \u2014 its decision."
+          "description": "One append-only review round: its subject, its roster, its verdicts, its thread, and — once — its decision."
         },
         "ReviewRoundInput": {
           "type": "object",
@@ -17689,7 +17707,7 @@
             "roundId": {
               "type": "string",
               "x-go-name": "RoundID",
-              "description": "The deterministic, caller-minted round id. The construction rail mints \"\u003cactivityId\u003e:\u003creviewTaskId\u003e:\u003cn\u003e\"; the DESIGN rails mint \"\u003cactivityId\u003e:\u003creviewTaskId\u003e:\u003cartifactKind\u003e:\u003cn\u003e\", because several artifact kinds share one lifecycle phase (mission and glossary; system and operationalConcepts) and a three-part id would collide across two independent design sessions. The shape is the caller's; the rule this store enforces is that opening the same id twice opens ONE round \u2014 the property the whole ledger rests on under Temporal retry."
+              "description": "The deterministic, caller-minted round id. The construction rail mints \"\u003cactivityId\u003e:\u003creviewTaskId\u003e:\u003cn\u003e\"; the DESIGN rails mint \"\u003cactivityId\u003e:\u003creviewTaskId\u003e:\u003cartifactKind\u003e:\u003cn\u003e\", because several artifact kinds share one lifecycle phase (mission and glossary; system and operationalConcepts) and a three-part id would collide across two independent design sessions. The shape is the caller's; the rule this store enforces is that opening the same id twice opens ONE round — the property the whole ledger rests on under Temporal retry."
             },
             "taskId": {
               "type": "string",
@@ -17775,7 +17793,7 @@
             "attemptId": {
               "type": "string",
               "x-go-name": "AttemptID",
-              "description": "The attempt this verdict judged, by its AttemptID \u2014 the join back to the ledger and to that attempt's episode."
+              "description": "The attempt this verdict judged, by its AttemptID — the join back to the ledger and to that attempt's episode."
             },
             "at": {
               "type": "string",
@@ -17836,7 +17854,7 @@
             },
             "version": {
               "$ref": "#/$defs/Version",
-              "description": "The project-state version the staging commit produced \u2014 the same token every other verb on this contract returns, carried INSIDE the ref because the contract dialect admits exactly one result per operation."
+              "description": "The project-state version the staging commit produced — the same token every other verb on this contract returns, carried INSIDE the ref because the contract dialect admits exactly one result per operation."
             }
           },
           "required": [
@@ -17880,7 +17898,7 @@
             "ref"
           ],
           "additionalProperties": false,
-          "description": "The exact thing a review round judged \u2014 without it a verdict cites nothing."
+          "description": "The exact thing a review round judged — without it a verdict cites nothing."
         },
         "TaskAttemptInput": {
           "type": "object",
@@ -17888,7 +17906,7 @@
             "attemptId": {
               "type": "string",
               "x-go-name": "AttemptID",
-              "description": "The deterministic \"\u003cactivityId\u003e:\u003ctaskId\u003e:\u003cn\u003e\" id (projectstate.AttemptID). Recording it twice appends once \u2014 the episode ledger's TargetRef joins on this exact string, so its format is frozen."
+              "description": "The deterministic \"\u003cactivityId\u003e:\u003ctaskId\u003e:\u003cn\u003e\" id (projectstate.AttemptID). Recording it twice appends once — the episode ledger's TargetRef joins on this exact string, so its format is frozen."
             },
             "taskId": {
               "type": "string",
@@ -17917,7 +17935,7 @@
             },
             "evidenceRef": {
               "type": "string",
-              "description": "The evidence itself \u2014 a commit, an episode id, an artifact ref."
+              "description": "The evidence itself — a commit, an episode id, an artifact ref."
             },
             "detail": {
               "type": "string",
@@ -17939,7 +17957,7 @@
         },
         "TestingVariant": {
           "type": "integer",
-          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec \u00a77): neither is a testing variant again, and 3 is never reused.",
+          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec §7): neither is a testing variant again, and 3 is never reused.",
           "enum": [
             0,
             1,
@@ -17967,7 +17985,7 @@
             "VerdictAbstain"
           ],
           "x-go-base": "string",
-          "description": "One reviewer's judgement. It is NOT the round's outcome \u2014 the round is decided separately, by DecideReviewRound."
+          "description": "One reviewer's judgement. It is NOT the round's outcome — the round is decided separately, by DecideReviewRound."
         },
         "Version": {
           "type": "integer"
@@ -18554,7 +18572,7 @@
             "result": {
               "type": "object",
               "x-go-type": "ActivityExecution",
-              "description": "The whole stored execution record for one activity: the lifecycle pin and the head facts (type, variant, started, completed, failure) beside the two append-only ledgers, its produced artifacts, its operator notes and its per-activity version. Bound through x-go-type rather than a $def because the stored row carries omitempty head facts the schema dialect cannot express \u2014 a not-required $ref emits a pointer, a required one emits a member on every row \u2014 and the stored shape is the one thing this wave must keep byte-exact. The same seam the attempt ledger already uses (x-go-type []TaskAttempt)."
+              "description": "The whole stored execution record for one activity: the lifecycle pin and the head facts (type, variant, started, completed, failure) beside the two append-only ledgers, its produced artifacts, its operator notes and its per-activity version. Bound through x-go-type rather than a $def because the stored row carries omitempty head facts the schema dialect cannot express — a not-required $ref emits a pointer, a required one emits a member on every row — and the stored shape is the one thing this wave must keep byte-exact. The same seam the attempt ledger already uses (x-go-type []TaskAttempt)."
             },
             "error": true
           }
@@ -19664,7 +19682,7 @@
             "RoutingCharge"
           ],
           "x-go-base": "int",
-          "description": "Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned \u2014 never reuse."
+          "description": "Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned — never reuse."
         },
         "ScheduleKind": {
           "type": "integer",
@@ -19860,7 +19878,7 @@
             "RoutingDirectiveCharge"
           ],
           "x-go-base": "int",
-          "description": "Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned \u2014 never reuse."
+          "description": "Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned — never reuse."
         },
         "ShortfallSweepResult": {
           "type": "object",
@@ -20104,7 +20122,7 @@
             "ProjectID"
           ],
           "additionalProperties": false,
-          "description": "Charge-only customer profile \u2014 the registration attributes. Carries no payout/connected-account fields."
+          "description": "Charge-only customer profile — the registration attributes. Carries no payout/connected-account fields."
         },
         "CustomerSummary": {
           "type": "object",
@@ -20143,7 +20161,7 @@
           "properties": {
             "GatewayCustomerRef": {
               "type": "string",
-              "description": "The merchant gateway\u2019s customer / stored-instrument reference (charge-only; replaces the retired ConnectedAccountID)"
+              "description": "The merchant gateway’s customer / stored-instrument reference (charge-only; replaces the retired ConnectedAccountID)"
             }
           },
           "required": [
@@ -20178,7 +20196,7 @@
             "RoutingCharge"
           ],
           "x-go-base": "int",
-          "description": "Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned \u2014 never reuse."
+          "description": "Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned — never reuse."
         },
         "Version": {
           "type": "integer",
@@ -20521,7 +20539,7 @@
         },
         "ActivityConstructionPhase": {
           "type": "integer",
-          "description": "The coarse per-activity construction lifecycle, DERIVED from the row's head facts and its resolved phase completions \u2014 never stored. Member 4 (completedNotLanded) is APPENDED: ordinals 0-3 are wire values in every committed project and this model renumbers nothing.",
+          "description": "The coarse per-activity construction lifecycle, DERIVED from the row's head facts and its resolved phase completions — never stored. Member 4 (completedNotLanded) is APPENDED: ordinals 0-3 are wire values in every committed project and this model renumbers nothing.",
           "enum": [
             0,
             1,
@@ -20838,7 +20856,7 @@
             },
             "reviews": {
               "type": "string",
-              "description": "For a review task, the dispatch task it judges \u2014 the pair a send-back re-opens. Omitted on a dispatch task."
+              "description": "For a review task, the dispatch task it judges — the pair a send-back re-opens. Omitted on a dispatch task."
             },
             "state": {
               "$ref": "#/$defs/ActivityTaskState"
@@ -20859,7 +20877,7 @@
             },
             "reviewSetError": {
               "type": "string",
-              "description": "Why reviewSet is absent at this task's live gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected \u2014 Approve and SendBack work. Omitted when the engine answered or this task has no live gate."
+              "description": "Why reviewSet is absent at this task's live gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted when the engine answered or this task has no live gate."
             },
             "awaitingSince": {
               "type": "string",
@@ -20959,7 +20977,7 @@
               "items": {
                 "$ref": "#/$defs/ActivityTaskView"
               },
-              "description": "Every task of the lifecycle DAG, in lifecycle order \u2014 including the tasks nothing has happened on yet. The reviewer roster and the awaiting facts live HERE, on the task, since stage 4b3: a fork has two gates open at once and an activity-level answer could only ever name one of them."
+              "description": "Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet. The reviewer roster and the awaiting facts live HERE, on the task, since stage 4b3: a fork has two gates open at once and an activity-level answer could only ever name one of them."
             }
           },
           "required": [
@@ -21165,7 +21183,7 @@
         },
         "AwaitingTaskGate": {
           "type": "object",
-          "description": "ONE task's live human gate, as the activity's own execution sees it. It is the plural replacement for ConstructionSessionView's six flat gate members: those described an ACTIVITY while the facts are per TASK, so on a fork \u2014 where a service activity holds detailed_design and test_plan at once \u2014 they could only ever name whichever gate was entered last, and two stage 4b2 call sites read them and got the fork wrong. The key IS the task: there is one entry per task awaiting a human right now, and none at all when nobody is being waited on.",
+          "description": "ONE task's live human gate, as the activity's own execution sees it. It is the plural replacement for ConstructionSessionView's six flat gate members: those described an ACTIVITY while the facts are per TASK, so on a fork — where a service activity holds detailed_design and test_plan at once — they could only ever name whichever gate was entered last, and two stage 4b2 call sites read them and got the fork wrong. The key IS the task: there is one entry per task awaiting a human right now, and none at all when nobody is being waited on.",
           "properties": {
             "taskId": {
               "type": "string",
@@ -21174,7 +21192,7 @@
             },
             "gate": {
               "type": "string",
-              "description": "The gate CLASS this occurrence waits at: the task's own id for a phase approval, \"merge\" for the merge hold, \"takeover\" for an escalation. It is NOT redundant with taskId \u2014 an escalation is keyed by the task that escalated and waits at \"takeover\"."
+              "description": "The gate CLASS this occurrence waits at: the task's own id for a phase approval, \"merge\" for the merge hold, \"takeover\" for an escalation. It is NOT redundant with taskId — an escalation is keyed by the task that escalated and waits at \"takeover\"."
             },
             "reviewSet": {
               "type": [
@@ -21185,7 +21203,7 @@
             },
             "reviewSetError": {
               "type": "string",
-              "description": "Why reviewSet is absent at this gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected \u2014 Approve and SendBack work. Omitted whenever the engine answered."
+              "description": "Why reviewSet is absent at this gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered."
             },
             "awaitingSince": {
               "type": "string",
@@ -21612,7 +21630,7 @@
             "draft"
           ],
           "additionalProperties": false,
-          "description": "The ONE derived session view, for all seventeen artifact kinds (stage 4b2). It is a projection of the durable slot, NOT a live session: its subject is what the slot says now, and the live execution's view is constructionSession, a different subject with a different lifetime. Eight members were pruned with the type's rename because nothing in the server could set them once 4b1 retired the live design rail \u2014 they were decoded by the SPA and always absent."
+          "description": "The ONE derived session view, for all seventeen artifact kinds (stage 4b2). It is a projection of the durable slot, NOT a live session: its subject is what the slot says now, and the live execution's view is constructionSession, a different subject with a different lifetime. Eight members were pruned with the type's rename because nothing in the server could set them once 4b1 retired the live design rail — they were decoded by the SPA and always absent."
         },
         "DesignHealth": {
           "type": "object",
@@ -22441,7 +22459,7 @@
               "additionalProperties": {
                 "$ref": "#/$defs/ActivityConstructionStatus"
               },
-              "description": "One view row per activity, keyed by ActivityID \u2014 the stored .activityExecution rows plus a planned-no-record row for every activity the committed list names and nothing has been recorded for. Renamed from ActivityConstruction in stage-3 task 4 with the stored map it projects: the row's derived members (Phase, Phases, CurrentPhase, Kind, BuildStatus) are COMPUTED here from the two ledgers and are no longer stored anywhere. The view type keeps its own name until the stage-5 Activity Experience replaces it wholesale."
+              "description": "One view row per activity, keyed by ActivityID — the stored .activityExecution rows plus a planned-no-record row for every activity the committed list names and nothing has been recorded for. Renamed from ActivityConstruction in stage-3 task 4 with the stored map it projects: the row's derived members (Phase, Phases, CurrentPhase, Kind, BuildStatus) are COMPUTED here from the two ledgers and are no longer stored anywhere. The view type keeps its own name until the stage-5 Activity Experience replaces it wholesale."
             },
             "constructionProgress": {
               "type": [
@@ -23034,11 +23052,11 @@
                 "artifact",
                 "pullRequest"
               ],
-              "description": "What the ref names \u2014 the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Both live rails mint commit (the staged model's sha on the design rail, the pushed work's sha on the construction rail) as of 38fd7f9c; pullRequest is what a reviewer's PR is recorded as, and artifact is the ref of an artifact judged outside either rail."
+              "description": "What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Both live rails mint commit (the staged model's sha on the design rail, the pushed work's sha on the construction rail) as of 38fd7f9c; pullRequest is what a reviewer's PR is recorded as, and artifact is the ref of an artifact judged outside either rail."
             },
             "ref": {
               "type": "string",
-              "description": "What the round judged: the staged commit sha, the pull request a reviewer opens, or the artifact's own ref. The artifact AS OF a revision is a git read of this ref \u2014 no second copy is stored."
+              "description": "What the round judged: the staged commit sha, the pull request a reviewer opens, or the artifact's own ref. The artifact AS OF a revision is a git read of this ref — no second copy is stored."
             }
           },
           "required": [
@@ -23843,7 +23861,7 @@
             "TaskRevisionWithdrawn"
           ],
           "x-go-base": "string",
-          "description": "A revision's rendered outcome. `withdrawn` is a round pulled back before anyone decided it \u2014 deliberate, not a fault, which is why it is not `failed`; `skipped` is a gate the policy did not hold for a human."
+          "description": "A revision's rendered outcome. `withdrawn` is a round pulled back before anyone decided it — deliberate, not a fault, which is why it is not `failed`; `skipped` is a gate the policy did not hold for a human."
         },
         "TaskRevisionProvenance": {
           "type": "string",
@@ -23895,7 +23913,7 @@
                 "type": "string"
               },
               "x-go-name": "AttemptIDs",
-              "description": "Every attempt of the revision, as \"\u003cactivityId\u003e:\u003ctask\u003e:\u003cn\u003e\" \u2014 the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate."
+              "description": "Every attempt of the revision, as \"\u003cactivityId\u003e:\u003ctask\u003e:\u003cn\u003e\" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate."
             },
             "episodeId": {
               "type": "string",
@@ -23907,7 +23925,7 @@
                 "null",
                 "string"
               ],
-              "description": "The attempt's own render-ready sentence, verbatim \u2014 'drafted \u003ckind\u003e on \u003cbranch\u003e', 'dispatched \u003ccommand\u003e for \u003cphase\u003e', 'asked N question(s) of \u003crole\u003e', or a failed venue's whole sentence including its run URL. PRESENT where the revision cites a gate attempt; absent on a reconstructed revision and where no attempt was captured. It exists because the M0 review is a SPEND APPROVAL and the per-family planning-assumption defaulting left no trace on any view: a founder could approve a cost computed on numbers nobody showed them. This is the field that shows them."
+              "description": "The attempt's own render-ready sentence, verbatim — 'drafted \u003ckind\u003e on \u003cbranch\u003e', 'dispatched \u003ccommand\u003e for \u003cphase\u003e', 'asked N question(s) of \u003crole\u003e', or a failed venue's whole sentence including its run URL. PRESENT where the revision cites a gate attempt; absent on a reconstructed revision and where no attempt was captured. It exists because the M0 review is a SPEND APPROVAL and the per-family planning-assumption defaulting left no trace on any view: a founder could approve a cost computed on numbers nobody showed them. This is the field that shows them."
             },
             "commentCount": {
               "type": "integer"
@@ -23917,11 +23935,11 @@
               "items": {
                 "$ref": "#/$defs/TaskRevisionComment"
               },
-              "description": "The anchored comments that rode with a send-back. On a persisted round it is a flat projection of `thread` \u2014 the same anchors and texts, so a reader that has only ever known this field keeps working \u2014 and the replies, the open/answered/resolved status and the reopen flag live in `thread` and only there."
+              "description": "The anchored comments that rode with a send-back. On a persisted round it is a flat projection of `thread` — the same anchors and texts, so a reader that has only ever known this field keeps working — and the replies, the open/answered/resolved status and the reopen flag live in `thread` and only there."
             },
             "note": {
               "type": "string",
-              "description": "The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. On a persisted round it is the last send-back verdict's summary \u2014 the same words, read off the record that owns them instead of matched to it by position."
+              "description": "The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. On a persisted round it is the last send-back verdict's summary — the same words, read off the record that owns them instead of matched to it by position."
             },
             "verdicts": {
               "type": "array",
@@ -23935,7 +23953,7 @@
               "items": {
                 "$ref": "#/$defs/ReviewThreadComment"
               },
-              "description": "The round's comment thread with its replies and resolutions \u2014 the same comments the design rails' ArtifactSlot.reviewThread carries, which is a read-through to this until stage 6."
+              "description": "The round's comment thread with its replies and resolutions — the same comments the design rails' ArtifactSlot.reviewThread carries, which is a read-through to this until stage 6."
             },
             "reviewers": {
               "type": "array",
@@ -23950,7 +23968,7 @@
             },
             "round": {
               "type": "integer",
-              "description": "The stored round number. Equal to n for a persisted round the construction rail wrote; for a design round it is that artifact kind's own count, so two kinds at one gate can both hold 1 \u2014 which is why both this and n are carried. Derived for a reconstructed revision, from the gate attempt's own number. Omitted on a dispatch revision and on a reconstruction placed beneath the ledger, neither of which has a round number to give."
+              "description": "The stored round number. Equal to n for a persisted round the construction rail wrote; for a design round it is that artifact kind's own count, so two kinds at one gate can both hold 1 — which is why both this and n are carried. Derived for a reconstructed revision, from the gate attempt's own number. Omitted on a dispatch revision and on a reconstruction placed beneath the ledger, neither of which has a round number to give."
             },
             "decidedBy": {
               "type": "string",
@@ -25941,7 +25959,7 @@
             },
             "buildStatus": {
               "type": "string",
-              "description": "The component's build state: empty (the default \u2014 built or to be built), \"planned\" (designed, no code yet \u2014 derives no activity), or \"external\" (supplied outside the project). Read by the plan derivation: a planned component yields no construction activity, because the pump dispatches whatever slot 9 holds."
+              "description": "The component's build state: empty (the default — built or to be built), \"planned\" (designed, no code yet — derives no activity), or \"external\" (supplied outside the project). Read by the plan derivation: a planned component yields no construction activity, because the pump dispatches whatever slot 9 holds."
             }
           },
           "required": [
@@ -26199,7 +26217,7 @@
         },
         "TestingVariant": {
           "type": "integer",
-          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec \u00a77): neither is a testing variant again, and 3 is never reused.",
+          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec §7): neither is a testing variant again, and 3 is never reused.",
           "enum": [
             0,
             1,
@@ -26775,7 +26793,7 @@
         },
         "ActivityConstructionPhase": {
           "type": "integer",
-          "description": "The coarse per-activity construction lifecycle, DERIVED from the row's head facts and its resolved phase completions \u2014 never stored. Member 4 (completedNotLanded) is APPENDED: ordinals 0-3 are wire values in every committed project and this model renumbers nothing.",
+          "description": "The coarse per-activity construction lifecycle, DERIVED from the row's head facts and its resolved phase completions — never stored. Member 4 (completedNotLanded) is APPENDED: ordinals 0-3 are wire values in every committed project and this model renumbers nothing.",
           "enum": [
             0,
             1,
@@ -27092,7 +27110,7 @@
             },
             "reviews": {
               "type": "string",
-              "description": "For a review task, the dispatch task it judges \u2014 the pair a send-back re-opens. Omitted on a dispatch task."
+              "description": "For a review task, the dispatch task it judges — the pair a send-back re-opens. Omitted on a dispatch task."
             },
             "state": {
               "$ref": "#/$defs/ActivityTaskState"
@@ -27113,7 +27131,7 @@
             },
             "reviewSetError": {
               "type": "string",
-              "description": "Why reviewSet is absent at this task's live gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected \u2014 Approve and SendBack work. Omitted when the engine answered or this task has no live gate."
+              "description": "Why reviewSet is absent at this task's live gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted when the engine answered or this task has no live gate."
             },
             "awaitingSince": {
               "type": "string",
@@ -27213,7 +27231,7 @@
               "items": {
                 "$ref": "#/$defs/ActivityTaskView"
               },
-              "description": "Every task of the lifecycle DAG, in lifecycle order \u2014 including the tasks nothing has happened on yet. The reviewer roster and the awaiting facts live HERE, on the task, since stage 4b3: a fork has two gates open at once and an activity-level answer could only ever name one of them."
+              "description": "Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet. The reviewer roster and the awaiting facts live HERE, on the task, since stage 4b3: a fork has two gates open at once and an activity-level answer could only ever name one of them."
             }
           },
           "required": [
@@ -27419,7 +27437,7 @@
         },
         "AwaitingTaskGate": {
           "type": "object",
-          "description": "ONE task's live human gate, as the activity's own execution sees it. It is the plural replacement for ConstructionSessionView's six flat gate members: those described an ACTIVITY while the facts are per TASK, so on a fork \u2014 where a service activity holds detailed_design and test_plan at once \u2014 they could only ever name whichever gate was entered last, and two stage 4b2 call sites read them and got the fork wrong. The key IS the task: there is one entry per task awaiting a human right now, and none at all when nobody is being waited on.",
+          "description": "ONE task's live human gate, as the activity's own execution sees it. It is the plural replacement for ConstructionSessionView's six flat gate members: those described an ACTIVITY while the facts are per TASK, so on a fork — where a service activity holds detailed_design and test_plan at once — they could only ever name whichever gate was entered last, and two stage 4b2 call sites read them and got the fork wrong. The key IS the task: there is one entry per task awaiting a human right now, and none at all when nobody is being waited on.",
           "properties": {
             "taskId": {
               "type": "string",
@@ -27428,7 +27446,7 @@
             },
             "gate": {
               "type": "string",
-              "description": "The gate CLASS this occurrence waits at: the task's own id for a phase approval, \"merge\" for the merge hold, \"takeover\" for an escalation. It is NOT redundant with taskId \u2014 an escalation is keyed by the task that escalated and waits at \"takeover\"."
+              "description": "The gate CLASS this occurrence waits at: the task's own id for a phase approval, \"merge\" for the merge hold, \"takeover\" for an escalation. It is NOT redundant with taskId — an escalation is keyed by the task that escalated and waits at \"takeover\"."
             },
             "reviewSet": {
               "type": [
@@ -27439,7 +27457,7 @@
             },
             "reviewSetError": {
               "type": "string",
-              "description": "Why reviewSet is absent at this gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected \u2014 Approve and SendBack work. Omitted whenever the engine answered."
+              "description": "Why reviewSet is absent at this gate: the review engine refused the proposal. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered."
             },
             "awaitingSince": {
               "type": "string",
@@ -27926,7 +27944,7 @@
             "draft"
           ],
           "additionalProperties": false,
-          "description": "The ONE derived session view, for all seventeen artifact kinds (stage 4b2). It is a projection of the durable slot, NOT a live session: its subject is what the slot says now, and the live execution's view is constructionSession, a different subject with a different lifetime. Eight members were pruned with the type's rename because nothing in the server could set them once 4b1 retired the live design rail \u2014 they were decoded by the SPA and always absent."
+          "description": "The ONE derived session view, for all seventeen artifact kinds (stage 4b2). It is a projection of the durable slot, NOT a live session: its subject is what the slot says now, and the live execution's view is constructionSession, a different subject with a different lifetime. Eight members were pruned with the type's rename because nothing in the server could set them once 4b1 retired the live design rail — they were decoded by the SPA and always absent."
         },
         "DesignHealth": {
           "type": "object",
@@ -28716,7 +28734,7 @@
               "additionalProperties": {
                 "$ref": "#/$defs/ActivityConstructionStatus"
               },
-              "description": "One view row per activity, keyed by ActivityID \u2014 the stored .activityExecution rows plus a planned-no-record row for every activity the committed list names and nothing has been recorded for. Renamed from ActivityConstruction in stage-3 task 4 with the stored map it projects: the row's derived members (Phase, Phases, CurrentPhase, Kind, BuildStatus) are COMPUTED here from the two ledgers and are no longer stored anywhere. The view type keeps its own name until the stage-5 Activity Experience replaces it wholesale."
+              "description": "One view row per activity, keyed by ActivityID — the stored .activityExecution rows plus a planned-no-record row for every activity the committed list names and nothing has been recorded for. Renamed from ActivityConstruction in stage-3 task 4 with the stored map it projects: the row's derived members (Phase, Phases, CurrentPhase, Kind, BuildStatus) are COMPUTED here from the two ledgers and are no longer stored anywhere. The view type keeps its own name until the stage-5 Activity Experience replaces it wholesale."
             },
             "constructionProgress": {
               "type": [
@@ -29309,11 +29327,11 @@
                 "artifact",
                 "pullRequest"
               ],
-              "description": "What the ref names \u2014 the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Both live rails mint commit (the staged model's sha on the design rail, the pushed work's sha on the construction rail) as of 38fd7f9c; pullRequest is what a reviewer's PR is recorded as, and artifact is the ref of an artifact judged outside either rail."
+              "description": "What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Both live rails mint commit (the staged model's sha on the design rail, the pushed work's sha on the construction rail) as of 38fd7f9c; pullRequest is what a reviewer's PR is recorded as, and artifact is the ref of an artifact judged outside either rail."
             },
             "ref": {
               "type": "string",
-              "description": "What the round judged: the staged commit sha, the pull request a reviewer opens, or the artifact's own ref. The artifact AS OF a revision is a git read of this ref \u2014 no second copy is stored."
+              "description": "What the round judged: the staged commit sha, the pull request a reviewer opens, or the artifact's own ref. The artifact AS OF a revision is a git read of this ref — no second copy is stored."
             }
           },
           "required": [
@@ -30104,7 +30122,7 @@
             "TaskRevisionWithdrawn"
           ],
           "x-go-base": "string",
-          "description": "A revision's rendered outcome. `withdrawn` is a round pulled back before anyone decided it \u2014 deliberate, not a fault, which is why it is not `failed`; `skipped` is a gate the policy did not hold for a human."
+          "description": "A revision's rendered outcome. `withdrawn` is a round pulled back before anyone decided it — deliberate, not a fault, which is why it is not `failed`; `skipped` is a gate the policy did not hold for a human."
         },
         "TaskRevisionProvenance": {
           "type": "string",
@@ -30156,7 +30174,7 @@
                 "type": "string"
               },
               "x-go-name": "AttemptIDs",
-              "description": "Every attempt of the revision, as \"\u003cactivityId\u003e:\u003ctask\u003e:\u003cn\u003e\" \u2014 the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate."
+              "description": "Every attempt of the revision, as \"\u003cactivityId\u003e:\u003ctask\u003e:\u003cn\u003e\" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate."
             },
             "episodeId": {
               "type": "string",
@@ -30168,7 +30186,7 @@
                 "null",
                 "string"
               ],
-              "description": "The attempt's own render-ready sentence, verbatim \u2014 'drafted \u003ckind\u003e on \u003cbranch\u003e', 'dispatched \u003ccommand\u003e for \u003cphase\u003e', 'asked N question(s) of \u003crole\u003e', or a failed venue's whole sentence including its run URL. PRESENT where the revision cites a gate attempt; absent on a reconstructed revision and where no attempt was captured. It exists because the M0 review is a SPEND APPROVAL and the per-family planning-assumption defaulting left no trace on any view: a founder could approve a cost computed on numbers nobody showed them. This is the field that shows them."
+              "description": "The attempt's own render-ready sentence, verbatim — 'drafted \u003ckind\u003e on \u003cbranch\u003e', 'dispatched \u003ccommand\u003e for \u003cphase\u003e', 'asked N question(s) of \u003crole\u003e', or a failed venue's whole sentence including its run URL. PRESENT where the revision cites a gate attempt; absent on a reconstructed revision and where no attempt was captured. It exists because the M0 review is a SPEND APPROVAL and the per-family planning-assumption defaulting left no trace on any view: a founder could approve a cost computed on numbers nobody showed them. This is the field that shows them."
             },
             "commentCount": {
               "type": "integer"
@@ -30178,11 +30196,11 @@
               "items": {
                 "$ref": "#/$defs/TaskRevisionComment"
               },
-              "description": "The anchored comments that rode with a send-back. On a persisted round it is a flat projection of `thread` \u2014 the same anchors and texts, so a reader that has only ever known this field keeps working \u2014 and the replies, the open/answered/resolved status and the reopen flag live in `thread` and only there."
+              "description": "The anchored comments that rode with a send-back. On a persisted round it is a flat projection of `thread` — the same anchors and texts, so a reader that has only ever known this field keeps working — and the replies, the open/answered/resolved status and the reopen flag live in `thread` and only there."
             },
             "note": {
               "type": "string",
-              "description": "The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. On a persisted round it is the last send-back verdict's summary \u2014 the same words, read off the record that owns them instead of matched to it by position."
+              "description": "The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. On a persisted round it is the last send-back verdict's summary — the same words, read off the record that owns them instead of matched to it by position."
             },
             "verdicts": {
               "type": "array",
@@ -30196,7 +30214,7 @@
               "items": {
                 "$ref": "#/$defs/ReviewThreadComment"
               },
-              "description": "The round's comment thread with its replies and resolutions \u2014 the same comments the design rails' ArtifactSlot.reviewThread carries, which is a read-through to this until stage 6."
+              "description": "The round's comment thread with its replies and resolutions — the same comments the design rails' ArtifactSlot.reviewThread carries, which is a read-through to this until stage 6."
             },
             "reviewers": {
               "type": "array",
@@ -30211,7 +30229,7 @@
             },
             "round": {
               "type": "integer",
-              "description": "The stored round number. Equal to n for a persisted round the construction rail wrote; for a design round it is that artifact kind's own count, so two kinds at one gate can both hold 1 \u2014 which is why both this and n are carried. Derived for a reconstructed revision, from the gate attempt's own number. Omitted on a dispatch revision and on a reconstruction placed beneath the ledger, neither of which has a round number to give."
+              "description": "The stored round number. Equal to n for a persisted round the construction rail wrote; for a design round it is that artifact kind's own count, so two kinds at one gate can both hold 1 — which is why both this and n are carried. Derived for a reconstructed revision, from the gate attempt's own number. Omitted on a dispatch revision and on a reconstruction placed beneath the ledger, neither of which has a round number to give."
             },
             "decidedBy": {
               "type": "string",
@@ -30871,7 +30889,7 @@
             "RoutingDirectiveCharge"
           ],
           "x-go-base": "int",
-          "description": "Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned \u2014 never reuse."
+          "description": "Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned — never reuse."
         }
       },
       "interface": {
@@ -30948,51 +30966,6 @@
       "goPackage": "internal/client/mcp/operations",
       "title": "mcpClientOperations contract",
       "$defs": {
-        "AutoscaleAction": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3,
-            4
-          ],
-          "x-enum-varnames": [
-            "AutoscaleNoChange",
-            "AutoscaleScaleUp",
-            "AutoscaleScaleDown",
-            "AutoscalePause",
-            "AutoscaleResume"
-          ],
-          "x-go-base": "int"
-        },
-        "AutoscaleDecisionView": {
-          "type": "object",
-          "properties": {
-            "At": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "Action": {
-              "$ref": "#/$defs/AutoscaleAction"
-            },
-            "Reason": {
-              "type": "string"
-            },
-            "Published": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "At",
-            "Action",
-            "Reason",
-            "Published"
-          ],
-          "additionalProperties": false
-        },
         "AutoscalerMode": {
           "type": "integer",
           "enum": [
@@ -31012,20 +30985,10 @@
           "properties": {
             "Mode": {
               "$ref": "#/$defs/AutoscalerMode"
-            },
-            "Decisions": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/AutoscaleDecisionView"
-              }
             }
           },
           "required": [
-            "Mode",
-            "Decisions"
+            "Mode"
           ],
           "additionalProperties": false
         },
@@ -31051,7 +31014,7 @@
         },
         "DelinquencyAction": {
           "type": "integer",
-          "description": "What a delinquency directive asks for. The UNKNOWN member is the point: it is the zero value, so a request body that omits the action decodes as unknown and is REFUSED by the enforcement branch instead of taking the only arm that acts. The varnames are deliberately NOT identical to operatedSystemStateAccess.DelinquencyAction's (Paused/Withdrawn) \u2014 that enum records what was DONE, this one names what was ASKED.",
+          "description": "What a delinquency directive asks for. The UNKNOWN member is the point: it is the zero value, so a request body that omits the action decodes as unknown and is REFUSED by the enforcement branch instead of taking the only arm that acts. The varnames are deliberately NOT identical to operatedSystemStateAccess.DelinquencyAction's (Paused/Withdrawn) — that enum records what was DONE, this one names what was ASKED.",
           "enum": [
             0,
             1,
@@ -31244,15 +31207,6 @@
                 "$ref": "#/$defs/SloRowView"
               }
             },
-            "RecentEvents": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/RuntimeStatusEventView"
-              }
-            },
             "Autoscaler": {
               "$ref": "#/$defs/AutoscalerView"
             },
@@ -31266,7 +31220,6 @@
             "InFlight",
             "Health",
             "Slos",
-            "RecentEvents",
             "Autoscaler",
             "CurrentRunRate"
           ],
@@ -31409,33 +31362,6 @@
               "x-go-name": "AppIDs"
             }
           },
-          "additionalProperties": false
-        },
-        "RuntimeStatusEventView": {
-          "type": "object",
-          "properties": {
-            "At": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "From": {
-              "$ref": "#/$defs/RuntimeStatusSeam"
-            },
-            "To": {
-              "$ref": "#/$defs/RuntimeStatusSeam"
-            },
-            "Note": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "At",
-            "From",
-            "To",
-            "Note"
-          ],
           "additionalProperties": false
         },
         "RuntimeStatusSeam": {
@@ -31951,7 +31877,7 @@
         },
         "ExecutionStart": {
           "type": "object",
-          "description": "Starts the target execution when none is running (signal-with-start): the registered kind it runs as and its start payload. A queued Manager\u2192Manager message whose receiver is born by the message (operations' {customerId}:delinquency) carries it; a signal to an execution that must already be running (the delivery pump) does not, and fails NotFound when it is gone.",
+          "description": "Starts the target execution when none is running (signal-with-start): the registered kind it runs as and its start payload. A queued Manager→Manager message whose receiver is born by the message (operations' {customerId}:delinquency) carries it; a signal to an execution that must already be running (the delivery pump) does not, and fails NotFound when it is gone.",
           "properties": {
             "Kind": {
               "$ref": "#/$defs/ExecutionKind"
@@ -32319,6 +32245,22 @@
             "Replicas"
           ],
           "additionalProperties": false
+        },
+        "WorkloadTelemetry": {
+          "type": "object",
+          "properties": {
+            "Measured": {
+              "type": "boolean"
+            },
+            "CPUUtilization": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "Measured",
+            "CPUUtilization"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -32441,6 +32383,24 @@
             "error": true
           },
           {
+            "name": "ReadWorkloadTelemetry",
+            "params": [
+              {
+                "name": "appID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/WorkloadTelemetry"
+            },
+            "error": true
+          },
+          {
             "name": "Withdraw",
             "params": [
               {
@@ -32474,44 +32434,6 @@
       ],
       "title": "operatedSystemStateAccess contract",
       "$defs": {
-        "AutoscaleAction": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3,
-            4
-          ],
-          "x-enum-varnames": [
-            "AutoscaleNoChange",
-            "AutoscaleScaleUp",
-            "AutoscaleScaleDown",
-            "AutoscalePause",
-            "AutoscaleResume"
-          ],
-          "x-go-base": "int"
-        },
-        "AutoscaleDecision": {
-          "type": "object",
-          "properties": {
-            "Action": {
-              "$ref": "#/$defs/AutoscaleAction"
-            },
-            "Delta": {
-              "type": "integer"
-            },
-            "ToBaseline": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "Action",
-            "Delta",
-            "ToBaseline"
-          ],
-          "additionalProperties": false
-        },
         "DelinquencyAction": {
           "type": "integer",
           "enum": [
@@ -32525,6 +32447,41 @@
             "DelinquencyActionWithdrawn"
           ],
           "x-go-base": "int"
+        },
+        "DesiredScale": {
+          "type": "object",
+          "properties": {
+            "Replicas": {
+              "type": "integer"
+            },
+            "MinReplicas": {
+              "type": "integer"
+            },
+            "MaxReplicas": {
+              "type": "integer"
+            },
+            "TargetUtilizationPct": {
+              "type": "integer"
+            },
+            "ScaleToZero": {
+              "type": "boolean"
+            },
+            "ScaledAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "Replicas",
+            "MinReplicas",
+            "MaxReplicas",
+            "TargetUtilizationPct",
+            "ScaleToZero",
+            "ScaledAt"
+          ],
+          "additionalProperties": false
         },
         "DesiredStateReason": {
           "type": "integer",
@@ -32597,6 +32554,9 @@
             },
             "ProjectRef": {
               "type": "string"
+            },
+            "Scale": {
+              "$ref": "#/$defs/DesiredScale"
             }
           },
           "required": [
@@ -32606,7 +32566,8 @@
             "Status",
             "InFlight",
             "DeployableBundleRef",
-            "ProjectRef"
+            "ProjectRef",
+            "Scale"
           ],
           "additionalProperties": false
         },
@@ -32624,12 +32585,16 @@
             },
             "Status": {
               "$ref": "#/$defs/RuntimeStatus"
+            },
+            "Scale": {
+              "$ref": "#/$defs/DesiredScale"
             }
           },
           "required": [
             "ID",
             "Version",
-            "Status"
+            "Status",
+            "Scale"
           ],
           "additionalProperties": false
         },
@@ -32731,10 +32696,9 @@
                 }
               },
               {
-                "name": "decision",
-                "pointer": true,
+                "name": "scale",
                 "schema": {
-                  "$ref": "#/$defs/AutoscaleDecision"
+                  "$ref": "#/$defs/DesiredScale"
                 }
               },
               {
@@ -33295,51 +33259,6 @@
       ],
       "title": "operations contract",
       "$defs": {
-        "AutoscaleAction": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3,
-            4
-          ],
-          "x-enum-varnames": [
-            "AutoscaleNoChange",
-            "AutoscaleScaleUp",
-            "AutoscaleScaleDown",
-            "AutoscalePause",
-            "AutoscaleResume"
-          ],
-          "x-go-base": "int"
-        },
-        "AutoscaleDecisionView": {
-          "type": "object",
-          "properties": {
-            "At": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "Action": {
-              "$ref": "#/$defs/AutoscaleAction"
-            },
-            "Reason": {
-              "type": "string"
-            },
-            "Published": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "At",
-            "Action",
-            "Reason",
-            "Published"
-          ],
-          "additionalProperties": false
-        },
         "AutoscalerMode": {
           "type": "integer",
           "enum": [
@@ -33359,20 +33278,10 @@
           "properties": {
             "Mode": {
               "$ref": "#/$defs/AutoscalerMode"
-            },
-            "Decisions": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/AutoscaleDecisionView"
-              }
             }
           },
           "required": [
-            "Mode",
-            "Decisions"
+            "Mode"
           ],
           "additionalProperties": false
         },
@@ -33398,7 +33307,7 @@
         },
         "DelinquencyAction": {
           "type": "integer",
-          "description": "What a delinquency directive asks for. The UNKNOWN member is the point: it is the zero value, so a request body that omits the action decodes as unknown and is REFUSED by the enforcement branch instead of taking the only arm that acts. The varnames are deliberately NOT identical to operatedSystemStateAccess.DelinquencyAction's (Paused/Withdrawn) \u2014 that enum records what was DONE, this one names what was ASKED.",
+          "description": "What a delinquency directive asks for. The UNKNOWN member is the point: it is the zero value, so a request body that omits the action decodes as unknown and is REFUSED by the enforcement branch instead of taking the only arm that acts. The varnames are deliberately NOT identical to operatedSystemStateAccess.DelinquencyAction's (Paused/Withdrawn) — that enum records what was DONE, this one names what was ASKED.",
           "enum": [
             0,
             1,
@@ -33591,15 +33500,6 @@
                 "$ref": "#/$defs/SloRowView"
               }
             },
-            "RecentEvents": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/RuntimeStatusEventView"
-              }
-            },
             "Autoscaler": {
               "$ref": "#/$defs/AutoscalerView"
             },
@@ -33613,7 +33513,6 @@
             "InFlight",
             "Health",
             "Slos",
-            "RecentEvents",
             "Autoscaler",
             "CurrentRunRate"
           ],
@@ -33672,33 +33571,6 @@
               "x-go-name": "AppIDs"
             }
           },
-          "additionalProperties": false
-        },
-        "RuntimeStatusEventView": {
-          "type": "object",
-          "properties": {
-            "At": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            },
-            "From": {
-              "$ref": "#/$defs/RuntimeStatusSeam"
-            },
-            "To": {
-              "$ref": "#/$defs/RuntimeStatusSeam"
-            },
-            "Note": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "At",
-            "From",
-            "To",
-            "Note"
-          ],
           "additionalProperties": false
         },
         "RuntimeStatusSeam": {
@@ -34074,7 +33946,7 @@
         },
         "ActivityConstructionPhase": {
           "type": "integer",
-          "description": "The coarse per-activity construction lifecycle, DERIVED from the row's head facts and its resolved phase completions \u2014 never stored. Member 4 (completedNotLanded) is APPENDED: ordinals 0-3 are wire values in every committed project and this model renumbers nothing.",
+          "description": "The coarse per-activity construction lifecycle, DERIVED from the row's head facts and its resolved phase completions — never stored. Member 4 (completedNotLanded) is APPENDED: ordinals 0-3 are wire values in every committed project and this model renumbers nothing.",
           "enum": [
             0,
             1,
@@ -37087,7 +36959,7 @@
         },
         "TestingVariant": {
           "type": "integer",
-          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec \u00a77): neither is a testing variant again, and 3 is never reused.",
+          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec §7): neither is a testing variant again, and 3 is never reused.",
           "enum": [
             0,
             1,
@@ -46355,6 +46227,54 @@
           },
           {
             "scenario": "operate-a-delivered-system-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RetrieveConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "contentAddress",
+                    "value": "sha-of-hook-arranged-output",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHN0cC1vcGVyYXRlZC1hcHAK\",\"MIMEType\":\"application/yaml\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RetrieveConstructionOutput",
+                "inputs": [
+                  {
+                    "name": "contentAddress",
+                    "value": "sha-of-hook-arranged-output",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Bytes\":\"YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHN0cC1vcGVyYXRlZC1hcHAK\",\"MIMEType\":\"application/yaml\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
             "steps": [
               {
                 "seq": 1,
@@ -61293,22 +61213,17 @@
                 "probes": [
                   {
                     "for": "desired-state-published-c",
-                    "component": "mcpClientOperations",
-                    "operation": "OperationsQueryOperatedSystemView",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
                     "inputs": [
                       {
                         "name": "operatedAppID",
                         "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
                         "schemaRef": ""
-                      },
-                      {
-                        "name": "requestID",
-                        "value": "stp-mcpops-op-P3-view",
-                        "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":2,\"Autoscaler\":{\"Decisions\":[{\"Action\":1,\"Published\":true}]}}}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -61325,7 +61240,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -61394,7 +61309,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3,\"RecentEvents\":[{\"From\":2,\"To\":3}]}}",
+                      "result": "{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -61446,7 +61361,24 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3,\"RecentEvents\":[{\"From\":2,\"To\":3}],\"Autoscaler\":{\"Decisions\":[{\"Action\":1,\"Published\":true}]}}}",
+                      "result": "{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "desired-state-published-c",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
+                    "inputs": [
+                      {
+                        "name": "operatedAppID",
+                        "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -61463,7 +61395,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -62505,6 +62437,25 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "ReadWorkloadTelemetry",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Measured\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
                 "probes": [
                   {
                     "for": "pull-telemetry",
@@ -62590,6 +62541,25 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "ReadWorkloadTelemetry",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Measured\":true,\"CPUUtilization\":0.9}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
                 "probes": [
                   {
                     "for": "pull-telemetry",
@@ -62613,7 +62583,7 @@
                 "hook": false
               },
               {
-                "seq": 4,
+                "seq": 5,
                 "operation": "PublishDesiredState",
                 "inputs": [
                   {
@@ -62727,6 +62697,25 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "ReadWorkloadTelemetry",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000005",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Measured\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
                 "probes": [
                   {
                     "for": "pull-telemetry",
@@ -62812,6 +62801,25 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "ReadWorkloadTelemetry",
+                "inputs": [
+                  {
+                    "name": "appID",
+                    "value": "7a0e5c11-0000-4000-8000-000000000006",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Measured\":true,\"CPUUtilization\":0.4}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
                 "probes": [
                   {
                     "for": "pull-telemetry",
@@ -62835,7 +62843,7 @@
                 "hook": false
               },
               {
-                "seq": 4,
+                "seq": 5,
                 "operation": "PublishDesiredState",
                 "inputs": [
                   {
@@ -63277,6 +63285,11 @@
                     "schemaRef": ""
                   },
                   {
+                    "name": "scale",
+                    "value": "{\"Replicas\":2,\"MinReplicas\":1,\"MaxReplicas\":4,\"TargetUtilizationPct\":70,\"ScaleToZero\":false,\"ScaledAt\":\"2026-10-01T00:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
                     "name": "idempotencyKey",
                     "value": "stp-osa-op-P1-2",
                     "schemaRef": ""
@@ -63300,7 +63313,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true}",
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true,\"Scale\":{\"Replicas\":2}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -63317,7 +63330,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true}",
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true,\"Scale\":{\"Replicas\":2}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -63413,8 +63426,8 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "decision",
-                    "value": "{\"Action\":1,\"Delta\":1,\"ToBaseline\":0}",
+                    "name": "scale",
+                    "value": "{\"Replicas\":3,\"MinReplicas\":1,\"MaxReplicas\":4,\"TargetUtilizationPct\":70,\"ScaleToZero\":false,\"ScaledAt\":\"2026-10-01T00:05:00Z\"}",
                     "schemaRef": ""
                   },
                   {
@@ -63441,7 +63454,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":2,\"InFlight\":true}",
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":2,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -63641,8 +63654,8 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "decision",
-                    "value": "{\"Action\":2,\"Delta\":1,\"ToBaseline\":0}",
+                    "name": "scale",
+                    "value": "{\"Replicas\":3,\"MinReplicas\":1,\"MaxReplicas\":4,\"TargetUtilizationPct\":70,\"ScaleToZero\":false,\"ScaledAt\":\"2026-10-01T00:05:00Z\"}",
                     "schemaRef": ""
                   },
                   {
@@ -63669,7 +63682,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":3,\"Status\":3,\"InFlight\":true}",
+                      "result": "{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":3,\"Status\":3,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -64728,22 +64741,17 @@
                 "probes": [
                   {
                     "for": "desired-state-published-c",
-                    "component": "operationsManager",
-                    "operation": "QueryOperatedSystemView",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
                     "inputs": [
                       {
                         "name": "operatedAppID",
                         "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
                         "schemaRef": ""
-                      },
-                      {
-                        "name": "requestID",
-                        "value": "stp-ops-P3-probe-view",
-                        "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":2,\"Autoscaler\":{\"Decisions\":[{\"Action\":1,\"Published\":true}]}}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -64760,7 +64768,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":4,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":4,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -64922,22 +64930,17 @@
                   },
                   {
                     "for": "desired-state-published-c",
-                    "component": "operationsManager",
-                    "operation": "QueryOperatedSystemView",
+                    "component": "operatedSystemStateAccess",
+                    "operation": "ReadOperatedSystem",
                     "inputs": [
                       {
                         "name": "operatedAppID",
                         "value": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
                         "schemaRef": ""
-                      },
-                      {
-                        "name": "requestID",
-                        "value": "stp-ops-P5-probe-view-autoscale",
-                        "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Autoscaler\":{\"Decisions\":[{\"Action\":1,\"Published\":true}]}}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -64954,7 +64957,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":5,\"InFlight\":true}",
+                      "result": "{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":5,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -67449,6 +67452,54 @@
                 ],
                 "expect": {
                   "result": "{\"ID\":\"stp-psa-ods-p1\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-ods-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-ods-p3\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "operate-a-delivered-system-P5",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-ods-p5",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-ods-p5\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}",
                   "errorExpected": false,
                   "errorCode": ""
                 },

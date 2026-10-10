@@ -72,13 +72,14 @@ func arrangeRegistered(t *testing.T, h *scenariohost.Host, subject operatedsyste
 // arrangePublish records one desired-state publish against expectedVersion and
 // checks the head state moved to want. expectedVersion 0 is the contract's create
 // seam: it creates the head-state row in flight at version 1, carrying no
-// customer, project or bundle.
+// customer, project or bundle. The publish carries arrangedScale, a deploy's
+// desired scale: two server replicas under a 1..4 policy targeting 70% CPU.
 func arrangePublish(t *testing.T, h *scenariohost.Host, subject operatedsystemstate.OperatedSystemStateAccess, appID string, expectedVersion, want int) {
 	t.Helper()
 	var a publishArgs
-	mustUnmarshal(t, fmt.Sprintf(`{"operatedAppID":%q,"expectedVersion":%d,"reason":1,"idempotencyKey":"arrange-publish:%s:%d"}`,
-		appID, expectedVersion, appID, expectedVersion), &a)
-	v, err := subject.PublishDesiredState(callContext(t, h, "arrange-publish"), a.OperatedAppID, a.ExpectedVersion, a.Reason, a.Decision, a.IdempotencyKey)
+	mustUnmarshal(t, fmt.Sprintf(`{"operatedAppID":%q,"expectedVersion":%d,"reason":1,"scale":%s,"idempotencyKey":"arrange-publish:%s:%d"}`,
+		appID, expectedVersion, arrangedScale, appID, expectedVersion), &a)
+	v, err := subject.PublishDesiredState(callContext(t, h, "arrange-publish"), a.OperatedAppID, a.ExpectedVersion, a.Reason, a.Scale, a.IdempotencyKey)
 	if err != nil {
 		t.Fatalf("arrange: PublishDesiredState %s @%d: %v", appID, expectedVersion, err)
 	}
@@ -86,6 +87,9 @@ func arrangePublish(t *testing.T, h *scenariohost.Host, subject operatedsystemst
 		t.Fatalf("arrange: PublishDesiredState %s @%d: version %d, want %d", appID, expectedVersion, v, want)
 	}
 }
+
+// arrangedScale is the desired scale every arranged publish records.
+const arrangedScale = `{"Replicas":2,"MinReplicas":1,"MaxReplicas":4,"TargetUtilizationPct":70,"ScaleToZero":false,"ScaledAt":"2026-10-01T00:00:00Z"}`
 
 // arrangeInFlight brings the app into operation through the contract's create
 // seam: a version-0 PublishDesiredState, head state version 1, in flight. The
@@ -144,7 +148,7 @@ func onlyAppID(t *testing.T, scope operatedsystemstate.InFlightScope) string {
 
 // stepEnforceCustomerDelinquencyOnOperatedSystemsP2S1 — Enforce Customer Delinquency on Operated Systems — [yes] · [pause], step 1: ReadInFlightOperatedApps
 // Projected stimulus (JSON): {"seq":1,"node":"read-customer-systems","input":{"kind":"call","from":"operations-manager","to":"operatedsystemstateaccess","op":"ReadInFlightOperatedApps","call":"enforce-customer-delinquency-on-operated-systems/read-customer-systems/0"},"expectedOutputs":[{"node":"read-customer-systems","kind":"inferred","to":"","label":"Read the delinquent customer's in-flight systems"}],"expectedStates":null,"hints":["Pause does not yet publish a runtime scale-to-zero (replica-override follow-up). It is recorded at head-state level only, so expect no runtime call on this arm."]}
-// Binding (JSON): {"seq":1,"operation":"ReadInFlightOperatedApps","inputs":[{"name":"scope","value":"{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\"}"}],"expect":{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":1}]","errorExpected":false},"probes":[{"for":"read-customer-systems","component":"operatedSystemStateAccess","operation":"ReadInFlightOperatedApps","inputs":[{"name":"scope","value":"{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\"}"}],"expect":{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":1}]","errorExpected":false}}],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"ReadInFlightOperatedApps","inputs":[{"name":"scope","value":"{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\"}"}],"expect":{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":2}]","errorExpected":false},"probes":[{"for":"read-customer-systems","component":"operatedSystemStateAccess","operation":"ReadInFlightOperatedApps","inputs":[{"name":"scope","value":"{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000001\"}"}],"expect":{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000001\",\"Version\":2}]","errorExpected":false}}],"unobservable":[],"hook":true}
 // Guards directive-named=[yes] and action-kind=[pause] are the Manager's: the
 // directive names a customer with one operated system. Arranged on the production
 // onboarding path (register under the customer, then the first deploy), which
@@ -158,7 +162,7 @@ func stepEnforceCustomerDelinquencyOnOperatedSystemsP2S1(t *testing.T, h *scenar
 
 // stepEnforceCustomerDelinquencyOnOperatedSystemsP3S1 — Enforce Customer Delinquency on Operated Systems — [yes] · [withdraw], step 1: ReadInFlightOperatedApps
 // Projected stimulus (JSON): {"seq":1,"node":"read-customer-systems","input":{"kind":"call","from":"operations-manager","to":"operatedsystemstateaccess","op":"ReadInFlightOperatedApps","call":"enforce-customer-delinquency-on-operated-systems/read-customer-systems/0"},"expectedOutputs":[{"node":"read-customer-systems","kind":"inferred","to":"","label":"Read the delinquent customer's in-flight systems"}],"expectedStates":null,"hints":["Pause does not yet publish a runtime scale-to-zero (replica-override follow-up). It is recorded at head-state level only, so expect no runtime call on this arm."]}
-// Binding (JSON): {"seq":1,"operation":"ReadInFlightOperatedApps","inputs":[{"name":"scope","value":"{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\"}"}],"expect":{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":1}]","errorExpected":false},"probes":[{"for":"read-customer-systems","component":"operatedSystemStateAccess","operation":"ReadInFlightOperatedApps","inputs":[{"name":"scope","value":"{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\"}"}],"expect":{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":1}]","errorExpected":false}}],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"ReadInFlightOperatedApps","inputs":[{"name":"scope","value":"{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\"}"}],"expect":{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":2}]","errorExpected":false},"probes":[{"for":"read-customer-systems","component":"operatedSystemStateAccess","operation":"ReadInFlightOperatedApps","inputs":[{"name":"scope","value":"{\"AppIDs\":[],\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000002\"}"}],"expect":{"result":"[{\"ID\":\"0c5a0000-0000-4000-8000-000000000002\",\"Version\":2}]","errorExpected":false}}],"unobservable":[],"hook":true}
 // Guards directive-named=[yes] and action-kind=[withdraw] are the Manager's: the
 // directive names a customer with one operated system. Arranged on the production
 // onboarding path (register under the customer, then the first deploy), which
@@ -172,7 +176,7 @@ func stepEnforceCustomerDelinquencyOnOperatedSystemsP3S1(t *testing.T, h *scenar
 
 // stepOperateADeliveredSystemP1S1 — Operate a Delivered System, step 1: ReadOperatedSystem
 // Projected stimulus (JSON): {"seq":1,"node":"render-manifests-a","input":{"kind":"call","from":"operations-manager","to":"operatedsystemstateaccess","op":"ReadOperatedSystem","call":"operate-a-delivered-system/render-manifests-a/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"0c5a0000-0000-4000-8000-000000000003"}],"expect":{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":1,\"InFlight\":true,\"DeployableBundleRef\":\"bundle-osa-0003\"}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"0c5a0000-0000-4000-8000-000000000003"}],"expect":{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true,\"DeployableBundleRef\":\"bundle-osa-0003\"}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // No guards: the publish trigger reads the delivered system before rendering.
 // Arranged on the production onboarding path: the system registered with its
 // customer, project and deployable bundle and taken live by its first deploy.

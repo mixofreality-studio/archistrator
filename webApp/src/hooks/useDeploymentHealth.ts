@@ -24,7 +24,7 @@
  *
  * Runtime health can change between polls (a rollout settling, a pod restarting),
  * so this refetches on the same cadence useOperationsView.ts's runtime poll uses
- * rather than caching forever like useCapabilities does.
+ * rather than caching forever.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useOpsClient } from '../api/opsContext';
@@ -48,12 +48,9 @@ export function deploymentHealthKey(operatedAppId: string): readonly unknown[] {
  * @param operatedAppId The operated app to read live health for — the id derived
  *   from the project (useOperatedAppId; see the module doc above). Empty stays
  *   dormant, which is also what an un-loaded derivation looks like.
- * @param capabilityEnabled Whether the operations capability is on (D9); the
- *   caller reads this from useCapabilities().operations.
  */
 export function useDeploymentHealth(
-  operatedAppId: string,
-  capabilityEnabled = true
+  operatedAppId: string
 ): UseQueryResult<Record<string, HealthState>> {
   const { ops } = useOpsClient();
   return useQuery<Record<string, HealthState>>({
@@ -70,7 +67,7 @@ export function useDeploymentHealth(
       }
       return byKey;
     },
-    enabled: deploymentHealthQueryEnabled(capabilityEnabled, operatedAppId),
+    enabled: deploymentHealthQueryEnabled(operatedAppId),
     refetchInterval: POLL_INTERVAL_MS,
   });
 }

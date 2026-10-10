@@ -1,8 +1,8 @@
 /**
  * Status / Health — a status-page-style SLO LISTVIEW backed by the live
- * operations view (readRuntimeStatus → health.sloMet / slos[] / recentEvents[]).
+ * operations view (readRuntimeStatus → health.sloMet / slos[]).
  * Scan every SLO at a glance (SloMet / healthy / component), plus the at-a-glance
- * rollup banner and the RuntimeStatusChanged health timeline. Degrades to an
+ * rollup banner. Degrades to an
  * awaiting state when the read is quiet. [operatedRuntimeAccess]
  */
 import type { ReactNode } from 'react';
@@ -13,7 +13,7 @@ import Tooltip from '@mui/material/Tooltip';
 import type { Tokens } from '../../utilities/theme/themes';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { OperationsSlo, OperationsView } from '../../contracts/operationsTypes';
-import { normalizePhase, sloSummary, formatEventTime } from '../../contracts/operationsAdapters';
+import { normalizePhase, sloSummary } from '../../contracts/operationsAdapters';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { PhaseChip, SloPill, phaseColor } from './phase';
 import { AwaitingPanel } from './AwaitingPanel';
@@ -104,63 +104,6 @@ export function StatusTab({ view }: { view: OperationsView | undefined }): React
                 s={s}
                 t={t}
               />
-            ))}
-          </Paper>
-        )}
-      </Box>
-
-      {/* health timeline */}
-      <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 16, color: t.ink }}>
-            Health timeline
-          </Typography>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
-            · RuntimeStatusChanged (operatedSystemStateAccess)
-          </Typography>
-        </Box>
-        {view.recentEvents.length === 0 ? (
-          <Paper sx={{ p: 2.5, textAlign: 'center' }}>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
-              No recent transitions.
-            </Typography>
-          </Paper>
-        ) : (
-          <Paper sx={{ p: 0, overflow: 'hidden' }}>
-            {view.recentEvents.map((e, i) => (
-              <Box
-                key={`${e.at}-${String(i)}`}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 1.5,
-                  px: 2,
-                  py: 1.1,
-                  borderBottom: i === view.recentEvents.length - 1 ? 'none' : `1px solid ${t.line}`,
-                }}
-              >
-                <Typography
-                  sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, minWidth: 96, pt: 0.2 }}
-                >
-                  {formatEventTime(e.at)}
-                </Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pt: 0.1 }}>
-                  <PhaseChip phase={normalizePhase(e.from)} size="xs" t={t} />
-                  <Typography sx={{ color: t.muted, fontSize: 12 }}>→</Typography>
-                  <PhaseChip phase={normalizePhase(e.to)} size="xs" t={t} />
-                </Box>
-                <Typography
-                  sx={{
-                    fontFamily: t.body,
-                    fontSize: 12.5,
-                    color: t.ink,
-                    lineHeight: 1.4,
-                    flexGrow: 1,
-                  }}
-                >
-                  {e.note}
-                </Typography>
-              </Box>
             ))}
           </Paper>
         )}

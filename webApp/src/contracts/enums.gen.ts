@@ -280,41 +280,6 @@ export const ARTIFACT_STAGE_APP_TO_ORDINAL: Readonly<Record<ArtifactStage, numbe
   rejected: 3,
   withdrawn: 4,
 };
-// --- AutoscaleAction -----------------------------------------------------
-// Sources: OperationsAutoscaleAction
-export const AUTOSCALE_ACTION_GO_VARNAMES = [
-  'AutoscaleNoChange',
-  'AutoscaleScaleUp',
-  'AutoscaleScaleDown',
-  'AutoscalePause',
-  'AutoscaleResume',
-] as const;
-
-export type AutoscaleActionGoVarname = (typeof AUTOSCALE_ACTION_GO_VARNAMES)[number];
-
-export const AUTOSCALE_ACTION_ORDINAL_TO_GO_VARNAME: readonly AutoscaleActionGoVarname[] =
-  AUTOSCALE_ACTION_GO_VARNAMES;
-
-export const AUTOSCALE_ACTION_APP_STRINGS = [
-  'noChange',
-  'scaleUp',
-  'scaleDown',
-  'pause',
-  'resume',
-] as const;
-
-export type AutoscaleAction = (typeof AUTOSCALE_ACTION_APP_STRINGS)[number];
-
-export const AUTOSCALE_ACTION_ORDINAL_TO_APP: readonly AutoscaleAction[] =
-  AUTOSCALE_ACTION_APP_STRINGS;
-
-export const AUTOSCALE_ACTION_APP_TO_ORDINAL: Readonly<Record<AutoscaleAction, number>> = {
-  noChange: 0,
-  scaleUp: 1,
-  scaleDown: 2,
-  pause: 3,
-  resume: 4,
-};
 // --- AutoscalerMode ------------------------------------------------------
 // Sources: OperationsAutoscalerMode
 export const AUTOSCALER_MODE_GO_VARNAMES = [

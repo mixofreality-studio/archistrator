@@ -525,8 +525,7 @@ export function DeploymentFlow({
   profile: DeploymentProfile;
   /**
    * The live health overlay, modelKey -> HealthState (Task 12, spec D10). The
-   * CALLER owns the fetch (useDeploymentHealth) and the capability gate
-   * (useCapabilities().operations, D9) — this component stays a pure
+   * CALLER owns the fetch (useDeploymentHealth) — this component stays a pure
    * components-layer file with no hooks import, per the layer DAG
    * (eslint.platform.config.js). Undefined/empty renders the diagram exactly as
    * it does today. Only ever consulted for the `cloud` profile — `test` and

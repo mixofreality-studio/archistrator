@@ -185,6 +185,12 @@ func (dryRunOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID,
 	return ComputeAttribution{}, nil
 }
 
+// ReadWorkloadTelemetry reports an unmeasured workload: the dry-run runs nothing, so it
+// measures nothing, and an autoscaler fed it has no utilization signal to act on.
+func (dryRunOperatedRuntime) ReadWorkloadTelemetry(_ fwra.Context, _ uuid.UUID) (WorkloadTelemetry, error) {
+	return WorkloadTelemetry{}, nil
+}
+
 // ---------------------------------------------------------------------------
 // REAL profile — GitOps commit path, Argo health reads, Prometheus observability reads.
 // ---------------------------------------------------------------------------
@@ -416,6 +422,45 @@ func (r realOperatedRuntime) ReadComputeAttribution(rc fwra.Context, appID uuid.
 		Units:          ComputeUnits{Amount: amount, Unit: computeUnitCPUSeconds},
 		RuntimeEventID: fmt.Sprintf("compute/%s/%d-%d", appID, window.From.Unix(), window.To.Unix()),
 	}, nil
+}
+
+// ReadWorkloadTelemetry reports the CPU utilization of appID's server workload — the
+// fraction of its requested CPU its pods used over the last five minutes — from
+// Prometheus (see the "Observability reads" section): the signal the autoscaler weighs
+// against the scaling policy's target. Like the other observability reads it invents
+// nothing: with no Prometheus configured, for an app with no live Application, or for a
+// workload with no CPU request series, it reports the workload unmeasured (Measured
+// false) — never a measured zero, which an autoscaler would read as idle. Any failure
+// to resolve the app or to query Prometheus is an error.
+func (r realOperatedRuntime) ReadWorkloadTelemetry(rc fwra.Context, appID uuid.UUID) (WorkloadTelemetry, error) {
+	if r.config.PrometheusURL == "" {
+		return WorkloadTelemetry{}, nil
+	}
+	app, _, found, err := r.argoFindApplicationByAppID(rc.Context, appID)
+	if err != nil {
+		return WorkloadTelemetry{}, err
+	}
+	if !found {
+		return WorkloadTelemetry{}, nil
+	}
+	ns, name := app.Spec.Destination.Namespace, app.Metadata.Name
+	if !validAppName(ns) || !validAppName(name) {
+		return WorkloadTelemetry{}, fwra.New(fwra.Infrastructure,
+			"operatedruntime: the live Application for "+appID.String()+" names namespace "+strconv.Quote(ns)+
+				" and app "+strconv.Quote(name)+"; both must be DNS-1123 labels to scope a metrics query")
+	}
+	samples, err := r.prometheusQuery(rc.Context, serverCPUUtilizationQuery(ns, name+"-server"), time.Now())
+	if err != nil {
+		return WorkloadTelemetry{}, err
+	}
+	if len(samples) == 0 {
+		return WorkloadTelemetry{}, nil
+	}
+	var utilization float64
+	for _, s := range samples {
+		utilization += s.Value
+	}
+	return WorkloadTelemetry{Measured: true, CPUUtilization: utilization}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -2348,12 +2393,14 @@ const (
 
 // argoApplication is the minimal shape this file reads off the Argo Application CR's JSON:
 // metadata.annotations to resolve appID -> Application (see the section doc above),
+// metadata.name (the app name its workloads are named after) and
 // spec.destination.namespace for the observability reads, and status.health /
 // status.resources for RuntimeStatus and per-resource health respectively. Every other
 // field on the real object (spec.source, status.sync, …) is intentionally unparsed — this is a read path, not a round-trip, and adding a field here
 // is cheap whenever a later task needs one.
 type argoApplication struct {
 	Metadata struct {
+		Name        string            `json:"name"`
 		Annotations map[string]string `json:"annotations"`
 	} `json:"metadata"`
 	Spec struct {
@@ -2773,7 +2820,7 @@ func (r realOperatedRuntime) argoAppNamespace(ctx context.Context, appID uuid.UU
 }
 
 // ---------------------------------------------------------------------------
-// Observability reads — Prometheus (GetSloStatus, ReadComputeAttribution).
+// Observability reads — Prometheus (GetSloStatus, ReadComputeAttribution, ReadWorkloadTelemetry).
 //
 // Both verbs scope an instant query (GET <PrometheusURL>/api/v1/query) to the app's
 // destination namespace (argoAppNamespace), over the metrics every Kubernetes Prometheus
@@ -2786,6 +2833,8 @@ func (r realOperatedRuntime) argoAppNamespace(ctx context.Context, appID uuid.UU
 //     exactly "no samples".
 //   - Compute: the CPU-seconds the namespace's containers consumed over the window
 //     (cpuSecondsQuery), evaluated at window.To.
+//   - Workload telemetry: the server Deployment's CPU use over its CPU request
+//     (serverCPUUtilizationQuery), the autoscaler's utilization signal.
 //
 // Any transport failure, non-200, non-"success" status or unparseable body is an
 // fwra.Infrastructure error: an observability backend that cannot be read must never
@@ -2800,6 +2849,15 @@ const computeUnitCPUSeconds = "cpu-seconds"
 func sloViolationQuery(namespace string) string {
 	sel := `{namespace="` + namespace + `"}`
 	return `(kube_deployment_spec_replicas` + sel + ` - kube_deployment_status_replicas_available` + sel + `) > 0`
+}
+
+// serverCPUUtilizationQuery returns the CPU the deployment's pods in namespace used over
+// the last five minutes as a fraction of the CPU they request: one series, or none when
+// the workload has no request series.
+func serverCPUUtilizationQuery(namespace, deployment string) string {
+	sel := `{namespace="` + namespace + `",pod=~"` + deployment + `-.*",container!=""}`
+	return `sum(rate(container_cpu_usage_seconds_total` + sel + `[5m])) / sum(kube_pod_container_resource_requests` +
+		`{namespace="` + namespace + `",pod=~"` + deployment + `-.*",resource="cpu"})`
 }
 
 // cpuSecondsQuery returns the CPU-seconds namespace's containers consumed over the span

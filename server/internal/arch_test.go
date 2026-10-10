@@ -1236,32 +1236,16 @@ var encapsulationAllowlistData = map[string][]string{
 		"SyncManagedScaffold",
 	},
 	// Cross-package identity value types (CustomerID, OperatedAppID) consumed by downstream
-	// Managers, + Error alias. NewNoOpUsageAccess is the LOCAL-PROFILE VARIANT CONSTRUCTOR
-	// (Task 2, local-first-init-funnel): the local deployment binding declares infra: []
-	// for usageAccess (metering is a cloud-only concern, so the local arm binds no store
-	// even though the local profile has a Postgres for the billing stores), so
-	// there is no generated New<Infra><Component> for it; same VARIANT-CONSTRUCTOR category
-	// as artifact/agenticjob's dry-run constructors and revenueledger's permanent
-	// no-op above.
+	// Managers, + Error alias. (Both profiles bind the Postgres store since the local
+	// profile serves the operations console, DCT §12 B16 — no local variant constructor.)
 	"internal/resourceaccess/usage": {
 		"CustomerID",
 		"Error",
-		"NewNoOpUsageAccess",
 		"OperatedAppID",
-	},
-	// NewNoOpOperatedSystemStateAccess is the LOCAL-PROFILE VARIANT CONSTRUCTOR
-	// (local-first-init-funnel Task 2b): the local deployment binding declares
-	// infra: [] for operatedSystemStateAccess (deploy/operate is a cloud-only, paid-tier
-	// concern, so the local arm binds no store even though the local profile has a
-	// Postgres for the billing stores), so there is no generated
-	// New<Infra><Component> for it; same VARIANT-CONSTRUCTOR category as
-	// usage.NewNoOpUsageAccess above.
-	"internal/resourceaccess/operatedsystemstate": {
-		"NewNoOpOperatedSystemStateAccess",
 	},
 	// SP1 capture-seam Task 3: episodeAccess's contract carries no `infra` binding, so
 	// both its variants are hand-written VARIANT CONSTRUCTORS (same category as
-	// agenticjob's NewLocalExecAgenticJobAccess / usage's NewNoOpUsageAccess above).
+	// agenticjob's NewLocalExecAgenticJobAccess above).
 	// NewLocalFSEpisodeAccess is the local-profile filesystem-backed sidecar store
 	// (<repoRoot>/.aiarch/traces/episodes.jsonl); NewNoOpEpisodeAccess is the permanent
 	// no-op fallback (episode capture is best-effort observability, not a contract the

@@ -21,8 +21,8 @@
  * Every arm of "no data" collapses to the same render the diagram had before any
  * overlay existed, and none of them can read as a failing node:
  *   • no provider mounted (tests, an unwired shell) → undefined,
- *   • operations capability off (D9 — the local profile) or no operated-app id yet
- *     → useDeploymentHealth never fires (deploymentHealthQueryEnabled) → undefined,
+ *   • no operated-app id yet → useDeploymentHealth never fires
+ *     (deploymentHealthQueryEnabled) → undefined,
  *   • still loading, or the read errored → TanStack `data` is undefined,
  *   • a non-`cloud` profile → DeploymentFlow's own environmentIsObservable guard
  *     discards whatever it was handed.

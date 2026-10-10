@@ -173,21 +173,16 @@ func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 		var err1 error
 		out1, err1 = stepOperateADeliveredSystemP3S1(t, h, subject, in1)
 		expect(t, "operate-a-delivered-system-P3", 1, out1, err1, `{"result":"{\"observed\":1,\"transitions\":0,\"republished\":1}","errorExpected":false}`)
-		// probe 1.1: operationsManager.QueryOperatedSystemView for desired-state-published-c
+		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for desired-state-published-c
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			OperatedAppID uuid.UUID `json:"operatedAppID"`
-			RequestID     string    `json:"requestID"`
-		}
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-ops-P3-probe-view"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryOperatedSystemView(callContext(t, h, "1.1"), probe1_1.OperatedAppID, probe1_1.RequestID)
-		expect(t, "operate-a-delivered-system-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":2,\"Autoscaler\":{\"Decisions\":[{\"Action\":1,\"Published\":true}]}}","errorExpected":false}`)
+		pout1_1, perr1_1 = probeOperateADeliveredSystemP3S1N1(t, h, subject)
+		expect(t, "operate-a-delivered-system-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
 		// probe 1.2: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-c
 		var pout1_2 any
 		var perr1_2 error
 		pout1_2, perr1_2 = probeOperateADeliveredSystemP3S1N2(t, h, subject)
-		expect(t, "operate-a-delivered-system-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":4,\"InFlight\":true}","errorExpected":false}`)
+		expect(t, "operate-a-delivered-system-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":4,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
 	})
 }
 
@@ -265,21 +260,16 @@ func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 		var perr1_2 error
 		pout1_2, perr1_2 = probeOperateADeliveredSystemP5S1N2(t, h, subject)
 		expect(t, "operate-a-delivered-system-P5 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
-		// probe 1.3: operationsManager.QueryOperatedSystemView for desired-state-published-c
+		// probe 1.3: operatedSystemStateAccess.ReadOperatedSystem for desired-state-published-c
 		var pout1_3 any
 		var perr1_3 error
-		var probe1_3 struct {
-			OperatedAppID uuid.UUID `json:"operatedAppID"`
-			RequestID     string    `json:"requestID"`
-		}
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-ops-P5-probe-view-autoscale"}`, &probe1_3)
-		pout1_3, perr1_3 = subject.QueryOperatedSystemView(callContext(t, h, "1.3"), probe1_3.OperatedAppID, probe1_3.RequestID)
-		expect(t, "operate-a-delivered-system-P5 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Autoscaler\":{\"Decisions\":[{\"Action\":1,\"Published\":true}]}}","errorExpected":false}`)
+		pout1_3, perr1_3 = probeOperateADeliveredSystemP5S1N3(t, h, subject)
+		expect(t, "operate-a-delivered-system-P5 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
 		// probe 1.4: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-c
 		var pout1_4 any
 		var perr1_4 error
 		pout1_4, perr1_4 = probeOperateADeliveredSystemP5S1N4(t, h, subject)
-		expect(t, "operate-a-delivered-system-P5 probe 1.4", 1, pout1_4, perr1_4, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":5,\"InFlight\":true}","errorExpected":false}`)
+		expect(t, "operate-a-delivered-system-P5 probe 1.4", 1, pout1_4, perr1_4, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":5,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
 	})
 }
 

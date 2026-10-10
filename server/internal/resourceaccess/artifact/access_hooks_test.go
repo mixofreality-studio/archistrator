@@ -221,6 +221,24 @@ func stepOperateADeliveredSystemP1S1(t *testing.T, h *scenariohost.Host, subject
 	return retrieveStored(t, h, subject, in.ContentAddress, deployedManifest, mimeYAML)
 }
 
+// stepOperateADeliveredSystemP3S1 — Operate a Delivered System — [no] · [no: scale/pause/resume], step 1: RetrieveConstructionOutput
+// Projected stimulus (JSON): {"seq":1,"node":"render-manifests-c","input":{"kind":"call","from":"operations-manager","to":"artifactaccess","op":"RetrieveConstructionOutput","call":"operate-a-delivered-system/render-manifests-c/1"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":1,"operation":"RetrieveConstructionOutput","inputs":[{"name":"contentAddress","value":"sha-of-hook-arranged-output"}],"expect":{"result":"{\"Bytes\":\"YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHN0cC1vcGVyYXRlZC1hcHAK\",\"MIMEType\":\"application/yaml\"}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Delivery stored the deployable manifest earlier; an autoscale re-render reads it back.
+func stepOperateADeliveredSystemP3S1(t *testing.T, h *scenariohost.Host, subject artifact.ArtifactAccess, in inputOperateADeliveredSystemP3S1) (any, error) {
+	t.Helper()
+	return retrieveStored(t, h, subject, in.ContentAddress, deployedManifest, mimeYAML)
+}
+
+// stepOperateADeliveredSystemP5S1 — Operate a Delivered System — [yes] · [no: scale/pause/resume], step 1: RetrieveConstructionOutput
+// Projected stimulus (JSON): {"seq":1,"node":"render-manifests-c","input":{"kind":"call","from":"operations-manager","to":"artifactaccess","op":"RetrieveConstructionOutput","call":"operate-a-delivered-system/render-manifests-c/1"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":1,"operation":"RetrieveConstructionOutput","inputs":[{"name":"contentAddress","value":"sha-of-hook-arranged-output"}],"expect":{"result":"{\"Bytes\":\"YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHN0cC1vcGVyYXRlZC1hcHAK\",\"MIMEType\":\"application/yaml\"}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Delivery stored the deployable manifest earlier; an autoscale re-render reads it back.
+func stepOperateADeliveredSystemP5S1(t *testing.T, h *scenariohost.Host, subject artifact.ArtifactAccess, in inputOperateADeliveredSystemP5S1) (any, error) {
+	t.Helper()
+	return retrieveStored(t, h, subject, in.ContentAddress, deployedManifest, mimeYAML)
+}
+
 // stepViewLiveDeploymentHealthP1S1 — View Live Deployment Health — [yes], step 1: RetrieveConstructionOutput
 // Projected stimulus (JSON): {"seq":1,"node":"resolve-deployment","input":{"kind":"call","from":"operations-manager","to":"artifactaccess","op":"RetrieveConstructionOutput","call":"view-live-deployment-health/resolve-deployment/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"RetrieveConstructionOutput","inputs":[{"name":"contentAddress","value":"sha-of-hook-arranged-output"}],"expect":{"result":"{\"Bytes\":\"YXBpVmVyc2lvbjogdjEKa2luZDogU2VydmljZQptZXRhZGF0YToKICBuYW1lOiBzdHAtaGVhbHRoLWFwcAo=\",\"MIMEType\":\"application/yaml\"}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
