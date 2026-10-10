@@ -281,10 +281,7 @@ function HomeBaseBody({
           the same fact the top-right button already names — so the card says
           where the project is and opens the one surface that shows it. */}
       <Box sx={{ mb: 3, mt: 3 }}>
-        <Paper
-          data-testid={UI_IDENTIFIERS.HomeBase.OPEN_PLAN}
-          sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}
-        >
+        <Paper sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
             <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.muted }}>
               {`PHASE ${String(currentPhase.index)} · ${currentPhase.title.toUpperCase()}`}
@@ -296,7 +293,14 @@ function HomeBaseBody({
               {currentPhase.subtitle}
             </Typography>
           </Box>
-          <Button endIcon={<ArrowForwardIcon />} variant="outlined" onClick={openPlan}>
+          {/* The id names the ACTION (open the plan), so it sits on the control that
+              performs it — a click on the card's body opens nothing. */}
+          <Button
+            data-testid={UI_IDENTIFIERS.HomeBase.OPEN_PLAN}
+            endIcon={<ArrowForwardIcon />}
+            variant="outlined"
+            onClick={openPlan}
+          >
             Open plan
           </Button>
           {/* The project's recorded changes (use case view-the-project-state-log). */}
