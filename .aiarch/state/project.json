@@ -13224,7 +13224,7 @@
       "activityID": "C-agentic-job-access",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -13381,7 +13381,7 @@
       "activityID": "C-artifact-access",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -13538,7 +13538,7 @@
       "activityID": "C-autoscaler-engine",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -13695,7 +13695,7 @@
       "activityID": "C-billing-engine",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -13852,7 +13852,7 @@
       "activityID": "C-billing-manager",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -14009,7 +14009,7 @@
       "activityID": "C-billing-state-access",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.10.3"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -14166,7 +14166,7 @@
       "activityID": "C-delivery-manager",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.10.3"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -14323,7 +14323,7 @@
       "activityID": "C-design-health-engine",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.10.3"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -14480,7 +14480,7 @@
       "activityID": "C-episode-access",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -14637,7 +14637,7 @@
       "activityID": "C-estimation-engine",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -14794,7 +14794,7 @@
       "activityID": "C-intervention-engine",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -14951,7 +14951,7 @@
       "activityID": "C-merchant-gateway-access",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.10.3"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -15108,7 +15108,7 @@
       "activityID": "C-operated-runtime-access",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -15265,7 +15265,7 @@
       "activityID": "C-operated-system-state-access",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -15422,7 +15422,7 @@
       "activityID": "C-operation-estimation-engine",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -15579,7 +15579,7 @@
       "activityID": "C-operations-manager",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -15736,7 +15736,7 @@
       "activityID": "C-project-state-access",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -15893,7 +15893,7 @@
       "activityID": "C-review-engine",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -16050,7 +16050,7 @@
       "activityID": "C-source-control-access",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -16207,7 +16207,7 @@
       "activityID": "C-usage-access",
       "lifecyclePin": {
         "typeKey": "service",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -16360,131 +16360,12 @@
       ],
       "version": 1
     },
-    "N-STP": {
-      "activityID": "N-STP",
-      "type": "testing",
-      "lifecyclePin": {
-        "typeKey": "testing:plan",
-        "assetsVersion": "v0.9.0"
-      },
-      "attempts": [
-        {
-          "attemptId": "N-STP:srs:1",
-          "task": "srs",
-          "phase": "requirements",
-          "attempt": 1,
-          "actor": "agent",
-          "outcome": "passed",
-          "evidence": {
-            "kind": "artifact",
-            "ref": "testingState.systemTestPlan"
-          },
-          "provenance": {
-            "origin": "backfilled",
-            "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
-          }
-        },
-        {
-          "attemptId": "N-STP:srsReview:1",
-          "task": "srsReview",
-          "phase": "requirements",
-          "attempt": 1,
-          "actor": "agent",
-          "outcome": "passed",
-          "evidence": {
-            "kind": "artifact",
-            "ref": "testingState.systemTestPlan"
-          },
-          "provenance": {
-            "origin": "backfilled",
-            "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
-          }
-        },
-        {
-          "attemptId": "N-STP:construction:1",
-          "task": "construction",
-          "phase": "construction",
-          "attempt": 1,
-          "actor": "agent",
-          "outcome": "passed",
-          "evidence": {
-            "kind": "artifact",
-            "ref": "testingState.systemTestPlan"
-          },
-          "provenance": {
-            "origin": "backfilled",
-            "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
-          }
-        },
-        {
-          "attemptId": "N-STP:codeReview:1",
-          "task": "codeReview",
-          "phase": "construction",
-          "attempt": 1,
-          "actor": "agent",
-          "outcome": "passed",
-          "evidence": {
-            "kind": "artifact",
-            "ref": "testingState.systemTestPlan"
-          },
-          "provenance": {
-            "origin": "backfilled",
-            "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
-          }
-        },
-        {
-          "attemptId": "N-STP:integration:1",
-          "task": "integration",
-          "phase": "integration",
-          "attempt": 1,
-          "actor": "agent",
-          "outcome": "passed",
-          "evidence": {
-            "kind": "artifact",
-            "ref": "testingState.systemTestPlan"
-          },
-          "provenance": {
-            "origin": "backfilled",
-            "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
-          }
-        },
-        {
-          "attemptId": "N-STP:testing:1",
-          "task": "testing",
-          "phase": "integration",
-          "attempt": 1,
-          "actor": "agent",
-          "outcome": "passed",
-          "evidence": {
-            "kind": "artifact",
-            "ref": "testingState.systemTestPlan"
-          },
-          "provenance": {
-            "origin": "backfilled",
-            "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-12T18:59:14.013683Z",
-            "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
-          }
-        }
-      ],
-      "version": 1
-    },
     "R-construction-pipeline-runtime": {
       "activityID": "R-construction-pipeline-runtime",
       "type": "deployment",
       "lifecyclePin": {
         "typeKey": "deployment",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -16585,7 +16466,7 @@
       "type": "deployment",
       "lifecyclePin": {
         "typeKey": "deployment",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -16686,7 +16567,7 @@
       "type": "deployment",
       "lifecyclePin": {
         "typeKey": "deployment",
-        "assetsVersion": "v0.10.3"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -16787,7 +16668,7 @@
       "type": "deployment",
       "lifecyclePin": {
         "typeKey": "deployment",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -16888,7 +16769,7 @@
       "type": "frontend",
       "lifecyclePin": {
         "typeKey": "frontend",
-        "assetsVersion": "v0.10.3"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -17046,7 +16927,7 @@
       "type": "architecture",
       "lifecyclePin": {
         "typeKey": "architecture",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -17143,7 +17024,7 @@
       "type": "projectDesign",
       "lifecyclePin": {
         "typeKey": "projectDesign",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
@@ -17172,7 +17053,7 @@
       "type": "requirements",
       "lifecyclePin": {
         "typeKey": "requirements",
-        "assetsVersion": "v0.9.0"
+        "assetsVersion": "v0.10.4"
       },
       "attempts": [
         {
