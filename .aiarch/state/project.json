@@ -58337,7 +58337,7 @@
                   }
                 ],
                 "unobservable": null,
-                "hook": false
+                "hook": true
               }
             ]
           },
@@ -58446,7 +58446,7 @@
                   }
                 ],
                 "unobservable": null,
-                "hook": false
+                "hook": true
               },
               {
                 "seq": 3,
@@ -58498,7 +58498,7 @@
                   }
                 ],
                 "unobservable": null,
-                "hook": false
+                "hook": true
               }
             ]
           },
@@ -59438,7 +59438,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"result\":{\"projectId\":\"dct-mcp-owner-p1/dct-gtd-app\"}}",
+                  "result": "{\"result\":{\"projectId\":\"dct-gtd-app\"}}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -59452,12 +59452,12 @@
                 "inputs": [
                   {
                     "name": "query",
-                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-mcp-owner-p1/dct-gtd-app\"}",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}",
                     "schemaRef": ""
                   }
                 ],
                 "expect": {
-                  "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p1/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p1\",\"Phase\":0,\"operatingModel\":\"selfOperated\"}}}",
+                  "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p1\",\"Phase\":0,\"operatingModel\":\"selfOperated\"}}}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -59474,7 +59474,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-mcp-owner-p1/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p1\"}]}}",
+                      "result": "{\"result\":{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p1\"}]}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -59489,7 +59489,7 @@
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "dct-mcp-owner-p1/dct-gtd-app",
+                    "value": "dct-gtd-app",
                     "schemaRef": ""
                   },
                   {
@@ -59511,12 +59511,12 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-mcp-owner-p1/dct-gtd-app\"}",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}",
                         "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p1/dct-gtd-app\",\"reviewPolicy\":{\"preset\":\"checkpoints\"}}}}",
+                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"reviewPolicy\":{\"preset\":\"checkpoints\"}}}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -59541,7 +59541,7 @@
                   },
                   {
                     "name": "projectID",
-                    "value": "dct-mcp-owner-p1/dct-gtd-app",
+                    "value": "dct-gtd-app",
                     "schemaRef": ""
                   },
                   {
@@ -59556,7 +59556,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"result\":{\"projectId\":\"dct-mcp-owner-p1/dct-gtd-app\"}}",
+                  "result": "{\"result\":{\"projectId\":\"dct-gtd-app\"}}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -59568,12 +59568,12 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-mcp-owner-p1/dct-gtd-app\"}",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}",
                         "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p1/dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}}",
+                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -59613,7 +59613,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"result\":{\"projectId\":\"dct-mcp-owner-p2/dct-gtd-app\"}}",
+                  "result": "{\"result\":{\"projectId\":\"dct-gtd-app\"}}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -59627,12 +59627,12 @@
                 "inputs": [
                   {
                     "name": "query",
-                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-mcp-owner-p2/dct-gtd-app\"}",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}",
                     "schemaRef": ""
                   }
                 ],
                 "expect": {
-                  "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p2/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p2\",\"Phase\":0,\"operatingModel\":\"archistratorOperated\"}}}",
+                  "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p2\",\"Phase\":0,\"operatingModel\":\"archistratorOperated\"}}}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -59649,7 +59649,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-mcp-owner-p2/dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p2\"}]}}",
+                      "result": "{\"result\":{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p2\"}]}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -59661,12 +59661,12 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-mcp-owner-p2/dct-gtd-app\"}",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}",
                         "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p2/dct-gtd-app\",\"operatingModel\":\"archistratorOperated\"}}}",
+                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"operatingModel\":\"archistratorOperated\"}}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -59681,7 +59681,7 @@
                 "inputs": [
                   {
                     "name": "projectID",
-                    "value": "dct-mcp-owner-p2/dct-gtd-app",
+                    "value": "dct-gtd-app",
                     "schemaRef": ""
                   },
                   {
@@ -59703,12 +59703,12 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-mcp-owner-p2/dct-gtd-app\"}",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}",
                         "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p2/dct-gtd-app\",\"reviewPolicy\":{\"preset\":\"full\"}}}}",
+                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"reviewPolicy\":{\"preset\":\"full\"}}}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -59733,7 +59733,7 @@
                   },
                   {
                     "name": "projectID",
-                    "value": "dct-mcp-owner-p2/dct-gtd-app",
+                    "value": "dct-gtd-app",
                     "schemaRef": ""
                   },
                   {
@@ -59748,7 +59748,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"result\":{\"projectId\":\"dct-mcp-owner-p2/dct-gtd-app\"}}",
+                  "result": "{\"result\":{\"projectId\":\"dct-gtd-app\"}}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -59760,12 +59760,12 @@
                     "inputs": [
                       {
                         "name": "query",
-                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-mcp-owner-p2/dct-gtd-app\"}",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-gtd-app\"}",
                         "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p2/dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}}",
+                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -60271,8 +60271,8 @@
                 "probes": [
                   {
                     "for": "read-failed-trace",
-                    "component": "mcpClient",
-                    "operation": "DeliveryQueryProjectView",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
                     "inputs": [
                       {
                         "name": "query",
@@ -60281,7 +60281,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"timeline\",\"timeline\":{\"record\":{\"outcome\":1}}}}",
+                      "result": "{\"kind\":\"timeline\",\"timeline\":{\"record\":{\"outcome\":1}}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
