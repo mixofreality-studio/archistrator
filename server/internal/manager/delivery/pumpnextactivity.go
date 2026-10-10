@@ -1554,9 +1554,7 @@ func pauseSignalReason(raw any) (reason string, decoded bool) {
 // header): with no pre-change execution left to replay there is no history that recorded a
 // lower rung, and a rung nothing can select is a branch that cannot be tested honestly.
 //
-// eligibleNotStarted and eligibleDispatchable SURVIVE as rules — eligibleUnder is written
-// as a ladder (`rule >= eligibleDispatchable`) and nextEligibleActivity's own tests walk all
-// three — but the pump no longer has a way to ask for either.
+// Both lower rungs are deleted (dct4): nothing could select them.
 func pumpEligibilityRule() eligibilityRule {
 	return eligibleWithDesign
 }

@@ -32,14 +32,15 @@
 //     can find the symbol the pre-merge blame names, is tracked at
 //     docs/superpowers/plans/2026-09-25-stage4a-rename-table.md.
 //
-// Nineteen Temporal replay fixtures assert that nothing else changed.
-//
 // File layout within the package (arch.CheckFileLayout, framework-go/arch):
 //   - deliverymanager.go  : the Manager + the twelve-op dispatcher (the ONE impl file)
 //   - contract.gen.go     : the generated public façade (port + I/O value types)
 //   - activities.gen.go / invokers.gen.go / worker.gen.go : the generated Temporal surface
 //   - <workflow>.go       : exactly one file per registered workflow entry function
-//   - manager_test.go     : the ONE test file the layout rule allows
+//   - manager_scenarios.gen_test.go / manager_hooks_test.go : the generated black-box
+//     scenario tests and their hooks — the only tests the layout rule allows (DCT §5.1);
+//     workflow determinism is gated by the scenario host replaying every history a
+//     scenario started (DCT §12 B4)
 package delivery
 
 import (
@@ -58,7 +59,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -236,7 +236,124 @@ func (m *deliveryManager) designArtifactSessionView(ctx context.Context, project
 	if err != nil {
 		return DesignArtifactSessionView{}, mapReadProjectError(err)
 	}
-	return committedSessionView(projectID, kind, pdSlotFor(proj, toPSKind(kind)))
+	slot := pdSlotFor(proj, toPSKind(kind))
+	rounds := designRoundThread(proj, toPSKind(kind))
+	// A draft UNDER REVIEW lives on the owning activity's branch until the approve merges
+	// it: a first draft (main holds no slot yet) and an amendment of a committed slot alike
+	// (dct5 round-1 ruling: the live gate's session view reads the activity branch while a
+	// round is open on it). So while either holds, the branch's draft is the session.
+	if slot.Status == projectstate.ReviewNone || designRoundOpen(proj, toPSKind(kind)) {
+		live, ok, lerr := m.firstDraftSessionView(ctx, projectID, kind, rounds)
+		if lerr != nil {
+			return DesignArtifactSessionView{}, lerr
+		}
+		if ok {
+			return live, nil
+		}
+	}
+	view, err := committedSessionView(projectID, kind, slot)
+	if err != nil {
+		return view, err
+	}
+	if slot.Status == projectstate.ReviewCommitted {
+		view.ReviewThread = reviewThreadToView(unionThreads(slot.ReviewThread, rounds))
+	}
+	return view, nil
+}
+
+// designRoundThread is the conversation the owning design activity's review ROUNDS hold
+// about kind: every comment filed on a round that judges kind, in ledger (round) order.
+// A design send-back lands its change requests on the gate's round (sendBackRound →
+// closeGateRound), and a Resolve walks the round's comment (SetTaskCommentStatus), so the
+// slot's own thread — where AskQuestions seeds — is only half of what a reviewer filed
+// against the artifact. The session view reads both (dct5 scenario
+// send-back-change-requests-for-a-redraft: the change request was on the round and the
+// session read the slot alone, so it showed none).
+func designRoundThread(proj projectstate.Project, kind projectstate.ArtifactKind) []projectstate.ReviewComment {
+	owner, _ := designActivityFor(kind)
+	var out []projectstate.ReviewComment
+	for _, r := range proj.ActivityExecution[string(owner)].Reviews {
+		if r.ArtifactKind != nil && *r.ArtifactKind == kind {
+			out = append(out, r.Thread...)
+		}
+	}
+	return out
+}
+
+// designRoundOpen reports whether the owning design activity holds an undecided review
+// round on kind — a draft of it is under review on the activity branch.
+func designRoundOpen(proj projectstate.Project, kind projectstate.ArtifactKind) bool {
+	owner, _ := designActivityFor(kind)
+	for _, r := range proj.ActivityExecution[string(owner)].Reviews {
+		if r.ArtifactKind != nil && *r.ArtifactKind == kind && r.Outcome == projectstate.RoundPending {
+			return true
+		}
+	}
+	return false
+}
+
+// unionThreads is the slot's thread followed by every round comment it does not already
+// hold, by id: a comment an approve carried onto the slot is the same utterance, not a
+// second one.
+func unionThreads(slot, rounds []projectstate.ReviewComment) []projectstate.ReviewComment {
+	if len(rounds) == 0 {
+		return slot
+	}
+	seen := make(map[string]bool, len(slot))
+	out := make([]projectstate.ReviewComment, 0, len(slot)+len(rounds))
+	for _, c := range slot {
+		seen[c.ID] = true
+		out = append(out, c)
+	}
+	for _, c := range rounds {
+		if !seen[c.ID] {
+			seen[c.ID] = true
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// firstDraftSessionView is the view of a draft under review — its FIRST review (dct4
+// scenario send-back-change-requests-for-a-redraft), or an amendment's while its round is
+// open (designRoundOpen). Main holds no slot for a first draft yet — the draft, and
+// the change requests a reviewer files against it, live on the owning design activity's
+// branch until the approve merges them — so the main-only derivation rendered the honest-
+// terminal DraftFailed for a draft a reviewer was looking at, and dropped its thread. The
+// branch's slot is read instead: its model and its thread, at SessionStageUnknown — the
+// derived door's vocabulary has no live stage (stage 4b2 narrowed it to the terminals), and
+// a live draft is not a terminal, so it claims none of them. Its thread is the branch slot's
+// joined with the activity's round thread (designRoundThread). ok=false when the branch holds
+// no staged draft either, and the main derivation stands.
+func (m *deliveryManager) firstDraftSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind, rounds []projectstate.ReviewComment) (DesignArtifactSessionView, bool, error) {
+	owner, _ := designActivityFor(toPSKind(kind))
+	env, err := m.designSession.ReadProjectOnBranch(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID),
+		activityBranchName(ActivityID(owner)))
+	if err != nil {
+		if isReadNotFound(err) {
+			return DesignArtifactSessionView{}, false, nil
+		}
+		return DesignArtifactSessionView{}, false, mapReadProjectError(err)
+	}
+	staged, ok := env.Slots[toPSKind(kind)]
+	if !ok || (staged.Status != projectstate.ReviewAwaitingReview && staged.Status != projectstate.ReviewRejected) {
+		return DesignArtifactSessionView{}, false, nil
+	}
+	model, err := staged.Model.Decode()
+	if err != nil {
+		return DesignArtifactSessionView{}, false, newError(fwmanager.Infrastructure, err.Error())
+	}
+	draft, err := draftModelFor(kind, model)
+	if err != nil {
+		return DesignArtifactSessionView{}, false, newError(fwmanager.Infrastructure, err.Error())
+	}
+	return DesignArtifactSessionView{
+		ProjectID:    projectID,
+		ArtifactKind: kind,
+		Stage:        SessionStageUnknown,
+		Draft:        draft,
+		ReviewThread: reviewThreadToView(unionThreads(staged.ReviewThread, rounds)),
+	}, true, nil
 }
 
 // committedSessionView projects the durable slot of a COMPLETED session onto a
@@ -825,23 +942,23 @@ func acknowledgeStaleIdempotencyKey(projectID ProjectID, kind ArtifactKind, note
 const askQuestionsMaxAttempts = 5
 
 // AskQuestions — the question-comments op. Appends the given questions to the artifact's
-// durable review ledger as type="question" entries addressed to `addressee`, then
-// dispatches an answer job. Synchronous (no Temporal workflow): the append is the durable,
-// user-visible effect; the answer job is best-effort (a dispatch miss leaves the questions
-// recorded and unanswered, exactly as if the addressee has not answered yet).
+// durable review ledger as type="question" entries addressed to `addressee`, then starts
+// the answer workflow (startAnswerJob). The append is synchronous and is the user-visible
+// effect; the answer job is best-effort (a dispatch miss leaves the questions recorded and
+// unanswered, exactly as if the addressee has not answered yet).
 //
 // DISPATCH RECOVERY (F82): a dispatch MISS is now LOGGED LOUDLY server-side (it was
 // previously discarded, and the construction-pipeline RA has no logger, so a miss vanished
 // with zero operator signal). To RECOVER a dropped dispatch, simply CALL AskQuestions AGAIN
 // with the same questions: the seed is idempotent on its content key, so NO ledger entry is
-// duplicated (the existing entries' round is reused so the minted ids still match), while the
-// answer-job dispatch RE-FIRES via a per-call-unique key.
+// duplicated (the existing entries' round is reused so the minted ids still match), and the
+// round's answer workflow starts again once the earlier one has closed.
 //
 // ONE COPY FOR ALL SEVENTEEN KINDS (stage 4b2 Task 5). The Phase-2 twin was this body with a
 // Phase-2 kind gate, a Phase-2 slot accessor, a second error mapper, and pdCheckNoReplyTo. The
 // first three fold away (pdSlotFor is total; mapReadProjectError is the finer mapper); the
 // fourth STAYS, KIND-SCOPED — see checkArtifactAskArguments.
-func (m *deliveryManager) askArtifactQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
+func (m *deliveryManager) askArtifactQuestions(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
 	ctx := rc.Context
 	if err := checkArtifactAskArguments(projectID, kind, addressee, questions); err != nil {
 		return err
@@ -873,7 +990,6 @@ func (m *deliveryManager) askArtifactQuestions(rc fwmanager.Context, projectID P
 	// round.
 	psID := projectstate.ProjectID(projectID)
 	psKind := toPSKind(kind)
-	key := askQuestionsIdempotencyKey(projectID, kind, "", qs, replies)
 
 	// Sync-path optimistic-concurrency loop (mirrors SetResearchInput): read the head
 	// version on main, compute a fresh question round from the live thread so the minted
@@ -885,6 +1001,22 @@ func (m *deliveryManager) askArtifactQuestions(rc fwmanager.Context, projectID P
 			return mapReadProjectError(err)
 		}
 		thread := pdSlotFor(proj, psKind).ReviewThread
+		version := proj.Version
+		// A FIRST DRAFT HAS NO SLOT ON MAIN (dct4 scenario ask-a-clarifying-question-during-
+		// review P1/P2). "Main, beside the slot" holds for every artifact that has been
+		// committed once; a draft under its FIRST review exists only on its activity branch,
+		// and main's slot is unpopulated, so the seed was refused ("stage a model first") and
+		// a reviewer could not ask about the one draft they were looking at. The thread then
+		// lives beside the draft — on the activity branch — and reaches main with the merge.
+		branch, onBranch, berr := m.askBranchFor(ctx, psID, activityID, psKind, pdSlotFor(proj, psKind))
+		if berr != nil {
+			return berr
+		}
+		if onBranch != nil {
+			thread = onBranch.ReviewThread
+			version = onBranch.version
+		}
+		key := askQuestionsIdempotencyKey(projectID, kind, branch, qs, replies)
 		// A replyTo naming no thread on this artifact is a hard refusal, never a silent new
 		// thread — the same rule the change-request door applies, run here against the thread
 		// just read (the RA would surface a bare NotFound from deep inside the append).
@@ -898,7 +1030,7 @@ func (m *deliveryManager) askArtifactQuestions(rc fwmanager.Context, projectID P
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, "", psKind, round, qs, replies, key)
+		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, version, branch, psKind, round, qs, replies, key)
 		if err == nil {
 			// Best-effort dispatch of the answer job. A dispatch failure is logged by the
 			// pipeline access; the questions are already durably recorded, so we do not fail
@@ -920,7 +1052,8 @@ func (m *deliveryManager) askArtifactQuestions(rc fwmanager.Context, projectID P
 					"op", "delivery.AskQuestions", "projectID", string(projectID),
 					"artifactKind", artifactKindString(kind), "dispatchedTo", dispatchTo)
 			}
-			m.dispatchAnswerJob(ctx, projectID, kind, "", dispatchTo, minted)
+			m.startAnswerJob(ctx, projectID, kind, answerTarget(branch, kind, round), dispatchTo, round,
+				answerLandingFor(branch, kind, round, minted, replies))
 			return nil
 		}
 		if isRAConflict(err) {
@@ -930,6 +1063,39 @@ func (m *deliveryManager) askArtifactQuestions(rc fwmanager.Context, projectID P
 		return mapReadProjectError(err)
 	}
 	return fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "AskQuestions: exhausted conflict retries")
+}
+
+// askBranchSlot is the slot a first-draft question thread is read from, with the branch
+// version the seed must expect.
+type askBranchSlot struct {
+	ReviewThread []projectstate.ReviewComment
+	version      projectstate.Version
+}
+
+// askBranchFor answers where a question about kind lands: main ("", nil) when main's slot
+// is populated, else the activity branch when the draft under review lives there. A main
+// slot that is unpopulated with no draft on the branch either keeps main, and the seed's
+// own refusal names it.
+func (m *deliveryManager) askBranchFor(
+	ctx context.Context, psID projectstate.ProjectID, activityID ActivityID,
+	kind projectstate.ArtifactKind, mainSlot projectstate.ArtifactSlot,
+) (string, *askBranchSlot, error) {
+	if mainSlot.Status != projectstate.ReviewNone || activityID == "" {
+		return "", nil, nil
+	}
+	branch := activityBranchName(activityID)
+	env, err := m.designSession.ReadProjectOnBranch(fwra.Context{Context: ctx}, psID, branch)
+	if err != nil {
+		if isReadNotFound(err) {
+			return "", nil, nil
+		}
+		return "", nil, mapReadProjectError(err)
+	}
+	slot, ok := env.Slots[kind]
+	if !ok || slot.Status == projectstate.ReviewNone {
+		return "", nil, nil
+	}
+	return branch, &askBranchSlot{ReviewThread: slot.ReviewThread, version: env.Version}, nil
 }
 
 // resolveQuestionBranch, isLiveSessionStage and readProjectMaybeBranch are DELETED (stage
@@ -1058,24 +1224,6 @@ func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch s
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// answerJobDispatchSeq makes each explicit AskQuestions call produce a UNIQUE answer-job
-// dispatch key, so a re-ask RE-FIRES the answer job (the RA dedups on the whole key, so a
-// content-only key would swallow the re-fire — F82). AskQuestions is a direct, non-retried
-// manager op (exactly one dispatch per successful call), so a per-call nonce cannot
-// double-fire a single logical ask; it only enables the re-ask recovery.
-var answerJobDispatchSeq atomic.Uint64
-
-// answerJobDispatchKey derives a per-call-unique answer-job idempotency key from the content
-// base plus a monotonic nonce (see answerJobDispatchSeq). The reply half is not folded into
-// the base: the nonce ALREADY makes every dispatch key distinct, which is this key's whole
-// purpose, so a reply-only ask still fires its own answer job.
-func answerJobDispatchKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
-	base := askQuestionsIdempotencyKey(projectID, kind, branch, qs, nil)
-	return fwra.IdempotencyKey(fmt.Sprintf("%s:answerJob:%d", base, answerJobDispatchSeq.Add(1)))
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 // existingQuestionRound returns the round of an EARLIER identical seeding of qs (matched by
 // addressee + anchor + text of the first question), so a re-ask reuses that round rather than
 // minting a fresh one — keeping the minted ids aligned with the already-seeded ledger entries
@@ -1094,275 +1242,167 @@ func existingQuestionRound(thread []projectstate.ReviewComment, qs []projectstat
 	return 0, false
 }
 
-// dispatchAnswerJob dispatches ONE lightweight agentic ANSWER job (job_mode=answer) to the
-// per-project design repo so the addressed role answers each question in place via the
-// aiarch-state MCP. Best-effort and fire-and-forget (it does NOT wait for the job — questions
-// are auxiliary and never gate anything). F82: every outcome is LOGGED LOUDLY server-side — a
-// miss (rail not configured, repo unresolved, or a submit fault) was previously discarded and
-// the construction-pipeline RA has no logger, so it vanished with zero operator signal. A miss
-// is recoverable by re-calling AskQuestions (see the op doc) — never silent.
-func (m *deliveryManager) dispatchAnswerJob(ctx context.Context, projectID ProjectID, kind ArtifactKind, branch, addressee string, qs []projectstate.ReviewComment) {
+// startAnswerJob starts the ANSWER WORKFLOW for one AskQuestions call: the durable
+// execution that dispatches the agentic answer job (job_mode=answer) so the addressed role
+// answers each question in place via the aiarch-state MCP, observes it to a terminal phase,
+// lands the replies on main for a question on a committed artifact, and records the episode
+// (AnswerJobWorkflow). Best-effort for the caller — questions are auxiliary and never gate
+// anything — and LOUD when it does not start (F82): the question stays recorded and
+// unanswered, and re-calling AskQuestions with the same question starts it again.
+//
+// DURABLE (dct5 round-4 ruling). The answer job used to be watched by a goroutine in the
+// server process, and the landing of a committed artifact's replies on main ran in it: a
+// restart between the dispatch and the job's end lost both, and nothing could observe the
+// landing. The landing is now a step of the workflow, after the job.
+//
+// ONE EXECUTION PER QUESTION ROUND (answerJobWorkflowID). A re-ask of the same questions
+// reuses their round, so it JOINS an answer workflow still running for them and starts a
+// new one when the earlier one has closed — the F82 recovery, with no per-call nonce.
+func (m *deliveryManager) startAnswerJob(ctx context.Context, projectID ProjectID, kind ArtifactKind, branch, addressee string, round int64, landing *answerLanding) {
 	log := slog.Default().With(
-		"op", "systemdesign.AskQuestions.dispatchAnswerJob",
+		"op", "delivery.AskQuestions.startAnswerJob",
 		"projectID", string(projectID), "artifactKind", artifactKindString(kind),
 		"addressee", addressee, "branch", branch)
-	if m.pipeline == nil || m.repo == nil {
+	if m.client == nil || m.pipeline == nil || m.repo == nil {
 		log.Warn("answer job NOT dispatched: design pipeline/repo not configured (rail dormant) — the question is recorded but will not be auto-answered")
 		return
 	}
-	repoRef, ok := m.repo(projectID)
-	if !ok {
-		log.Error("answer job NOT dispatched: could not resolve the project repo — the question is recorded but will not be auto-answered; re-run AskQuestions to retry")
-		return
-	}
-	// MANAGED-SCAFFOLD SYNC (sync-on-dispatch): an answer job runs the same seated
-	// aiarch-design.yml (and installs the same aiarch-state-mcp binary) as a draft, so it
-	// too must never run against a stale scaffold. Failure keeps the answer-job miss
-	// semantics: recorded question, loud log, no dispatch — re-run AskQuestions to retry.
-	if m.rail != nil {
-		cred, cerr := m.rail.GetInstallationToken(fwra.Context{Context: ctx}, repoRef)
-		if cerr != nil {
-			log.Error("answer job NOT dispatched: could not mint the repo credential for the managed-scaffold sync; re-run AskQuestions to retry", "err", cerr.Error())
-			return
-		}
-		if _, serr := sourcecontrol.SyncManagedScaffold(ctx, m.rail, repoRef, cred); serr != nil {
-			log.Error("answer job NOT dispatched: managed-scaffold sync failed — the seated design workflow could not be proven current; re-run AskQuestions to retry", "err", serr.Error())
-			return
-		}
-	}
-	// Direct manager-side dispatch (NOT a Temporal workflow): the answer job is a
-	// fire-and-forget submit over the PUBLISHED agenticJobAccess RA. The
-	// RepoRef→RepoTarget decode + the placeholder step graph the retired pipelineDispatchAdapter
-	// added are inlined here (the workflow-side twin is dispatchDesignJob, in this file since
-	// stage 4b1 Task 13 folded the co-author spine's survivors in).
-	target, terr := designRepoTarget(sourcecontrol.RepoRefString(repoRef))
-	if terr != nil {
-		log.Error("answer job NOT dispatched: could not resolve the target repo for the answer job; re-run AskQuestions to retry", "err", terr.Error())
-		return
-	}
-	// The addressee rides the .claude command NAME now (design-answer vs design-answer-pm)
-	// rather than a composed answer prompt. An empty slug is contract misuse — an addressee
-	// that is neither "architect" nor "pm"; keep the answer-job miss semantics (recorded
-	// question, loud log, no dispatch).
+	// The addressee rides the .claude command NAME (design-answer vs design-answer-pm). An
+	// empty slug is contract misuse — an addressee that is neither "architect" nor "pm"; it
+	// keeps the answer-job miss semantics (recorded question, loud log, no dispatch).
 	command := projectstate.DesignCommandFor(toPSKind(kind), projectstate.DesignJobModeAnswer, addressee)
 	if command == "" {
 		log.Error("answer job NOT dispatched: no design-answer command slug for the addressee (contract misuse — expected \"architect\" or \"pm\")")
 		return
 	}
-	inputs := map[string]string{
-		dispatchInputArtifactKind:  artifactKindString(kind),
-		dispatchInputCommand:       command,
-		dispatchInputTargetBranch:  branch,
-		dispatchInputPriorStateRef: "",
-		dispatchInputJobMode:       jobModeAnswer,
+	opts := client.StartWorkflowOptions{
+		ID:                       answerJobWorkflowID(projectID, kind, branch, round),
+		TaskQueue:                TaskQueue,
+		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}
-	spec := agenticjob.PipelineSpec{
-		ProjectID: agenticjob.ProjectID(projectID),
-		Steps: []agenticjob.PipelineStep{{
-			Name:      "design",
-			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
-			Command:   []string{"sh", "-c", "true"},
-		}},
-		DispatchInputs: inputs,
-		TargetRepo:     target,
-		WorkflowFile:   designWorkflowFileName,
-	}
-	key := answerJobDispatchKey(projectID, kind, branch, qs)
-	handle, err := m.pipeline.SubmitAgenticJob(fwra.Context{Context: ctx, IdempotencyKey: key}, spec)
-	if err != nil {
-		log.Error("answer job dispatch FAILED — the question is recorded but not auto-answered; re-run AskQuestions with the same question to retry",
-			"err", err.Error(), "key", string(key))
+	in := answerJobInput{ProjectID: projectID, Kind: toPSKind(kind), Branch: branch, Command: command, Landing: landing}
+	if _, err := m.client.ExecuteWorkflow(ctx, opts, executionKindAnswerJob, in); err != nil {
+		log.Error("answer job NOT started — the question is recorded but not auto-answered; re-run AskQuestions with the same question to retry",
+			"err", err.Error(), "workflowId", opts.ID)
 		return
 	}
-	log.Info("answer job dispatched", "key", string(key))
-	m.watchAnswerEpisode(ctx, projectID, kind, handle, log)
+	log.Info("answer job started", "workflowId", opts.ID)
 }
 
-// ---------------------------------------------------------------------------
-// Episode capture for the ANSWER job (SP1 capture-seam, Task 7)
-// ---------------------------------------------------------------------------
-//
-// The answer job is the ONE agentic dispatch this Manager makes outside a Temporal
-// workflow: AskQuestions submits it fire-and-forget and returns. Nothing observes it, so
-// without this watch every answer episode — real tokens, really spent — would be invisible
-// to the ledger.
-//
-// NON-DURABLE BY CONSTRUCTION, and that is accepted: this is a plain goroutine in the
-// server process. A restart between the dispatch and the terminal observation loses the
-// watch and therefore the record — no gap line either, because nothing is left to write
-// one. Only the WORKFLOW-side capture paths carry the durable never-silent guarantee; the
-// answer job is auxiliary (it gates nothing) and did not warrant its own workflow.
+// answerJobWorkflowID names the answer workflow of one question round: the project, the
+// artifact, the branch the job answers on and the round.
+func answerJobWorkflowID(projectID ProjectID, kind ArtifactKind, branch string, round int64) string {
+	return fmt.Sprintf("%s:answer:%s:%s:r%d", projectID, artifactKindString(kind), branch, round)
+}
 
-const (
-	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-	// twins, collapsed by the package merge).
-	// answerEpisodePollInterval spaces the manager-side observe loop. Same order as the
-	// workflow-side observePollInterval — an answer job is the same kind of agentic run.
-	answerEpisodePollInterval = 15 * time.Second
-	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-	// twins, collapsed by the package merge).
-	// answerEpisodeWatchWindow is the hard deadline on the watch. Past it the episode is
-	// recorded as an explicit GAP rather than watched forever by a leaked goroutine.
-	answerEpisodeWatchWindow = 30 * time.Minute
-	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-	// twins, collapsed by the package merge).
-	// answerEpisodeAppendWindow bounds the ledger append that follows the watch. It is a
-	// SEPARATE budget from answerEpisodeWatchWindow on purpose — see run().
-	answerEpisodeAppendWindow = 30 * time.Second
-	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-	// twins, collapsed by the package merge).
-	// answerEpisodeAppendAttempts / answerEpisodeAppendBackoff are this path's stand-in
-	// for the Temporal retry envelope the workflow-side append rides. Small and bounded:
-	// a local sidecar append that fails three times in a row is not transient.
-	answerEpisodeAppendAttempts = 3
-	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-	// twins, collapsed by the package merge).
-	answerEpisodeAppendBackoff = 250 * time.Millisecond
-)
+// answerJobInput is the answer workflow's input.
+type answerJobInput struct {
+	ProjectID ProjectID
+	Kind      projectstate.ArtifactKind
+	// Branch is the branch the answer job checks out (answerTarget).
+	Branch string
+	// Command is the addressee's design-answer command slug.
+	Command string
+	// Landing is what lands on main once the job succeeds; nil for an ask on a session branch.
+	Landing *answerLanding
+}
 
-// watchAnswerEpisode spawns the bounded manager-side watch for one dispatched answer job.
-// It detaches from the CALLER'S context on purpose: ctx is the AskQuestions request
-// context and is cancelled the moment that call returns, while the job it dispatched runs
-// for minutes afterwards. WithoutCancel keeps the request's values (tracing, principal)
-// and drops only the cancellation.
-func (m *deliveryManager) watchAnswerEpisode(ctx context.Context, projectID ProjectID, kind ArtifactKind, handle agenticjob.PipelineHandle, log *slog.Logger) {
-	w := answerEpisodeWatch{
-		pipeline: m.pipeline,
-		episodes: m.episodes,
-		poll:     answerEpisodePollInterval,
-		window:   answerEpisodeWatchWindow,
-		log:      log,
+// answerTarget is the branch the answer job checks out: the session branch a live draft's
+// questions were seeded on, or — for a COMMITTED artifact, whose question-only thread lives
+// on main — an answer branch of its own (dct5 round-2 ruling: the job's target is never empty
+// and never main; the local venue refuses an empty one, and an agent publishing onto main
+// would be a second writer of the main ledger beside the Manager).
+func answerTarget(branch string, kind ArtifactKind, round int64) string {
+	if branch != "" {
+		return branch
 	}
-	go w.run(context.WithoutCancel(ctx), projectID, artifactKindString(kind), handle)
+	return answerBranchName(kind, round)
 }
 
-// answerEpisodeWatch is the bounded observe-then-append loop behind watchAnswerEpisode,
-// broken out with its timings injected so it can be exercised deterministically in tests.
-type answerEpisodeWatch struct {
-	pipeline agenticjob.AgenticJobAccess
-	episodes episode.EpisodeAccess
-	poll     time.Duration
-	window   time.Duration
-	log      *slog.Logger
+// answerBranchName names the answer branch of one question round on a committed artifact.
+// A re-ask of the same questions reuses their round (existingQuestionRound), so the re-fired
+// job re-attaches the same branch rather than minting a second one.
+func answerBranchName(kind ArtifactKind, round int64) string {
+	return fmt.Sprintf("answer/%s-r%d", artifactKindString(kind), round)
 }
 
-// run polls handle to a terminal phase (or to the window's end) and appends the ONE ledger
-// record the dispatch owes. Blocking — watchAnswerEpisode spawns it.
-func (w answerEpisodeWatch) run(ctx context.Context, projectID ProjectID, targetRef string, handle agenticjob.PipelineHandle) {
-	if w.pipeline == nil || w.episodes == nil {
-		return
+// answerLanding is what the answer workflow lands on main once an answer job on an answer
+// branch succeeds: the replies the addressee posted there to this round's questions (and to
+// the threads a reply-only batch followed up on). nil when the job answered on a live
+// session branch, where its replies already sit beside the draft and reach main with the
+// merge.
+type answerLanding struct {
+	Branch   string
+	Round    int64
+	Comments []string
+}
+
+// answerLandingFor is the landing an ask on main owes, or nil for an ask on a session branch.
+func answerLandingFor(branch string, kind ArtifactKind, round int64, minted []projectstate.ReviewComment, replies []projectstate.ReviewReply) *answerLanding {
+	if branch != "" {
+		return nil
 	}
-	watchCtx, cancelWatch := context.WithTimeout(ctx, w.window)
-	defer cancelWatch()
-
-	obs, terminal := w.observeToTerminal(watchCtx, handle)
-	if terminal && episodeVenueIsRemote(obs.RunURL) {
-		// Remote venue mines no episode in v1 — nothing was lost, so record nothing.
-		return
+	l := &answerLanding{Branch: answerBranchName(kind, round), Round: round}
+	for _, q := range minted {
+		l.Comments = append(l.Comments, q.ID)
 	}
-	rec := w.answerRecord(obs, terminal, targetRef, handle)
-
-	// THE APPEND MUST NOT RIDE watchCtx. On the DEADLINE path observeToTerminal returned
-	// precisely BECAUSE watchCtx expired, so appending under it would hand the ledger an
-	// already-cancelled context — making the gap record the deadline exists to write the
-	// one write guaranteed to fail. Derive a fresh, cancellation-free budget from the
-	// caller's context instead. (Today's AppendEpisode realisations ignore the context
-	// entirely, so this is latent rather than live; a store that honours it would turn the
-	// never-silent guarantee into a silent loss on exactly the path that needs it most.)
-	appendCtx, cancelAppend := context.WithTimeout(context.WithoutCancel(ctx), answerEpisodeAppendWindow)
-	defer cancelAppend()
-	w.appendRecord(appendCtx, projectID, rec, handle)
-}
-
-// appendRecord writes the record with a small BOUNDED retry. The workflow-side capture
-// gets Temporal's retry envelope for free; this path has none, so without it a single
-// transient store stumble would lose the episode outright.
-func (w answerEpisodeWatch) appendRecord(ctx context.Context, projectID ProjectID, rec episode.EpisodeRecord, handle agenticjob.PipelineHandle) {
-	key := fwra.IdempotencyKey("answerEpisode:" + string(handle))
-	var err error
-	for attempt := 1; attempt <= answerEpisodeAppendAttempts; attempt++ {
-		err = w.episodes.AppendEpisode(fwra.Context{Context: ctx, IdempotencyKey: key},
-			episode.ProjectID(projectID), rec)
-		if err == nil {
-			return
-		}
-		if attempt == answerEpisodeAppendAttempts ||
-			!waitOrDone(ctx, time.Duration(attempt)*answerEpisodeAppendBackoff) {
-			break
+	for _, r := range replies {
+		if !slices.Contains(l.Comments, r.CommentID) {
+			l.Comments = append(l.Comments, r.CommentID)
 		}
 	}
-	w.log.Error("answer-job episode NOT recorded: ledger append failed after its bounded retry",
-		"episodeId", rec.EpisodeID, "attempts", answerEpisodeAppendAttempts, "err", err.Error())
+	return l
 }
 
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// waitOrDone sleeps for d, returning false the moment ctx is done instead.
-func waitOrDone(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
+// answerSubmitActivity is the registered name of the dispatch the answer workflow bounds.
+const answerSubmitActivity = "agenticJobAccess.submitAgenticJob"
+
+// answerSubmitActivityOptions is the answer job's dispatch: the pipeline submit preset, with
+// its attempts BOUNDED. A design or construction walk retries its dispatch until the venue
+// takes it, because the walk cannot move on without the job; an answer job is auxiliary, and
+// a venue that keeps refusing it (no seat) is the use case's dispatch miss: the workflow ends
+// with the question recorded and open, and a re-ask dispatches again.
+func answerSubmitActivityOptions() workflow.ActivityOptions {
+	return fwmanager.ActivityPreset{
+		Timeout:     60 * time.Second,
+		MaxAttempts: 3,
+		TerminalRA:  []fwra.Kind{fwra.Auth, fwra.ContractMisuse},
+	}.Options()
 }
 
-// observeToTerminal polls the dispatched job until it reaches a terminal phase, the
-// window closes, or the RA faults. terminal=false means the second or third — the caller
-// turns that into a gap record.
-func (w answerEpisodeWatch) observeToTerminal(ctx context.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, bool) {
-	var last agenticjob.PipelineObservation
-	cancelGrace := 0
-	for {
-		obs, err := w.pipeline.ObserveAgenticJob(fwra.Context{Context: ctx}, handle)
-		if err != nil {
-			return last, false
+// seedOnMainActivityOptions is the answer landing's seed: a slot-thread MUTATION whose stale
+// version is TERMINAL, because landAnswers' re-read→re-apply loop is what resolves it — a
+// Temporal retry would re-issue the same stale expectedVersion forever.
+func seedOnMainActivityOptions() workflow.ActivityOptions {
+	return fwmanager.ActivityPreset{
+		Timeout:    15 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse, fwra.Conflict},
+	}.Options()
+}
+
+// unlandedReplies is every reply the answer branch's thread holds on the named comments that
+// main's thread does not, as the store's reply input.
+func unlandedReplies(branch, main []projectstate.ReviewComment, ids []string) []projectstate.ReviewReply {
+	held := map[string]bool{}
+	for _, c := range main {
+		for _, r := range c.Replies {
+			held[c.ID+"\x00"+r.AuthorRole+"\x00"+r.Text+"\x00"+r.At] = true
 		}
-		last = obs
-		if terminal, done := w.classify(obs, &cancelGrace); done {
-			return obs, terminal
+	}
+	var out []projectstate.ReviewReply
+	for _, c := range branch {
+		if !slices.Contains(ids, c.ID) {
+			continue
 		}
-		if !waitOrDone(ctx, w.poll) {
-			return last, false
+		for _, r := range c.Replies {
+			if held[c.ID+"\x00"+r.AuthorRole+"\x00"+r.Text+"\x00"+r.At] {
+				continue
+			}
+			out = append(out, projectstate.ReviewReply{CommentID: c.ID, AuthorRole: r.AuthorRole, Text: r.Text, At: r.At})
 		}
 	}
-}
-
-// classify decides whether THIS observation ends the watch. A terminal observation with a
-// summary always does. A terminal observation WITHOUT one ends it too — except for the
-// CANCEL RACE, where the phase flips synchronously while the agent subprocess is still
-// unwinding: that gets maxLateEpisodePolls further polls (the same grace the workflow-side
-// capture gives it) before the run is written off.
-func (w answerEpisodeWatch) classify(obs agenticjob.PipelineObservation, cancelGrace *int) (terminal, done bool) {
-	if !designPipelinePhase(obs.Phase).IsTerminal() {
-		return false, false
-	}
-	if obs.Episode != nil || obs.Phase != agenticjob.PhaseCancelled {
-		return true, true
-	}
-	if *cancelGrace >= maxLateEpisodePolls {
-		return true, true
-	}
-	*cancelGrace++
-	return false, false
-}
-
-// answerRecord composes the ledger record for a watched answer job: the mined summary, or
-// an explicit GAP naming which of the two ways it went missing.
-func (w answerEpisodeWatch) answerRecord(obs agenticjob.PipelineObservation, terminal bool, targetRef string, handle agenticjob.PipelineHandle) episode.EpisodeRecord {
-	// Lineage is nil BY DESIGN: this dispatch has no durable execution behind it.
-	if terminal && obs.Episode != nil {
-		return episodeRecordFromSummary(*obs.Episode, episode.EpisodeKindAnswer, targetRef, nil, obs.Diagnostic)
-	}
-	reason := episodeMissingSummaryReason
-	if !terminal {
-		reason = "answer job did not reach a terminal phase within the manager-side watch window"
-	}
-	return episodeGapRecord(episode.EpisodeKindAnswer, targetRef, nil,
-		"gap-"+episodeIDSafe(string(handle)),
-		episodeGapReason(reason, obs.Diagnostic), time.Now().UTC())
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -1615,6 +1655,23 @@ func (m *deliveryManager) seedDesignPrefixPlan(ctx context.Context, projectID Pr
 		return newError(fwmanager.FailedPrecondition,
 			"cannot seed the birth design prefix: no designSessionAccess is wired, and a project born without a committed activityList/network cannot dispatch its first activity")
 	}
+	// A WRITE THAT LOSES THE REF RACE IS RE-READ AND RE-APPLIED (dct5 round-3 ruling: the
+	// birth reloads and retries on a non-fast-forward). Each slot write is keyed, so a retry
+	// replays what already landed instead of writing it twice, and the re-read guard below
+	// stops at a plan that is already there.
+	var last error
+	for range activityRowWriteAttempts {
+		err := m.seedDesignPrefixPlanOnce(ctx, projectID, key)
+		if err == nil || !lostWriteRace(err) {
+			return err
+		}
+		last = err
+	}
+	return last
+}
+
+// seedDesignPrefixPlanOnce is one attempt of the birth seed at the version it reads.
+func (m *deliveryManager) seedDesignPrefixPlanOnce(ctx context.Context, projectID ProjectID, key fwra.IdempotencyKey) error {
 	psID := projectstate.ProjectID(projectID)
 	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
 	if err != nil {
@@ -1626,7 +1683,12 @@ func (m *deliveryManager) seedDesignPrefixPlan(ctx context.Context, projectID Pr
 	// replace the ~30-activity plan M0 committed with this three-activity prefix, which is
 	// the worst data loss this change could cause; the guard reads the slots rather than
 	// trusting the create's return, because the create cannot say which of the two it did.
-	if proj.ActivityList.Status != projectstate.ReviewNone || proj.Network.Status != projectstate.ReviewNone {
+	//
+	// A RETRY RESUMES A HALF-SEEDED BIRTH: a slot an earlier attempt committed before it lost
+	// the race is skipped (below), and only a slot that is unstaged is written. Any other
+	// state — both committed, or either one staged by someone else — is a plan this seed
+	// does not own.
+	if !birthSeedOwns(proj.ActivityList.Status, proj.Network.Status) {
 		return nil
 	}
 	list, net, err := birthDesignPrefixPlan()
@@ -1641,6 +1703,9 @@ func (m *deliveryManager) seedDesignPrefixPlan(ctx context.Context, projectID Pr
 		{Kind: projectstate.KindActivityList, Model: &list},
 		{Kind: projectstate.KindNetwork, Model: &net},
 	} {
+		if slotForKind(proj, slot.Kind).Status == projectstate.ReviewCommitted {
+			continue
+		}
 		env, encErr := encodeModel(slot.Model)
 		if encErr != nil {
 			return fwmanager.MapError(encErr)
@@ -1660,6 +1725,16 @@ func (m *deliveryManager) seedDesignPrefixPlan(ctx context.Context, projectID Pr
 		version = committed
 	}
 	return nil
+}
+
+// birthSeedOwns reports whether the birth seed may write the plan slots in these states: at
+// least one is unstaged and neither is staged-but-uncommitted (a draft somebody else owns).
+func birthSeedOwns(list, network projectstate.ArtifactReviewStatus) bool {
+	settled := func(s projectstate.ArtifactReviewStatus) bool {
+		return s == projectstate.ReviewNone || s == projectstate.ReviewCommitted
+	}
+	return settled(list) && settled(network) &&
+		(list == projectstate.ReviewNone || network == projectstate.ReviewNone)
 }
 
 // birthPlanApprovedBy / birthPlanDraftedBy are the commit provenance on the two slots a
@@ -2237,7 +2312,7 @@ func (m *deliveryManager) projectStateToContract(p projectstate.Project) Project
 		OperatingModel:      OperatingModel(string(p.OperatingModel.OrDefault())),
 		Research:            researchToContract(p.Research),
 		Slots:               slotsToContract(p),
-		GitRows:             m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit),
+		GitRows:             m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit, p.ActivityExecution),
 		ActivityExecution:   constructionRowsToContract(p.ActivityExecution, activityMetaByID(p), componentLayerByID(p), constructionPlanFor(p)),
 		ConstructionStarted: constructionStartedFor(p.ActivityExecution),
 		// The recorded operator pause, passed through as stored (plan B1.7): the console
@@ -2479,7 +2554,17 @@ func stageForStatus(s projectstate.ArtifactReviewStatus) ArtifactStage {
 // projectRepoBase(projectID) (which falls back to the central m.repoBase exactly when
 // the dispatch resolver is nil or misses — links stay central-pointing precisely when
 // dispatch does).
-func (m *deliveryManager) gitRowsToContract(projectID ProjectID, rows map[string]projectstate.ActivityGitStatus) map[string]ActivityGitStatus {
+//
+// A GITLOCAL VENUE HAS NO PR RAIL, so it stores no row; every activity the walk opened has
+// its activity branch all the same, and that branch is what the code review links to on a
+// filesystem venue (dct5 round-1 ruling). So on GitLocal each opened activity reads a row
+// naming its branch, with no PR (localBranchRows).
+func (m *deliveryManager) gitRowsToContract(
+	projectID ProjectID, rows map[string]projectstate.ActivityGitStatus, executions map[string]projectstate.ActivityExecution,
+) map[string]ActivityGitStatus {
+	if m.gitLocalProject(projectID) {
+		return localBranchRows(rows, executions)
+	}
 	if len(rows) == 0 {
 		return nil
 	}
@@ -2499,6 +2584,35 @@ func (m *deliveryManager) gitRowsToContract(projectID ProjectID, rows map[string
 			IsRevert:       g.IsRevert,
 			UpdatedAt:      g.UpdatedAt,
 		}
+	}
+	return out
+}
+
+// gitLocalProject reports whether the project's venue is the GitLocal filesystem venue.
+func (m *deliveryManager) gitLocalProject(projectID ProjectID) bool {
+	if m.repo == nil {
+		return false
+	}
+	ref, ok := m.repo(projectID)
+	return ok && isGitLocalVenue(projectID, ref)
+}
+
+// localBranchRows is the GitLocal venue's git rows: whatever rows the store holds, plus one
+// per activity the walk opened that holds none — its activity branch, and no PR.
+func localBranchRows(rows map[string]projectstate.ActivityGitStatus, executions map[string]projectstate.ActivityExecution) map[string]ActivityGitStatus {
+	out := make(map[string]ActivityGitStatus, len(executions))
+	for id, g := range rows {
+		out[id] = ActivityGitStatus{ActivityID: g.ActivityID, BranchName: g.BranchName, BranchRef: g.BranchRef,
+			CICheck: CICheckState(int(g.CICheck)), CRLabel: g.CRLabel, IsRevert: g.IsRevert, UpdatedAt: g.UpdatedAt}
+	}
+	for id, row := range executions {
+		if _, ok := out[id]; ok || len(row.Attempts) == 0 {
+			continue
+		}
+		out[id] = ActivityGitStatus{ActivityID: id, BranchName: activityBranchName(ActivityID(id))}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -3808,6 +3922,15 @@ func isReadNotFound(err error) bool {
 // would otherwise replay into a command it never made.
 const changeRowConflictReread = "row-conflict-reread"
 
+// changeRowConflictSentVersion fences what the row re-read compares the store against: the
+// row version the REFUSED call carried, not the run's held copy at re-read time. Under the
+// B12 fork two walk branches share that copy, and one branch's re-read re-seeds it while the
+// other's refused call is still in flight — so "held copy == store" read as "nothing moved"
+// and a stale-CAS race was raised as a terminal refusal (dct5 scenario
+// execute-a-project-activity P7: "at version 14, not the expected 15", MutateTerminalConflict).
+// A history recorded before the fence keeps its recorded decision.
+const changeRowConflictSentVersion = "row-conflict-sent-version"
+
 // terminalConflictErrType is the Temporal Type() applyRecovering raises when a Conflict
 // cannot be a version conflict, because RE-READING CHANGED NOTHING.
 //
@@ -4352,131 +4475,6 @@ func mapStaleAckError(err error) error {
 		}
 	}
 	return newError(fwmanager.Infrastructure, err.Error())
-}
-
-// Dispatch inputs for the design jobs. Project Design has no PM-critique, so its dispatch
-// path historically carried no job_mode; under thin dispatch the MCP scopes its ambient
-// mode on this input, so BOTH the draft and answer jobs now set it — pdJobModeDraft on the
-// workflow-side draft dispatch, pdJobModeAnswer on this manager-side answer job.
-const (
-	pdDispatchInputJobMode = "job_mode"
-	pdJobModeDraft         = "draft"
-	pdJobModeAnswer        = "answer"
-)
-
-// pdAnswerEpisodeWatch is the bounded observe-then-append loop behind watchAnswerEpisode,
-// broken out with its timings injected so it can be exercised deterministically in tests.
-type pdAnswerEpisodeWatch struct {
-	pipeline agenticjob.AgenticJobAccess
-	episodes episode.EpisodeAccess
-	poll     time.Duration
-	window   time.Duration
-	log      *slog.Logger
-}
-
-// run polls handle to a terminal phase (or to the window's end) and appends the ONE ledger
-// record the dispatch owes. Blocking — watchAnswerEpisode spawns it.
-func (w pdAnswerEpisodeWatch) run(ctx context.Context, projectID ProjectID, targetRef string, handle agenticjob.PipelineHandle) {
-	if w.pipeline == nil || w.episodes == nil {
-		return
-	}
-	watchCtx, cancelWatch := context.WithTimeout(ctx, w.window)
-	defer cancelWatch()
-
-	obs, terminal := w.observeToTerminal(watchCtx, handle)
-	if terminal && episodeVenueIsRemote(obs.RunURL) {
-		// Remote venue mines no episode in v1 — nothing was lost, so record nothing.
-		return
-	}
-	rec := w.answerRecord(obs, terminal, targetRef, handle)
-
-	// THE APPEND MUST NOT RIDE watchCtx. On the DEADLINE path observeToTerminal returned
-	// precisely BECAUSE watchCtx expired, so appending under it would hand the ledger an
-	// already-cancelled context — making the gap record the deadline exists to write the
-	// one write guaranteed to fail. Derive a fresh, cancellation-free budget from the
-	// caller's context instead. (Today's AppendEpisode realisations ignore the context
-	// entirely, so this is latent rather than live; a store that honours it would turn the
-	// never-silent guarantee into a silent loss on exactly the path that needs it most.)
-	appendCtx, cancelAppend := context.WithTimeout(context.WithoutCancel(ctx), answerEpisodeAppendWindow)
-	defer cancelAppend()
-	w.appendRecord(appendCtx, projectID, rec, handle)
-}
-
-// appendRecord writes the record with a small BOUNDED retry. The workflow-side capture
-// gets Temporal's retry envelope for free; this path has none, so without it a single
-// transient store stumble would lose the episode outright.
-func (w pdAnswerEpisodeWatch) appendRecord(ctx context.Context, projectID ProjectID, rec episode.EpisodeRecord, handle agenticjob.PipelineHandle) {
-	key := fwra.IdempotencyKey("answerEpisode:" + string(handle))
-	var err error
-	for attempt := 1; attempt <= answerEpisodeAppendAttempts; attempt++ {
-		err = w.episodes.AppendEpisode(fwra.Context{Context: ctx, IdempotencyKey: key},
-			episode.ProjectID(projectID), rec)
-		if err == nil {
-			return
-		}
-		if attempt == answerEpisodeAppendAttempts ||
-			!waitOrDone(ctx, time.Duration(attempt)*answerEpisodeAppendBackoff) {
-			break
-		}
-	}
-	w.log.Error("answer-job episode NOT recorded: ledger append failed after its bounded retry",
-		"episodeId", rec.EpisodeID, "attempts", answerEpisodeAppendAttempts, "err", err.Error())
-}
-
-// observeToTerminal polls the dispatched job until it reaches a terminal phase, the window
-// closes, or the RA faults. terminal=false means the second or third — the caller turns
-// that into a gap record.
-func (w pdAnswerEpisodeWatch) observeToTerminal(ctx context.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, bool) {
-	var last agenticjob.PipelineObservation
-	cancelGrace := 0
-	for {
-		obs, err := w.pipeline.ObserveAgenticJob(fwra.Context{Context: ctx}, handle)
-		if err != nil {
-			return last, false
-		}
-		last = obs
-		if terminal, done := w.classify(obs, &cancelGrace); done {
-			return obs, terminal
-		}
-		if !waitOrDone(ctx, w.poll) {
-			return last, false
-		}
-	}
-}
-
-// classify decides whether THIS observation ends the watch. A terminal observation with a
-// summary always does. A terminal observation WITHOUT one ends it too — except for the
-// CANCEL RACE, where the phase flips synchronously while the agent subprocess is still
-// unwinding: that gets maxLateEpisodePolls further polls (the same grace the workflow-side
-// capture gives it) before the run is written off.
-func (w pdAnswerEpisodeWatch) classify(obs agenticjob.PipelineObservation, cancelGrace *int) (terminal, done bool) {
-	if !pdDesignPipelinePhase(obs.Phase).IsTerminal() {
-		return false, false
-	}
-	if obs.Episode != nil || obs.Phase != agenticjob.PhaseCancelled {
-		return true, true
-	}
-	if *cancelGrace >= maxLateEpisodePolls {
-		return true, true
-	}
-	*cancelGrace++
-	return false, false
-}
-
-// answerRecord composes the ledger record for a watched answer job: the mined summary, or
-// an explicit GAP naming which of the two ways it went missing.
-func (w pdAnswerEpisodeWatch) answerRecord(obs agenticjob.PipelineObservation, terminal bool, targetRef string, handle agenticjob.PipelineHandle) episode.EpisodeRecord {
-	// Lineage is nil BY DESIGN: this dispatch has no durable execution behind it.
-	if terminal && obs.Episode != nil {
-		return episodeRecordFromSummary(*obs.Episode, episode.EpisodeKindAnswer, targetRef, nil, obs.Diagnostic)
-	}
-	reason := episodeMissingSummaryReason
-	if !terminal {
-		reason = "answer job did not reach a terminal phase within the manager-side watch window"
-	}
-	return episodeGapRecord(episode.EpisodeKindAnswer, targetRef, nil,
-		"gap-"+episodeIDSafe(string(handle)),
-		episodeGapReason(reason, obs.Diagnostic), time.Now().UTC())
 }
 
 // ---------------------------------------------------------------------------
@@ -6045,9 +6043,48 @@ func (m *constructionManager) terminalPumpResult(ctx context.Context, we client.
 	defer cancel()
 	var result PumpResult
 	if err := we.Get(wctx, &result); err != nil {
-		return PumpResult{}, newError(fwmanager.Infrastructure, err.Error())
+		return PumpResult{}, mapResultError(err)
 	}
 	return result, nil
+}
+
+// mapResultError translates a workflow's terminal failure, as WorkflowRun.Get reports
+// it, into the façade's error model. A workflow fails with a typed application error —
+// a Manager_<Kind> it raised itself or a ResourceAccess_<Kind> it carried up from an
+// activity — and that kind is the caller's answer: a FailedPrecondition is a gate the
+// caller can act on, a NotFound names a missing entity, a ContractMisuse is the caller's
+// own fault. Only a failure that carries no such kind (a timeout, a cancellation, a lost
+// worker, the wait budget running out) is an Infrastructure fault. Mapping every failure
+// to Infrastructure told callers to retry requests that can never succeed.
+func mapResultError(err error) error {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		if kind, ok := resultErrorKind(appErr.Type()); ok {
+			return fwmanager.Wrap(kind, err, "delivery workflow failed")
+		}
+	}
+	return newError(fwmanager.Infrastructure, err.Error())
+}
+
+// resultErrorKind maps a workflow failure's application error type to the façade kind it
+// reports; ok is false for a type with no façade meaning.
+func resultErrorKind(errType string) (fwmanager.Kind, bool) {
+	for _, k := range fwmanager.Kinds() {
+		if k != fwmanager.Unknown && errType == fwmanager.ErrType(k) {
+			return k, true
+		}
+	}
+	switch errType {
+	case fwmanager.RAErrType(fwra.NotFound):
+		return fwmanager.NotFound, true
+	case fwmanager.RAErrType(fwra.Auth):
+		return fwmanager.Unauthorized, true
+	case fwmanager.RAErrType(fwra.Conflict):
+		return fwmanager.FailedPrecondition, true
+	case fwmanager.RAErrType(fwra.ContractMisuse):
+		return fwmanager.ContractMisuse, true
+	}
+	return fwmanager.Unknown, false
 }
 
 // PauseProject — op 2.3. Temporal Signal (operatorPauseRequested) to the project's
@@ -6279,11 +6316,19 @@ func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID P
 	// addresses a dispatch in flight and has nothing to reach. During a rolling deploy a
 	// view served by an old worker still answers the liveness question, so the refusal no
 	// longer depends on a field an old worker may not carry.
-	if _, err := m.activitySession(ctx, projectID, activityID); err != nil {
-		if isManagerNotFound(err) {
-			return m.reopenActivity(ctx, projectID, activityID, override)
-		}
+	//
+	// LIVENESS IS THE EXECUTION'S STATUS, NOT A QUERY'S ANSWER (dct4 scenario
+	// execute-a-project-activity P2). A Temporal Query is served by REPLAYING a closed
+	// execution, so the session read answered for a child that had already exited — the
+	// reopen arm was unreachable for every activity whose child had ever run, and the
+	// override fell through to a signal Temporal refused with "workflow execution already
+	// completed". The execution's own status is the liveness fact.
+	running, err := m.activityChildRunning(ctx, projectID, activityID)
+	if err != nil {
 		return err
+	}
+	if !running {
+		return m.reopenActivity(ctx, projectID, activityID, override)
 	}
 	// THE OVERRIDE MUST NAME THE TASK IT STEERS (stage 4b1 Task 12; the Task-11 round-2
 	// defect D2). The generic child's router forwards by TaskID and DROPS a signal that
@@ -6309,6 +6354,97 @@ func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID P
 	return nil
 }
 
+// reopenForTask is DispatchActivityTask's REOPEN arm: the activity's walk has ended (or
+// never ran), and the caller asked for one of its tasks to be produced again — an amendment
+// to a committed design artifact is exactly this (spec: reopen-slot). The row is re-armed
+// through the requeue note when it is terminal (the same one write OverrideActivity's reopen
+// arm makes, carrying the dispatch's own steer as the reason), and the activity's child is
+// started with Reopen naming the gate task, so the fresh walk re-opens that judged pair at
+// revision n+1 and leaves every other passed task passed.
+//
+// It starts the child DIRECTLY, as the brand-new-project bootstrap does, rather than waiting
+// for a pump tick: the pump starts a child with the selection's input and knows nothing of
+// which task to re-open. USE_EXISTING makes a concurrent pump start of the same id adopt
+// this run rather than race it.
+func (m *constructionManager) reopenForTask(
+	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, gateTask string, feedback *ReviewFeedback,
+) (SessionRef, error) {
+	ctx := rc.Context
+	if feedback != nil {
+		if strings.TrimSpace(feedback.Notes) == "" {
+			return "", newError(fwmanager.ContractMisuse,
+				"feedback is present but its notes are empty — omit feedback entirely to re-dispatch with no steer")
+		}
+		if err := checkOperatorNoteSize("a re-dispatch note", feedback.Notes, feedback.Comments); err != nil {
+			return "", err
+		}
+	}
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		return "", mapRAError(err, "projectStateAccess.ReadProject")
+	}
+	item, ok := committedActivityItem(proj, string(activityID))
+	if !ok {
+		return "", newError(fwmanager.NotFound, "no activity "+string(activityID)+" in the committed activity list")
+	}
+	sel := dispatchSelectionFor(proj, string(activityID), item)
+	if sel.Verdict != verdictDispatch {
+		return "", newError(fwmanager.FailedPrecondition, sel.BlockedReason)
+	}
+	// AN EXITED ROW IS RE-ARMED WHATEVER ITS LEDGER HOLDS. A design activity a resume walked
+	// over committed artifacts (the walk's skip-if-committed seed) exits with an EMPTY attempt
+	// ledger, and gating the re-arm on attempts left exactly that row un-re-armed: the fresh
+	// child's OpenActivity then refused it as already exited, and its artifacts could never be
+	// amended (dct5 scenario add-a-use-case-to-an-in-flight-project).
+	if row, held := proj.ActivityExecution[string(activityID)]; held {
+		phase := projectstate.CoarsePhaseFor(row, nil)
+		if phase == projectstate.ActivityConstructionDone || phase == projectstate.ActivityConstructionFailed ||
+			phase == projectstate.ActivityConstructionCompletedNotLanded || row.CompletedAt != nil {
+			reason := "re-dispatch " + gateTask
+			var comments []AnchoredComment
+			if feedback != nil {
+				reason, comments = feedback.Notes, feedback.Comments
+			}
+			if err := m.rearmActivity(ctx, projectID, activityID, ActivityOverride{Kind: OverrideRetry, Notes: reason, Comments: comments}); err != nil {
+				return "", err
+			}
+		}
+	}
+	opts := client.StartWorkflowOptions{
+		ID:                       deliveryActivityWorkflowID(projectID, activityID),
+		TaskQueue:                TaskQueue,
+		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+	}
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  projectID,
+		ActivityID: activityID,
+		Activity:   sel.Activity,
+		Reopen:     &redraftSignal{TaskID: gateTask, Feedback: feedback},
+	})
+	if err != nil {
+		return "", mapStartError(err)
+	}
+	return newSessionRef(we.GetID()), nil
+}
+
+// activityChildRunning reports whether the activity's generic child has a RUNNING
+// execution (bounded by pumpRPCTimeout). No execution at all is not running; any other
+// describe fault is Infrastructure.
+func (m *constructionManager) activityChildRunning(ctx context.Context, projectID ProjectID, activityID ActivityID) (bool, error) {
+	dctx, cancel := context.WithTimeout(ctx, pumpRPCTimeout)
+	defer cancel()
+	resp, err := m.client.DescribeWorkflowExecution(dctx, deliveryActivityWorkflowID(projectID, activityID), "")
+	if err != nil {
+		if isNotFound(err) {
+			return false, nil
+		}
+		return false, newError(fwmanager.Infrastructure, "check whether activity "+string(activityID)+" is live: "+err.Error())
+	}
+	info := resp.GetWorkflowExecutionInfo()
+	return info != nil && info.GetStatus() == enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING, nil
+}
+
 // reopenActivity is the override's REOPEN arm: against a TERMINAL row with NO LIVE CHILD it
 // re-arms the row at its CURRENT revision so the pump selects the activity again on its next
 // tick (stage 4b1 Task 12, fix round 1; controller ruling 3).
@@ -6331,6 +6467,23 @@ func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID P
 // word the SPA put on the button. The store refuses a row that has NOT exited, so a live
 // activity whose child merely has not started yet cannot be re-armed through this door.
 func (m *constructionManager) reopenActivity(ctx context.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
+	if err := m.rearmActivity(ctx, projectID, activityID, override); err != nil {
+		return err
+	}
+	// THE RE-ARMED ACTIVITY IS PUMPED NOW (dct4), exactly as ResumeProject pumps a resumed
+	// project: started or joined WITHOUT awaiting its decision. Before this, a requeue waited
+	// for the next 30-second sweep — and on a boot that registers no sweep, forever — while
+	// the operator watched an activity they had just re-queued sit untouched. A start that
+	// fails leaves the re-arm landed, and the sweep pumps it; it is logged, never returned.
+	if _, err := m.startOrJoinPump(ctx, projectID); err != nil {
+		slog.Default().WarnContext(ctx, "activity re-armed, but the pump did not start now; the 30-second sweep will start it",
+			"projectId", string(projectID), "activityId", string(activityID), "error", err.Error())
+	}
+	return nil
+}
+
+// rearmActivity is the reopen arm's ONE write: the requeue note that re-arms the row.
+func (m *constructionManager) rearmActivity(ctx context.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
 	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
 		// TERMINALITY IS PRE-CHECKED HERE, on the row this attempt just read, and the reason is the
 		// error KIND the store answers with (Task 12 round 3, minor (e)): a requeue against a live
@@ -6530,9 +6683,13 @@ func (m *constructionManager) QueryActivityView(rc fwmanager.Context, projectID 
 		return ActivityView{}, newError(fwmanager.Infrastructure, "the platform's method assets carry no lifecycle for activity type "+key)
 	}
 	coarse, _ := projectstate.EffectiveConstructionPhase(row, item)
-	live, err := m.liveSessionFor(ctx, projectID, activityID, coarse)
+	session, isLive, err := m.liveSessionFor(ctx, projectID, activityID, coarse)
 	if err != nil {
 		return ActivityView{}, err
+	}
+	var live *ConstructionSessionView
+	if isLive {
+		live = &session
 	}
 	records, err := m.episodes.ListEpisodes(fwra.Context{Context: ctx}, episode.EpisodeQuery{ProjectID: episode.ProjectID(projectID), TargetRef: &id})
 	if err != nil {
@@ -7822,19 +7979,16 @@ type pumpSelection struct {
 // pumpEligibilityRule's GetVersion ladder, so that a pump replaying a history recorded under
 // an older rule re-selected exactly what it chose then; stage 4b3 Task 3 discharged that
 // ladder with the pump's other fences, and the pump now always asks for eligibleWithDesign.
-// The lower rungs remain the rules eligibleUnder is layered on and the rules
-// nextEligibleActivity's tests walk.
 type eligibilityRule int
 
 const (
-	// eligibleNotStarted is the pre-D1 rule: only an activity whose effective state is
-	// NotStarted (isActivityNotStarted).
-	eligibleNotStarted eligibilityRule = iota
-	// eligibleDispatchable is architect (D), D.1.2: also an integration-pending row, one no
-	// pump wrote whose ledger holds some phases complete (isActivityDispatchable).
-	eligibleDispatchable
-	// eligibleWithDesign additionally admits the THREE DESIGN ACTIVITIES (stage 4b1 Task
-	// 10). It is its own rung, behind its own change id, because the rule genuinely changes
+	// eligibleWithDesign is the ONE rule (dct4): the D1 row rule (isActivityDispatchable — an
+	// activity with no row, or an integration-pending row no pump wrote) PLUS, additionally,
+	// the design admission. The two rungs beneath it (NotStarted-only, and D1 alone) are
+	// deleted: nothing selected either once the pump's fences were discharged, and the tests
+	// that walked them went with the in-package tests.
+	//
+	// It admits the THREE DESIGN ACTIVITIES (stage 4b1 Task 10). It was its own rung, behind its own change id, because the rule genuinely changes
 	// which activity a tick picks on state that already exists: this repo's own committed
 	// slot 9 opens with requirements/architecture/projectDesign and none of the three has an
 	// execution row, so a recorded pump history that walked past them and dispatched a
@@ -7843,7 +7997,7 @@ const (
 	// That was the reason for its own change id, and for changeLedgerPartialResume's; the
 	// pump's two rungs are discharged (stage 4b3 Task 3, no production users) and this is the
 	// one rule the pump asks for.
-	eligibleWithDesign
+	eligibleWithDesign eligibilityRule = iota
 )
 
 // admitsDesignActivities reports whether this rule lets the pump pick one of the three
@@ -7957,7 +8111,7 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 	var problemKind projectstate.FailureReason
 	for i, item := range activityList.Activities {
 		name := item.Name
-		if !eligibleUnder(rule, name, item, proj.ActivityExecution) {
+		if !eligibleUnder(name, item, proj.ActivityExecution) {
 			continue
 		}
 		if !admissibleInPhase(proj.Phase, rule, name, item) {
@@ -8120,18 +8274,12 @@ func committedPlanInputs(proj projectstate.Project) (*projectstate.Network, *pro
 	return network, activityList, true
 }
 
-// eligibleUnder applies the pump's eligibility rule to one activity.
-//
-// THE RULES ARE CUMULATIVE, and the test must say so rather than name one rung: eligibleWithDesign
-// (stage 4b1 Task 10) adds the design admission ON TOP of D1's widened row rule, so a
-// `rule == eligibleDispatchable` equality test silently demoted the newest rule to the PRE-D1
-// selection — measured, as Test_Pump_IntegrationPendingRow_DispatchesOnlyItsIntegration picking
-// the not-started activity over the integration-pending one.
-func eligibleUnder(rule eligibilityRule, activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityExecution) bool {
-	if rule >= eligibleDispatchable {
-		return isActivityDispatchable(activityID, item, status)
-	}
-	return isActivityNotStarted(activityID, item, status)
+// eligibleUnder applies the pump's row eligibility to one activity. Every rule that exists
+// is cumulative over the D1 row rule — eligibleWithDesign adds the design admission ON
+// TOP of D1's widened row rule (admissibleInPhase applies that half) — so the row half is
+// the one rule. The pre-D1 NotStarted-only rung is deleted (dct4).
+func eligibleUnder(activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityExecution) bool {
+	return isActivityDispatchable(activityID, item, status)
 }
 
 // isActivityDispatchable is the D1 eligibility (architect (D), D.1.2): the activity has
@@ -8163,22 +8311,6 @@ func isActivityDispatchable(activityID string, item projectstate.ActivityItem, s
 	}
 	effective, _ := projectstate.EffectiveConstructionPhase(s, item)
 	return effective == projectstate.ActivityConstructionNotStarted || effective == projectstate.ActivityConstructionRunning
-}
-
-// isActivityNotStarted reports whether the activity has not started: it has no
-// construction row, or its EFFECTIVE state is NotStarted. Effective, not stored:
-// projectstate.EffectiveConstructionPhase lets the stored Phase win wherever the pump
-// wrote it and reads the attempt ledger only where it did not, so a row whose history
-// lives in the ledger alone (the backfill's rows: attempts, no stored phase fields) is
-// never re-dispatched as if nothing had happened. item is the activity's committed
-// ActivityItem — the ledger read needs its classification.
-func isActivityNotStarted(activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityExecution) bool {
-	s, exists := status[activityID]
-	if !exists {
-		return true
-	}
-	effective, _ := projectstate.EffectiveConstructionPhase(s, item)
-	return effective == projectstate.ActivityConstructionNotStarted
 }
 
 // hydrateConstructionActivity populates a constructionActivity from the activity id +
@@ -8663,6 +8795,12 @@ type deliveryActivityInput struct {
 	ActivityID ActivityID
 	Activity   constructionActivity
 	Resume     *walkSnapshot
+	// Reopen names the task a DispatchActivityTask asked to be produced again on an
+	// activity whose walk had already ended (DispatchActivityTask's reopen arm). The fresh
+	// walk seeds from the ledger as always and then re-opens THAT task's judged pair at
+	// revision n+1 with the feedback as its steer — the send-back rule, applied at seed.
+	// nil on every pump start, every bootstrap and every continue-as-new.
+	Reopen *redraftSignal `json:",omitempty"`
 }
 
 // walkSnapshot is the walk across ContinueAsNew: exported fields, the four walk maps plus
@@ -8953,6 +9091,7 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		// through this verb and then commits it. That is its first workflow-side caller since
 		// the co-author files went. It is a slot MUTATION and takes the mutate preset for the
 		// same reason its commit twin does.
+		"designSessionAccess.seedReviewCommentsOnBranch":     seedOnMainActivityOptions(),
 		"projectStateAccess.advancePhase":                    mutateActivityOptions(),
 		"designSessionAccess.commitArtifactWithProvenance":   mutateActivityOptions(),
 		"designSessionAccess.stageArtifactForReviewOnBranch": mutateActivityOptions(),
@@ -9078,6 +9217,9 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 			// The GENERIC per-activity child — the ONE workflow every activity in the product
 			// runs on since stage 4b1 Task 13, and the only one the pump starts.
 			{Name: executionKindDeliveryActivity, Fn: wf.DeliveryActivityWorkflow},
+			// The answer job of one AskQuestions round (startAnswerJob): dispatch, observe,
+			// land a committed artifact's replies on main, record the episode.
+			{Name: executionKindAnswerJob, Fn: wf.AnswerJobWorkflow},
 		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{
@@ -10421,20 +10563,21 @@ func committedActivityItem(proj projectstate.Project, id string) (projectstate.A
 
 // liveSessionFor asks the activity's session only while its row is Running: a
 // not-started, done or failed activity has no gate to show, and must read with Temporal
-// down. No session (never dispatched, or past retention) is not an error.
-func (m *constructionManager) liveSessionFor(ctx context.Context, projectID ProjectID, activityID ActivityID, coarse projectstate.ActivityConstructionPhase) (*ConstructionSessionView, error) {
+// down. No session (never dispatched, or past retention) is not an error: it answers
+// live=false, a value rather than a failure.
+func (m *constructionManager) liveSessionFor(ctx context.Context, projectID ProjectID, activityID ActivityID, coarse projectstate.ActivityConstructionPhase) (ConstructionSessionView, bool, error) {
 	if coarse != projectstate.ActivityConstructionRunning {
-		return nil, nil //nolint:nilnil // "no live session" is a value here, not a failure
+		return ConstructionSessionView{}, false, nil
 	}
 	v, err := m.activitySession(ctx, projectID, activityID)
 	if err != nil {
 		var fe *fwmanager.Error
 		if errors.As(err, &fe) && fe.Kind == fwmanager.NotFound {
-			return nil, nil //nolint:nilnil // see above
+			return ConstructionSessionView{}, false, nil
 		}
-		return nil, err
+		return ConstructionSessionView{}, false, err
 	}
-	return &v, nil
+	return v, true, nil
 }
 
 // activityViewState folds the row's effective coarse state and the live session into
@@ -10652,8 +10795,8 @@ type deliveryManager struct {
 	cs *constructionManager
 
 	// THE MANAGER-SIDE DEPS. Every one of these is read by a body that runs OUTSIDE a
-	// workflow — the catalog reads, the two slot-thread writes, the answer-job dispatch and
-	// its episode watch, the two phase seals. The workflow-side deps are threaded into
+	// workflow — the catalog reads, the two slot-thread writes, the answer workflow's start,
+	// the two phase seals. The workflow-side deps are threaded into
 	// csWorkflows by the manifest and are NOT reached from here.
 	client            client.Client
 	projectState      projectstate.ProjectStateAccess
@@ -11017,7 +11160,32 @@ func (m *deliveryManager) DispatchActivityTask(rc fwmanager.Context, projectID P
 		return "", newError(fwmanager.ContractMisuse,
 			"deliveryManager.DispatchActivityTask: task "+taskID+" is not in activity "+string(activityID)+"'s lifecycle")
 	}
-	return m.cs.RedraftTask(rc, projectID, activityID, taskID, feedback)
+	// THE TASK TO PRODUCE IS ADDRESSED; THE GATE THAT RE-RUNS IT IS RESOLVED (dct4). A caller
+	// names the task it wants produced — the SPA's dispatchRefFor names the DISPATCH task that
+	// carries the artifact — but a redraft is answered at the REVIEW gate that judges that
+	// task: the child routes the redraft signal by task id to the gate's inbox, and the open
+	// round lives at the review task. Naming the dispatch task therefore found "no review
+	// round" on every call. A task with no reviewer (the M0 row is its own gate) is its own.
+	gateTask := judgingTaskOf(lc, taskID)
+	running, err := m.cs.activityChildRunning(rc.Context, projectID, activityID)
+	if err != nil {
+		return "", err
+	}
+	if running {
+		return m.cs.RedraftTask(rc, projectID, activityID, gateTask, feedback)
+	}
+	return m.cs.reopenForTask(rc, projectID, activityID, gateTask, feedback)
+}
+
+// judgingTaskOf is the review task whose `reviews` names taskID, or taskID itself when no
+// task judges it (a review task, or the M0 row that produces and judges its own subject).
+func judgingTaskOf(lc methodassets.Lifecycle, taskID string) string {
+	for _, t := range lc.Tasks {
+		if t.Reviews == taskID {
+			return t.ID
+		}
+	}
+	return taskID
 }
 
 // ---- op 4: SubmitReviewDecision --------------------------------------------
@@ -11044,19 +11212,18 @@ func (m *deliveryManager) SubmitReviewDecision(rc fwmanager.Context, projectID P
 	if decision.Decision == ReviewAdvance {
 		return m.advancePhaseForTask(rc, projectID, lc, taskID, deliveryDerefBool(decision.AcknowledgeStale))
 	}
-	// M0 HAS NO SEND-BACK (spec §6; stage 4b1 Task 9). The typed refusal lives HERE, at the
-	// façade, because this is the one place the founder's decision arrives and therefore the
-	// only place a refusal can be shown to them: the SPA has refused it since stage 5
-	// (NO_SDP_SEND_BACK) and the server gives the SAME reason, so the screen and the API
-	// cannot disagree about why. The generic child's gate refuses it a second time, for a
-	// signal that arrives past this guard.
-	//
-	// Why a refusal and not an absorbed rejection: the plan is DERIVED. There is no draft to
-	// re-run and no judged task to re-open, so a send-back has nothing to act on — it would
-	// withdraw the round and strand the activity. Changing the plan means amending the
-	// Architecture, which recomputes it.
-	if taskID == sdpReviewTaskID && decision.Decision == ReviewReject {
-		return newError(fwmanager.FailedPrecondition, "deliveryManager.SubmitReviewDecision: "+noSendBackAtM0)
+	// M0'S TWO NON-COMMIT DECISIONS (use case commit-to-a-project-option; spec §12 B7 — the
+	// use case stands, and supersedes the stage-4b1 reading that M0 has no send-back):
+	//   - REJECT-ALL carries the architect's feedback, and that is checked HERE, where the
+	//     decision arrives: the walk records it on the SDP review (RecordSdpReviewOutcome
+	//     rejected) and re-computes the options (rejectAtM0), and a reject with nothing to
+	//     say would be refused by the store after the gate had already been decided.
+	//   - REVOKE is a withdraw of a COMMITTED M0 inside its grace window (revokeM0Commitment).
+	//     A withdraw of an M0 round nobody has judged yet is the ordinary withdraw below.
+	if taskID == sdpReviewTaskID {
+		if handled, err := m.m0Decision(rc, projectID, activityID, lc, decision, feedback); handled {
+			return err
+		}
 	}
 	kind := roundKindOfTask(lc, taskID)
 	switch decision.Decision {
@@ -11073,6 +11240,144 @@ func (m *deliveryManager) SubmitReviewDecision(rc fwmanager.Context, projectID P
 		return newError(fwmanager.ContractMisuse, "deliveryManager.SubmitReviewDecision: unknown decision")
 	}
 	return newError(fwmanager.ContractMisuse, "deliveryManager.SubmitReviewDecision: unknown decision")
+}
+
+// m0Decision answers the two M0 decisions the façade itself settles: a reject-all that
+// carries no feedback is refused, and a withdraw of a committed M0 is the revoke.
+// handled=false hands every other decision on to the generic gate writer.
+func (m *deliveryManager) m0Decision(
+	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, lc methodassets.Lifecycle,
+	decision ReviewDecisionInput, feedback *ReviewFeedback,
+) (bool, error) {
+	switch decision.Decision {
+	case ReviewReject:
+		if feedback == nil || strings.TrimSpace(feedback.Notes) == "" {
+			return true, newError(fwmanager.ContractMisuse,
+				"deliveryManager.SubmitReviewDecision: rejecting every project option carries the architect's feedback; got none")
+		}
+	case ReviewWithdraw:
+		return m.revokeM0Commitment(rc, projectID, activityID, roundKindOfTask(lc, sdpReviewTaskID))
+	case ReviewApprove:
+		if decision.OptionID != nil {
+			if err := m.requirePresentedOption(rc, projectID, activityID, *decision.OptionID); err != nil {
+				return true, err
+			}
+		}
+	case ReviewDecisionUnknown, ReviewAdvance, ReviewSetCommentStatus:
+	}
+	return false, nil
+}
+
+// requirePresentedOption refuses an M0 approve that names an option the SDP review under
+// decision does not present. The commit records the chosen option (sdpReview.chosenOption),
+// so an unknown one is refused HERE, where the decision arrives, rather than after the gate
+// has passed — where the seal could only fail the walk. The review under decision is the one
+// the compute staged on the activity branch (main when the branch holds none).
+func (m *deliveryManager) requirePresentedOption(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, option string) error {
+	psID := projectstate.ProjectID(projectID)
+	env, err := m.designSession.ReadProjectOnBranch(fwra.Context{Context: rc.Context}, psID, activityBranchName(activityID))
+	if err != nil && !isReadNotFound(err) {
+		return mapReadProjectError(err)
+	}
+	slot, onBranch := env.Slots[projectstate.KindSdpReview]
+	if err != nil || !onBranch || !slot.Model.HasModel() {
+		proj, rerr := m.projectState.ReadProject(fwra.Context{Context: rc.Context}, psID)
+		if rerr != nil {
+			return mapReadProjectError(rerr)
+		}
+		menv, eerr := projectstate.EncodeProject(proj)
+		if eerr != nil {
+			return newError(fwmanager.Infrastructure, eerr.Error())
+		}
+		slot = menv.Slots[projectstate.KindSdpReview]
+	}
+	if !slot.Model.HasModel() {
+		return newError(fwmanager.FailedPrecondition, "no SDP review is presented for "+string(activityID)+" to choose an option from")
+	}
+	model, err := slot.Model.Decode()
+	if err != nil {
+		return newError(fwmanager.Infrastructure, err.Error())
+	}
+	review, ok := model.(*projectstate.SdpReview)
+	if !ok || review == nil {
+		return newError(fwmanager.Infrastructure, "the presented SDP review does not decode as one")
+	}
+	presented := make([]string, 0, len(review.Options))
+	for _, row := range review.Options {
+		if string(row.OptionID) == option {
+			return nil
+		}
+		presented = append(presented, string(row.OptionID))
+	}
+	return newError(fwmanager.ContractMisuse, fmt.Sprintf(
+		"deliveryManager.SubmitReviewDecision: option %q is not one the SDP review presents (%s)", option, strings.Join(presented, ", ")))
+}
+
+// m0RevokeGraceWindow is how long after the M0 approve the architect may revoke the
+// commitment (use case commit-to-a-project-option, [yes] at revoke-window): one day (spec
+// §12 B15, founder 2026-10-09).
+const m0RevokeGraceWindow = 24 * time.Hour
+
+// revokeM0Commitment is the grace-window revoke: a withdraw at sdpReview whose latest round
+// PASSED — the project is committed to an option — records the SDP review withdrawn
+// (RecordSdpReviewOutcome, which moves the project back to project design) and re-opens the
+// projectDesign walk, so a fresh M0 round awaits the new decision. handled=false means the
+// withdraw is not a revoke (no commitment, or an M0 round nobody has judged yet) and the
+// ordinary withdraw applies. A revoke past the window is refused: construction is running
+// on the commitment.
+func (m *deliveryManager) revokeM0Commitment(
+	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, kind *projectstate.ArtifactKind,
+) (bool, error) {
+	ctx := rc.Context
+	key := rowWriteKey("revoke", projectID, activityID)
+	var last error
+	// The project moves under the revoke — the pump is already dispatching on the
+	// commitment — so a write that lost the race to it is re-read and re-applied, under the
+	// one key, exactly as onActivityRow does for a row.
+	for range activityRowWriteAttempts {
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+		if err != nil {
+			return true, mapReadProjectError(err)
+		}
+		if pdSlotFor(proj, projectstate.KindSdpReview).Status != projectstate.ReviewCommitted {
+			return false, nil
+		}
+		round, err := latestRoundFor(proj.ActivityExecution[string(activityID)], sdpReviewTaskID, kind)
+		if err != nil || round.Outcome != projectstate.RoundPassed {
+			return false, nil
+		}
+		decided, perr := time.Parse(time.RFC3339, round.DecidedAt)
+		if perr != nil {
+			return true, newError(fwmanager.Infrastructure,
+				"the M0 round "+round.RoundID+" carries no readable decision time ("+round.DecidedAt+"), so its grace window cannot be judged")
+		}
+		if time.Since(decided) > m0RevokeGraceWindow {
+			return true, newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"the commitment of %s was decided at %s and its %s grace window has closed; construction runs on it — change the plan by amending the Architecture",
+				projectID, round.DecidedAt, m0RevokeGraceWindow))
+		}
+		_, err = m.projectState.RecordSdpReviewOutcome(fwra.Context{Context: ctx, IdempotencyKey: key},
+			projectstate.ProjectID(projectID), proj.Version, projectstate.ReviewWithdrawn, "", key)
+		if err == nil {
+			_, err = m.cs.reopenForTask(rc, projectID, activityID, sdpReviewTaskID, nil)
+			return true, err
+		}
+		if !lostWriteRace(err) {
+			return true, mapRAError(err, "projectStateAccess.RecordSdpReviewOutcome")
+		}
+		last = err
+	}
+	return true, fwmanager.Wrap(fwmanager.FailedPrecondition, last,
+		"the project changed concurrently while the revoke was applied — re-read it and try again")
+}
+
+// lostWriteRace reports whether a store write lost a race to a concurrent writer: a
+// Conflict, or a retryable fault the git store raises when the ref it pushed against
+// moved under the push (it cannot always tell that apart from a transport fault, so it
+// marks it retryable rather than Conflict).
+func lostWriteRace(err error) bool {
+	var raErr *fwra.Error
+	return errors.As(err, &raErr) && (raErr.Kind == fwra.Conflict || raErr.Retryable)
 }
 
 // optionIDOf reads ReviewDecisionInput's OPTIONAL optionId as the typed OptionID the M0
@@ -11129,11 +11434,36 @@ func (m *deliveryManager) AskQuestions(rc fwmanager.Context, projectID ProjectID
 	if !ok {
 		return m.cs.AskTaskQuestions(rc, projectID, activityID, taskID, addressee, nil, questions)
 	}
+	addressee = ledgerAddressee(addressee)
 	// ONE DOOR FOR BOTH HALVES (stage 4b2 Task 5): the phase split that used to route here was
 	// the two twin bodies' only real difference, and it lives on inside askArtifactQuestions as
 	// the kind-scoped Phase-2 replyTo refusal — the one place the two halves genuinely differ.
-	return m.askArtifactQuestions(rc, projectID, kind, addressee, questions)
+	return m.askArtifactQuestions(rc, projectID, activityID, kind, addressee, questions)
 }
+
+// ledgerAddressee names a design question's addressee in the ledger's vocabulary. The
+// lifecycle names the two answering roles by WORKER CLASS — a review task's workerClass is
+// "product-manager" or "system-architect", and that is the role a caller reading the
+// activity's own data addresses — while the ledger (and the answer-job command it selects)
+// says "pm" / "architect". Both spellings name the same role, so the façade folds the
+// worker class onto the ledger word rather than refusing a caller for using the lifecycle's
+// own name (dct4 scenario ask-a-clarifying-question-during-review). Anything else passes
+// through unchanged and is judged by checkArtifactAskArguments.
+func ledgerAddressee(addressee string) string {
+	switch addressee {
+	case workerClassProductManager:
+		return projectstate.ReviewAddresseePM
+	case workerClassSystemArchitect:
+		return projectstate.ReviewAddresseeArchitect
+	}
+	return addressee
+}
+
+// The two lifecycle worker classes that answer design questions.
+const (
+	workerClassProductManager  = "product-manager"
+	workerClassSystemArchitect = "system-architect"
+)
 
 // ---- op 6: AcknowledgeStaleBasis -------------------------------------------
 
@@ -12055,6 +12385,11 @@ type pipelineSpec struct {
 	// OperatorNote is the rendered block of the operator notes this agent dispatch carries
 	// (renderOperatorNotes, plan B1.4); empty when none is pending.
 	OperatorNote string
+	// Revision is the attempt this dispatch runs under (<activity>:<task>:<n>). It IS the
+	// revision a run the job records is stamped with: the walk holds the attempt and no SHA,
+	// and the testing gate judges a TestRun's revision against the integration attempt its
+	// round opened (dct5 round-2 ruling). The venue exports it to the job as AIARCH_REVISION.
+	Revision string
 }
 
 // csPipelineObservation is the Manager's neutral pipeline observation.
@@ -12160,8 +12495,17 @@ func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	if spec.OperatorNote != "" {
 		m[dispatchInputOperatorNote] = spec.OperatorNote
 	}
+	if spec.Revision != "" {
+		m[dispatchInputRevision] = spec.Revision
+	}
 	return m
 }
+
+// dispatchInputRevision is the dispatch input carrying the attempt the job runs under
+// (pipelineSpec.Revision). A bare literal for the same reason operator_note is: the seated
+// construct workflow template, which takes a `revision` input, is the wire key's source of
+// truth, and the local venue stamps the same key into the rig as AIARCH_REVISION.
+const dispatchInputRevision = "revision"
 
 // dispatchInputOperatorNote is the dispatch input carrying the operator's notes. Like the
 // other inputs it is a bare literal: the seated construct workflow template is the source
@@ -12642,14 +12986,15 @@ func roundReviewers(set ReviewSet) []projectstate.RoundReviewer {
 
 // roundComments re-types a decision's anchored comments onto the round thread's. The
 // ids, the round number and the open/answered status are the store's to mint, so only
-// what the operator actually wrote travels.
+// what the operator actually wrote travels: the anchor, the text it quotes there, and the
+// comment itself.
 func roundComments(in []AnchoredComment) []projectstate.ReviewComment {
 	if len(in) == 0 {
 		return nil
 	}
 	out := make([]projectstate.ReviewComment, 0, len(in))
 	for _, c := range in {
-		out = append(out, projectstate.ReviewComment{Anchor: c.JSONPath, Text: c.Text, AuthorRole: gateRoleHuman})
+		out = append(out, projectstate.ReviewComment{Anchor: c.JSONPath, AnchorText: c.AnchorText, Text: c.Text, AuthorRole: gateRoleHuman})
 	}
 	return out
 }
@@ -13061,52 +13406,6 @@ func signalNotes(f *ReviewFeedback) string {
 	return ""
 }
 
-// designPipelinePhase maps the RA's phase to the manager's neutral phase, preserving
-// the Cancelled terminal distinctly (the design Manager treats any non-Succeeded
-// terminal as a StageDraftFailed gate).
-func designPipelinePhase(p agenticjob.PipelinePhase) pipelinePhase {
-	switch p {
-	case agenticjob.PhasePending:
-		return pipelinePending
-	case agenticjob.PhaseRunning:
-		return pipelineRunning
-	case agenticjob.PhaseSucceeded:
-		return pipelineSucceeded
-	case agenticjob.PhaseFailed:
-		return pipelineFailed
-	case agenticjob.PhaseCancelled:
-		return pipelineCancelled
-	default:
-		return lPipelinePhaseUnknown
-	}
-}
-
-// pipelinePhase mirrors agenticJobAccess.md §3 — the infrastructure-
-// neutral lifecycle phase the Manager branches on. The terminal trio drives the
-// observe loop's exit + the failure path.
-type pipelinePhase int
-
-const (
-	lPipelinePhaseUnknown pipelinePhase = iota
-	pipelinePending
-	pipelineRunning
-	pipelineSucceeded
-	pipelineFailed
-	pipelineCancelled
-)
-
-// IsTerminal reports whether the phase is one the job can no longer leave.
-func (p pipelinePhase) IsTerminal() bool {
-	switch p {
-	case pipelineSucceeded, pipelineFailed, pipelineCancelled:
-		return true
-	case lPipelinePhaseUnknown, pipelinePending, pipelineRunning:
-		return false
-	default:
-		return false
-	}
-}
-
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 // maxLateEpisodePolls bounds the EXTRA observe polls a CANCELLED run is given before its
@@ -13325,52 +13624,6 @@ func encodeModel(model projectstate.ArtifactModel) (modelEnvelope, error) {
 // role identically.
 const ()
 
-// pdDesignPipelinePhase maps the RA's phase to this Manager's neutral phase, preserving
-// the Cancelled terminal distinctly (the design Manager treats any non-Succeeded
-// terminal as a ProjectStageDraftFailed gate).
-func pdDesignPipelinePhase(p agenticjob.PipelinePhase) pdPipelinePhase {
-	switch p {
-	case agenticjob.PhasePending:
-		return pdPipelinePending
-	case agenticjob.PhaseRunning:
-		return pdPipelineRunning
-	case agenticjob.PhaseSucceeded:
-		return pdPipelineSucceeded
-	case agenticjob.PhaseFailed:
-		return pdPipelineFailed
-	case agenticjob.PhaseCancelled:
-		return pdPipelineCancelled
-	default:
-		return pdPipelinePhaseUnknown
-	}
-}
-
-// pdPipelinePhase mirrors agenticJobAccess.md §3 — the infrastructure-neutral
-// lifecycle phase the Manager branches on. The terminal trio drives the observe
-// loop's exit + the failure path.
-type pdPipelinePhase int
-
-const (
-	pdPipelinePhaseUnknown pdPipelinePhase = iota
-	pdPipelinePending
-	pdPipelineRunning
-	pdPipelineSucceeded
-	pdPipelineFailed
-	pdPipelineCancelled
-)
-
-// IsTerminal reports whether the phase is one the job can no longer leave.
-func (p pdPipelinePhase) IsTerminal() bool {
-	switch p {
-	case pdPipelineSucceeded, pdPipelineFailed, pdPipelineCancelled:
-		return true
-	case pdPipelinePhaseUnknown, pdPipelinePending, pdPipelineRunning:
-		return false
-	default:
-		return false
-	}
-}
-
 // RegisterManagerWorker registers the ONE delivery worker: the SIX surviving workflow types
 // under their existing registered names and the generated Activity set of the merged contract,
 // all on task queue "delivery". Stage 4a registered eleven across three rails; stage 4b1 Task
@@ -13575,6 +13828,13 @@ type constructState struct {
 	// the first attempt.
 	attempt int
 
+	// m0Option is the option an operator's M0 approve names (taskDecisionSignal.OptionID),
+	// held from the approve to the seal that lands the SDP review on main in the same run,
+	// so the committed review records the chosen option (sdpReview.chosenOption). nil when
+	// the approve named none: the seal then records the plan's own recommendation, which is
+	// what an approve of the presented plan adopts.
+	m0Option *OptionID
+
 	// reviewContracts is the per-execution set of contract identifiers captured from
 	// the start-snapshot project (B5) and fed to reviewEngine.ProposeReviews so the
 	// gate's reviewer set is display-populated without re-reading mid-loop.
@@ -13771,6 +14031,9 @@ const (
 	// delivery* spelling for the same reason the round sweep does — it is BORN here, so no
 	// in-flight execution can be stranded by the name it was given.
 	executionKindDeliveryActivity = "deliveryActivity"
+	// executionKindAnswerJob is the answer workflow of one AskQuestions round
+	// (AnswerJobWorkflow).
+	executionKindAnswerJob = "deliveryAnswerJob"
 )
 
 // The gate's ledger vocabulary. A construction gate's human row has no named person
@@ -13789,18 +14052,6 @@ const (
 	// policy's own reason string rather than a fixed decidedBy word.)
 	decidedByOperator = "operator"
 )
-
-// resolvedPhaseCompletions is this package's name for projectstate.ResolvePhaseCompletions,
-// the profile-wins, ledger-per-phase resolution that classifiedRowView's phase set comes
-// from. The rule moved down into projectstate so the construction pump can share it; this
-// name stays because the view-model's tests pin the rule against it directly, with an
-// explicit profile, and must keep passing unmodified across the move.
-func resolvedPhaseCompletions(
-	profile projectstate.Profile,
-	attempts []projectstate.TaskAttempt,
-) []projectstate.PhaseCompletion {
-	return projectstate.ResolvePhaseCompletions(profile, attempts)
-}
 
 // ===========================================================================
 // DETERMINISTIC COMPONENT TESTING — the `testRun` and `scenarios` project views and
@@ -14084,6 +14335,60 @@ func selectTestRun(proj *projectstate.Project, activityID, runID string) (projec
 			if run.ID == runID {
 				return run, true
 			}
+			continue
+		}
+		if !found || !runBefore(run, best) {
+			best, found = run, true
+		}
+	}
+	return best, found
+}
+
+// gateContracts names the contracts the activity's component owns, in name order. The
+// activity names its component by the System's id ("review-engine"); the System resolves it
+// to its contractKey (componentContractKey), and the component owns the contract under that
+// key plus every facet whose Component names it (projectStateAccess's four). Every name is
+// matched exactly — the key every reader of .serviceContracts and every recorded TestRun uses
+// (record-test-run records a run per contract, under the contract's own name), so there is
+// no spelling to fold. ok is false when the System does not resolve the component to a key:
+// there is then no contract the gate could judge, and the gate holds saying so.
+func gateContracts(proj *projectstate.Project, componentID string) (contracts []string, ok bool) {
+	key, ok := componentContractKey(*proj, componentID)
+	if !ok {
+		return nil, false
+	}
+	for name, sc := range proj.ServiceContracts {
+		if name == key || sc.Component == key {
+			contracts = append(contracts, name)
+		}
+	}
+	if len(contracts) == 0 {
+		// The System names the key but no contract is recorded under it: judged under the
+		// key, whose empty projection holds the gate.
+		return []string{key}, true
+	}
+	slices.Sort(contracts)
+	return contracts, true
+}
+
+// componentContractKey is the .serviceContracts key of the committed System's component
+// componentID — its contractKey — and false when the System is not committed, does not name
+// the component, or gives it no key.
+func componentContractKey(proj projectstate.Project, componentID string) (string, bool) {
+	c := lookupComponent(proj, componentID)
+	if c == nil || c.ContractKey == nil || *c.ContractKey == "" {
+		return "", false
+	}
+	return *c.ContractKey, true
+}
+
+// selectContractRun is the LATEST run the activity recorded for contract (selectTestRun's
+// ordering). A run's Component is the contract it was recorded for, by its exact name.
+func selectContractRun(proj *projectstate.Project, activityID, contract string) (projectstate.TestRun, bool) {
+	var best projectstate.TestRun
+	found := false
+	for _, run := range testRuns(proj) {
+		if run.Activity != activityID || run.Component != contract {
 			continue
 		}
 		if !found || !runBefore(run, best) {
