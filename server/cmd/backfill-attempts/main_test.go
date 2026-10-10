@@ -924,21 +924,28 @@ func TestBackfill_ANonQualifierWithoutThisGeneratorsAttemptsIsNotARegression(t *
 
 // ---- the writer -----------------------------------------------------------------------
 
-// stateDocument encodes p through the codec and adds what a committed document carries
-// that the codec does not — a real updatedAt and the activityListOverrides sidecar — so
-// a test can prove a rewrite leaves both alone.
+// fixtureUpdatedAt is the committed document's updatedAt every fixture carries.
+var fixtureUpdatedAt = time.Date(2026, 8, 9, 5, 30, 44, 213963000, time.UTC)
+
+// stateDocument encodes p through the codec, stamped with the committed updatedAt when
+// p carries none (the codec round-trips it), and adds a top-level member the codec does
+// not carry — an activityListOverrides sidecar — so a test can prove a rewrite leaves
+// every member but the one it replaces byte-for-byte alone.
 func stateDocument(t *testing.T, p projectstate.Project) []byte {
 	t.Helper()
+	if p.UpdatedAt.IsZero() {
+		p.UpdatedAt = fixtureUpdatedAt
+	}
 	enc, err := projectstate.EncodeProjectJSON(p)
 	if err != nil {
 		t.Fatalf("encode fixture: %v", err)
 	}
-	const zeroStamp = `"updatedAt": "0001-01-01T00:00:00Z"`
-	if !bytes.Contains(enc, []byte(zeroStamp)) {
-		t.Fatalf("fixture encoding carries no %s to replace", zeroStamp)
+	stamp := `"updatedAt": "` + p.UpdatedAt.Format(time.RFC3339Nano) + `"`
+	if !bytes.Contains(enc, []byte(stamp)) {
+		t.Fatalf("fixture encoding carries no %s", stamp)
 	}
-	withSidecar := bytes.Replace(enc, []byte(zeroStamp),
-		[]byte(`"updatedAt": "2026-08-09T05:30:44.213963Z", "activityListOverrides": {"overrides": []}`), 1)
+	withSidecar := bytes.Replace(enc, []byte(stamp),
+		[]byte(stamp+`, "activityListOverrides": {"overrides": []}`), 1)
 	var compact, out bytes.Buffer
 	if err := json.Compact(&compact, withSidecar); err != nil {
 		t.Fatalf("compact fixture: %v", err)

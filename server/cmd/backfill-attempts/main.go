@@ -1748,9 +1748,9 @@ func recite(a projectstate.TaskAttempt, from, to string) projectstate.TaskAttemp
 //
 // The state file is decoded and re-encoded through the projectstate codec, and exactly
 // one top-level member — .activityExecution — is spliced back into the ORIGINAL bytes.
-// Every other member keeps its bytes, which matters for more than a tidy diff: the codec
-// does not carry updatedAt or activityListOverrides, so a whole-document rewrite would
-// silently drop both.
+// Every other member keeps its bytes, which matters for more than a tidy diff: a member
+// the codec does not carry would be silently dropped by a whole-document rewrite, and a
+// member it does carry could be re-spelled.
 
 // member is one member of a JSON object, in document order.
 type member struct {
