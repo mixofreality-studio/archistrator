@@ -7,7 +7,6 @@
 package intervention_test
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -94,28 +93,6 @@ func storesFor(t *testing.T, h *scenariohost.Host) *operatedStores {
 	return st
 }
 
-// raContext builds the ResourceAccess call context an op of op's component
-// takes, carrying ctx and idempotency key key — what operationsManager's
-// generated activities hand these RAs (activities.gen.go). The context type C
-// is inferred from op's first parameter, so this file never names the
-// framework package that declares it (the hooks import rule admits component
-// packages, not framework layer packages); the constraint spells that
-// context's exact shape, so an op whose first parameter has any other shape
-// does not compile. Every RA op of one module takes the same C, so the value
-// is passed to the multi-parameter ops too.
-func raContext[C ~struct {
-	context.Context
-	Principal      P
-	IdempotencyKey K
-}, P any, K ~string, A, R any](ctx context.Context, key string, _ func(C, A) (R, error)) C {
-	var anonymous P // reconcile runs on the platform's own schedule: no acting principal
-	return C(struct {
-		context.Context
-		Principal      P
-		IdempotencyKey K
-	}{ctx, anonymous, K(key)})
-}
-
 // runtimeStatusFor maps the intervention vocabulary's health back onto the
 // head-state RuntimeStatus operationsManager records (the inverse of its
 // healthStatusFromRuntimeStatus bridge, for the two observed states a reconcile
@@ -144,8 +121,9 @@ func runtimeStatusFor(t *testing.T, health intervention.HealthStatus) operatedsy
 //  4. call DecideOnHealth exactly as the manager does: in-workflow, bare
 //     context (the generated callContext), the binding's HealthChange.
 //
-// Every write carries a fixed key derived from the app, so the arrangement is
-// idempotent within a scenario. The guard state-transition=[yes] is the
+// Every write takes the host's ResourceAccess call context with a distinct
+// key per call (the host derives t.Name()+"/"+key, as a generated step does),
+// so a re-run of the scenario replays the same keys. The guard state-transition=[yes] is the
 // input's own FromHealth != ToHealth; decision-nochange is autoscalerEngine's
 // guard, downstream of this call, and needs no arrangement here.
 func recordStatusAsOperationsManager(t *testing.T, h *scenariohost.Host, subject intervention.InterventionEngine, change intervention.HealthChange) (any, error) {
@@ -154,31 +132,29 @@ func recordStatusAsOperationsManager(t *testing.T, h *scenariohost.Host, subject
 		t.Fatalf("binding violates guard state-transition=[yes]: FromHealth == ToHealth == %d", change.FromHealth)
 	}
 	st := storesFor(t, h)
-	ctx := h.Context(t)
 	app := string(change.OperatedAppID)
 
 	var sys operatedsystemstate.OperatedSystem
 	mustUnmarshal(t, fmt.Sprintf(`{"ID":%q,"CustomerID":%q}`, app, operatedCustomerID), &sys)
 
-	keyed := func(step string) string { return "reconcile:" + app + ":" + step }
-	rc := raContext(ctx, keyed("register"), st.systems.ReadOperatedSystem)
+	rc := h.ResourceAccessContext(t, "arrange-register")
 	v, err := st.systems.RegisterOperatedSystem(rc, sys.ID, sys.CustomerID, "stp-ie-project-0001", "stp-ie-bundle", rc.IdempotencyKey)
 	if err != nil {
 		t.Fatalf("arrange: RegisterOperatedSystem %s: %v", app, err)
 	}
-	rc = raContext(ctx, keyed("observed"), st.systems.ReadOperatedSystem)
+	rc = h.ResourceAccessContext(t, "arrange-observed")
 	if v, err = st.systems.RecordRuntimeStatusChange(rc, sys.ID, v, runtimeStatusFor(t, change.FromHealth), rc.IdempotencyKey); err != nil {
 		t.Fatalf("arrange: RecordRuntimeStatusChange %s -> %d: %v", app, change.FromHealth, err)
 	}
 
 	var events []usage.UsageEvent
 	mustUnmarshal(t, fmt.Sprintf(`[{"CustomerID":%q,"OperatedAppID":%q,"CycleID":%q,"Units":{"Amount":1.5,"Unit":"vcpu-hour"},"RuntimeEventID":%q}]`,
-		operatedCustomerID, app, operatedCycleID, keyed("compute")), &events)
-	if _, err = st.usage.RecordComputeUsage(raContext(ctx, keyed("compute"), st.usage.ReadRange), events); err != nil {
+		operatedCustomerID, app, operatedCycleID, "reconcile:"+app+":compute"), &events)
+	if _, err = st.usage.RecordComputeUsage(h.ResourceAccessContext(t, "record-compute"), events); err != nil {
 		t.Fatalf("record-status: RecordComputeUsage %s: %v", app, err)
 	}
 
-	rc = raContext(ctx, keyed("transition"), st.systems.ReadOperatedSystem)
+	rc = h.ResourceAccessContext(t, "record-transition")
 	if _, err = st.systems.RecordRuntimeStatusChange(rc, sys.ID, v, runtimeStatusFor(t, change.ToHealth), rc.IdempotencyKey); err != nil {
 		t.Fatalf("record-status: RecordRuntimeStatusChange %s -> %d: %v", app, change.ToHealth, err)
 	}
@@ -193,7 +169,7 @@ func readOperatedSystem(t *testing.T, h *scenariohost.Host, operatedAppID string
 	st := storesFor(t, h)
 	var sys operatedsystemstate.OperatedSystem
 	mustUnmarshal(t, fmt.Sprintf(`{"ID":%q}`, operatedAppID), &sys)
-	return st.systems.ReadOperatedSystem(raContext(h.Context(t), "", st.systems.ReadOperatedSystem), sys.ID)
+	return st.systems.ReadOperatedSystem(h.ResourceAccessContext(t, "probe-status"), sys.ID)
 }
 
 // readUsageRange is the compute-usage-recorded probe: the probe's query,
@@ -203,7 +179,7 @@ func readUsageRange(t *testing.T, h *scenariohost.Host, queryJSON string) (any, 
 	st := storesFor(t, h)
 	var query usage.UsageRangeQuery
 	mustUnmarshal(t, queryJSON, &query)
-	return st.usage.ReadRange(raContext(h.Context(t), "", st.usage.ReadRange), query)
+	return st.usage.ReadRange(h.ResourceAccessContext(t, "probe-usage"), query)
 }
 
 // The probes' inputs, verbatim from the binding.
