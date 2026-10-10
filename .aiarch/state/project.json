@@ -50400,7 +50400,7 @@
                   },
                   {
                     "name": "decision",
-                    "value": "{\"decision\":1,\"optionId\":\"opt-normal\"}",
+                    "value": "{\"decision\":1,\"optionId\":\"NormalSolution\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -50509,7 +50509,7 @@
                   },
                   {
                     "name": "decision",
-                    "value": "{\"decision\":1,\"optionId\":\"opt-normal\"}",
+                    "value": "{\"decision\":1,\"optionId\":\"NormalSolution\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -52108,7 +52108,7 @@
                   },
                   {
                     "name": "decision",
-                    "value": "{\"decision\":1,\"optionId\":\"opt-normal\"}",
+                    "value": "{\"decision\":1,\"optionId\":\"NormalSolution\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -58657,7 +58657,7 @@
                   },
                   {
                     "name": "decision",
-                    "value": "{\"decision\":1,\"optionId\":\"opt-normal\"}",
+                    "value": "{\"decision\":1,\"optionId\":\"NormalSolution\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -58766,7 +58766,7 @@
                   },
                   {
                     "name": "decision",
-                    "value": "{\"decision\":1,\"optionId\":\"opt-normal\"}",
+                    "value": "{\"decision\":1,\"optionId\":\"NormalSolution\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -59782,7 +59782,7 @@
                   },
                   {
                     "name": "start",
-                    "value": "true",
+                    "value": "false",
                     "schemaRef": ""
                   }
                 ],
@@ -59900,7 +59900,7 @@
                   },
                   {
                     "name": "start",
-                    "value": "false",
+                    "value": "true",
                     "schemaRef": ""
                   }
                 ],
@@ -59922,7 +59922,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p1/dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"content\":\"Capture, clarify, organize, reflect, engage. Weekly review is mandatory.\"}]}}}}",
+                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p1/dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -59957,7 +59957,7 @@
                   },
                   {
                     "name": "start",
-                    "value": "true",
+                    "value": "false",
                     "schemaRef": ""
                   }
                 ],
@@ -60092,7 +60092,7 @@
                   },
                   {
                     "name": "start",
-                    "value": "false",
+                    "value": "true",
                     "schemaRef": ""
                   }
                 ],
@@ -60114,7 +60114,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p2/dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"content\":\"Capture, clarify, organize, reflect, engage. Weekly review is mandatory.\"}]}}}}",
+                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-mcp-owner-p2/dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -60399,7 +60399,7 @@
                   },
                   {
                     "name": "decision",
-                    "value": "{\"decision\":1,\"optionId\":\"opt-normal\"}",
+                    "value": "{\"decision\":1,\"optionId\":\"NormalSolution\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -60630,7 +60630,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"result\":{\"kind\":\"timeline\",\"timeline\":{\"record\":{\"episodeId\":\"dct-ep-review-engine-0003\",\"outcome\":1}}}}",
+                      "result": "{\"result\":{\"kind\":\"timeline\",\"timeline\":{\"record\":{\"outcome\":1}}}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -73440,7 +73440,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-opt-normal\"},{\"visible\":\"sdp-option-opt-decompressed\"},{\"visible\":\"sdp-reject-all\"}]",
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-NormalSolution\"},{\"visible\":\"sdp-option-DecompressedSolution\"},{\"visible\":\"sdp-reject-all\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -73454,7 +73454,7 @@
                 "inputs": [
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"click\",\"target\":\"sdp-option-opt-normal\"}",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-option-NormalSolution\"}",
                     "schemaRef": ""
                   },
                   {
@@ -73488,7 +73488,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-opt-normal\"},{\"visible\":\"sdp-option-opt-decompressed\"},{\"visible\":\"sdp-reject-all\"}]",
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-NormalSolution\"},{\"visible\":\"sdp-option-DecompressedSolution\"},{\"visible\":\"sdp-reject-all\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -73502,7 +73502,7 @@
                 "inputs": [
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"click\",\"target\":\"sdp-option-opt-normal\"}",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-option-NormalSolution\"}",
                     "schemaRef": ""
                   },
                   {
@@ -73555,7 +73555,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-opt-normal\"},{\"visible\":\"sdp-option-opt-decompressed\"},{\"visible\":\"sdp-reject-all\"}]",
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-NormalSolution\"},{\"visible\":\"sdp-option-DecompressedSolution\"},{\"visible\":\"sdp-reject-all\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -73996,7 +73996,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-opt-normal\"},{\"visible\":\"sdp-option-opt-decompressed\"},{\"visible\":\"sdp-reject-all\"}]",
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-NormalSolution\"},{\"visible\":\"sdp-option-DecompressedSolution\"},{\"visible\":\"sdp-reject-all\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -74010,7 +74010,7 @@
                 "inputs": [
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"click\",\"target\":\"sdp-option-opt-normal\"}",
+                    "value": "{\"kind\":\"click\",\"target\":\"sdp-option-NormalSolution\"}",
                     "schemaRef": ""
                   },
                   {
@@ -74068,7 +74068,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-opt-normal\"},{\"visible\":\"sdp-option-opt-decompressed\"},{\"visible\":\"sdp-reject-all\"}]",
+                  "result": "[{\"visible\":\"sdp-review\"},{\"visible\":\"sdp-option-NormalSolution\"},{\"visible\":\"sdp-option-DecompressedSolution\"},{\"visible\":\"sdp-reject-all\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
