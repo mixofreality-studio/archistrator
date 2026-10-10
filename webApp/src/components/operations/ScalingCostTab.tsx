@@ -3,8 +3,8 @@
  *   CUSTOMER cost transparency (the highest-value piece): run-rate now (from the
  *   live view) + projected monthly + the scale what-if curve (the read-only
  *   cost-projection endpoint). [operationEstimationEngine.queryCostProjection]
- *   OPERATOR autoscaler view: mode (Auto/Manual) + decision history (with why)
- *   from the live view. The autoscaler is a THIRD actor; resume from idle-pause is
+ *   OPERATOR autoscaler view: mode (Auto/Manual) from the live view. The
+ *   autoscaler is a THIRD actor; resume from idle-pause is
  *   traffic-driven, not a button. The Update-autoscaler-policy publish is DISABLED
  *   (2026-08-08 final review, fix 3) — it assembled no desired state and published a
  *   zero value, which the server now rejects by name. [autoscalerEngine]
@@ -20,12 +20,8 @@ import Button from '@mui/material/Button';
 import TuneIcon from '@mui/icons-material/Tune';
 import type { Tokens } from '../../utilities/theme/themes';
 import { useTokens } from '../../utilities/theme/ThemeContext';
-import type {
-  AutoscalerDecision,
-  OperationsView,
-  WhatIfPoint,
-} from '../../contracts/operationsTypes';
-import { formatMoney, formatEventTime } from '../../contracts/operationsAdapters';
+import type { OperationsView, WhatIfPoint } from '../../contracts/operationsTypes';
+import { formatMoney } from '../../contracts/operationsAdapters';
 import { useCostProjection } from '../../hooks/useCostProjection';
 import { UNSUPPORTED_ACTION_REASON } from '../../hooks/useOperationsMutations';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -45,7 +41,7 @@ export function ScalingCostTab({
   if (view === undefined) {
     return (
       <AwaitingPanel
-        detail="This operated app has no observed cost or autoscaler data. Once it is deployed, run-rate, projected monthly cost, and the autoscaler decision history populate from the live view + queryCostProjection."
+        detail="This operated app has no observed cost or autoscaler data. Once it is deployed, run-rate, projected monthly cost, and the autoscaler mode populate from the live view + queryCostProjection."
         title="No cost or scaling data yet"
       />
     );
@@ -160,8 +156,8 @@ export function ScalingCostTab({
             DISABLED, not wired (2026-08-08 final review, fix 3): an
             autoscaler-policy publish sent (reason=Operator, patchKind=Policy),
             which the server now rejects by name — it assembled no desired state
-            and published a zero value. The autoscaler's mode and decision history
-            below are still real reads; only the publish is absent.
+            and published a zero value. The autoscaler's mode is still a real
+            read; only the publish is absent.
           */}
           <Tooltip title={UNSUPPORTED_ACTION_REASON}>
             <span>
@@ -183,58 +179,12 @@ export function ScalingCostTab({
           </Typography>
         </Box>
 
-        <Paper sx={{ p: 0, overflow: 'hidden' }}>
-          <Box
-            sx={{
-              px: 2,
-              py: 1.1,
-              bgcolor: t.paperAlt,
-              borderBottom: `1.5px solid ${t.line}`,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-            }}
-          >
-            <Typography
-              sx={{
-                fontFamily: t.mono,
-                fontWeight: 700,
-                fontSize: 11,
-                letterSpacing: '0.06em',
-                color: t.ink,
-              }}
-            >
-              DECISION HISTORY
-            </Typography>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>
-              · proposeDesiredState (with why)
-            </Typography>
-          </Box>
-          {view.autoscaler.decisions.length === 0 ? (
-            <Box sx={{ px: 2, py: 2, textAlign: 'center' }}>
-              <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-                No autoscaler decisions observed yet.
-              </Typography>
-            </Box>
-          ) : (
-            view.autoscaler.decisions.map((d, i) => (
-              <DecisionRow
-                d={d}
-                key={`${d.at}-${String(i)}`}
-                last={i === view.autoscaler.decisions.length - 1}
-                t={t}
-              />
-            ))
-          )}
-          <Box sx={{ px: 2, py: 1, bgcolor: t.paperAlt, borderTop: `1.5px solid ${t.line}` }}>
-            <Typography
-              sx={{ fontFamily: t.body, fontSize: 10.5, color: t.muted, lineHeight: 1.45 }}
-            >
-              Resume from idle-pause is <b>traffic-driven</b> (Envoy + scale-from-zero), not an
-              operator button. The engine DECIDES; the Manager EXECUTES by publishing desired state;
-              the GitOps runtime converges.
-            </Typography>
-          </Box>
+        <Paper sx={{ px: 2, py: 1.25 }}>
+          <Typography sx={{ fontFamily: t.body, fontSize: 10.5, color: t.muted, lineHeight: 1.45 }}>
+            Resume from idle-pause is <b>traffic-driven</b> (Envoy + scale-from-zero), not an
+            operator button. The engine DECIDES; the Manager EXECUTES by publishing desired state;
+            the GitOps runtime converges.
+          </Typography>
         </Paper>
       </Box>
     </Box>
@@ -411,66 +361,6 @@ function WhatIfCurve({ t, points }: { t: Tokens; points: WhatIfPoint[] }): React
           </Typography>
         </Box>
       )}
-    </Box>
-  );
-}
-
-function DecisionRow({
-  t,
-  d,
-  last,
-}: {
-  t: Tokens;
-  d: AutoscalerDecision;
-  last: boolean;
-}): ReactNode {
-  return (
-    <Box
-      sx={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 1.25,
-        px: 2,
-        py: 1.1,
-        borderBottom: last ? 'none' : `1px solid ${t.line}`,
-        borderLeft: `4px solid ${d.published ? t.accent : 'transparent'}`,
-      }}
-    >
-      <Typography
-        sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, minWidth: 96, pt: 0.15 }}
-      >
-        {formatEventTime(d.at)}
-      </Typography>
-      <Box sx={{ minWidth: 96 }}>
-        <Box
-          sx={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 0.5,
-            px: 0.75,
-            py: 0.15,
-            borderRadius: 99,
-            border: `1px solid ${t.accent}`,
-            bgcolor: t.paperAlt,
-          }}
-        >
-          <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: t.accent }} />
-          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 9.5, color: t.ink }}>
-            {d.action}
-          </Typography>
-        </Box>
-      </Box>
-      <Typography
-        sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.4, flexGrow: 1 }}
-      >
-        {d.reason}
-        {!d.published && (
-          <Box component="span" sx={{ fontFamily: t.mono, fontSize: 9, color: t.muted }}>
-            {' '}
-            · no republish
-          </Box>
-        )}
-      </Typography>
     </Box>
   );
 }

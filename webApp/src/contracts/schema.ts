@@ -1693,6 +1693,7 @@ export interface components {
         | 'sdpReview';
     };
     ModelSdpReview: {
+      chosenOption?: null | string;
       options: null | components['schemas']['ModelSdpOptionRow'][];
       rationale: string;
       recommendation: string;
@@ -1800,18 +1801,8 @@ export interface components {
       modelId: string;
     };
     /** @enum {integer} */
-    OperationsAutoscaleAction: 0 | 1 | 2 | 3 | 4;
-    OperationsAutoscaleDecisionView: {
-      Action: components['schemas']['OperationsAutoscaleAction'];
-      /** Format: date-time */
-      At: string;
-      Published: boolean;
-      Reason: string;
-    };
-    /** @enum {integer} */
     OperationsAutoscalerMode: 0 | 1 | 2;
     OperationsAutoscalerView: {
-      Decisions: null | components['schemas']['OperationsAutoscaleDecisionView'][];
       Mode: components['schemas']['OperationsAutoscalerMode'];
     };
     OperationsCostProjectionSeam: {
@@ -1868,7 +1859,6 @@ export interface components {
       /** Format: uuid */
       OperatedAppID: string;
       Phase: components['schemas']['OperationsRuntimeStatusSeam'];
-      RecentEvents: null | components['schemas']['OperationsRuntimeStatusEventView'][];
       Slos: null | components['schemas']['OperationsSloRowView'][];
     };
     /** @enum {integer} */
@@ -1880,13 +1870,6 @@ export interface components {
     };
     OperationsReconcileScope: {
       appIds?: null | string[];
-    };
-    OperationsRuntimeStatusEventView: {
-      /** Format: date-time */
-      At: string;
-      From: components['schemas']['OperationsRuntimeStatusSeam'];
-      Note: string;
-      To: components['schemas']['OperationsRuntimeStatusSeam'];
     };
     /** @enum {integer} */
     OperationsRuntimeStatusSeam: 0 | 1 | 2 | 3 | 4;
@@ -2106,7 +2089,13 @@ export interface operations {
       };
       cookie?: never;
     };
-    requestBody?: never;
+    requestBody: {
+      content: {
+        'application/json': {
+          projectID: string;
+        };
+      };
+    };
     responses: {
       /** @description success */
       200: {

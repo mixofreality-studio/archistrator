@@ -554,8 +554,6 @@ export const UI_IDENTIFIERS = {
     AUTOSCALER_POLICY_BUTTON: 'operations-autoscaler-policy',
     WITHDRAW_BUTTON: 'operations-withdraw',
     BILLING_LINK: 'operations-billing-link',
-    CAPABILITIES_UNREACHABLE: 'operations-capabilities-unreachable',
-    CAPABILITIES_RETRY: 'operations-capabilities-retry',
     // Register the delivered system for operation (use case register-a-delivered-
     // system-for-operation): the button opens the form; the result names the
     // head-state version the registration recorded.
@@ -600,6 +598,7 @@ export const UI_IDENTIFIERS = {
     ONBOARD_SUBMIT: 'billing-onboard-submit',
     ONBOARD_RESULT: 'billing-onboard-result',
     REGISTER_CUSTOMER_ID_INPUT: 'billing-register-customer-id',
+    REGISTER_PROJECT_ID_INPUT: 'billing-register-project-id',
     REGISTER_SUBMIT: 'billing-register-submit',
     REGISTER_RESULT: 'billing-register-result',
   },

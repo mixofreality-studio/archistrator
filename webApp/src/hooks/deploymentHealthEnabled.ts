@@ -6,10 +6,8 @@
  * and crashes outside a Vite runtime. Same split as sessionPolling.ts /
  * useSessionState.ts.
  *
- * The query fires only when BOTH hold:
- *  - the operations capability is on (D9 — the local profile has no operations
- *    surface to query), and
- *  - `operatedAppId` is non-empty.
+ * The query fires only when `operatedAppId` is non-empty (every profile serves
+ * operations, DCT §12 B16).
  *
  * An operated app's id IS its project's id, by founder-ratified convention (one
  * operated app per project — see useDeploymentHealth.ts's module doc for the
@@ -17,9 +15,6 @@
  * predates this convention can still hand this an empty string, and that must
  * stay dormant rather than firing a request with a blank path parameter.
  */
-export function deploymentHealthQueryEnabled(
-  operationsCapabilityEnabled: boolean,
-  operatedAppId: string
-): boolean {
-  return operationsCapabilityEnabled && operatedAppId.length > 0;
+export function deploymentHealthQueryEnabled(operatedAppId: string): boolean {
+  return operatedAppId.length > 0;
 }

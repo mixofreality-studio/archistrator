@@ -15,7 +15,7 @@ type FakeBillingManager struct {
 	CloseBillingCycleFn         func(rc fwm.Context, customerID uuid.UUID, cycleID string) (billing.CloseCycleResult, error)
 	GetBillingCycleFn           func(rc fwm.Context, customerID uuid.UUID, cycleID string) (billing.BillingCycleView, error)
 	OnboardPaymentIntegrationFn func(rc fwm.Context, deployedAppID uuid.UUID) (billing.BillingRef, error)
-	RegisterCustomerFn          func(rc fwm.Context, customerID uuid.UUID) (billing.BillingRef, error)
+	RegisterCustomerFn          func(rc fwm.Context, customerID uuid.UUID, projectID string) (billing.BillingRef, error)
 	RunShortfallSweepFn         func(rc fwm.Context, tickID string) (billing.ShortfallSweepResult, error)
 }
 
@@ -40,11 +40,11 @@ func (f *FakeBillingManager) OnboardPaymentIntegration(rc fwm.Context, deployedA
 	return f.OnboardPaymentIntegrationFn(rc, deployedAppID)
 }
 
-func (f *FakeBillingManager) RegisterCustomer(rc fwm.Context, customerID uuid.UUID) (billing.BillingRef, error) {
+func (f *FakeBillingManager) RegisterCustomer(rc fwm.Context, customerID uuid.UUID, projectID string) (billing.BillingRef, error) {
 	if f.RegisterCustomerFn == nil {
 		panic("FakeBillingManager.RegisterCustomerFn not set")
 	}
-	return f.RegisterCustomerFn(rc, customerID)
+	return f.RegisterCustomerFn(rc, customerID, projectID)
 }
 
 func (f *FakeBillingManager) RunShortfallSweep(rc fwm.Context, tickID string) (billing.ShortfallSweepResult, error) {

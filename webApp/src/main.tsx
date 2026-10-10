@@ -21,7 +21,6 @@ import { createBrowserHistory } from '@tanstack/react-router';
 import { ApiError } from './contracts/errors';
 import { restOps } from './api/client';
 import { OpsClientProvider } from './api/opsContext';
-import { fetchCapabilities } from './hooks/useCapabilities';
 import { createAppRouter } from './routes/router';
 import './index.css';
 import App from './App';
@@ -31,9 +30,7 @@ const ops = restOps;
 // Browser history is what createRouter defaulted to when the router was a module
 // singleton; the factory takes it explicitly so the preview shell can pass memory
 // history instead (routes/router.tsx).
-const router = createAppRouter(createBrowserHistory(), {
-  fetchCapabilities: () => fetchCapabilities(ops),
-});
+const router = createAppRouter(createBrowserHistory());
 
 const queryClient = new QueryClient({
   defaultOptions: {

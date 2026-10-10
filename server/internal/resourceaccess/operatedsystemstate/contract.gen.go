@@ -8,23 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"time"
 )
-
-type AutoscaleAction int
-
-const (
-	AutoscaleNoChange  AutoscaleAction = 0
-	AutoscaleScaleUp   AutoscaleAction = 1
-	AutoscaleScaleDown AutoscaleAction = 2
-	AutoscalePause     AutoscaleAction = 3
-	AutoscaleResume    AutoscaleAction = 4
-)
-
-type AutoscaleDecision struct {
-	Action     AutoscaleAction `json:"Action"`
-	Delta      int64           `json:"Delta"`
-	ToBaseline int64           `json:"ToBaseline"`
-}
 
 type DelinquencyAction int
 
@@ -33,6 +18,15 @@ const (
 	DelinquencyActionPaused    DelinquencyAction = 1
 	DelinquencyActionWithdrawn DelinquencyAction = 2
 )
+
+type DesiredScale struct {
+	Replicas             int64     `json:"Replicas"`
+	MinReplicas          int64     `json:"MinReplicas"`
+	MaxReplicas          int64     `json:"MaxReplicas"`
+	TargetUtilizationPct int64     `json:"TargetUtilizationPct"`
+	ScaleToZero          bool      `json:"ScaleToZero"`
+	ScaledAt             time.Time `json:"ScaledAt"`
+}
 
 type DesiredStateReason int
 
@@ -57,12 +51,14 @@ type OperatedSystem struct {
 	InFlight            bool          `json:"InFlight"`
 	DeployableBundleRef string        `json:"DeployableBundleRef"`
 	ProjectRef          string        `json:"ProjectRef"`
+	Scale               DesiredScale  `json:"Scale"`
 }
 
 type OperatedSystemSummary struct {
 	ID      uuid.UUID     `json:"ID"`
 	Version Version       `json:"Version"`
 	Status  RuntimeStatus `json:"Status"`
+	Scale   DesiredScale  `json:"Scale"`
 }
 
 type RuntimeStatus int
@@ -80,7 +76,7 @@ type Version uint64
 // OperatedSystemStateAccess is the generated service-contract interface for this component.
 type OperatedSystemStateAccess interface {
 	RegisterOperatedSystem(rc fwra.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	PublishDesiredState(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion Version, reason DesiredStateReason, decision *AutoscaleDecision, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	PublishDesiredState(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion Version, reason DesiredStateReason, scale DesiredScale, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReadInFlightOperatedApps(rc fwra.Context, scope InFlightScope) ([]OperatedSystemSummary, error)
 	ReadOperatedSystem(rc fwra.Context, operatedAppID uuid.UUID) (OperatedSystem, error)
 	RecordDelinquencyAction(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion Version, action DelinquencyAction, idempotencyKey fwra.IdempotencyKey) (Version, error)

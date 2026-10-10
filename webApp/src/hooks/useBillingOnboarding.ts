@@ -34,13 +34,20 @@ export function useOnboardPaymentIntegration(): UseMutationResult<BillingRef, Er
   });
 }
 
-export function useRegisterCustomer(): UseMutationResult<BillingRef, Error, string> {
+/** A registration: the customer, and the project it is billed for (its terms are that
+ * project's committed SDP option's, DCT §12 B13). */
+export interface CustomerRegistration {
+  customerId: string;
+  projectId: string;
+}
+
+export function useRegisterCustomer(): UseMutationResult<BillingRef, Error, CustomerRegistration> {
   const { ops } = useOpsClient();
-  return useMutation<BillingRef, Error, string>({
-    mutationFn: async (customerId) => {
+  return useMutation<BillingRef, Error, CustomerRegistration>({
+    mutationFn: async ({ customerId, projectId }) => {
       const data = await ops.callForBody<OpResult<'billingRegisterCustomer'>>(
         'billingRegisterCustomer',
-        { path: { customerID: customerId } }
+        { path: { customerID: customerId }, body: { projectID: projectId } }
       );
       return { customerId: data.customerId };
     },

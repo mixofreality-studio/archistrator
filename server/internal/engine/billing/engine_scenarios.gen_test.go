@@ -286,6 +286,26 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	})
 }
 
+// inputOnboardANewCustomerP2S1 is step 1's parameters of ProjectCommitTimeComputeCost, decoded from the binding's inputs.
+type inputOnboardANewCustomerP2S1 struct {
+	Option billing.ProjectOption `json:"option"`
+}
+
+// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingEngine", "onboard-a-new-customer-P2", func(t *testing.T) {
+		var subject billing.BillingEngine = newSubject(t, h)
+		// step 1: ProjectCommitTimeComputeCost (node register-customer; guards registered=[no])
+		var in1 inputOnboardANewCustomerP2S1
+		mustUnmarshal(t, `{"option":{"OptionID":"opt-normal","Terms":{"computeCost":2,"computeMarkupPercent":0,"schedule":1}}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"result":"{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":0}","errorExpected":false}`)
+	})
+}
+
 // inputReplanUnderScopeChangeP2S1 is step 1's parameters of ProjectCommitTimeComputeCost, decoded from the binding's inputs.
 type inputReplanUnderScopeChangeP2S1 struct {
 	Option billing.ProjectOption `json:"option"`

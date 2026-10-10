@@ -32,11 +32,9 @@ type viewInput struct {
 // The autoscaler mode is sourced directly from the committed policy snapshot the
 // Manager carries in its OWN façade currency (wf.AutoscalerPolicy.Mode,
 // autoscalerPolicy above — zero value AutoscalerModeUnknown for an unconfigured
-// policy; no bridge needed here). The autoscaler DECISION history and the
-// per-phase RecentEvents are NOT exposed by an existing frozen RA read verb (head-state
-// exposes Status/Version/InFlight only); per the ruling's Construction note they are
-// surfaced empty here and a one-line follow-up is flagged to the architect — NO new RA
-// verb is invented. ALL reads, NO write Activity, NO version bump.
+// policy; no bridge needed here). The view carries no status-event or autoscale-decision
+// history: no use case names one (DCT §12 B14 deleted both fields). ALL reads, NO write
+// Activity, NO version bump.
 func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedSystemView, error) {
 	op, err := wf.readOperatedSystem(ctx, in.OperatedAppID)
 	if err != nil {
@@ -94,18 +92,12 @@ func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedS
 			SloMet:    slo.SloMet,
 			Healthy:   health == operatedsystemstate.RuntimeStatusHealthy,
 		}},
-		// RecentEvents: bounded, newest-first. The head-state status history is not a
-		// single RA read today (Construction-note follow-up); surfaced empty.
-		RecentEvents: nil,
 		Autoscaler: AutoscalerView{
 			// wf.AutoscalerPolicy is already this package's own façade AutoscalerMode
 			// currency (autoscalerPolicy, above) — read straight through, no bridge.
 			// (autoscalerPolicyToEngine, adapters.go, converts the OTHER direction, at
 			// the ProposeDesiredState call site.)
 			Mode: wf.AutoscalerPolicy.Mode,
-			// Decisions: not retrievable from a single frozen RA read today
-			// (Construction-note follow-up); surfaced empty.
-			Decisions: nil,
 		},
 		CurrentRunRate: moneyFromEstimation(projection.CurrentRunRate),
 	}

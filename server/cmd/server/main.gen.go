@@ -521,8 +521,12 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		operatedSystemStateAccess = v
 		logger.Info("operatedSystemStateAccess (Postgres) ready")
 	case "local":
-		operatedSystemStateAccess = operatedsystemstate.NewNoOpOperatedSystemStateAccess()
-		logger.Info("operatedSystemStateAccess (NoOp) ready")
+		v, err := operatedsystemstate.NewPostgresOperatedSystemStateAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		operatedSystemStateAccess = v
+		logger.Info("operatedSystemStateAccess (Postgres) ready")
 	default:
 		return errors.New("operatedSystemStateAccess: no ResourceAccess variant for the active profile")
 	}
@@ -567,8 +571,12 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		usageAccess = v
 		logger.Info("usageAccess (Postgres) ready")
 	case "local":
-		usageAccess = usage.NewNoOpUsageAccess()
-		logger.Info("usageAccess (NoOp) ready")
+		v, err := usage.NewPostgresUsageAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		usageAccess = v
+		logger.Info("usageAccess (Postgres) ready")
 	default:
 		return errors.New("usageAccess: no ResourceAccess variant for the active profile")
 	}
@@ -584,7 +592,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	reviewEngine := review.NewReviewEngine()
 
 	// Managers — generated DI constructors + one embedded Worker each.
-	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, messageBus, billingEngine, interventionEngine)
+	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, messageBus, billingEngine, interventionEngine, projectStateAccess)
 	wBillingManager := worker.New(tc, managerbilling.TaskQueue, worker.Options{})
 	managerbilling.RegisterManagerWorker(wBillingManager, billingManager)
 	if err := wBillingManager.Start(); err != nil {

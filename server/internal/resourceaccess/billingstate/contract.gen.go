@@ -25,24 +25,35 @@ type BillingCycle struct {
 }
 
 type BillingOutcome struct {
-	Net       Money            `json:"Net"`
-	Directive RoutingDirective `json:"Directive"`
-	Escalated bool             `json:"Escalated"`
+	Net        Money            `json:"Net"`
+	Directive  RoutingDirective `json:"Directive"`
+	Declined   bool             `json:"Declined"`
+	Escalated  bool             `json:"Escalated"`
+	Attempts   int64            `json:"Attempts"`
+	SweepsAged int64            `json:"SweepsAged"`
 }
 
 type BillingTerms struct {
-	ComputeCostKind int64 `json:"ComputeCostKind"`
-	ScheduleKind    int64 `json:"ScheduleKind"`
-	BillingKind     int64 `json:"BillingKind"`
+	ComputeCostKind      int64   `json:"ComputeCostKind"`
+	ComputeMarkupPercent float64 `json:"ComputeMarkupPercent"`
+	ScheduleKind         int64   `json:"ScheduleKind"`
+	Currency             string  `json:"Currency"`
 }
 
 type CustomerProfile struct {
-	ProjectID string `json:"ProjectID"`
+	ProjectID string       `json:"ProjectID"`
+	Terms     BillingTerms `json:"Terms"`
 }
 
 type CustomerSummary struct {
 	ID               uuid.UUID `json:"ID"`
 	PauseNotWithdraw bool      `json:"PauseNotWithdraw"`
+}
+
+type DeclinedCycle struct {
+	CustomerID uuid.UUID      `json:"CustomerID"`
+	Cycle      string         `json:"Cycle"`
+	Outcome    BillingOutcome `json:"Outcome"`
 }
 
 type DelinquencyScope struct {
@@ -70,9 +81,10 @@ type Version uint64
 // BillingStateAccess is the generated service-contract interface for this component.
 type BillingStateAccess interface {
 	BindGatewayLive(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, binding GatewayBinding, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	ReadPersistentlyDelinquentCustomers(rc fwra.Context, scope DelinquencyScope) ([]CustomerSummary, error)
 	ReadBilling(rc fwra.Context, customerID uuid.UUID) (Billing, error)
 	ReadCycle(rc fwra.Context, customerID uuid.UUID, cycle string) (BillingCycle, error)
+	ReadDeclinedCycles(rc fwra.Context, scope DelinquencyScope) ([]DeclinedCycle, error)
+	ReadPersistentlyDelinquentCustomers(rc fwra.Context, scope DelinquencyScope) ([]CustomerSummary, error)
 	RegisterCustomer(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, profile CustomerProfile, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ResettleCycle(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, cycle string, correction BillingOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SettleCycle(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, cycle string, outcome BillingOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error)

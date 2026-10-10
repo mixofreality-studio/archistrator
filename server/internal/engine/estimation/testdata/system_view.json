@@ -331,6 +331,10 @@
       "to": "intervention-engine"
     },
     {
+      "from": "billing-manager",
+      "to": "project-state-access"
+    },
+    {
       "from": "operations-manager",
       "to": "operated-system-state-access"
     },

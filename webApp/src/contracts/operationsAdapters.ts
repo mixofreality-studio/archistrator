@@ -85,15 +85,10 @@ export function formatEventTime(at: string): string {
 
 /**
  * Whether the view carries any live runtime data at all (vs the awaiting state).
- * A 404 surfaces as an undefined view upstream; an empty view with no SLOs / no
- * events / Unknown phase is the quiet answer the console renders as awaiting.
+ * A 404 surfaces as an undefined view upstream; an empty view with no SLOs and an
+ * Unknown phase is the quiet answer the console renders as awaiting.
  */
 export function viewIsLive(view: OperationsView | undefined): boolean {
   if (view === undefined) return false;
-  return (
-    view.slos.length > 0 ||
-    view.recentEvents.length > 0 ||
-    view.autoscaler.decisions.length > 0 ||
-    normalizePhase(view.phase) !== 'Unknown'
-  );
+  return view.slos.length > 0 || normalizePhase(view.phase) !== 'Unknown';
 }

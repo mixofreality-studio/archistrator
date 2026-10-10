@@ -105,6 +105,11 @@ type inputOperateADeliveredSystemP2S3 struct {
 	Window operatedruntime.AttributionWindow `json:"window"`
 }
 
+// inputOperateADeliveredSystemP2S4 is step 4's parameters of ReadWorkloadTelemetry, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP2S4 struct {
+	AppID uuid.UUID `json:"appID"`
+}
+
 // TestScenario_operate_a_delivered_system_P2 — Operate a Delivered System — [no] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 	h := scenariohost.Start(t)
@@ -131,15 +136,22 @@ func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 		var err3 error
 		out3, err3 = subject.ReadComputeAttribution(callContext(t, h, "3"), in3.AppID, in3.Window)
 		expect(t, "operate-a-delivered-system-P2", 3, out3, err3, `{"result":"{\"Units\":{\"Amount\":3600}}","errorExpected":false}`)
-		// probe 3.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
-		var pout3_1 any
-		var perr3_1 error
-		var probe3_1 struct {
+		// step 4: ReadWorkloadTelemetry (node pull-telemetry; guards state-transition=[no], decision-nochange=[yes])
+		var in4 inputOperateADeliveredSystemP2S4
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.ReadWorkloadTelemetry(callContext(t, h, "4"), in4.AppID)
+		expect(t, "operate-a-delivered-system-P2", 4, out4, err4, `{"result":"{\"Measured\":false}","errorExpected":false}`)
+		// probe 4.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
 			AppID uuid.UUID `json:"appID"`
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.GetApplicationHealth(callContext(t, h, "3.1"), probe3_1.AppID)
-		expect(t, "operate-a-delivered-system-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"2","errorExpected":false}`)
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.GetApplicationHealth(callContext(t, h, "4.1"), probe4_1.AppID)
+		expect(t, "operate-a-delivered-system-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"2","errorExpected":false}`)
 	})
 }
 
@@ -159,8 +171,13 @@ type inputOperateADeliveredSystemP3S3 struct {
 	Window operatedruntime.AttributionWindow `json:"window"`
 }
 
-// inputOperateADeliveredSystemP3S4 is step 4's parameters of PublishDesiredState, decoded from the binding's inputs.
+// inputOperateADeliveredSystemP3S4 is step 4's parameters of ReadWorkloadTelemetry, decoded from the binding's inputs.
 type inputOperateADeliveredSystemP3S4 struct {
+	AppID uuid.UUID `json:"appID"`
+}
+
+// inputOperateADeliveredSystemP3S5 is step 5's parameters of PublishDesiredState, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP3S5 struct {
 	AppID          uuid.UUID                           `json:"appID"`
 	Desired        operatedruntime.RuntimeDesiredState `json:"desired"`
 	IdempotencyKey fwra.IdempotencyKey                 `json:"idempotencyKey"`
@@ -192,32 +209,39 @@ func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 		var err3 error
 		out3, err3 = subject.ReadComputeAttribution(callContext(t, h, "3"), in3.AppID, in3.Window)
 		expect(t, "operate-a-delivered-system-P3", 3, out3, err3, `{"result":"{\"Units\":{\"Amount\":86400}}","errorExpected":false}`)
-		// probe 3.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
-		var pout3_1 any
-		var perr3_1 error
-		var probe3_1 struct {
-			AppID uuid.UUID `json:"appID"`
-		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.GetApplicationHealth(callContext(t, h, "3.1"), probe3_1.AppID)
-		expect(t, "operate-a-delivered-system-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"2","errorExpected":false}`)
-		// step 4: PublishDesiredState (node publish-c; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
+		// step 4: ReadWorkloadTelemetry (node pull-telemetry; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
 		var in4 inputOperateADeliveredSystemP3S4
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false},"idempotencyKey":"stp-ort-op-P3-republish-0001"}`, &in4)
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &in4)
 		var out4 any
 		var err4 error
-		err4 = subject.PublishDesiredState(callContext(t, h, "4"), in4.AppID, in4.Desired, in4.IdempotencyKey)
-		expect(t, "operate-a-delivered-system-P3", 4, out4, err4, `{"errorExpected":false}`)
-		// probe 4.1: operatedRuntimeAccess.GetDeploymentResourceHealth for desired-state-published-c
+		out4, err4 = subject.ReadWorkloadTelemetry(callContext(t, h, "4"), in4.AppID)
+		expect(t, "operate-a-delivered-system-P3", 4, out4, err4, `{"result":"{\"Measured\":true,\"CPUUtilization\":0.9}","errorExpected":false}`)
+		// probe 4.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
 		var pout4_1 any
 		var perr4_1 error
 		var probe4_1 struct {
+			AppID uuid.UUID `json:"appID"`
+		}
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.GetApplicationHealth(callContext(t, h, "4.1"), probe4_1.AppID)
+		expect(t, "operate-a-delivered-system-P3 probe 4.1", 4, pout4_1, perr4_1, `{"result":"2","errorExpected":false}`)
+		// step 5: PublishDesiredState (node publish-c; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
+		var in5 inputOperateADeliveredSystemP3S5
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false},"idempotencyKey":"stp-ort-op-P3-republish-0001"}`, &in5)
+		var out5 any
+		var err5 error
+		err5 = subject.PublishDesiredState(callContext(t, h, "5"), in5.AppID, in5.Desired, in5.IdempotencyKey)
+		expect(t, "operate-a-delivered-system-P3", 5, out5, err5, `{"errorExpected":false}`)
+		// probe 5.1: operatedRuntimeAccess.GetDeploymentResourceHealth for desired-state-published-c
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
 			AppID   uuid.UUID                           `json:"appID"`
 			Desired operatedruntime.RuntimeDesiredState `json:"desired"`
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false}}`, &probe4_1)
-		pout4_1, perr4_1 = subject.GetDeploymentResourceHealth(callContext(t, h, "4.1"), probe4_1.AppID, probe4_1.Desired)
-		expect(t, "operate-a-delivered-system-P3 probe 4.1", 4, pout4_1, perr4_1, `{"result":"[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]","errorExpected":false}`)
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false}}`, &probe5_1)
+		pout5_1, perr5_1 = subject.GetDeploymentResourceHealth(callContext(t, h, "5.1"), probe5_1.AppID, probe5_1.Desired)
+		expect(t, "operate-a-delivered-system-P3 probe 5.1", 5, pout5_1, perr5_1, `{"result":"[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]","errorExpected":false}`)
 	})
 }
 
@@ -235,6 +259,11 @@ type inputOperateADeliveredSystemP4S2 struct {
 type inputOperateADeliveredSystemP4S3 struct {
 	AppID  uuid.UUID                         `json:"appID"`
 	Window operatedruntime.AttributionWindow `json:"window"`
+}
+
+// inputOperateADeliveredSystemP4S4 is step 4's parameters of ReadWorkloadTelemetry, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP4S4 struct {
+	AppID uuid.UUID `json:"appID"`
 }
 
 // TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
@@ -263,15 +292,22 @@ func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 		var err3 error
 		out3, err3 = subject.ReadComputeAttribution(callContext(t, h, "3"), in3.AppID, in3.Window)
 		expect(t, "operate-a-delivered-system-P4", 3, out3, err3, `{"result":"{\"Units\":{\"Amount\":3600}}","errorExpected":false}`)
-		// probe 3.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
-		var pout3_1 any
-		var perr3_1 error
-		var probe3_1 struct {
+		// step 4: ReadWorkloadTelemetry (node pull-telemetry; guards state-transition=[yes], decision-nochange=[yes])
+		var in4 inputOperateADeliveredSystemP4S4
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &in4)
+		var out4 any
+		var err4 error
+		out4, err4 = subject.ReadWorkloadTelemetry(callContext(t, h, "4"), in4.AppID)
+		expect(t, "operate-a-delivered-system-P4", 4, out4, err4, `{"result":"{\"Measured\":false}","errorExpected":false}`)
+		// probe 4.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
 			AppID uuid.UUID `json:"appID"`
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.GetApplicationHealth(callContext(t, h, "3.1"), probe3_1.AppID)
-		expect(t, "operate-a-delivered-system-P4 probe 3.1", 3, pout3_1, perr3_1, `{"result":"3","errorExpected":false}`)
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.GetApplicationHealth(callContext(t, h, "4.1"), probe4_1.AppID)
+		expect(t, "operate-a-delivered-system-P4 probe 4.1", 4, pout4_1, perr4_1, `{"result":"3","errorExpected":false}`)
 	})
 }
 
@@ -291,8 +327,13 @@ type inputOperateADeliveredSystemP5S3 struct {
 	Window operatedruntime.AttributionWindow `json:"window"`
 }
 
-// inputOperateADeliveredSystemP5S4 is step 4's parameters of PublishDesiredState, decoded from the binding's inputs.
+// inputOperateADeliveredSystemP5S4 is step 4's parameters of ReadWorkloadTelemetry, decoded from the binding's inputs.
 type inputOperateADeliveredSystemP5S4 struct {
+	AppID uuid.UUID `json:"appID"`
+}
+
+// inputOperateADeliveredSystemP5S5 is step 5's parameters of PublishDesiredState, decoded from the binding's inputs.
+type inputOperateADeliveredSystemP5S5 struct {
 	AppID          uuid.UUID                           `json:"appID"`
 	Desired        operatedruntime.RuntimeDesiredState `json:"desired"`
 	IdempotencyKey fwra.IdempotencyKey                 `json:"idempotencyKey"`
@@ -324,32 +365,39 @@ func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 		var err3 error
 		out3, err3 = subject.ReadComputeAttribution(callContext(t, h, "3"), in3.AppID, in3.Window)
 		expect(t, "operate-a-delivered-system-P5", 3, out3, err3, `{"result":"{\"Units\":{\"Amount\":86400}}","errorExpected":false}`)
-		// probe 3.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
-		var pout3_1 any
-		var perr3_1 error
-		var probe3_1 struct {
-			AppID uuid.UUID `json:"appID"`
-		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.GetApplicationHealth(callContext(t, h, "3.1"), probe3_1.AppID)
-		expect(t, "operate-a-delivered-system-P5 probe 3.1", 3, pout3_1, perr3_1, `{"result":"3","errorExpected":false}`)
-		// step 4: PublishDesiredState (node publish-c; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
+		// step 4: ReadWorkloadTelemetry (node pull-telemetry; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
 		var in4 inputOperateADeliveredSystemP5S4
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false},"idempotencyKey":"stp-ort-op-P5-republish-0001"}`, &in4)
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &in4)
 		var out4 any
 		var err4 error
-		err4 = subject.PublishDesiredState(callContext(t, h, "4"), in4.AppID, in4.Desired, in4.IdempotencyKey)
-		expect(t, "operate-a-delivered-system-P5", 4, out4, err4, `{"errorExpected":false}`)
-		// probe 4.1: operatedRuntimeAccess.GetDeploymentResourceHealth for desired-state-published-c
+		out4, err4 = subject.ReadWorkloadTelemetry(callContext(t, h, "4"), in4.AppID)
+		expect(t, "operate-a-delivered-system-P5", 4, out4, err4, `{"result":"{\"Measured\":true,\"CPUUtilization\":0.4}","errorExpected":false}`)
+		// probe 4.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
 		var pout4_1 any
 		var perr4_1 error
 		var probe4_1 struct {
+			AppID uuid.UUID `json:"appID"`
+		}
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.GetApplicationHealth(callContext(t, h, "4.1"), probe4_1.AppID)
+		expect(t, "operate-a-delivered-system-P5 probe 4.1", 4, pout4_1, perr4_1, `{"result":"3","errorExpected":false}`)
+		// step 5: PublishDesiredState (node publish-c; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
+		var in5 inputOperateADeliveredSystemP5S5
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false},"idempotencyKey":"stp-ort-op-P5-republish-0001"}`, &in5)
+		var out5 any
+		var err5 error
+		err5 = subject.PublishDesiredState(callContext(t, h, "5"), in5.AppID, in5.Desired, in5.IdempotencyKey)
+		expect(t, "operate-a-delivered-system-P5", 5, out5, err5, `{"errorExpected":false}`)
+		// probe 5.1: operatedRuntimeAccess.GetDeploymentResourceHealth for desired-state-published-c
+		var pout5_1 any
+		var perr5_1 error
+		var probe5_1 struct {
 			AppID   uuid.UUID                           `json:"appID"`
 			Desired operatedruntime.RuntimeDesiredState `json:"desired"`
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false}}`, &probe4_1)
-		pout4_1, perr4_1 = subject.GetDeploymentResourceHealth(callContext(t, h, "4.1"), probe4_1.AppID, probe4_1.Desired)
-		expect(t, "operate-a-delivered-system-P5 probe 4.1", 4, pout4_1, perr4_1, `{"result":"[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]","errorExpected":false}`)
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false}}`, &probe5_1)
+		pout5_1, perr5_1 = subject.GetDeploymentResourceHealth(callContext(t, h, "5.1"), probe5_1.AppID, probe5_1.Desired)
+		expect(t, "operate-a-delivered-system-P5 probe 5.1", 5, pout5_1, perr5_1, `{"result":"[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]","errorExpected":false}`)
 	})
 }
 

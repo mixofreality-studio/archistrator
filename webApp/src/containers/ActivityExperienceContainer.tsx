@@ -145,12 +145,10 @@ import {
   useEpisodeTimeline,
   useProject,
 } from '../hooks/useDeliveryQueries';
-import { useCapabilities } from '../hooks/useCapabilities';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
 import { useComponentScenarios, useTestRun, useTestRunOutputs } from '../hooks/useTestRun';
 import type { TestingArtifactData } from '../components/construction/artifactRenderers';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
-import { operationsEnabled } from '../utilities/capabilities';
 import { isNoSessionError } from '../hooks/sessionPolling';
 import {
   useAcknowledgeStaleBasis,
@@ -238,13 +236,10 @@ export function ActivityExperienceContainer({
   const { data: designHealth } = useDesignHealth(projectId);
   // The Deployment lens' live health tint — the same dormant-by-default
   // arrangement the two design containers use: nothing fires unless the
-  // operations capability is on (D9) and the derived operated-app id has landed,
+  // derived operated-app id has landed,
   // and an absent overlay renders the diagram untinted, never red.
   const operatedAppId = useOperatedAppId(projectId);
-  const { data: deploymentHealth } = useDeploymentHealth(
-    operatedAppId ?? '',
-    operationsEnabled(useCapabilities())
-  );
+  const { data: deploymentHealth } = useDeploymentHealth(operatedAppId ?? '');
 
   const graph = view === undefined ? undefined : activityViewToGraph(view);
   const nodes = graph?.nodes ?? [];

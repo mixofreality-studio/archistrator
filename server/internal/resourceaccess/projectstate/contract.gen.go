@@ -878,6 +878,7 @@ type SdpReview struct {
 	Options        []SdpOptionRow `json:"options"`
 	Recommendation OptionID       `json:"recommendation"`
 	Rationale      string         `json:"rationale"`
+	ChosenOption   *OptionID      `json:"chosenOption,omitempty"`
 }
 
 type SettlementTerms struct {

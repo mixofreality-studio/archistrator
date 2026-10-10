@@ -152,7 +152,7 @@ type inputOperateADeliveredSystemP1S2 struct {
 	OperatedAppID   uuid.UUID                              `json:"operatedAppID"`
 	ExpectedVersion operatedsystemstate.Version            `json:"expectedVersion"`
 	Reason          operatedsystemstate.DesiredStateReason `json:"reason"`
-	Decision        *operatedsystemstate.AutoscaleDecision `json:"decision"`
+	Scale           operatedsystemstate.DesiredScale       `json:"scale"`
 	IdempotencyKey  fwra.IdempotencyKey                    `json:"idempotencyKey"`
 }
 
@@ -170,10 +170,10 @@ func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":2,\"InFlight\":true,\"DeployableBundleRef\":\"bundle-osa-0003\"}","errorExpected":false}`)
 		// step 2: PublishDesiredState (node record-published-a)
 		var in2 inputOperateADeliveredSystemP1S2
-		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003","expectedVersion":2,"reason":2,"idempotencyKey":"stp-osa-op-P1-2"}`, &in2)
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003","expectedVersion":2,"reason":2,"scale":{"Replicas":2,"MinReplicas":1,"MaxReplicas":4,"TargetUtilizationPct":70,"ScaleToZero":false,"ScaledAt":"2026-10-01T00:00:00Z"},"idempotencyKey":"stp-osa-op-P1-2"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.PublishDesiredState(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.Reason, in2.Decision, in2.IdempotencyKey)
+		out2, err2 = subject.PublishDesiredState(callContext(t, h, "2"), in2.OperatedAppID, in2.ExpectedVersion, in2.Reason, in2.Scale, in2.IdempotencyKey)
 		expect(t, "operate-a-delivered-system-P1", 2, out2, err2, `{"result":"3","errorExpected":false}`)
 		// probe 2.1: operatedSystemStateAccess.ReadOperatedSystem for record-published-a
 		var pout2_1 any
@@ -183,7 +183,7 @@ func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003"}`, &probe2_1)
 		pout2_1, perr2_1 = subject.ReadOperatedSystem(callContext(t, h, "2.1"), probe2_1.OperatedAppID)
-		expect(t, "operate-a-delivered-system-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true}","errorExpected":false}`)
+		expect(t, "operate-a-delivered-system-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true,\"Scale\":{\"Replicas\":2}}","errorExpected":false}`)
 		// probe 2.2: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-a
 		var pout2_2 any
 		var perr2_2 error
@@ -192,7 +192,7 @@ func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000003"}`, &probe2_2)
 		pout2_2, perr2_2 = subject.ReadOperatedSystem(callContext(t, h, "2.2"), probe2_2.OperatedAppID)
-		expect(t, "operate-a-delivered-system-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true}","errorExpected":false}`)
+		expect(t, "operate-a-delivered-system-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000003\",\"Version\":3,\"InFlight\":true,\"Scale\":{\"Replicas\":2}}","errorExpected":false}`)
 	})
 }
 
@@ -231,7 +231,7 @@ type inputOperateADeliveredSystemP3S3 struct {
 	OperatedAppID   uuid.UUID                              `json:"operatedAppID"`
 	ExpectedVersion operatedsystemstate.Version            `json:"expectedVersion"`
 	Reason          operatedsystemstate.DesiredStateReason `json:"reason"`
-	Decision        *operatedsystemstate.AutoscaleDecision `json:"decision"`
+	Scale           operatedsystemstate.DesiredScale       `json:"scale"`
 	IdempotencyKey  fwra.IdempotencyKey                    `json:"idempotencyKey"`
 }
 
@@ -256,10 +256,10 @@ func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 		expect(t, "operate-a-delivered-system-P3", 2, out2, err2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":1,\"InFlight\":true}","errorExpected":false}`)
 		// step 3: PublishDesiredState (node record-published-c; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
 		var in3 inputOperateADeliveredSystemP3S3
-		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000005","expectedVersion":1,"reason":3,"decision":{"Action":1,"Delta":1,"ToBaseline":0},"idempotencyKey":"stp-osa-op-P3-3"}`, &in3)
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000005","expectedVersion":1,"reason":3,"scale":{"Replicas":3,"MinReplicas":1,"MaxReplicas":4,"TargetUtilizationPct":70,"ScaleToZero":false,"ScaledAt":"2026-10-01T00:05:00Z"},"idempotencyKey":"stp-osa-op-P3-3"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.PublishDesiredState(callContext(t, h, "3"), in3.OperatedAppID, in3.ExpectedVersion, in3.Reason, in3.Decision, in3.IdempotencyKey)
+		out3, err3 = subject.PublishDesiredState(callContext(t, h, "3"), in3.OperatedAppID, in3.ExpectedVersion, in3.Reason, in3.Scale, in3.IdempotencyKey)
 		expect(t, "operate-a-delivered-system-P3", 3, out3, err3, `{"result":"2","errorExpected":false}`)
 		// probe 3.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-c
 		var pout3_1 any
@@ -269,7 +269,7 @@ func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000005"}`, &probe3_1)
 		pout3_1, perr3_1 = subject.ReadOperatedSystem(callContext(t, h, "3.1"), probe3_1.OperatedAppID)
-		expect(t, "operate-a-delivered-system-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":2,\"InFlight\":true}","errorExpected":false}`)
+		expect(t, "operate-a-delivered-system-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000005\",\"Version\":2,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
 	})
 }
 
@@ -340,7 +340,7 @@ type inputOperateADeliveredSystemP5S4 struct {
 	OperatedAppID   uuid.UUID                              `json:"operatedAppID"`
 	ExpectedVersion operatedsystemstate.Version            `json:"expectedVersion"`
 	Reason          operatedsystemstate.DesiredStateReason `json:"reason"`
-	Decision        *operatedsystemstate.AutoscaleDecision `json:"decision"`
+	Scale           operatedsystemstate.DesiredScale       `json:"scale"`
 	IdempotencyKey  fwra.IdempotencyKey                    `json:"idempotencyKey"`
 }
 
@@ -381,10 +381,10 @@ func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 		expect(t, "operate-a-delivered-system-P5", 3, out3, err3, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":2,\"Status\":3,\"InFlight\":true}","errorExpected":false}`)
 		// step 4: PublishDesiredState (node record-published-c; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
 		var in4 inputOperateADeliveredSystemP5S4
-		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000007","expectedVersion":2,"reason":3,"decision":{"Action":2,"Delta":1,"ToBaseline":0},"idempotencyKey":"stp-osa-op-P5-4"}`, &in4)
+		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000007","expectedVersion":2,"reason":3,"scale":{"Replicas":3,"MinReplicas":1,"MaxReplicas":4,"TargetUtilizationPct":70,"ScaleToZero":false,"ScaledAt":"2026-10-01T00:05:00Z"},"idempotencyKey":"stp-osa-op-P5-4"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.PublishDesiredState(callContext(t, h, "4"), in4.OperatedAppID, in4.ExpectedVersion, in4.Reason, in4.Decision, in4.IdempotencyKey)
+		out4, err4 = subject.PublishDesiredState(callContext(t, h, "4"), in4.OperatedAppID, in4.ExpectedVersion, in4.Reason, in4.Scale, in4.IdempotencyKey)
 		expect(t, "operate-a-delivered-system-P5", 4, out4, err4, `{"result":"3","errorExpected":false}`)
 		// probe 4.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-c
 		var pout4_1 any
@@ -394,7 +394,7 @@ func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000007"}`, &probe4_1)
 		pout4_1, perr4_1 = subject.ReadOperatedSystem(callContext(t, h, "4.1"), probe4_1.OperatedAppID)
-		expect(t, "operate-a-delivered-system-P5 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":3,\"Status\":3,\"InFlight\":true}","errorExpected":false}`)
+		expect(t, "operate-a-delivered-system-P5 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000007\",\"Version\":3,\"Status\":3,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
 	})
 }
 

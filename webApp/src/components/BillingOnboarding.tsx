@@ -6,8 +6,9 @@
  *      billingManager.OnboardPaymentIntegration): the app resolves to its billing
  *      customer, whose id the step shows and hands to step 2.
  *   2. Register the customer's payment instrument (RegisterPaymentInstrument →
- *      billingManager.RegisterCustomer): the stored instrument is validated with a
- *      zero-amount authorization and the customer's billing record opens.
+ *      billingManager.RegisterCustomer) for the project it is billed for: the stored
+ *      instrument is validated with a zero-amount authorization and the customer's
+ *      billing record opens under that project's committed terms (DCT §12 B13).
  *
  * Each step reports what its op answered — the customer's billing reference — or the
  * refusal verbatim. Pure: the container owns both mutations and hands their results
@@ -39,7 +40,7 @@ export function BillingOnboarding({
   onboard: OnboardingStepResult | undefined;
   register: OnboardingStepResult | undefined;
   onOnboard: (deployedAppId: string) => void;
-  onRegister: (customerId: string) => void;
+  onRegister: (customerId: string, projectId: string) => void;
 }): ReactNode {
   const t = useTokens();
   const [appId, setAppId] = useState('');
@@ -48,8 +49,11 @@ export function BillingOnboarding({
   const [typedCustomer, setTypedCustomer] = useState<string | undefined>(undefined);
   const customerId = typedCustomer ?? (onboard?.kind === 'done' ? onboard.customerId : '');
 
+  const [projectId, setProjectId] = useState('');
+
   const appValid = UUID.test(appId.trim());
   const customerValid = UUID.test(customerId.trim());
+  const projectValid = projectId.trim() !== '';
 
   return (
     <Paper data-testid={UI_IDENTIFIERS.Billing.ONBOARDING} sx={{ p: 2.5, mb: 3 }}>
@@ -102,7 +106,9 @@ export function BillingOnboarding({
         sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-start', mt: 2 }}
         onSubmit={(e) => {
           e.preventDefault();
-          if (customerValid && register?.kind !== 'pending') onRegister(customerId.trim());
+          if (customerValid && projectValid && register?.kind !== 'pending') {
+            onRegister(customerId.trim(), projectId.trim());
+          }
         }}
       >
         <TextField
@@ -119,9 +125,22 @@ export function BillingOnboarding({
             setTypedCustomer(e.target.value);
           }}
         />
+        <TextField
+          helperText="The project the customer is billed for"
+          label="Project"
+          size="small"
+          slotProps={{
+            htmlInput: { 'data-testid': UI_IDENTIFIERS.Billing.REGISTER_PROJECT_ID_INPUT },
+          }}
+          sx={{ minWidth: 240 }}
+          value={projectId}
+          onChange={(e) => {
+            setProjectId(e.target.value);
+          }}
+        />
         <Button
           data-testid={UI_IDENTIFIERS.Billing.REGISTER_SUBMIT}
-          disabled={!customerValid || register?.kind === 'pending'}
+          disabled={!customerValid || !projectValid || register?.kind === 'pending'}
           type="submit"
           variant="contained"
         >

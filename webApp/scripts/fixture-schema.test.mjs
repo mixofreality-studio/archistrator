@@ -258,6 +258,7 @@ void test('the schema keys ops by exactly the OpsClient OpIds, composition route
   // took it from 51 ops to 23, stage 4b2 to 22 (deliveryManager 12 -> 11 as ReplanProject
   // went), dct Plan 4 to 23 (billingGetBillingCycle, use case view-a-billing-cycle), dct
   // Plan 5 to 25 (onboarding's two entries, use case onboard-a-new-customer, spec §12 B7),
+  // then 24 (compositionGetCapabilities went: every profile serves operations, §12 B16),
   // and a floor written by hand would be the one thing in this file that does not move
   // when the contract does.
   assert.equal(schemaOps.filter((o) => o.startsWith('delivery')).length, 11);
@@ -266,7 +267,7 @@ void test('the schema keys ops by exactly the OpsClient OpIds, composition route
     ['billingGetBillingCycle', 'billingOnboardPaymentIntegration', 'billingRegisterCustomer'],
     'billingManager reaches the client with the ops a use case draws from it, and no other'
   );
-  assert.equal(schemaOps.length, 25);
+  assert.equal(schemaOps.length, 24);
 });
 
 void test(`${VIEW_OP} is keyed by the OAS view kinds, not by one answer`, () => {
@@ -293,7 +294,7 @@ void test(`${VIEW_OP} is keyed by the OAS view kinds, not by one answer`, () => 
 const ok = (ops) => validate({ route: '/', ops });
 
 void test('it accepts a result, an error, or pending', () => {
-  assert.equal(ok({ compositionGetCapabilities: { result: { operations: false } } }), true);
+  assert.equal(ok({ compositionGetOperatedAppId: { result: { operatedAppId: 'a' } } }), true);
   assert.equal(
     ok({ deliveryQueryActivityView: { error: { status: 500, message: 'down' } } }),
     true
@@ -328,7 +329,7 @@ void test('it rejects an op the transport does not have', () => {
 });
 
 void test('it rejects a result that drifted from the contract', () => {
-  assert.equal(ok({ compositionGetCapabilities: { result: { operations: 'yes' } } }), false);
+  assert.equal(ok({ compositionGetOperatedAppId: { result: { operatedAppId: 7 } } }), false);
   assert.equal(
     ok({ deliveryQueryProjectView: { projects: { result: [{ ProjectID: 'x' }] } } }),
     false

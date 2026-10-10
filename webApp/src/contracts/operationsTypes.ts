@@ -29,29 +29,10 @@ export interface OperationsHealth {
   phase: string;
 }
 
-/** One health-timeline event. */
-export interface OperationsEvent {
-  /** RFC3339 timestamp. */
-  at: string;
-  from: string;
-  to: string;
-  note: string;
-}
-
-/** One autoscaler decision. */
-export interface AutoscalerDecision {
-  /** RFC3339 timestamp. */
-  at: string;
-  action: string;
-  reason: string;
-  published: boolean;
-}
-
 /** The autoscaler view. */
 export interface AutoscalerView {
   /** "Auto" | "Manual" | "Unknown". */
   mode: string;
-  decisions: AutoscalerDecision[];
 }
 
 /** The whole operations view — one operated app, poll-read. */
@@ -62,7 +43,6 @@ export interface OperationsView {
   inFlight: boolean;
   health: OperationsHealth;
   slos: OperationsSlo[];
-  recentEvents: OperationsEvent[];
   autoscaler: AutoscalerView;
   currentRunRate: Money;
 }

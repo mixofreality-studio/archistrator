@@ -3,11 +3,6 @@
   "title": "Plan · TASKS",
   "note": "Captured from the live local server against this repo own state. Regenerate with the curl+node recipe in the stage-5 plan, Task 6 Step 3. Task 12 made ONE change to the capture and added ONE op. The sdpReview slot moves from committed (2) to awaitingReview (1): it already carries staleBasis, so this is the spec §6 story the capture was one step short of — re-opening the Architecture invalidated the plan, it was recomputed, and the M0 cost approval is owed again. That is the ONLY source a DESIGN review can be owed from (owedWork.designOwedFor reads the artifact SLOT, because the three design activities never open a construction session), so without it the TASKS lens says \"Nothing needs you\" and Task 11 Step 5b's design branch renders nowhere. deliveryQueryActivityView is projectDesign's own view (verbatim from activity-experience/project-design-m0.json) so pressing [Review] on that row lands on the gate it names instead of raising the alarm.",
   "ops": {
-    "compositionGetCapabilities": {
-      "result": {
-        "operations": false
-      }
-    },
     "compositionGetOperatedAppId": {
       "result": {
         "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
@@ -18825,7 +18820,7 @@
                     ]
                   },
                   {
-                    "Signature": "RegisterCustomer(customerID: uuid.UUID) → (BillingRef, fwm.Error)",
+                    "Signature": "RegisterCustomer(customerID: uuid.UUID, projectID: string) → (BillingRef, fwm.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -18835,6 +18830,16 @@
                           {
                             "Name": "customerID",
                             "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "string",
                             "Note": ""
                           }
                         ]
@@ -19150,6 +19155,45 @@
                     ]
                   },
                   {
+                    "Signature": "ReadDeclinedCycles(scope: DelinquencyScope) → ([]DeclinedCycle, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "DelinquencyScope",
+                        "Fields": [
+                          {
+                            "Name": "ProjectID",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "[]DeclinedCycle",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "[]DeclinedCycle",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
                     "Signature": "RegisterCustomer(customerID: uuid.UUID, expectedVersion: Version, profile: CustomerProfile, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
@@ -19180,6 +19224,11 @@
                           {
                             "Name": "ProjectID",
                             "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Terms",
+                            "Type": "BillingTerms",
                             "Note": ""
                           }
                         ]
@@ -19270,6 +19319,21 @@
                             "Name": "Escalated",
                             "Type": "bool",
                             "Note": ""
+                          },
+                          {
+                            "Name": "Declined",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Attempts",
+                            "Type": "int64",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "SweepsAged",
+                            "Type": "int64",
+                            "Note": ""
                           }
                         ]
                       },
@@ -19359,6 +19423,21 @@
                             "Name": "Escalated",
                             "Type": "bool",
                             "Note": ""
+                          },
+                          {
+                            "Name": "Declined",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Attempts",
+                            "Type": "int64",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "SweepsAged",
+                            "Type": "int64",
+                            "Note": ""
                           }
                         ]
                       },
@@ -19404,6 +19483,7 @@
                   "BillingTerms",
                   "CustomerProfile",
                   "CustomerSummary",
+                  "DeclinedCycle",
                   "DelinquencyScope",
                   "GatewayBinding",
                   "Money",
@@ -22929,7 +23009,7 @@
                     ]
                   },
                   {
-                    "Signature": "BillingRegisterCustomer(customerID: uuid.UUID) → (BillingRegisterCustomerOutput, error)",
+                    "Signature": "BillingRegisterCustomer(customerID: uuid.UUID, projectID: string) → (BillingRegisterCustomerOutput, error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -22939,6 +23019,16 @@
                           {
                             "Name": "customerID",
                             "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "string",
                             "Note": ""
                           }
                         ]
@@ -23413,8 +23503,6 @@
                   }
                 ],
                 "DataContracts": [
-                  "AutoscaleAction",
-                  "AutoscaleDecisionView",
                   "AutoscalerMode",
                   "AutoscalerView",
                   "CostProjectionSeam",
@@ -23439,7 +23527,6 @@
                   "PatchKind",
                   "ReconcileResult",
                   "ReconcileScope",
-                  "RuntimeStatusEventView",
                   "RuntimeStatusSeam",
                   "ScalePoint",
                   "ScaleWhatIfPoints",
@@ -24125,6 +24212,50 @@
                     ]
                   },
                   {
+                    "Signature": "ReadWorkloadTelemetry(appID: uuid.UUID) → (WorkloadTelemetry, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "uuid.UUID",
+                        "Fields": [
+                          {
+                            "Name": "appID",
+                            "Type": "uuid.UUID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "WorkloadTelemetry",
+                        "Fields": [
+                          {
+                            "Name": "Measured",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "CPUUtilization",
+                            "Type": "float64",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
                     "Signature": "Withdraw(appID: uuid.UUID, idempotencyKey: fwra.IdempotencyKey) → fwra.Error",
                     "Stereotype": "",
                     "Note": "",
@@ -24174,7 +24305,8 @@
                   "RuntimeDesiredState",
                   "RuntimeStatus",
                   "SloStatus",
-                  "Workload"
+                  "Workload",
+                  "WorkloadTelemetry"
                 ],
                 "ErrorModel": "Operations fail with fwra.Error — the typed ResourceAccess fault.",
                 "Idempotency": "",
@@ -24269,7 +24401,7 @@
                     ]
                   },
                   {
-                    "Signature": "PublishDesiredState(operatedAppID: uuid.UUID, expectedVersion: Version, reason: DesiredStateReason, decision: *AutoscaleDecision, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
+                    "Signature": "PublishDesiredState(operatedAppID: uuid.UUID, expectedVersion: Version, reason: DesiredStateReason, scale: DesiredScale, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -24304,21 +24436,36 @@
                         ]
                       },
                       {
-                        "Name": "AutoscaleDecision",
+                        "Name": "DesiredScale",
                         "Fields": [
                           {
-                            "Name": "Action",
-                            "Type": "AutoscaleAction",
+                            "Name": "Replicas",
+                            "Type": "int64",
                             "Note": ""
                           },
                           {
-                            "Name": "Delta",
-                            "Type": "int",
+                            "Name": "MinReplicas",
+                            "Type": "int64",
                             "Note": ""
                           },
                           {
-                            "Name": "ToBaseline",
-                            "Type": "int",
+                            "Name": "MaxReplicas",
+                            "Type": "int64",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "TargetUtilizationPct",
+                            "Type": "int64",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ScaleToZero",
+                            "Type": "bool",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ScaledAt",
+                            "Type": "time.Time",
                             "Note": ""
                           }
                         ]
@@ -24454,6 +24601,11 @@
                           {
                             "Name": "ProjectRef",
                             "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Scale",
+                            "Type": "DesiredScale",
                             "Note": ""
                           }
                         ]
@@ -24669,9 +24821,8 @@
                   }
                 ],
                 "DataContracts": [
-                  "AutoscaleAction",
-                  "AutoscaleDecision",
                   "DelinquencyAction",
+                  "DesiredScale",
                   "DesiredStateReason",
                   "InFlightScope",
                   "OperatedSystem",
@@ -25160,11 +25311,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "RecentEvents",
-                            "Type": "[]RuntimeStatusEventView",
-                            "Note": ""
-                          },
-                          {
                             "Name": "Autoscaler",
                             "Type": "AutoscalerView",
                             "Note": ""
@@ -25377,8 +25523,6 @@
                   }
                 ],
                 "DataContracts": [
-                  "AutoscaleAction",
-                  "AutoscaleDecisionView",
                   "AutoscalerMode",
                   "AutoscalerView",
                   "CostProjectionSeam",
@@ -25396,7 +25540,6 @@
                   "PatchKind",
                   "ReconcileResult",
                   "ReconcileScope",
-                  "RuntimeStatusEventView",
                   "RuntimeStatusSeam",
                   "ScalePoint",
                   "ScaleWhatIfPoints",

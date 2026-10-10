@@ -44,8 +44,8 @@ func genActivityIdempotencyKey(ctx context.Context) fwra.IdempotencyKey {
 
 // OperatedSystemStatePublishDesiredState wraps operatedSystemStateAccess.publishDesiredState.
 // Registered as "operatedSystemStateAccess.publishDesiredState".
-func (a *genActivities) OperatedSystemStatePublishDesiredState(ctx context.Context, operatedAppID uuid.UUID, expectedVersion operatedsystemstate.Version, reason operatedsystemstate.DesiredStateReason, decision *operatedsystemstate.AutoscaleDecision) (operatedsystemstate.Version, error) {
-	v, err := a.OperatedSystemState.PublishDesiredState(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, operatedAppID, expectedVersion, reason, decision, genActivityIdempotencyKey(ctx))
+func (a *genActivities) OperatedSystemStatePublishDesiredState(ctx context.Context, operatedAppID uuid.UUID, expectedVersion operatedsystemstate.Version, reason operatedsystemstate.DesiredStateReason, scale operatedsystemstate.DesiredScale) (operatedsystemstate.Version, error) {
+	v, err := a.OperatedSystemState.PublishDesiredState(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, operatedAppID, expectedVersion, reason, scale, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
@@ -123,6 +123,13 @@ func (a *genActivities) OperatedRuntimePublishDesiredState(ctx context.Context, 
 // Registered as "operatedRuntimeAccess.readComputeAttribution".
 func (a *genActivities) OperatedRuntimeReadComputeAttribution(ctx context.Context, appID uuid.UUID, window operatedruntime.AttributionWindow) (operatedruntime.ComputeAttribution, error) {
 	v, err := a.OperatedRuntime.ReadComputeAttribution(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, appID, window)
+	return v, fwmanager.MapError(err)
+}
+
+// OperatedRuntimeReadWorkloadTelemetry wraps operatedRuntimeAccess.readWorkloadTelemetry.
+// Registered as "operatedRuntimeAccess.readWorkloadTelemetry".
+func (a *genActivities) OperatedRuntimeReadWorkloadTelemetry(ctx context.Context, appID uuid.UUID) (operatedruntime.WorkloadTelemetry, error) {
+	v, err := a.OperatedRuntime.ReadWorkloadTelemetry(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, appID)
 	return v, fwmanager.MapError(err)
 }
 

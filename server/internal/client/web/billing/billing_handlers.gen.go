@@ -28,6 +28,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/billing/register-customer/{customerID}", h.handleRegisterCustomer)
 }
 
+type registerCustomerRequest struct {
+	ProjectID string `json:"projectID"`
+}
+
 // handleGetBillingCycle binds GET /api/v1/billing/get-billing-cycle/{customerID} -> mgr.GetBillingCycle.
 func (h *Handler) handleGetBillingCycle(w http.ResponseWriter, r *http.Request) {
 	customerID, err := uuid.Parse(r.PathValue("customerID"))
@@ -92,6 +96,10 @@ func (h *Handler) handleRegisterCustomer(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid customerID: "+err.Error())
 		return
 	}
+	var req registerCustomerRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
 	principal, ok := security.PrincipalFrom(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
@@ -105,7 +113,7 @@ func (h *Handler) handleRegisterCustomer(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
-	result, err := h.Manager.RegisterCustomer(rc, customerID)
+	result, err := h.Manager.RegisterCustomer(rc, customerID, req.ProjectID)
 	if err != nil {
 		writeManagerError(w, err)
 		return

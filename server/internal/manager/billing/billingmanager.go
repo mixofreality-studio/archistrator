@@ -54,6 +54,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
@@ -98,6 +99,7 @@ type billingManager struct {
 	messageBus      messagebus.MessageBus
 	billing         billingengine.BillingEngine
 	intervention    intervention.InterventionEngine
+	projectState    projectstate.ProjectStateAccess
 }
 
 // newBillingManager is the hand-written, unexported builder the generated
@@ -112,6 +114,7 @@ func newBillingManager(
 	messageBus messagebus.MessageBus,
 	billing billingengine.BillingEngine,
 	interventionEng intervention.InterventionEngine,
+	projectState projectstate.ProjectStateAccess,
 ) *billingManager {
 	return &billingManager{
 		client:          c,
@@ -121,6 +124,7 @@ func newBillingManager(
 		messageBus:      messageBus,
 		billing:         billing,
 		intervention:    interventionEng,
+		projectState:    projectState,
 	}
 }
 
@@ -164,10 +168,13 @@ func (m *billingManager) OnboardPaymentIntegration(rc fwmgr.Context, deployedApp
 // RegisterCustomer — op 2.2. Temporal Workflow (entry; StartWorkflow, id
 // {customerId}:register). Validates the stored instrument (zero-amount auth) → opens
 // the billing aggregate. Idempotent on the id. SYNC.
-func (m *billingManager) RegisterCustomer(rc fwmgr.Context, customerID customerID) (BillingRef, error) {
+func (m *billingManager) RegisterCustomer(rc fwmgr.Context, customerID customerID, projectID string) (BillingRef, error) {
 	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return BillingRef{}, newError(fwmgr.ContractMisuse, "empty customerId")
+	}
+	if projectID == "" {
+		return BillingRef{}, newError(fwmgr.ContractMisuse, "empty projectId: a customer registers to be billed for a project")
 	}
 
 	wfID := registerWorkflowID(customerID)
@@ -178,6 +185,7 @@ func (m *billingManager) RegisterCustomer(rc fwmgr.Context, customerID customerI
 	}
 	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindRegister, registerInput{
 		CustomerID: customerID,
+		ProjectID:  projectID,
 	})
 	if err != nil {
 		return BillingRef{}, mapStartError(err)
@@ -791,6 +799,7 @@ func (m *billingManager) WorkerManifest() genWorkerManifest {
 			Usage:           m.usage,
 			MerchantGateway: m.merchantGateway,
 			MessageBus:      m.messageBus,
+			ProjectState:    m.projectState,
 		},
 	}
 }

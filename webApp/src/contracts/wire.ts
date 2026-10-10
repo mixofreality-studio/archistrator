@@ -29,7 +29,6 @@ import {
   ARTIFACT_KIND_APP_TO_ORDINAL,
   ARTIFACT_KIND_ORDINAL_TO_APP,
   ARTIFACT_STAGE_ORDINAL_TO_APP,
-  AUTOSCALE_ACTION_ORDINAL_TO_APP,
   CONSTRUCTION_STAGE_ORDINAL_TO_APP,
   DESIRED_STATE_REASON_APP_TO_ORDINAL,
   EPISODE_KIND_ORDINAL_TO_APP,
@@ -163,11 +162,6 @@ function activityRowKindFromOrdinal(ordinal: number): ActivityType {
  * 7 dependencyUnresolved,8 dependencyCycle). */
 function failureReasonFromOrdinal(ordinal: number): FailureReason {
   return FAILURE_REASON_ORDINAL_TO_APP[ordinal] ?? 'unknown';
-}
-
-/** OperationsAutoscaleAction (0 noChange,1 scaleUp,2 scaleDown,3 pause,4 resume). */
-function autoscaleActionFromOrdinal(ordinal: number): string {
-  return AUTOSCALE_ACTION_ORDINAL_TO_APP[ordinal] ?? 'noChange';
 }
 
 // --- shared -----------------------------------------------------------------
@@ -1093,20 +1087,8 @@ export function mapOperationsView(w: Schemas['OperationsOperatedSystemView']): O
       sloMet: s.SloMet,
       healthy: s.Healthy,
     })),
-    recentEvents: (w.RecentEvents ?? []).map((e) => ({
-      at: e.At,
-      from: runtimePhaseFromOrdinal(e.From),
-      to: runtimePhaseFromOrdinal(e.To),
-      note: e.Note,
-    })),
     autoscaler: {
       mode: autoscalerModeFromOrdinal(w.Autoscaler.Mode),
-      decisions: (w.Autoscaler.Decisions ?? []).map((d) => ({
-        at: d.At,
-        action: autoscaleActionFromOrdinal(d.Action),
-        reason: d.Reason,
-        published: d.Published,
-      })),
     },
     currentRunRate: mapMoney(w.CurrentRunRate),
   };
