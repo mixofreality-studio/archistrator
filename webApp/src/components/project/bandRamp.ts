@@ -1,7 +1,7 @@
 /**
  * The float bands' colour ramp: which theme token carries each band (designer
- * palette ruling, fix I). No runtime imports, so node:test pins it against the
- * real theme values (bandRamp.test.ts); bandTokens.ts builds the colours from it.
+ * palette ruling, fix I). No runtime imports; bandTokens.ts builds the colours
+ * from it.
  *
  * The lower the float, the heavier the mark: critical (float 0) takes criticalFg —
  * the ONE "critical" colour, which every critical-path mark also reads

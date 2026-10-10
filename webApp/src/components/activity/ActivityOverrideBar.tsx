@@ -92,11 +92,11 @@ export function ActivityOverrideBar({
       </Typography>
       <TextField
         multiline
-        data-testid={UI_IDENTIFIERS.Activity.OVERRIDE_NOTE}
         helperText={OVERRIDE_NOTE_REQUIRED}
         label={OVERRIDE_NOTE_LABEL}
         minRows={2}
         size="small"
+        slotProps={{ htmlInput: { 'data-testid': UI_IDENTIFIERS.Activity.OVERRIDE_NOTE } }}
         value={note}
         onChange={(e) => {
           setNote(e.target.value);

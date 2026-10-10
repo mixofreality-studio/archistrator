@@ -26,7 +26,7 @@
  *
  * The preset → phase table below is `EffectiveGate`'s switch, restated FOR
  * ATTRIBUTION ONLY: nothing on the client decides whether to gate. If the server's
- * switch changes, owedRanking.test.ts's preset case is the one to update with it.
+ * switch changes, this table is the one to update with it.
  *
  * ORDER (spec §6)
  * ---------------

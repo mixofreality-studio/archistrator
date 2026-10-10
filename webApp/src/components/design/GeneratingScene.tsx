@@ -35,6 +35,37 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { RoleAvatar } from '../RoleAvatar';
 
+/**
+ * The honest framing of an AMENDMENT in flight: the artifact is already committed
+ * (revision `committedRevision`), and that committed version stays current until the
+ * revision now being drafted — or now awaiting its review — is approved. Shared by
+ * the drafting scene and by the review gate the amendment comes back to, so the one
+ * sentence (and its one id) says the same thing wherever the amendment is on screen.
+ */
+export function AmendingNotice({ committedRevision }: { committedRevision: number }): ReactNode {
+  const t = useTokens();
+  return (
+    <Box
+      data-testid={UI_IDENTIFIERS.DesignExperience.AMENDING_NOTICE}
+      role="status"
+      sx={{
+        maxWidth: 520,
+        px: 2,
+        py: 1,
+        borderLeft: `3px solid ${t.accent}`,
+        bgcolor: t.committedBg,
+        borderRadius: t.radius / 8 + 0.5,
+      }}
+    >
+      <Typography sx={{ fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
+        {committedRevision >= 1
+          ? `Amending committed revision ${String(committedRevision)} — the committed version remains current until this revision is approved.`
+          : 'Amending the committed version — it remains current until this revision is approved.'}
+      </Typography>
+    </Box>
+  );
+}
+
 export function GeneratingScene({
   artifact,
   actionsUrl,
@@ -123,23 +154,7 @@ export function GeneratingScene({
           still reads COMMITTED and this scene is drafting the NEXT revision — say so
           honestly, so the committed header + generating scene don't look contradictory. */}
       {amendingRevision !== undefined ? (
-        <Box
-          data-testid={UI_IDENTIFIERS.DesignExperience.AMENDING_NOTICE}
-          sx={{
-            maxWidth: 520,
-            px: 2,
-            py: 1,
-            borderLeft: `3px solid ${t.accent}`,
-            bgcolor: t.committedBg,
-            borderRadius: t.radius / 8 + 0.5,
-          }}
-        >
-          <Typography sx={{ fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
-            {amendingRevision >= 1
-              ? `Amending committed revision ${String(amendingRevision)} — the committed version remains current until this revision is approved.`
-              : 'Amending the committed version — it remains current until this revision is approved.'}
-          </Typography>
-        </Box>
+        <AmendingNotice committedRevision={amendingRevision} />
       ) : null}
 
       <DraftingDesk t={t} />

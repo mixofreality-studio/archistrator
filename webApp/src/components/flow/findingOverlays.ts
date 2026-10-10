@@ -1,7 +1,6 @@
 /**
  * Pure (JSX-free, xyflow-free) join of Design-Health structure findings onto the
- * architecture diagram, kept in a leaf module so it is unit-testable under
- * `node --test` (findingOverlays.test.ts — the architectureCues pattern).
+ * architecture diagram, kept in a leaf module (the architectureCues pattern).
  *
  * The server's live-tier rules (server/internal/utility/designhealth) locate each
  * finding via Location.Section, whose grammar this join trusts DEFENSIVELY —

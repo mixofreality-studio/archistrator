@@ -1,8 +1,7 @@
 /**
  * Pure error→message logic for a failed gate decision (approve / send back /
- * withdraw), split out of the containers so it is unit-testable headlessly
- * (gateFaultLogic.test.ts; see sendBackLogic.ts / roleLine.ts for the pattern of
- * pulling pure UI logic into a React-free module).
+ * withdraw), split out of the containers (see sendBackLogic.ts / roleLine.ts for
+ * the pattern of pulling pure UI logic into a React-free module).
  *
  * F-QA2-47: a decision submit that dies in transport (a 503 whose Temporal signal
  * WAS delivered but whose response was lost, a network fault mid-flight) is

@@ -19,7 +19,7 @@
  * This module is the OLD console's adapter and dies with it in stage 5; the Activity
  * Experience reads `LifecycleDef` directly.
  *
- * Pure — no React — pinned by lifecycleProfiles.test.ts.
+ * Pure — no React.
  */
 import {
   lifecycleFor,

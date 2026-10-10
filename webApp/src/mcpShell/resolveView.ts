@@ -12,10 +12,8 @@
  * through `toolInfo.tool` — VIEW_REGISTRY carries both keys mapped to the same
  * container for exactly that reason.
  *
- * Kept free of any import on the view-container modules (which are JSX, and
- * this repo's plain `node --test 'src/**\/*.test.ts'` harness has no JSX
- * transform) so the resolution logic is unit-testable headlessly — see
- * resolveView.test.ts.
+ * Kept free of any import on the view-container modules (which are JSX) so the
+ * resolution logic stays a pure function of the host's tool info.
  */
 export type ViewResolution =
   | { key: string; resolvedBy: 'view' }

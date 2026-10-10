@@ -1,7 +1,7 @@
 /**
  * The Begin/Resume control's pure rules — label, enabled state, and the list a
- * Begin names before it dispatches anything. No React here, so node:test can pin
- * it (beginControl.test.ts); the route wires it and the dialog renders it.
+ * Begin names before it dispatches anything. No React here; the route wires it
+ * and the dialog renders it.
  *
  * The label is the project read's `constructionStarted`, computed ONCE on the
  * server from the stored head-state (fix round B, item 7) — never counted from rows

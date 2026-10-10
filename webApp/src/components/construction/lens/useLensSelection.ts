@@ -24,7 +24,7 @@
  *     `contracts/routePaths.planSearch`, so the two cannot disagree.
  *   - `LensSelection` — narrowed to the two members the TASKS lens actually
  *     reads. It is no longer a URL shape; it is the "which row is marked" value
- *     TasksLens and decisionFlow pass between them.
+ *     TasksLens passes down.
  *   - the TOOLBAR half (`SCOPE_IDS` … `useLensToolbar`) — the NetworkView
  *     signature-store pattern, which `list/activityScope.ts` and `PlanContainer`
  *     both need and which was never about the URL.
@@ -51,12 +51,12 @@ export type LensId = (typeof LENS_IDS)[number];
  * The one selectable thing. The URL stopped carrying it in stage 5 (the plan's
  * one search param is `lens`); it is now an in-memory value — "which row is
  * marked, and at which task" — that the TASKS lens passes down
- * (TasksLens.isSelected, decisionFlow).
+ * (TasksLens.isSelected).
  *
  * ── Task 13 tried to narrow this to `{ activityId, task }` and could not ────
  * The plan's teardown table says to keep only the two members `TasksLens.tsx`
- * and `decisionFlow.ts` ANNOTATE with. Measured: narrowing it puts tsc into 30
- * errors across FIVE kept modules, because the pure state helpers that take a
+ * annotates with. Measured: narrowing it puts tsc into 30
+ * errors across the kept modules, because the pure state helpers that take a
  * `LensSelection` read the other two —
  *
  *   detail/detailPaneState.ts   `.attempt` (:219, :298, :310, :341) and
@@ -64,8 +64,7 @@ export type LensId = (typeof LENS_IDS)[number];
  *                               and PlanList, PlanTile, planTiles, TasksLens,
  *                               activityRowPresentation and activityTree all
  *                               import from it;
- *   detail/bodies/taskBriefing.ts  `.lifecyclePhase` (:124, :169, :422);
- *   tasks/decisionFlow.ts          `.lifecyclePhase` (:348).
+ *   detail/bodies/taskBriefing.ts  `.lifecyclePhase` (:124, :169, :422).
  *
  * So all four members STAY. Cutting the two would mean deleting live branches of
  * kept modules — a second, unbriefed deletion — which the plan forbids: a red
@@ -147,7 +146,7 @@ export interface ToolbarState {
    * The "Observed only" evidence toggle (fix round B, designer P1-11). ON keeps
    * EVERY activity — the committed list decides what exists (spec R6) — and sets
    * aside every attempt not observed by the running system, so an activity known
-   * only from reconstructed evidence reads as not started (list/observedOnly.ts).
+   * only from reconstructed evidence reads as not started.
    * It replaced "Hide synthesized", which removed 23 of 29 rows outright.
    */
   observedOnly: boolean;

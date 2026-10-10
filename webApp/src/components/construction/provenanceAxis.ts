@@ -56,9 +56,7 @@
  * `worstOriginOf` preserves that: no attempts at all is `unknown`, never
  * `observed`.
  *
- * It is a plain `.ts` sibling of provenance.tsx for the reason every tested
- * module here is: Node's native type-stripping test runner cannot load a `.tsx`
- * module at all. Relative VALUE imports therefore carry an explicit extension.
+ * Relative VALUE imports carry an explicit extension.
  */
 import type { RecordOriginRow } from '../../contracts/types';
 import { scanlines } from '../../utilities/theme/textures.ts';
@@ -272,7 +270,7 @@ export interface HatchFill {
  * down the box's whole height from its top-left corner.
  *
  * The ONE definition every hatch on the construction surface is drawn from — the
- * LIST and GRAPH rail (ProvenanceRailMark), the graph key's swatch, the pane's
+ * LIST and GRAPH rail, the graph key's swatch, the pane's
  * ProvenanceNote and its header chip. The ≈ RECONSTRUCTED material is load-bearing
  * (it is what stands between a backfilled record and a watched one), so the four
  * marks must stay visibly one material; they used to each restate this geometry.
@@ -359,7 +357,7 @@ export function reconstructedHintFor(origin: ProvenanceOrigin): string {
 }
 
 /**
- * The provenance rail's tooltip (ProvenanceRailMark). The rail is drawn only for
+ * The provenance rail's tooltip. The rail is drawn only for
  * the reconstructed grade, and there it says the fixed hint and where the basis
  * is — select the row or lane, and the detail pane's ProvenanceNote reads it out.
  * It sits nested inside a row or a lane that has its own surfaces, so it must stay

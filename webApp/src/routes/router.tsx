@@ -18,8 +18,7 @@
  * redirect in `beforeLoad`, because an unregistered path is the router's
  * not-found, which is a worse answer to an old bookmark than the screen that
  * replaced it. The redirect itself lives in `activityRedirect.ts` — split out
- * because a `beforeLoad` written inline here cannot be unit-tested — and is
- * covered by activityRedirect.test.ts.
+ * so the rule is a function of its own rather than an inline `beforeLoad`.
  *
  * `beforeLoad` throws before any component renders, so the three routes need no
  * component at all. They are registered with `component: undefined`, which

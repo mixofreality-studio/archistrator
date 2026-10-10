@@ -3,26 +3,24 @@ name: UI Tests
 # Runs the GENERATED client scenario tests (deterministic component testing,
 # docs/superpowers/specs/2026-10-02-deterministic-component-testing-design.md).
 # Every spec under uitests/generated/<component>/ is emitted by testgen from the
-# committed per-component test plan; nothing in uitests/ is hand-written. The
-# job provisions Postgres + Temporal, builds + runs the Go server as a
-# background process (dev-mode auth, local git project state, dry-run
-# construction), starts the Vite dev server in the background, and runs
+# committed per-component test plan; nothing in uitests/ is hand-written but each
+# component's hooks.ts. The job provisions Postgres, builds the Go server and the
+# state tool, starts the Vite dev server in the background, and runs
 # `npm run test:scenarios` (every generated playwright.config.gen.ts in turn).
 #
 # ── Topology ─────────────────────────────────────────────────────────────────
 #   [chromium] → [SPA dev server :5173] ──/api──▶ [Go server :8888] → Postgres
-#                                                                    └▶ Temporal
+#                                                   │  (per scenario)  └▶ Temporal
+#                                                   └▶ local executor → scripted `claude`
 #
 # A generated config carries no webServer block: hooks.before owns whatever a
-# scenario needs up, and the SPA must already be reachable — so both processes
-# are started here, not by Playwright.
-#
-# ── Project state ─────────────────────────────────────────────────────────────
-# The server uses the LOCAL git profile pointed at a FRESH EMPTY bare git repo
-# at /tmp/uitests-projectstate.git (initialized below). We do NOT point it at
-# the checked-out $GITHUB_WORKSPACE: that repo has a committed
-# .aiarch/state/project.json for the dogfood "Archistrator" project, and under
-# the LOCAL profile every project id resolves to the one configured repo.
+# scenario needs up. The SPA must already be reachable, so it is started here;
+# the Go server is NOT. Each scenario's hooks bring up a stack of their own: a
+# fresh Temporal dev server (`temporal` must be on PATH), a fresh LOCAL-profile
+# project repo, and the server (UITESTS_SERVER_BIN) over both on :8888 with real
+# construction (CONSTRUCTION_DRYRUN=false) through the local executor, whose
+# `claude` is the hooks' scripted agent — the real Claude Code CLI is never run.
+# Postgres (UITESTS_POSTGRES_URL) is shared.
 
 on:
   push:
@@ -77,80 +75,17 @@ jobs:
         with:
           node-version: '20'
 
-      # The Go server built below boots on the LOCAL profile (dev-mode auth,
-      # no ANTHROPIC_API_KEY), so resolveWorkerProvider's boot-time preflight
-      # runs `claude --version` before the server accepts traffic
-      # (server/cmd/server/hooks.go). Only the binary needs to be on PATH —
-      # no login/API key required (framework-go-infrastructure-llm's
-      # PreflightClaudeCLI); the scenarios never reach a model.
-      - name: Install Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code
-
       - name: Install Temporal CLI
         run: |
           curl -sSf https://temporal.download/cli.sh | sh
           echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
 
-      - name: Start Temporal dev server
-        run: |
-          temporal server start-dev \
-            --namespace aiarch-test \
-            --headless \
-            --port 7233 \
-            --log-level error &
-          for _ in $(seq 1 60); do
-            if temporal operator cluster health --address 127.0.0.1:7233 >/dev/null 2>&1; then
-              echo "Temporal ready"
-              break
-            fi
-            sleep 1
-          done
-          temporal operator cluster health --address 127.0.0.1:7233
-
-      - name: Build Go server binary
+      # The hooks start the server per scenario; built once here for all of them.
+      - name: Build the Go server and the state tool
         working-directory: server
-        run: GOWORK=off go build -o /tmp/archistrator-server ./cmd/server
-
-      - name: Initialize fresh git repo for uitests project state
-        # A FRESH EMPTY bare repo (not the checked-out workspace, which holds the
-        # dogfood project.json). One empty commit on main lets go-git's GitStore
-        # clone + push cleanly.
         run: |
-          git config --global user.email "uitests@aiarch.local"
-          git config --global user.name "uitests"
-          git init --bare --initial-branch=main /tmp/uitests-projectstate.git
-          WORK=$(mktemp -d)
-          git clone /tmp/uitests-projectstate.git "$WORK/seed"
-          git -C "$WORK/seed" checkout -B main
-          git -C "$WORK/seed" commit --allow-empty -m "seed"
-          git -C "$WORK/seed" push origin main
-          rm -rf "$WORK"
-
-      - name: Start Go server (dev-mode, fresh local git project state)
-        run: |
-          /tmp/archistrator-server &
-          # Wait up to 60s for /healthz
-          for _ in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:8888/healthz >/dev/null 2>&1; then
-              echo "Server ready"
-              break
-            fi
-            sleep 1
-          done
-          curl -sf http://127.0.0.1:8888/healthz
-        env:
-          ARCHISTRATOR_LISTEN_ADDR: ':8888'
-          ARCHISTRATOR_POSTGRES_URL: postgres://archistrator:archistrator@localhost:5432/archistrator?sslmode=disable
-          ARCHISTRATOR_TEMPORAL_HOSTPORT: localhost:7233
-          ARCHISTRATOR_TEMPORAL_NAMESPACE: aiarch-test
-          ARCHISTRATOR_AUTH_DEV_MODE: 'true'
-          ARCHISTRATOR_DEV_SUBJECT: dev-architect
-          # Local git project state: fresh empty bare repo (NOT the checked-out workspace)
-          ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL: 'true'
-          ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL: 'file:///tmp/uitests-projectstate.git'
-          # No real construction dispatch: skip the hard-required construction
-          # creds (GitHub App id/key, artifact repo URL).
-          ARCHISTRATOR_CONSTRUCTION_DRYRUN: 'true'
+          GOWORK=off go build -o /tmp/uitests-bin/archistrator-server ./cmd/server
+          GOWORK=off go build -o /tmp/uitests-bin/aiarch-state-mcp ./cmd/aiarch-state-mcp
 
       - name: Install webApp dependencies
         working-directory: webApp
@@ -193,7 +128,12 @@ jobs:
         working-directory: uitests
         env:
           CI: 'true'
-          UITESTS_SPA_URL: 'http://localhost:5173'
+          PLAYWRIGHT_TEST_BASE_URL: 'http://localhost:5173'
+          UITESTS_API_PORT: '8888'
+          UITESTS_POSTGRES_URL: postgres://archistrator:archistrator@localhost:5432/archistrator?sslmode=disable
+          UITESTS_SERVER_BIN: /tmp/uitests-bin/archistrator-server
+          UITESTS_STATE_MCP_BIN: /tmp/uitests-bin/aiarch-state-mcp
+          UITESTS_WORK_DIR: /tmp/uitests-work
         run: npm run test:scenarios
 
       - name: Upload scenario results on failure
@@ -201,5 +141,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: scenario-results
-          path: uitests/test-results/
+          # The scenario results, and each scenario's stack: its server and Temporal
+          # logs and its project repo.
+          path: |
+            uitests/test-results/
+            /tmp/uitests-work/
           retention-days: 7

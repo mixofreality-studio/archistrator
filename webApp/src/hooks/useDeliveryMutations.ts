@@ -325,10 +325,6 @@ export interface SubmitDecisionVars extends ActivityTaskRef {
   /** The artifact kind this gate judges, when the caller knows it — invalidation
    *  only, never sent. */
   artifactKind?: ArtifactKind | undefined;
-  /** Client bookkeeping, never sent: which gate occurrence this decision answers
-   *  and what the console needs to show for it after a remount. The console reads
-   *  it back from the mutation cache (tasks/decisionRecords.ts). */
-  occurrence?: { key: string; epoch: number; snapshot?: unknown } | undefined;
 }
 
 /**

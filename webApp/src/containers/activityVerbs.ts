@@ -111,8 +111,9 @@ export interface VerbsFor {
    *  rationale; for M0 it is a NAVIGATION (amend the Architecture), which the
    *  container owns because this table names ops, not routes. */
   reconcileStale: VerbTarget;
-  /** Amend a COMMITTED slot with a rationale: a design redraft. `{ kind: 'none' }` on
-   *  M0 (amended by navigating to the Architecture) and on construction (no slot). */
+  /** Amend a COMMITTED slot with a rationale: a design redraft — on M0, the plan
+   *  re-derived with a scope change (an architecture change is the navigation to the
+   *  Architecture instead). `{ kind: 'none' }` on construction (no slot). */
   amend: VerbTarget;
   /** M0 only: decline every option, with feedback. `{ kind: 'none' }` elsewhere. */
   rejectAll: VerbTarget;
@@ -145,7 +146,7 @@ const NO_CONSTRUCTION_STALE_OP =
   'A stale basis is acknowledged on the design activity that owns the slot: a construction round judges its own work product, names no artifact slot, and so has no basis flag to clear.';
 
 const NO_SDP_SEND_BACK =
-  'The M0 gate has no send-back: the plan is derived, so changing it means amending the Architecture.';
+  'The M0 gate has no send-back: the plan is derived, so changing it means amending what it derives from — the Architecture, or the scope, through Amend once the plan is committed.';
 
 const NO_SDP_RERUN =
   'The SDP review is re-derived from the committed plan, not re-run from this gate.';
@@ -190,7 +191,11 @@ export function verbsFor(input: {
       // The M0 plan is DERIVED: it is reconciled by amending what it derives from,
       // which is a navigation to the Architecture activity, not an op.
       reconcileStale: { kind: 'none', reason: NO_SDP_SEND_BACK },
-      amend: { kind: 'none', reason: NO_SDP_SEND_BACK },
+      // A SCOPE change is not an architecture change (replan-under-scope-change,
+      // reenter; spec §12 B7): the committed plan is re-derived with the change as
+      // its feedback — a redraft of the SDP review — while construction continues
+      // against the current network until the revision is decided.
+      amend: { kind: 'dispatch' },
       rejectAll: { kind: 'decision', decision: REVIEW_REJECT },
       revoke: { kind: 'decision', decision: REVIEW_WITHDRAW },
       allowSendBack: false,

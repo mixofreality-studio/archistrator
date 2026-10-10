@@ -15,8 +15,8 @@
  * ONE STORE, TWO READERS (tasks-lens merge round)
  * -----------------------------------------------
  * The tasks lens's gate decisions count a session read the same way: a read
- * already in flight when a decision failed describes the gate from before it
- * (decisionFlow.ts). Its occurrence store used to note fetch starts itself, and
+ * already in flight when a decision failed describes the gate from before it.
+ * Its occurrence store used to note fetch starts itself, and
  * then folded each read through `subscribeToShownReads` with the request time
  * this store paired to it, so the Begin hold and the gate decisions could not
  * disagree about when the same read was asked for. That store

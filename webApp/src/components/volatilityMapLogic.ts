@@ -1,7 +1,7 @@
 /**
  * Pure selection/keyboard logic for the VolatilityMap lanes, extracted so the
- * roving-tabindex + single-select semantics are unit-testable without a render
- * harness (volatilityMapLogic.test.ts — the glossaryLogic pattern).
+ * roving-tabindex + single-select semantics live outside the render (the
+ * glossaryLogic pattern).
  *
  * Each lane is a single-select WAI-ARIA listbox (role=option + aria-selected)
  * where selection does NOT follow focus: ↑/↓/Home/End move the roving tab stop

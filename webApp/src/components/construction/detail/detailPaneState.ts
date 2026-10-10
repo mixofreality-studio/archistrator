@@ -7,8 +7,7 @@
  * caller needs alongside the component, exactly like activityTree.ts sits
  * beside ActivityTreeView.tsx (Tasks 5/6).
  *
- * This module is reachable from DetailPane.test.ts under `node --test`, so
- * every RELATIVE VALUE import below carries an explicit `.ts` extension (the
+ * Every RELATIVE VALUE import below carries an explicit `.ts` extension (the
  * convention wire.ts already establishes); type-only
  * imports are erased before Node ever sees them and need no extension.
  */
@@ -34,8 +33,7 @@ import { steerBarFor, type SteerActionId } from '../tasks/steerActions.ts';
 // It lives here, as a plain exported object rather than an inline `sx`, for one
 // reason: it is the ONLY part of this surface no tool can see. typecheck,
 // eslint and the whole test suite stay green whether the action bar sits at
-// y=475 or y=2000, so the mechanism gets pinned by an assertion in
-// DetailPane.test.ts instead of by a comment nobody can run.
+// y=475 or y=2000, so the mechanism is described here.
 //
 // THE MECHANISM, measured rather than assumed (review round 1)
 // ------------------------------------------------------------

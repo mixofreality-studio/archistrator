@@ -4,7 +4,6 @@
 // is pure (no hooks/api) except for a shrinking legacy allowlist — see
 // LEGACY_COMPONENTS_HOOKS_FILES in eslint.platform.config.js. See the package README.
 import archWeb from './eslint.platform.config.js';
-import { PRE_RULE_TEST_FILES } from './eslint.scenario-tests-only.js';
 
 export default [
   ...archWeb({
@@ -23,11 +22,9 @@ export default [
   },
   {
     // Scenario tests only (deterministic component testing, spec T2): the
-    // webApp's tests are generated from the committed scenario plan, so a NEW
-    // hand-written test file is refused here. The files that pre-date the rule
-    // are listed in eslint.scenario-tests-only.js and burn down in Plan 3.
+    // webApp is tested by the scenario specs generated from its committed test
+    // plan (uitests/generated/webClient), so a hand-written test file is refused.
     files: ['src/**/*.test.{ts,tsx}'],
-    ignores: PRE_RULE_TEST_FILES,
     rules: {
       'no-restricted-syntax': [
         'error',

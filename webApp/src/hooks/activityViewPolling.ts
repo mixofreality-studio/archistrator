@@ -13,6 +13,13 @@
  *                          |       |                   | this query is its own refresh
  *                          |       |                   | authority (F-QA2-28)
  *   (none)                 | none  | stop              | pristine mount
+ *   unchanged since a      | none  | 2s                | the server applies a decision,
+ *   write this screen sent |       |                   | an amendment or an override
+ *                          |       |                   | ASYNCHRONOUSLY: the
+ *                          |       |                   | read the write's invalidation
+ *                          |       |                   | answers can still be the activity
+ *                          |       |                   | from before it, so the screen that
+ *                          |       |                   | sent it follows until it moves
  *   any task running       | none  | 2s                | an agent is working; with the
  *                          |       |                   | fork, even beside an owed gate
  *   state running          | none  | 2s                | between tasks
@@ -22,8 +29,6 @@
  *   state notStarted       | none  | notStartedPollMs  | default stop; a caller that must
  *                          |       |                   | see the sweep dispatch it opts in
  */
-// Runtime imports carry explicit .ts extensions so this module also loads under
-// node:test's type-stripping (activityViewPolling.test.ts).
 import { isNoSessionError } from './sessionPolling.ts';
 
 export const ACTIVITY_LIVE_POLL_MS = 2000;
@@ -33,18 +38,35 @@ export const ACTIVITY_DEGRADED_POLL_MS = 5000;
 /** The slice of an ActivityView the cadence reads (structural, so node:test needs no schema). */
 export interface ActivityViewPollInput {
   readonly state: string;
-  readonly tasks: readonly { readonly state: string }[];
+  readonly tasks: readonly { readonly state: string; readonly revisions: readonly unknown[] }[];
+}
+
+/**
+ * What a write moves: the activity's state and each task's state and revision count.
+ * The signature a screen takes when it sends a write is the activity "from before it".
+ */
+export function activityViewSignature(data: ActivityViewPollInput): string {
+  return [data.state, ...data.tasks.map((t) => `${t.state}/${String(t.revisions.length)}`)].join(
+    '|'
+  );
 }
 
 export function activityViewPollIntervalMs(
   data: ActivityViewPollInput | undefined,
   error: unknown,
-  notStartedPollMs: number | false = false
+  notStartedPollMs: number | false = false,
+  /**
+   * The activity's signature (activityViewSignature) when this screen sent it a write
+   * it applies asynchronously (a decision, an amendment, an override): while the read
+   * still shows it, the write has not landed yet. `undefined` when nothing is owed.
+   */
+  owedFrom?: string
 ): number | false {
-  // Checked as the no-error case FIRST, not its inverse: statusDecides.test.ts scans every
-  // hook file for the inverted comparison as a hook-holds-a-raw-response smell (sessionPolling.ts:201).
+  // Checked as the no-error case FIRST, not its inverse (the sessionPolling.ts convention).
   if (error === null || error === undefined) {
     if (data === undefined) return false;
+    if (owedFrom !== undefined && activityViewSignature(data) === owedFrom)
+      return ACTIVITY_LIVE_POLL_MS;
     if (data.tasks.some((t) => t.state === 'running') || data.state === 'running') {
       return ACTIVITY_LIVE_POLL_MS;
     }

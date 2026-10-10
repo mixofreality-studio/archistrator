@@ -14,8 +14,7 @@
  * through verbatim) for the server-side ground truth. `parseRawEvent` below
  * still accepts a JSON-encoded STRING too, defensively, in case a future
  * transport re-encodes it — but the object path is the one the real wire
- * exercises today, and is what the fixture tests
- * (episodeRawEvent.test.ts) assert against.
+ * exercises today.
  *
  * PARENT_TOOL_USE_ID (2026-08-02 review finding C2): the CLI emits this as an
  * EXPLICIT `null` on virtually every main-loop event — not merely absent.

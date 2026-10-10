@@ -1,7 +1,7 @@
 /**
  * Pure chip-aggregation + filtering logic for the glossary widget, extracted
- * from GlossaryView so it is unit-testable without a render harness
- * (glossaryLogic.test.ts — the sendBackLogic/headerChipStage pattern).
+ * from GlossaryView so it lives outside the render (the
+ * sendBackLogic/headerChipStage pattern).
  *
  * Two identities matter here and must not be conflated:
  *
