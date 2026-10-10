@@ -77,6 +77,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
@@ -1065,7 +1068,7 @@ func (dryRunPipeline) ObserveAgenticJob(_ fwra.Context, handle PipelineHandle) (
 // repo). PhaseSucceeded requires a clean claude exit AND the activity branch ref
 // having ADVANCED (rev-parse before/after) AND the worktree removed — a clean exit
 // that committed nothing is a FAILURE, not a fake success. The worktree is removed
-// (`git worktree remove --force`) on every completion path, and the
+// (its directory deleted, then `git worktree prune`) on every completion path, and the
 // constructor runs `git worktree prune` once at startup to clear stale metadata a
 // crashed prior process left. This is a FOUNDER-ACCEPTED isolation tradeoff — speed
 // (no full clone per dispatch) over clone isolation: the agent's git subprocesses
@@ -1185,6 +1188,15 @@ type localExecAccess struct {
 	stateMCPBin string // resolved absolute path to the compiled cmd/aiarch-state-mcp binary
 	runTimeout  time.Duration
 
+	// claudeBin is the Claude Code CLI, resolved on PATH ONCE at construction
+	// (exec.LookPath) — the agent runtime every claude dispatch starts. When the
+	// lookup failed, claudeBin is empty and claudeLookErr says why: the constructor
+	// does not refuse (a DRYRUN or design-only local boot has no use for the CLI),
+	// so the absence surfaces per-dispatch as the same pre-spawn Infrastructure
+	// failure a missing binary always produced.
+	claudeBin     string
+	claudeLookErr error
+
 	// gitMu serializes THIS instance's own worktree-add/rev-parse/worktree-remove
 	// git subprocesses against the shared repo — worktree add/remove mutate the
 	// shared .git/worktrees metadata, so keeping this instance's own git calls
@@ -1242,7 +1254,7 @@ func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin string, runTim
 	if projectID == "" {
 		projectID = "local"
 	}
-	_, _ = runGit(repoPath, "worktree", "prune") // best-effort startup hygiene, see doc comment
+	_, _ = gitExec(repoPath, exec.Command("git", "worktree", "prune")) // best-effort startup hygiene, see doc comment
 
 	// Task 8 earmark: hoist THE TRUST RULE (assertTraceSinkOutsideGitDir, defined
 	// below with the trace-sink block it guards) to construction time too, so a
@@ -1257,19 +1269,22 @@ func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin string, runTim
 	// same best-effort posture as the prune call above; that failure mode surfaces
 	// with its own diagnostic on first dispatch. openEpisodeTrace's per-dispatch
 	// check stays in place regardless (defense in depth).
-	if out, gerr := runGit(repoPath, "rev-parse", "--absolute-git-dir"); gerr == nil {
-		if terr := assertTraceSinkOutsideGitDir(repoPath, strings.TrimSpace(out)); terr != nil {
+	if gitDir, gerr := absoluteGitDir(repoPath); gerr == nil {
+		if terr := assertTraceSinkOutsideGitDir(repoPath, gitDir); terr != nil {
 			return nil, terr
 		}
 	}
 
+	claudeBin, claudeLookErr := exec.LookPath("claude")
 	return &localExecAccess{
-		repoURL:     repoURL,
-		repoPath:    repoPath,
-		projectID:   projectID,
-		stateMCPBin: stateMCPBin,
-		runTimeout:  runTimeout,
-		runs:        map[string]*localRun{},
+		repoURL:       repoURL,
+		repoPath:      repoPath,
+		projectID:     projectID,
+		stateMCPBin:   stateMCPBin,
+		runTimeout:    runTimeout,
+		claudeBin:     claudeBin,
+		claudeLookErr: claudeLookErr,
+		runs:          map[string]*localRun{},
 	}, nil
 }
 
@@ -1455,7 +1470,8 @@ type localDispatchPlan struct {
 	// (aiarch-construct.yml's prompt step). Design: "/<command>" with no args
 	// (aiarch-design.yml's draft step).
 	prompt string
-	// model, when non-empty, pins the claude model for this dispatch (--model).
+	// model, when non-empty, pins the claude model for this dispatch (ANTHROPIC_MODEL in
+	// claude's env — claudeCommand keeps argv fixed).
 	// Empty means "whatever the CLI resolves", which is the ambient subscription
 	// default and the behaviour every dispatch had before this field existed.
 	model string
@@ -1463,9 +1479,9 @@ type localDispatchPlan struct {
 	// dispatch runs — the STEP MANIFEST KEY. It drives three scoping decisions
 	// that all have to agree, which is why it is carried once here rather than
 	// re-parsed out of prompt at each site: the seated .claude subset
-	// (seatPromptSurface --command), the MCP tool surface (stamped as
-	// AIARCH_COMMAND in rig, read by cmd/aiarch-state-mcp), and the built-in
-	// tool complement (--disallowedTools).
+	// (seatPromptSurface), the MCP tool surface (stamped as AIARCH_COMMAND in
+	// rig, read by cmd/aiarch-state-mcp), and the built-in tool complement (the
+	// settings file's permissions.deny).
 	command string
 	// agentStep is the spec step this one agent run realises (agentStepOf) — the
 	// step a failed run is attributed to.
@@ -1625,18 +1641,22 @@ const (
 // the per-episode trace file this dispatch tees claude's whole stdout stream into.
 func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episodeID string) error {
 	branch := plan.branch
+	if a.claudeBin == "" {
+		return fwra.Wrap(fwra.Infrastructure, a.claudeLookErr, "localexec: failed to start claude subprocess (the Claude Code CLI was not on PATH when this executor was built)")
+	}
 
 	// The worktree lives under a throwaway parent temp dir (NEVER inside the
 	// user's checkout): the OS temp reaper is the backstop for crash leftovers,
-	// and `git worktree prune` (constructor) clears the matching metadata. The
-	// worktree itself is a SUBDIR of the parent ("wt") because `git worktree add`
+	// and `git worktree prune` clears the matching metadata. The worktree itself
+	// is a SUBDIR of the parent (localWorktreeName) because `git worktree add`
 	// wants a path it can own; git disambiguates the .git/worktrees entry name
-	// itself if two dispatches' "wt" basenames collide.
+	// itself if two dispatches' basenames collide. The parent also holds claude's
+	// two config files, at fixed names BESIDE the worktree (claudeCommand says why).
 	parentDir, err := os.MkdirTemp("", "aiarch-construct-*")
 	if err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, "localexec: create work dir")
 	}
-	workDir := filepath.Join(parentDir, "wt")
+	workDir := filepath.Join(parentDir, localWorktreeName)
 	ownWorkDir := true
 	defer func() {
 		if ownWorkDir {
@@ -1648,7 +1668,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	}()
 
 	a.gitMu.Lock()
-	beforeSHA, gitDir, addErr := addWorktree(a.repoPath, branch, workDir)
+	beforeSHA, gitDir, addErr := addWorktree(a.repoPath, branch, parentDir)
 	a.gitMu.Unlock()
 	if addErr != nil {
 		return fwra.Wrap(fwra.Infrastructure, addErr, "localexec: add "+plan.worktreeLabel+" worktree")
@@ -1664,39 +1684,20 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	// local-arm no-commit failure. Pre-spawn, so a failure returns cleanly (the deferred
 	// worktree cleanup runs) and a retry re-seats from scratch, exactly like the worktree-add
 	// failure above.
-	if err := a.seatPromptSurface(workDir, plan.command); err != nil {
+	if err := seatPromptSurface(workDir, plan.command); err != nil {
 		return err
 	}
-
-	// mcpConfigDir is the SAME out-of-clone ephemeral dir that holds BOTH the
-	// --mcp-config file (writeStateMCPConfig) AND the Tier-2 --settings sandbox
-	// file (writeSandboxSettings) — neither needs to be reachable from INSIDE
-	// the sandboxed Bash tool's filesystem view, and keeping both outside the
-	// clone means an agent running `git add -A` in workDir can never pick
-	// either up (the same reasoning writeStateMCPConfig's own doc comment
-	// already gives for the mcp-config file).
-	mcpConfigDir, err := os.MkdirTemp("", "aiarch-mcp-cfg-*")
-	if err != nil {
-		return fwra.Wrap(fwra.Infrastructure, err, "localexec: create mcp config dir")
-	}
-	ownMCPDir := true
-	defer func() {
-		if ownMCPDir {
-			_ = os.RemoveAll(mcpConfigDir)
-		}
-	}()
 
 	// rig is the SAME fixed AIARCH_* ambient-context envelope stamped on BOTH
 	// the attached aiarch-state MCP server's env (writeStateMCPConfig) and this
 	// process's OWN env allowlist (claudeSubprocessEnv) — see the SECURITY
-	// POSTURE doc block above claudeArgv for why both matter. The arm built every
+	// POSTURE doc block above claudeCommand for why both matter. The arm built every
 	// entry except AIARCH_STATE_ROOT, which is stamped here = the worktree dir this
 	// dispatch just created (not knowable until now); the plan's rig map is created
 	// fresh per submit, so mutating it is race-free.
 	rig := plan.rig
 	rig["AIARCH_STATE_ROOT"] = workDir
-	mcpConfigPath, err := writeStateMCPConfig(mcpConfigDir, a.stateMCPBin, rig)
-	if err != nil {
+	if err := writeStateMCPConfig(parentDir, a.stateMCPBin, rig); err != nil {
 		return err
 	}
 	// Worktree-mode filesystem scope (see the SECURITY POSTURE doc block): the
@@ -1705,8 +1706,12 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	// depend on cwd inference) and (b) the SHARED repo's git dir — a worktree's
 	// `git commit` writes .git/worktrees/<id> metadata, shared objects, and the
 	// activity branch ref, all of which live OUTSIDE the worktree cwd.
-	sandboxSettingsPath, err := writeSandboxSettings(mcpConfigDir, sandboxAllowedDomains(a.repoURL), []string{workDir, gitDir})
-	if err != nil {
+	if err := writeClaudeSettings(parentDir, claudeSettings{
+		sandboxed:       !allowUnsandboxedFromEnv(),
+		allowedDomains:  sandboxAllowedDomains(a.repoURL),
+		allowWritePaths: []string{workDir, gitDir},
+		disallowedTools: disallowedBuiltinTools(plan.command),
+	}); err != nil {
 		return err
 	}
 
@@ -1728,9 +1733,11 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	}()
 
 	runCtx, runCancel := context.WithTimeout(context.Background(), a.runTimeout)
-	cmd := exec.CommandContext(runCtx, "claude", claudeArgv(plan.prompt, mcpConfigPath, sandboxSettingsPath, plan.model, disallowedBuiltinTools(plan.command))...) //nolint:gosec // fixed trusted binary name + internal-only args, mirrors claudecli.go
+	cmd := claudeCommand(runCtx, a.claudeBin)
 	cmd.Dir = workDir
-	cmd.Env = claudeSubprocessEnv(rig)
+	cmd.Env = claudeSubprocessEnv(rig, plan.model)
+	// The prompt rides stdin, never argv (claudeCommand says why).
+	cmd.Stdin = strings.NewReader(plan.prompt)
 	// SIGTERM-then-bounded-pipe-close, the SAME shutdown mechanism serverchild.go's
 	// startServerChild / claudecli.go's Generate already use for a supervised
 	// subprocess — reused here per the task's explicit precedent guidance.
@@ -1753,69 +1760,51 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 		return fwra.Wrap(fwra.Infrastructure, err, "localexec: failed to start claude subprocess")
 	}
 
-	// Ownership of parentDir (the worktree) / mcpConfigDir / the trace file passes
-	// to awaitCompletion.
+	// Ownership of parentDir (the worktree + claude's config files) and the trace
+	// file passes to awaitCompletion.
 	ownWorkDir = false
-	ownMCPDir = false
 	ownTrace = false
-	go a.awaitCompletion(runCtx, run, cmd, runCancel, branch, beforeSHA, parentDir, workDir, mcpConfigDir, sink, &tail, &stderr)
+	go a.awaitCompletion(runCtx, run, cmd, runCancel, branch, beforeSHA, parentDir, workDir, sink, &tail, &stderr)
 	return nil
 }
 
 // seatPromptSurface materializes the .claude prompt surface (commands/skills/agents +
-// the seat manifest) into the worktree by running the executor's OWN aiarch-state-mcp
-// binary's `seat-assets --dest <workDir>` one-shot — the EXACT step both seated workflow
-// templates run before claude ("Materialize the .claude prompt surface",
-// method-assets aiarch-{design,construct}.yml.tmpl: `aiarch-state-mcp seat-assets --dest .`
-// with `.` = the runner checkout root = this worktree). BOTH arms need it: construct AND
-// design run the same thin "/<command>" slash-command dispatch, which only resolves once
-// .claude/commands exists in the working tree.
+// the seat manifest) into the worktree — the EXACT step both seated workflow templates
+// run before claude ("Materialize the .claude prompt surface", method-assets
+// aiarch-{design,construct}.yml.tmpl: `aiarch-state-mcp seat-assets --dest .`). BOTH arms
+// need it: construct AND design run the same thin "/<command>" slash-command dispatch,
+// which only resolves once .claude/commands exists in the working tree.
 //
-// This runs the executor's OWN trusted binary (a.stateMCPBin — the same one attached as
-// the aiarch-state MCP server), NOT the agent, so it is deliberately NOT sandboxed and gets
-// only a minimal env (seatAssetsEnv: PATH/HOME). seat-assets reads NO AIARCH_* ambient
-// context — it renders embedded files to --dest and exits. It writes to the working tree
-// and makes NO commit, so its output cannot advance the branch ref (the ref-advanced
-// success gate counts ONLY the agent's own aiarch-state commit); and in an operated /
-// scaffolded repo the .claude/{commands,agents,skills/the-method*} paths are gitignored,
-// so the render stays uncommitted exactly like the cloud runner.
-// seatPromptSurface materializes the .claude prompt surface into workDir,
-// SCOPED to `command` when the step has a manifest. A command with no manifest
-// (or an empty one) seats the full tree, which is the pre-manifest behaviour.
-func (a *localExecAccess) seatPromptSurface(workDir, command string) error {
-	seatArgs := []string{"seat-assets", "--dest", workDir}
-	if command != "" {
-		if _, ok := methodassets.ManifestFor(command); ok {
-			seatArgs = append(seatArgs, "--command", command)
-		}
+// It renders IN PROCESS through methodassets — the single rendering authority the
+// seat-assets subcommand itself calls (MaterializeStep scoped to `command` when the step
+// has a manifest, Materialize for the full tree otherwise). The executor and the
+// aiarch-state-mcp binary it attaches are built from the same module, so the generation
+// seated here is the one the binary's validators understand, without a subprocess whose
+// argv would carry the worktree path and the command slug.
+//
+// It writes to the working tree and makes NO commit, so its output cannot advance the
+// branch ref (the ref-advanced success gate counts ONLY the agent's own aiarch-state
+// commit); and in an operated / scaffolded repo the .claude/{commands,agents,
+// skills/the-method*} paths are gitignored, so the render stays uncommitted exactly like
+// the cloud runner. A command with no manifest (or an empty one) seats the full tree,
+// which is the pre-manifest behaviour.
+func seatPromptSurface(workDir, command string) error {
+	var err error
+	if _, ok := methodassets.ManifestFor(command); command != "" && ok {
+		err = methodassets.MaterializeStep(workDir, command)
+	} else {
+		err = methodassets.Materialize(workDir)
 	}
-	cmd := exec.Command(a.stateMCPBin, seatArgs...) //nolint:gosec // the executor's OWN trusted binary (a.stateMCPBin) + fixed internal args, not the agent
-	cmd.Dir = workDir
-	cmd.Env = seatAssetsEnv()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fwra.Wrap(fwra.Infrastructure, fmt.Errorf("%w: %s", err, outputTail(string(out), localExecDetailMaxBytes)), "localexec: seat .claude prompt surface")
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "localexec: seat .claude prompt surface")
 	}
 	return nil
-}
-
-// seatAssetsEnv is the minimal env for the seat-assets one-shot: PATH + HOME only. Unlike
-// the MCP server / claude subprocess (which carry the AIARCH_* rig), seat-assets renders
-// embedded files to --dest and reads no ambient context, so nothing else needs to cross.
-func seatAssetsEnv() []string {
-	out := make([]string, 0, 2)
-	if v := os.Getenv("PATH"); v != "" {
-		out = append(out, "PATH="+v)
-	}
-	if v := os.Getenv("HOME"); v != "" {
-		out = append(out, "HOME="+v)
-	}
-	return out
 }
 
 // ---------------------------------------------------------------------------
 // SP1 CAPTURE SEAM — the per-episode trace sink + the bounded in-memory tail.
 //
-// claudeArgv now asks for --output-format stream-json, so the subprocess emits
+// claudeCommand asks for --output-format stream-json, so the subprocess emits
 // one JSON event per line for the WHOLE episode instead of a single closing
 // object. That stream is the raw material every later capture step reads, and
 // it is unbounded (a long construction run emits megabytes of tool_result
@@ -1832,7 +1821,7 @@ func seatAssetsEnv() []string {
 //     construction.
 //
 // THE TRUST RULE (assertTraceSinkOutsideGitDir): the agent's Tier-2 sandbox
-// write allowlist is exactly [workDir, gitDir] (writeSandboxSettings, in
+// write allowlist is exactly [workDir, gitDir] (writeClaudeSettings, in
 // dispatch). A trace the observed agent can rewrite is not evidence, so the
 // resolved sink must sit OUTSIDE gitDir. On a NON-bare shared repo it does
 // (gitDir is <repoPath>/.git; the sink is <repoPath>/.aiarch/traces). On a BARE
@@ -1957,7 +1946,7 @@ const maxNamedTrackedTraces = 5
 func assertNoTrackedTraceFiles(repoPath string) error {
 	// -z: NUL-delimited, so a path containing a newline cannot smuggle itself
 	// past the split — the adversary here is an agent choosing filenames.
-	out, err := runGit(repoPath, "ls-files", "-z", "--", trackedTracesPathspec)
+	out, err := gitExec(repoPath, exec.Command("git", "ls-files", "-z", "--", trackedTracesPathspec))
 	if err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err,
 			"localexec: refusing to dispatch — could not check whether "+trackedTracesPathspec+
@@ -2741,7 +2730,7 @@ func (a *localExecAccess) awaitCompletion(
 	cmd *exec.Cmd,
 	runCancel context.CancelFunc,
 	branch, beforeSHA string,
-	parentDir, workDir, mcpConfigDir string,
+	parentDir, workDir string,
 	sink *traceSink,
 	stdout *tailBuffer,
 	stderr *bytes.Buffer,
@@ -2772,7 +2761,6 @@ func (a *localExecAccess) awaitCompletion(
 	a.gitMu.Unlock()
 
 	_ = os.RemoveAll(parentDir)
-	_ = os.RemoveAll(mcpConfigDir)
 
 	// The TRACE-INTEGRITY marker: whether the captured artifact is complete is a fact
 	// about the trace, true no matter how the run itself ended.
@@ -3030,7 +3018,7 @@ func outputHead(s string, n int) string {
 // decided there was nothing to do. Those demand completely different operator
 // responses, and the ONE artifact that tells them apart was being thrown away.
 //
-// claudeArgv passes --output-format stream-json, so stdout is a machine-readable
+// claudeCommand passes --output-format stream-json, so stdout is a machine-readable
 // stream of JSON events whose LAST line is the terminal `result` envelope (the
 // same subtype/is_error/result fields the former single-object format carried).
 // The helpers below mine it along two complementary channels:
@@ -3044,7 +3032,7 @@ func outputHead(s string, n int) string {
 //     see the SP1 CAPTURE SEAM block), because the bounded clause is by
 //     construction lossy.
 //
-// Scope discipline: this is OBSERVABILITY ONLY. Nothing here changes claudeArgv,
+// Scope discipline: this is OBSERVABILITY ONLY. Nothing here changes claudeCommand,
 // the sandbox settings, the env allowlist, or the escape hatch (see the SECURITY
 // POSTURE block below), and nothing here logs the AIARCH_* rig or the process
 // env — only claude's OWN output is surfaced.
@@ -3307,7 +3295,7 @@ func logFailedRun(branch, diagnostic, tracePath string, stderr []byte) {
 //     repo happens to be checked out on this machine) MCP configuration is
 //     ignored, so a construction run can never inherit extra tool surface
 //     the operator configured for their OWN interactive sessions.
-//   - Tier 2 OS sandbox (claudeArgv + writeSandboxSettings below): claude's
+//   - Tier 2 OS sandbox (claudeCommand + writeClaudeSettings below): claude's
 //     BUILT-IN native sandbox — macOS Seatbelt (nothing to install) or Linux/
 //     WSL2 bubblewrap — is turned on via an ephemeral --settings file
 //     (sandbox.enabled=true). It confines the Bash TOOL's subprocess tree at
@@ -3329,7 +3317,7 @@ func logFailedRun(branch, diagnostic, tracePath string, stderr []byte) {
 //     addresses a local repo, so in practice the list is the API domain).
 //     sandbox.failIfUnavailable=true + allowUnsandboxedCommands=false close
 //     the loop: if the OS sandbox cannot initialize, claude refuses to run
-//     at all rather than silently degrading unsandboxed — see claudeArgv's
+//     at all rather than silently degrading unsandboxed — see claudeCommand's
 //     own THE INVARIANT doc comment for the full fail-closed argument.
 //
 // WHAT DOES NOT CONFINE (documented honestly, not swept under the rug):
@@ -3366,7 +3354,7 @@ func logFailedRun(branch, diagnostic, tracePath string, stderr []byte) {
 // ---------------------------------------------------------------------------
 
 // localExecAllowUnsandboxedEnv is the ONLY escape hatch from THE INVARIANT
-// (claudeArgv below): default unset/false — sandboxed-by-default is
+// (claudeCommand below): default unset/false — sandboxed-by-default is
 // FAIL-CLOSED. Set ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED=true ONLY for a
 // deployment/platform where the native OS sandbox genuinely cannot run at
 // all (see the SECURITY POSTURE block above). This is an OPERATOR opt-out
@@ -3402,34 +3390,102 @@ func allowUnsandboxedFromEnv() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv(localExecAllowUnsandboxedEnv)), "true")
 }
 
-// claudeArgv builds the exact argv for the headless claude invocation. This is
-// the ONLY function in the package that constructs the flag list — there is
-// no second, unguarded call site.
+// claudeCommand builds the headless claude invocation. This is the ONLY function in
+// the package that constructs the flag list — there is no second, unguarded call site.
 //
-// THE INVARIANT (founder security-posture ruling, sandboxed-by-default —
-// see the SECURITY POSTURE doc block above): --dangerously-skip-permissions
-// is passed ONLY together with an ACTIVE Tier-2 sandbox
-// (--settings sandboxSettingsPath, whose sandbox.enabled=true +
-// failIfUnavailable=true + allowUnsandboxedCommands=false — see
-// writeSandboxSettings). If claude's own sandbox init then fails (missing
-// bubblewrap, unsupported platform, a corrupted settings file, ...),
-// failIfUnavailable makes CLAUDE ITSELF refuse to run unsandboxed — the
-// process exits non-zero and the failure flows through the SAME
-// classifyLocalExecFailure path every other claude failure already takes,
-// surfacing as PhaseFailed with an actionable diagnostic (the stderr tail).
-// THERE IS NO SILENT UNSANDBOXED FALLBACK. The ONLY way to run without the
-// sandbox is the operator-set ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED=true
-// escape hatch (localExecAllowUnsandboxedEnv) — for a platform where the
-// mechanism cannot run at all. Even with the escape hatch active,
-// --dangerously-skip-permissions is STILL required (headless construction
-// has no human present to approve tool calls), so the escape hatch trades
-// OS-level containment for NONE, not for a lesser tier — use it only when
-// genuinely necessary, and never add a code path that appends
-// --dangerously-skip-permissions outside this function.
+// THE ARGV IS FIXED. Every value a dispatch varies reaches claude some other way, so
+// nothing caller-derived can ever be parsed as a flag:
+//
+//   - the prompt rides STDIN (`-p` with no prompt argument reads it there);
+//   - the model rides the ANTHROPIC_MODEL env var (claudeSubprocessEnv), which the
+//     CLI ranks just below --model and above every settings file;
+//   - the two config files sit at FIXED NAMES beside the worktree (claudeMCPConfigFile,
+//     claudeSettingsFile, both in dispatch's parentDir): claude resolves a relative
+//     --settings / --mcp-config path against its cwd (the worktree), so "../<name>"
+//     addresses them. Beside, not inside: an agent running `git add -A` in the
+//     worktree can never stage them, and the sandbox's write allowlist (the worktree
+//     and the shared git dir) does not cover the parent;
+//   - the per-step built-in tool scoping and the sandbox are CONTENT of the settings
+//     file (writeClaudeSettings): permissions.deny removes a tool from the model's
+//     context exactly as --disallowedTools does (measured: the system/init event's
+//     tool list drops every denied tool, under --dangerously-skip-permissions too).
+//
+// The binary is the one NewLocalExecAgenticJobAccess resolved on PATH at construction.
+//
+// THE INVARIANT (founder security-posture ruling, sandboxed-by-default — see the
+// SECURITY POSTURE doc block above): --dangerously-skip-permissions is passed ONLY
+// together with the --settings file, and that file carries an ACTIVE Tier-2 sandbox
+// (sandbox.enabled=true + failIfUnavailable=true + allowUnsandboxedCommands=false —
+// see writeClaudeSettings) unless the operator set the escape hatch. If claude's own
+// sandbox init then fails (missing bubblewrap, unsupported platform, a corrupted
+// settings file, ...), failIfUnavailable makes CLAUDE ITSELF refuse to run unsandboxed
+// — the process exits non-zero and the failure flows through the SAME
+// classifyLocalExecFailure path every other claude failure already takes, surfacing as
+// PhaseFailed with an actionable diagnostic (the stderr tail). THERE IS NO SILENT
+// UNSANDBOXED FALLBACK. The ONLY way to run without the sandbox is the operator-set
+// ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED=true escape hatch
+// (localExecAllowUnsandboxedEnv), which omits the file's sandbox block — for a platform
+// where the mechanism cannot run at all. Even with the escape hatch active,
+// --dangerously-skip-permissions is STILL required (headless construction has no human
+// present to approve tool calls), so the escape hatch trades OS-level containment for
+// NONE, not for a lesser tier — use it only when genuinely necessary, and never add a
+// code path that passes --dangerously-skip-permissions outside this function.
+//
+// PROMPT-SURFACE ISOLATION (Tier 1, prompt side). --strict-mcp-config already keeps
+// ambient MCP servers out. It does NOT isolate the rest of the prompt surface: skills,
+// slash commands, subagents and plugins still load from the operator's ~/.claude
+// because claudeSubprocessEnv forwards HOME (required for subscription auth). Measured
+// on a real dispatch, that leaked the operator's personal plugin surface into every
+// construction agent — superpowers, dataviz, xcodebuildmcp and 15 unrelated agents —
+// which is both context the step cannot use and a REPRODUCIBILITY defect: a benchmark
+// run's cost depended on which plugins the operator happened to have installed.
+// --setting-sources project loads ONLY the seated worktree's own .claude tree and drops
+// the user source (the --settings file is a flag source and still loads). It is
+// preferred over --bare, which would also drop OAuth/keychain auth and force an
+// ANTHROPIC_API_KEY — incompatible with the user's-own-subscription model construction
+// runs on.
+//
+// --exclude-dynamic-system-prompt-sections moves the per-machine sections (cwd, env
+// info, memory paths, git status) out of the system prompt and into the first user
+// message, so the cached prefix is identical across episodes instead of being
+// invalidated by machine-specific text. Pure cache-hit win; no behavior change.
+//
+// SP1 CAPTURE SEAM: --output-format stream-json asks for the EVENT STREAM, not the
+// single-object result. stream-json emits one JSON object per line for the whole
+// episode (system init, every assistant turn, every tool_use/tool_result, the terminal
+// `result`), which is what the per-episode trace file captures. --verbose is REQUIRED
+// alongside stream-json in headless (-p) mode — claude refuses the combination without
+// it. The terminal `result` line carries the SAME subtype/is_error/result fields the old
+// single-object format did and is the LAST line, so every stdout consumer
+// (claudeOutputDetail → envelopeDetail's end-of-text scan) works against the bounded
+// tail.
+func claudeCommand(ctx context.Context, claudeBin string) *exec.Cmd {
+	return exec.CommandContext(ctx, claudeBin,
+		"--dangerously-skip-permissions",
+		"--settings", "../"+claudeSettingsFile,
+		"--setting-sources", "project",
+		"--exclude-dynamic-system-prompt-sections",
+		"--mcp-config", "../"+claudeMCPConfigFile,
+		"--strict-mcp-config", // Tier 1: ignore ambient user/project MCP config; attach ONLY the rig's server.
+		"--output-format", "stream-json",
+		"--verbose",
+		"-p",
+	)
+}
+
+// The fixed names of the two files dispatch writes beside the worktree (in its
+// parentDir) for claudeCommand to read.
+const (
+	claudeSettingsFile  = "aiarch-settings.json"
+	claudeMCPConfigFile = "aiarch-mcp.json"
+)
+
 // disallowedBuiltinTools returns the built-in tools to switch off for a step.
 // The candidate list and the per-step resolution both live in methodassets,
 // beside the manifest, so this rail and the GitHub Actions rail (which asks
 // `aiarch-state-mcp step-tools`) can never disagree about what a step may hold.
+// A Mission draft has no use for Workflow, Artifact, Cron*, Task*, or the
+// messaging tools, and each one's schema is pure prefix cost on every turn.
 func disallowedBuiltinTools(command string) []string {
 	if command == "" {
 		return nil
@@ -3437,82 +3493,20 @@ func disallowedBuiltinTools(command string) []string {
 	return methodassets.DisallowedBuiltinTools(command)
 }
 
-// PROMPT-SURFACE ISOLATION (Tier 1, prompt side). --strict-mcp-config already
-// keeps ambient MCP servers out. It does NOT isolate the rest of the prompt
-// surface: skills, slash commands, subagents and plugins still load from the
-// operator's ~/.claude because claudeSubprocessEnv forwards HOME (required for
-// subscription auth). Measured on a real dispatch, that leaked the operator's
-// personal plugin surface into every construction agent — superpowers, dataviz,
-// xcodebuildmcp and 15 unrelated agents — which is both context the step cannot
-// use and a REPRODUCIBILITY defect: a benchmark run's cost depended on which
-// plugins the operator happened to have installed.
-//
-// --setting-sources project loads ONLY the seated worktree's own .claude tree
-// and drops the user source. It is preferred over --bare, which would also drop
-// OAuth/keychain auth and force an ANTHROPIC_API_KEY — incompatible with the
-// user's-own-subscription model construction runs on.
-//
-// disallowedTools is the step manifest's complement over the built-in tools: a
-// Mission draft has no use for Workflow, Artifact, Cron*, Task*, or the
-// messaging tools, and each one's schema is pure prefix cost on every turn.
-func claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath, model string, disallowedTools []string) []string {
-	args := []string{"--dangerously-skip-permissions"}
-	// An empty model leaves the flag off entirely, so the CLI resolves its own
-	// default exactly as it did before this knob existed.
-	if strings.TrimSpace(model) != "" {
-		args = append(args, "--model", model)
-	}
-	// The sandbox settings are attached UNLESS the operator has explicitly opted
-	// out: that escape hatch is the one place THE INVARIANT's pairing is
-	// deliberately broken — see localExecAllowUnsandboxedEnv's doc comment.
-	if !allowUnsandboxedFromEnv() {
-		args = append(args, "--settings", sandboxSettingsPath)
-	}
-	// Prompt-surface isolation + per-step built-in tool scoping (see the doc
-	// comment above). Both are appended before the invariant flags below so the
-	// argv order stays stable for the tests that assert on it.
-	args = append(args, "--setting-sources", "project")
-	if len(disallowedTools) > 0 {
-		args = append(args, "--disallowedTools", strings.Join(disallowedTools, ","))
-	}
-	// Move the per-machine sections (cwd, env info, memory paths, git status)
-	// out of the system prompt and into the first user message, so the cached
-	// prefix is identical across episodes instead of being invalidated by
-	// machine-specific text. Pure cache-hit win; no behavior change.
-	args = append(args, "--exclude-dynamic-system-prompt-sections")
-	return append(args,
-		"--mcp-config", mcpConfigPath,
-		"--strict-mcp-config", // Tier 1: ignore ambient user/project MCP config; attach ONLY mcpConfigPath.
-		// SP1 CAPTURE SEAM: the EVENT STREAM, not the single-object result.
-		// stream-json emits one JSON object per line for the whole episode
-		// (system init, every assistant turn, every tool_use/tool_result, the
-		// terminal `result`), which is what the per-episode trace file captures.
-		// --verbose is REQUIRED alongside stream-json in headless (-p) mode —
-		// claude refuses the combination without it. The terminal `result` line
-		// carries the SAME subtype/is_error/result fields the old single-object
-		// format did and is the LAST line, so every existing stdout consumer
-		// (claudeOutputDetail → envelopeDetail's end-of-text scan) keeps working
-		// unchanged, and keeps working against the bounded tail.
-		"--output-format", "stream-json",
-		"--verbose",
-		"-p", prompt,
-	)
-}
-
-// sandboxSettingsJSON / sandboxConfigJSON / sandboxNetworkJSON mirror the
+// claudeSettingsJSON / sandboxConfigJSON / sandboxNetworkJSON mirror the
 // minimal shape `claude --settings <file>` expects for Tier-2 native OS
-// sandboxing. Discovered from the installed claude CLI (`claude --help`
-// documents --settings <file-or-json>; the settings.json `sandbox` key
-// shape was confirmed against Anthropic's current sandboxing docs and
-// empirically verified with a live `claude --settings ... --dangerously-
-// skip-permissions --strict-mcp-config -p ...` invocation against this
-// exact JSON shape):
+// sandboxing plus the per-step tool scoping. Discovered from the installed
+// claude CLI (`claude --help` documents --settings <file-or-json>; the
+// settings.json `sandbox` key shape was confirmed against Anthropic's current
+// sandboxing docs and empirically verified with a live `claude --settings ...
+// --dangerously-skip-permissions --strict-mcp-config -p ...` invocation against
+// this exact JSON shape):
 //
 //   - sandbox.enabled            turns the OS sandbox on for this run.
 //   - sandbox.failIfUnavailable  makes claude refuse to START rather than
 //     silently degrading to unsandboxed when the mechanism cannot init
 //     (missing bubblewrap, unsupported platform, ...) — THIS is what makes
-//     THE INVARIANT (claudeArgv above) hold even on a platform that lacks
+//     THE INVARIANT (claudeCommand above) hold even on a platform that lacks
 //     the sandbox: claude itself fails fast, so this package never has to
 //     independently detect "sandbox unavailable" by parsing stderr text.
 //   - sandbox.allowUnsandboxedCommands=false disables claude's OWN internal
@@ -3523,8 +3517,15 @@ func claudeArgv(prompt, mcpConfigPath, sandboxSettingsPath, model string, disall
 //     auto-approve that retry with no prompt at all.
 //   - sandbox.network.allowedDomains is the ONLY network the sandboxed Bash
 //     tool's subprocesses can reach; see sandboxAllowedDomains below.
-type sandboxSettingsJSON struct {
-	Sandbox sandboxConfigJSON `json:"sandbox"`
+//   - permissions.deny lists the built-in tools the step may not hold
+//     (disallowedBuiltinTools); a bare tool name removes the tool entirely.
+type claudeSettingsJSON struct {
+	Sandbox     *sandboxConfigJSON   `json:"sandbox,omitempty"`
+	Permissions *settingsPermissions `json:"permissions,omitempty"`
+}
+
+type settingsPermissions struct {
+	Deny []string `json:"deny,omitempty"`
 }
 
 type sandboxConfigJSON struct {
@@ -3543,52 +3544,75 @@ type sandboxNetworkJSON struct {
 // (Claude Code sandboxing docs, "Configure sandboxing"): allowWrite entries are
 // path prefixes (absolute here) the sandboxed Bash tool may write beneath, ON
 // TOP of the sandbox's own defaults (cwd + session temp). Worktree mode uses it
-// for the worktree dir + the shared repo's git dir — see writeSandboxSettings's
+// for the worktree dir + the shared repo's git dir — see writeClaudeSettings's
 // caller (dispatch) and the SECURITY POSTURE doc block for the tradeoff.
 type sandboxFilesystemJSON struct {
 	AllowWrite []string `json:"allowWrite,omitempty"`
 }
 
-// writeSandboxSettings writes the ephemeral --settings file (OUTSIDE the
-// cloned working tree — dir is the SAME out-of-clone temp dir dispatch also
-// writes the --mcp-config file into, and the sandbox itself denies writes to
-// settings.json paths as a matter of course, so this file could not be
-// tampered with from inside the sandbox even if it DID live in the clone)
-// that turns on Tier-2 sandboxing for this run — always enabled=true,
-// failIfUnavailable=true, allowUnsandboxedCommands=false (see the type's own
-// doc comment for why each matters). allowedDomains is the Bash tool's
-// network allowlist (sandboxAllowedDomains); an empty list means Bash
-// subprocess commands get NO outbound network at all, which is exactly
-// correct for the common local-mode case (repoURL is file://, so there is no
-// remote to reach and no allowlist entry beyond the fixed API domain).
-// allowWritePaths is the worktree-mode filesystem widening (the worktree dir +
-// the shared repo's git dir — see dispatch); empty omits the filesystem block
-// entirely, keeping the sandbox's own default write scope.
-func writeSandboxSettings(dir string, allowedDomains, allowWritePaths []string) (string, error) {
-	cfg := sandboxSettingsJSON{Sandbox: sandboxConfigJSON{
-		Enabled:                  true,
-		FailIfUnavailable:        true,
-		AllowUnsandboxedCommands: false,
-	}}
-	if len(allowedDomains) > 0 {
-		cfg.Sandbox.Network = &sandboxNetworkJSON{AllowedDomains: allowedDomains}
+// claudeSettings is what one dispatch puts in its --settings file.
+type claudeSettings struct {
+	// sandboxed is false ONLY under the operator's escape hatch
+	// (allowUnsandboxedFromEnv); the file then carries no sandbox block.
+	sandboxed bool
+	// allowedDomains is the Bash tool's network allowlist (sandboxAllowedDomains);
+	// an empty list means Bash subprocess commands get NO outbound network at all,
+	// which is exactly correct for the common local-mode case (repoURL is file://,
+	// so there is no remote to reach and no allowlist entry beyond the fixed API
+	// domain).
+	allowedDomains []string
+	// allowWritePaths is the worktree-mode filesystem widening (the worktree dir +
+	// the shared repo's git dir — see dispatch); empty omits the filesystem block
+	// entirely, keeping the sandbox's own default write scope.
+	allowWritePaths []string
+	// disallowedTools is the step's denied built-in tools (disallowedBuiltinTools).
+	disallowedTools []string
+}
+
+// writeClaudeSettings writes the ephemeral --settings file into dir (dispatch's
+// parentDir, OUTSIDE the worktree — and the sandbox itself denies writes to
+// settings.json paths as a matter of course) at the fixed name claudeCommand reads.
+// When s.sandboxed it turns on Tier-2 sandboxing for this run — always enabled=true,
+// failIfUnavailable=true, allowUnsandboxedCommands=false (see the type's own doc
+// comment for why each matters).
+func writeClaudeSettings(dir string, s claudeSettings) error {
+	var cfg claudeSettingsJSON
+	if s.sandboxed {
+		cfg.Sandbox = &sandboxConfigJSON{
+			Enabled:                  true,
+			FailIfUnavailable:        true,
+			AllowUnsandboxedCommands: false,
+		}
+		if len(s.allowedDomains) > 0 {
+			cfg.Sandbox.Network = &sandboxNetworkJSON{AllowedDomains: s.allowedDomains}
+		}
+		if len(s.allowWritePaths) > 0 {
+			cfg.Sandbox.Filesystem = &sandboxFilesystemJSON{AllowWrite: s.allowWritePaths}
+		}
 	}
-	if len(allowWritePaths) > 0 {
-		cfg.Sandbox.Filesystem = &sandboxFilesystemJSON{AllowWrite: allowWritePaths}
+	if len(s.disallowedTools) > 0 {
+		cfg.Permissions = &settingsPermissions{Deny: s.disallowedTools}
 	}
 	body, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: marshal sandbox settings")
+		return fwra.Wrap(fwra.Infrastructure, err, "localexec: marshal claude settings")
 	}
-	f, err := os.CreateTemp(dir, "aiarch-sandbox-*.json")
+	if err := writeBesideWorktree(dir, claudeSettingsFile, body); err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "localexec: write claude settings file")
+	}
+	return nil
+}
+
+// writeBesideWorktree writes one of claude's config files at its fixed name in
+// dispatch's parentDir, through an os.Root on that directory so the write cannot
+// leave it.
+func writeBesideWorktree(dir, name string, body []byte) error {
+	root, err := os.OpenRoot(dir)
 	if err != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: create sandbox settings file")
+		return err
 	}
-	defer func() { _ = f.Close() }()
-	if _, err := f.Write(body); err != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: write sandbox settings file")
-	}
-	return f.Name(), nil
+	defer func() { _ = root.Close() }()
+	return root.WriteFile(name, body, 0o600)
 }
 
 // anthropicAPIDomains is the Tier-2 sandbox's fixed network-allowlist entry
@@ -3653,6 +3677,9 @@ func sandboxAllowedDomains(repoURL string) []string {
 //     server's OWN env (writeStateMCPConfig), so anything that inspects this
 //     TOP-LEVEL process's env (rather than only the MCP server subprocess's)
 //     sees identical values.
+//   - ANTHROPIC_MODEL, set from the dispatch's own model (never from the
+//     parent's env) and only when one was chosen — the channel claudeCommand's
+//     fixed argv leaves for it.
 //
 // Nothing else crosses from the parent: no ANTHROPIC_API_KEY (this local
 // executor rides the operator's own `claude` OAuth session, never a
@@ -3662,8 +3689,8 @@ func sandboxAllowedDomains(repoURL string) []string {
 // secret. A stray secret exported into archistrator-server's own
 // environment can no longer leak into an autonomous,
 // --dangerously-skip-permissions agent process.
-func claudeSubprocessEnv(rig map[string]string) []string {
-	out := make([]string, 0, 5+len(rig))
+func claudeSubprocessEnv(rig map[string]string, model string) []string {
+	out := make([]string, 0, 6+len(rig))
 	if v := os.Getenv("PATH"); v != "" {
 		out = append(out, "PATH="+v)
 	}
@@ -3685,12 +3712,25 @@ func claudeSubprocessEnv(rig map[string]string) []string {
 	for k, v := range rig {
 		out = append(out, k+"="+v)
 	}
+	// The dispatch's model (claudeCommand keeps it off argv). An empty model sets
+	// nothing, so the CLI resolves its own default exactly as it did before the
+	// knob existed.
+	if m := strings.TrimSpace(model); m != "" {
+		out = append(out, "ANTHROPIC_MODEL="+m)
+	}
 	return out
 }
 
 // ---------------------------------------------------------------------------
-// git plumbing (raw `git` subprocess calls — no new library dependency;
-// production-hardened: errors are returned, never t.Fatalf'd).
+// git plumbing (`git` subprocesses with FIXED argv + go-git; production-hardened:
+// errors are returned, never t.Fatalf'd).
+//
+// EVERY `git` argv IS FIXED AT ITS CALL SITE. Each caller-derived value — a branch
+// name, the repo URL, a worktree path, a message naming a branch, a blob id —
+// reaches git some other way: through go-git (refs, remotes, the worktree's HEAD,
+// the index), through a fixed ref or path the value was pinned at, through stdin, or
+// through the GIT_DIR environment variable. None is ever an argument git could parse
+// as an option.
 // ---------------------------------------------------------------------------
 
 // localMainBranch is the flat git-forward base every activity branch forks from —
@@ -3700,17 +3740,22 @@ const localMainBranch = "main"
 // localStateDocPath is the repo-relative path of the project-state document the
 // projectstate GitStore owns (its statePathPrefix + projectFile). It is spelled out
 // HERE rather than imported because an RA may not reach sideways to another RA
-// (NoSideways) — the same reason runGit is duplicated from gitlocal's gitLocalRun.
+// (NoSideways) — the same reason the git plumbing here is duplicated from gitlocal's.
 // It is needed because this path is the ONE file in the repo both refs of an
 // activity necessarily rewrite, and its envelope is not mergeable text
 // (resolveStateDocEnvelopeConflict below says why).
 const localStateDocPath = ".aiarch/state/project.json"
 
-// addWorktree adds a git worktree for `branch` at workDir, operating directly on the
-// shared repo at repoPath. If the branch already EXISTS (a prior construct phase's
-// activity branch, or a mid-session design branch a prior draft/critique/answer job
-// opened) the worktree re-attaches to its tip. If it does NOT exist, the branch is
-// created fresh off main. BOTH arms rely on this identical behavior.
+// localWorktreeName is the fixed name of a dispatch's worktree inside its throwaway
+// parent dir. `git worktree add` runs with the parent as its cwd and the shared repo
+// named by GIT_DIR, so this relative name is the whole path argument.
+const localWorktreeName = "wt"
+
+// addWorktree adds a git worktree for `branch` at parentDir/localWorktreeName,
+// operating directly on the shared repo at repoPath. If the branch already EXISTS (a
+// prior construct phase's activity branch, or a mid-session design branch a prior
+// draft/critique/answer job opened) the worktree re-attaches to its tip. If it does NOT
+// exist, the branch is created fresh off main. BOTH arms rely on this identical behavior.
 //
 // CREATE-OFF-MAIN IS THE LOCAL STAND-IN FOR THE CLOUD BRANCH-STAGING RAIL (the
 // cloud-vs-local asymmetry). On the cloud rail a design session branch is created
@@ -3729,49 +3774,147 @@ const localStateDocPath = ".aiarch/state/project.json"
 // the single-developer-one-pump local profile; revisit if local mode grows concurrent
 // writers or long-lived branches.
 //
-// Returns the branch's tip SHA at attach time (the rev-parse "before" anchor
-// PhaseSucceeded's ref-advanced check compares against) and the shared repo's absolute
-// git dir (the sandbox filesystem-scope entry — worktree commits write there).
-func addWorktree(repoPath, branch, workDir string) (beforeSHA, gitDir string, err error) {
-	if verifyBranchExists(repoPath, branch) {
-		if _, aerr := runGit(repoPath, "worktree", "add", workDir, branch); aerr != nil {
-			return "", "", aerr
+// HOW, with no branch name or path on git's argv: the branch is resolved (and, when
+// missing, created at main's tip) through go-git; a branch some worktree already has
+// checked out is refused, as `git worktree add <path> <branch>` refuses it; the worktree
+// is added DETACHED and unpopulated (`--detach --no-checkout`, cwd = parentDir, the shared
+// repo named by GIT_DIR); go-git points the new worktree's own HEAD at the branch; and
+// `git reset --hard` populates the index and working tree from that tip.
+//
+// Returns the branch's tip SHA at attach time (the "before" anchor PhaseSucceeded's
+// ref-advanced check compares against) and the shared repo's absolute git dir (the
+// sandbox filesystem-scope entry — worktree commits write there).
+func addWorktree(repoPath, branch, parentDir string) (beforeSHA, gitDir string, err error) {
+	ref := plumbing.NewBranchReferenceName(branch)
+	if verr := ref.Validate(); verr != nil {
+		return "", "", fmt.Errorf("activity branch %q is not a valid branch name: %w", branch, verr)
+	}
+	repo, err := openSharedRepo(repoPath)
+	if err != nil {
+		return "", "", err
+	}
+	tip, err := branchTipOrCreateOffMain(repo, ref)
+	if err != nil {
+		return "", "", err
+	}
+	if err := refuseBranchCheckedOut(repoPath, ref); err != nil {
+		return "", "", err
+	}
+	gitDir, err = absoluteGitDir(repoPath)
+	if err != nil {
+		return "", "", err
+	}
+	add := exec.Command("git", "worktree", "add", "--quiet", "--detach", "--no-checkout", localWorktreeName)
+	add.Env = append(os.Environ(), "GIT_DIR="+gitDir)
+	if _, err := gitExec(parentDir, add); err != nil {
+		return "", "", err
+	}
+	workDir := filepath.Join(parentDir, localWorktreeName)
+	if err := pointWorktreeHead(workDir, ref); err != nil {
+		return "", "", err
+	}
+	if _, err := gitExec(workDir, exec.Command("git", "reset", "--quiet", "--hard")); err != nil {
+		return "", "", err
+	}
+	return tip.String(), gitDir, nil
+}
+
+// openSharedRepo opens the shared repo through go-git. EnableDotGitCommonDir lets
+// the same call open a linked worktree (its .git file + commondir) as well as a
+// main checkout.
+func openSharedRepo(path string) (*git.Repository, error) {
+	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{EnableDotGitCommonDir: true})
+	if err != nil {
+		return nil, fmt.Errorf("open git repo %s: %w", path, err)
+	}
+	return repo, nil
+}
+
+// branchTipOrCreateOffMain resolves ref in repo; when it does not exist it is created
+// at main's tip (what `git worktree add -b <branch> <path> main` did).
+func branchTipOrCreateOffMain(repo *git.Repository, ref plumbing.ReferenceName) (plumbing.Hash, error) {
+	got, err := repo.Reference(ref, true)
+	if err == nil {
+		return got.Hash(), nil
+	}
+	if !errors.Is(err, plumbing.ErrReferenceNotFound) {
+		return plumbing.ZeroHash, fmt.Errorf("resolve %s: %w", ref, err)
+	}
+	main, err := repo.Reference(plumbing.NewBranchReferenceName(localMainBranch), true)
+	if err != nil {
+		return plumbing.ZeroHash, fmt.Errorf("create %s off %s: %w", ref.Short(), localMainBranch, err)
+	}
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(ref, main.Hash())); err != nil {
+		return plumbing.ZeroHash, fmt.Errorf("create %s off %s: %w", ref.Short(), localMainBranch, err)
+	}
+	return main.Hash(), nil
+}
+
+// refuseBranchCheckedOut fails when any worktree of the shared repo (its main
+// checkout included) has ref checked out — two worktrees on one branch would each
+// see the other's commits move their HEAD. It reads `git worktree list --porcelain`,
+// whose `branch <ref>` lines name exactly that.
+func refuseBranchCheckedOut(repoPath string, ref plumbing.ReferenceName) error {
+	out, err := gitExec(repoPath, exec.Command("git", "worktree", "list", "--porcelain"))
+	if err != nil {
+		return err
+	}
+	want := "branch " + ref.String()
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.TrimSpace(line) == want {
+			return fmt.Errorf("%s is already checked out in another worktree of %s", ref.Short(), repoPath)
 		}
-	} else if _, aerr := runGit(repoPath, "worktree", "add", "-b", branch, workDir, localMainBranch); aerr != nil {
-		return "", "", aerr
 	}
-	beforeSHA, err = revParseBranch(repoPath, branch)
-	if err != nil {
-		return "", "", err
-	}
-	out, err := runGit(repoPath, "rev-parse", "--absolute-git-dir")
-	if err != nil {
-		return "", "", err
-	}
-	return beforeSHA, strings.TrimSpace(out), nil
+	return nil
 }
 
-// verifyBranchExists reports whether refs/heads/<branch> resolves in the shared repo.
-func verifyBranchExists(repoPath, branch string) bool {
-	_, err := runGit(repoPath, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
-	return err == nil
+// pointWorktreeHead makes the linked worktree at workDir check out ref: its own HEAD
+// (the worktree's private .git/worktrees/<id>/HEAD, which go-git writes there rather
+// than to the shared repo's HEAD) becomes a symbolic ref to the branch.
+func pointWorktreeHead(workDir string, ref plumbing.ReferenceName) error {
+	wt, err := openSharedRepo(workDir)
+	if err != nil {
+		return err
+	}
+	if err := wt.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, ref)); err != nil {
+		return fmt.Errorf("check out %s in the worktree: %w", ref.Short(), err)
+	}
+	return nil
 }
 
-// revParseBranch resolves the branch's current tip SHA in the shared repo.
-func revParseBranch(repoPath, branch string) (string, error) {
-	out, err := runGit(repoPath, "rev-parse", "--verify", "refs/heads/"+branch)
+// absoluteGitDir reports the repo's absolute git dir (`git rev-parse
+// --absolute-git-dir` run in it).
+func absoluteGitDir(repoPath string) (string, error) {
+	out, err := gitExec(repoPath, exec.Command("git", "rev-parse", "--absolute-git-dir"))
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
 }
 
-// removeWorktree force-removes the worktree registration + directory from the
-// shared repo. --force because the worktree may carry uncommitted debris a
-// failed/cancelled run left behind — the commits that matter already live in
-// the shared repo's refs.
+// revParseBranch resolves the branch's current tip SHA in the shared repo.
+func revParseBranch(repoPath, branch string) (string, error) {
+	repo, err := openSharedRepo(repoPath)
+	if err != nil {
+		return "", err
+	}
+	ref, err := repo.Reference(plumbing.NewBranchReferenceName(branch), true)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", branch, err)
+	}
+	return ref.Hash().String(), nil
+}
+
+// removeWorktree removes the worktree directory and then prunes the shared repo's
+// registration of it (`git worktree prune` drops every registration whose directory
+// is gone). Removing the directory outright is the --force the old `worktree remove`
+// carried: the worktree may hold uncommitted debris a failed/cancelled run left
+// behind — the commits that matter already live in the shared repo's refs.
 func removeWorktree(repoPath, workDir string) error {
-	_, err := runGit(repoPath, "worktree", "remove", "--force", workDir)
+	if err := os.RemoveAll(workDir); err != nil {
+		return fmt.Errorf("remove worktree %s: %w", workDir, err)
+	}
+	_, err := gitExec(repoPath, exec.Command("git", "worktree", "prune"))
 	return err
 }
 
@@ -3909,53 +4052,32 @@ func (a *localExecAccess) attemptMergeActivityBranch(branch string) (diagnostic 
 		return "local merge: create work dir: " + err.Error(), false
 	}
 	defer func() { _ = os.RemoveAll(parentDir) }()
-	cloneDir := filepath.Join(parentDir, "clone")
 
-	if out, err := runGit("", "clone", "--branch", localMainBranch, a.repoURL, cloneDir); err != nil {
-		return "local merge: clone failed: " + outputTail(out, 500), false
+	cloneDir, clone, diag := cloneMainForMerge(parentDir, a.repoPath)
+	if diag != "" {
+		return diag, false
 	}
-	remoteBranch := "origin/" + branch
-	if _, err := runGit(cloneDir, "rev-parse", "--verify", "--quiet", "refs/remotes/"+remoteBranch); err != nil {
+	found, err := pinMergeHead(clone, branch)
+	if err != nil {
+		return "local merge: activity branch " + branch + ": " + err.Error(), false
+	}
+	if !found {
 		return "local merge: activity branch " + branch + " not found in the shared repo", false
 	}
 
 	// Already merged (a prior attempt landed the merge but failed before the
 	// branch delete)? Skip straight to the delete — no second merge commit.
-	if _, err := runGit(cloneDir, "merge-base", "--is-ancestor", remoteBranch, "HEAD"); err == nil {
-		if out, derr := runGit(cloneDir, "push", "origin", "--delete", branch); derr != nil {
-			return "local merge: branch " + branch + " already merged but could not be deleted: " + outputTail(out, 500), false
+	if _, err := gitExec(cloneDir, exec.Command("git", "merge-base", "--is-ancestor", localMergeHeadRef, "HEAD")); err == nil {
+		if derr := deleteMergedBranch(clone, branch); derr != nil {
+			return "local merge: branch " + branch + " already merged but could not be deleted: " + derr.Error(), false
 		}
 		return "", true
 	}
 
-	// The merge commit needs an author identity independent of whatever global
-	// config the host machine carries — pin one explicitly (-c), same spirit as
-	// the workflow agent's own bot identity.
-	mergeOut, err := runGit(cloneDir,
-		"-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
-		"merge", "--no-ff", "-m", "aiarch: merge "+branch, remoteBranch)
-	if err != nil {
-		// A CONFLICT may be nothing but the state document's own BOOKKEEPING
-		// (resolveStateDocEnvelopeConflict says why that is not content); anything
-		// else — including a genuine content conflict inside project.json — stays
-		// the honest failure it has always been.
-		envDiag, resolved := "", false
-		if strings.Contains(mergeOut, "CONFLICT") {
-			envDiag, resolved = resolveStateDocEnvelopeConflict(cloneDir)
-		}
-		if !resolved {
-			// Abort cleanly (best-effort — a conflict leaves MERGE_HEAD in the clone;
-			// the clone is throwaway either way) and surface the conflict through the
-			// failure diagnostic. NOTHING was pushed: the shared repo is untouched.
-			_, _ = runGit(cloneDir, "merge", "--abort")
-			if strings.Contains(mergeOut, "CONFLICT") {
-				return "local merge: merge conflict merging " + branch + " into " + localMainBranch + ": " +
-					outputTail(mergeOut, 500) + envDiag, false
-			}
-			return "local merge: merge of " + branch + " failed: " + outputTail(mergeOut, 500), false
-		}
+	if diag, merged := mergePinnedHead(cloneDir, branch); !merged {
+		return diag, false
 	}
-	if out, err := runGit(cloneDir, "push", "origin", localMainBranch); err != nil {
+	if out, err := gitExec(cloneDir, exec.Command("git", "push", localMergeRemote, localMainBranch)); err != nil {
 		// THE REJECTION LINE IS KEPT WHOLE, and that is load-bearing rather than cosmetic:
 		// outputTail keeps the LAST 500 bytes, and git prints `! [rejected] … (fetch first)`
 		// FIRST and five lines of `hint:` prose after it — so the tail alone dropped the one
@@ -3964,12 +4086,145 @@ func (a *localExecAccess) attemptMergeActivityBranch(branch string) (diagnostic 
 		return "local merge: push of merged " + localMainBranch + " failed: " +
 			pushRejectionLines(out) + outputTail(out, 500), false
 	}
-	if out, err := runGit(cloneDir, "push", "origin", "--delete", branch); err != nil {
+	if err := deleteMergedBranch(clone, branch); err != nil {
 		// The merge IS landed; a retry takes the already-merged path above and
 		// re-attempts only the delete.
-		return "local merge: merged but branch " + branch + " could not be deleted: " + outputTail(out, 500), false
+		return "local merge: merged but branch " + branch + " could not be deleted: " + err.Error(), false
 	}
 	return "", true
+}
+
+// mergePinnedHead runs the real --no-ff merge of the pinned activity-branch tip into the
+// clone's main. The merge commit needs an author identity independent of whatever global
+// config the host machine carries — pinned explicitly (-c), same spirit as the workflow
+// agent's own bot identity — and its message names the branch, so it is read from a
+// scratch file (-F). merged=false carries the failure diagnostic, with the clone's merge
+// already abandoned; NOTHING was pushed, so the shared repo is untouched.
+func mergePinnedHead(cloneDir, branch string) (diagnostic string, merged bool) {
+	if err := writeCloneScratch(cloneDir, localMergeMsgFile, "aiarch: merge "+branch+"\n"); err != nil {
+		return "local merge: stage the merge message: " + err.Error(), false
+	}
+	mergeOut, err := gitExec(cloneDir, exec.Command("git",
+		"-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"merge", "--no-ff", "-F", localMergeMsgFile, localMergeHeadRef))
+	if err == nil {
+		return "", true
+	}
+	// A CONFLICT may be nothing but the state document's own BOOKKEEPING
+	// (resolveStateDocEnvelopeConflict says why that is not content); anything
+	// else — including a genuine content conflict inside project.json — stays
+	// the honest failure it has always been.
+	conflict := strings.Contains(mergeOut, "CONFLICT")
+	envDiag := ""
+	if conflict {
+		var resolved bool
+		if envDiag, resolved = resolveStateDocEnvelopeConflict(cloneDir); resolved {
+			return "", true
+		}
+	}
+	// Abort cleanly (best-effort — a conflict leaves MERGE_HEAD in the clone;
+	// the clone is throwaway either way) and surface the conflict through the
+	// failure diagnostic.
+	_, _ = gitExec(cloneDir, exec.Command("git", "merge", "--abort"))
+	if conflict {
+		return "local merge: merge conflict merging " + branch + " into " + localMainBranch + ": " +
+			outputTail(mergeOut, 500) + envDiag, false
+	}
+	return "local merge: merge of " + branch + " failed: " + outputTail(mergeOut, 500), false
+}
+
+// localMergeRemote is the merge clone's name for the shared repo.
+const localMergeRemote = "origin"
+
+// localMergeHeadRef is the fixed ref a merge reads the activity branch through: the
+// branch's tip is pinned here (go-git, from the clone's remote-tracking ref) before any
+// `git merge`, so the branch name never reaches git's argv.
+const localMergeHeadRef = "refs/aiarch/merge-head"
+
+// Clone-relative scratch files under the merge clone's .git (never part of the working
+// tree a commit stages) carrying values to git as file content rather than argv: the
+// merge message naming the branch, and the three stages of the state document's
+// envelope-neutral re-merge (git merge-file writes its result into the first).
+const (
+	localMergeMsgFile   = ".git/AIARCH_MERGE_MSG"
+	localStateDocOurs   = ".git/AIARCH_STATEDOC_OURS"
+	localStateDocBase   = ".git/AIARCH_STATEDOC_BASE"
+	localStateDocTheirs = ".git/AIARCH_STATEDOC_THEIRS"
+)
+
+// cloneMainForMerge materialises the shared repo's main in parentDir/clone. The clone is
+// assembled rather than `git clone`d so the repo's location is configured through go-git,
+// never git's argv: an empty repo, an origin remote fetching every branch to
+// refs/remotes/origin/*, a fetch, and main checked out at origin/main. A non-empty
+// diagnostic is the failure.
+func cloneMainForMerge(parentDir, repoPath string) (cloneDir string, clone *git.Repository, diagnostic string) {
+	remoteURL, err := filepath.Abs(repoPath)
+	if err != nil {
+		return "", nil, "local merge: resolve the shared repo path: " + err.Error()
+	}
+	cloneDir = filepath.Join(parentDir, "clone")
+	if err := os.Mkdir(cloneDir, 0o700); err != nil {
+		return "", nil, "local merge: create clone dir: " + err.Error()
+	}
+	if out, err := gitExec(cloneDir, exec.Command("git", "init", "--quiet")); err != nil {
+		return "", nil, "local merge: clone failed: " + outputTail(out, 500)
+	}
+	clone, err = openSharedRepo(cloneDir)
+	if err != nil {
+		return "", nil, "local merge: clone failed: " + err.Error()
+	}
+	if _, err := clone.CreateRemote(&gitconfig.RemoteConfig{Name: localMergeRemote, URLs: []string{remoteURL}}); err != nil {
+		return "", nil, "local merge: clone failed: configure " + localMergeRemote + ": " + err.Error()
+	}
+	if out, err := gitExec(cloneDir, exec.Command("git", "fetch", "--quiet", localMergeRemote)); err != nil {
+		return "", nil, "local merge: clone failed: " + outputTail(out, 500)
+	}
+	if out, err := gitExec(cloneDir, exec.Command("git", "checkout", "--quiet", "-B", localMainBranch,
+		"refs/remotes/"+localMergeRemote+"/"+localMainBranch)); err != nil {
+		return "", nil, "local merge: clone failed: " + outputTail(out, 500)
+	}
+	return cloneDir, clone, ""
+}
+
+// pinMergeHead resolves the activity branch's tip from the clone's remote-tracking ref
+// and pins it at localMergeHeadRef; found=false when the shared repo has no such branch.
+func pinMergeHead(clone *git.Repository, branch string) (found bool, err error) {
+	if verr := plumbing.NewBranchReferenceName(branch).Validate(); verr != nil {
+		return false, fmt.Errorf("not a valid branch name: %w", verr)
+	}
+	tip, err := clone.Reference(plumbing.NewRemoteReferenceName(localMergeRemote, branch), true)
+	if errors.Is(err, plumbing.ErrReferenceNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := clone.Storer.SetReference(plumbing.NewHashReference(localMergeHeadRef, tip.Hash())); err != nil {
+		return false, fmt.Errorf("pin its tip: %w", err)
+	}
+	return true, nil
+}
+
+// deleteMergedBranch deletes the activity branch from the shared repo, pushing the
+// deletion through go-git. A branch already gone is success.
+func deleteMergedBranch(clone *git.Repository, branch string) error {
+	refspec := gitconfig.RefSpec(":" + plumbing.NewBranchReferenceName(branch).String())
+	err := clone.Push(&git.PushOptions{RemoteName: localMergeRemote, RefSpecs: []gitconfig.RefSpec{refspec}})
+	if errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return nil
+	}
+	return err
+}
+
+// writeCloneScratch writes one of the merge clone's .git scratch files (name is
+// clone-relative, e.g. localMergeMsgFile) through an os.Root on the clone.
+func writeCloneScratch(cloneDir, name, content string) error {
+	root, err := os.OpenRoot(cloneDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return root.WriteFile(name, []byte(content), 0o600)
 }
 
 // pushRejectionLines pulls git's own per-ref rejection lines out of a push's output so they
@@ -4044,7 +4299,7 @@ func resolveStateDocEnvelopeConflict(cloneDir string) (diagnosticSuffix string, 
 // stateDocIsTheOnlyConflict reports whether the state document is the sole unmerged
 // path. Anything else in conflict is not this resolver's business.
 func stateDocIsTheOnlyConflict(cloneDir string) (diagnosticSuffix string, only bool) {
-	unmerged, err := runGit(cloneDir, "diff", "--name-only", "--diff-filter=U")
+	unmerged, err := gitExec(cloneDir, exec.Command("git", "diff", "--name-only", "--diff-filter=U"))
 	if err != nil {
 		return " (could not list the unmerged paths)", false
 	}
@@ -4080,22 +4335,17 @@ func mergeStateDocWithMainsEnvelope(cloneDir string) (merged, diagnosticSuffix s
 
 	// git merge-file writes the result into its FIRST argument and exits non-zero when
 	// anything is still in conflict — which is precisely the "real content conflict"
-	// signal this resolver must honour.
-	work, err := os.MkdirTemp("", "aiarch-statedoc-*")
-	if err != nil {
-		return "", " (could not stage the envelope-neutral 3-way merge)", false
-	}
-	defer func() { _ = os.RemoveAll(work) }()
-	oursFile, baseFile, theirsFile := filepath.Join(work, "ours"), filepath.Join(work, "base"), filepath.Join(work, "theirs")
-	for f, content := range map[string]string{oursFile: neutralOurs, baseFile: neutralBase, theirsFile: neutralTheirs} {
-		if werr := os.WriteFile(f, []byte(content), 0o600); werr != nil {
+	// signal this resolver must honour. The three stages go to fixed scratch files
+	// under the clone's .git.
+	for name, content := range map[string]string{localStateDocOurs: neutralOurs, localStateDocBase: neutralBase, localStateDocTheirs: neutralTheirs} {
+		if werr := writeCloneScratch(cloneDir, name, content); werr != nil {
 			return "", " (could not stage the envelope-neutral 3-way merge)", false
 		}
 	}
-	if _, merr := runGit(cloneDir, "merge-file", "--quiet", oursFile, baseFile, theirsFile); merr != nil {
+	if _, merr := gitExec(cloneDir, exec.Command("git", "merge-file", "--quiet", localStateDocOurs, localStateDocBase, localStateDocTheirs)); merr != nil {
 		return "", " (the conflict is in " + localStateDocPath + "'s CONTENT, not its envelope)", false
 	}
-	mergedNeutral, rerr := readFileInDir(work, filepath.Base(oursFile))
+	mergedNeutral, rerr := readFileInDir(cloneDir, localStateDocOurs)
 	if rerr != nil {
 		return "", " (could not read the envelope-neutral merge result)", false
 	}
@@ -4116,42 +4366,48 @@ func mergeStateDocWithMainsEnvelope(cloneDir string) (merged, diagnosticSuffix s
 }
 
 // commitResolvedStateDoc lands the resolved document as the merge commit. The write
-// goes through git's own plumbing — hash-object stages a blob, update-index
-// --cacheinfo collapses the path's three conflict stages to a single resolved
-// stage-0 entry — so the commit is built from the index git itself maintains rather
-// than from a file this process edits inside the clone's working tree.
+// goes through git's own plumbing — hash-object stages a blob from stdin, update-index
+// --index-info (also stdin) puts a resolved stage-0 entry for the path, which replaces
+// its three conflict stages — so the commit is built from the index git itself
+// maintains rather than from a file this process edits inside the clone's working tree.
 func commitResolvedStateDoc(cloneDir, merged string) (diagnosticSuffix string, resolved bool) {
-	work, err := os.MkdirTemp("", "aiarch-statedoc-out-*")
-	if err != nil {
-		return " (could not stage the resolved " + localStateDocPath + ")", false
-	}
-	defer func() { _ = os.RemoveAll(work) }()
-	blobFile := filepath.Join(work, "resolved")
-	if werr := os.WriteFile(blobFile, []byte(merged), 0o600); werr != nil {
-		return " (could not stage the resolved " + localStateDocPath + ")", false
-	}
-	sha, herr := runGit(cloneDir, "hash-object", "-w", "--", blobFile)
+	hash := exec.Command("git", "hash-object", "-w", "--stdin")
+	hash.Stdin = strings.NewReader(merged)
+	sha, herr := gitExec(cloneDir, hash)
 	if herr != nil {
 		return " (could not hash the resolved " + localStateDocPath + ": " + outputTail(sha, 200) + ")", false
 	}
-	sha = strings.TrimSpace(sha)
-	if out, uerr := runGit(cloneDir, "update-index", "--cacheinfo", "100644,"+sha+","+localStateDocPath); uerr != nil {
+	update := exec.Command("git", "update-index", "--index-info")
+	update.Stdin = strings.NewReader("100644 " + strings.TrimSpace(sha) + "\t" + localStateDocPath + "\n")
+	if out, uerr := gitExec(cloneDir, update); uerr != nil {
 		return " (could not resolve " + localStateDocPath + " in the index: " + outputTail(out, 200) + ")", false
 	}
-	// --no-edit reuses the MERGE_MSG the conflicted `merge -m` already wrote, so the
+	// --no-edit reuses the MERGE_MSG the conflicted `merge -F` already wrote, so the
 	// landed commit is the same two-parent "aiarch: merge <branch>" the clean path
 	// produces.
-	if out, cerr := runGit(cloneDir,
+	if out, cerr := gitExec(cloneDir, exec.Command("git",
 		"-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
-		"commit", "--no-edit"); cerr != nil {
+		"commit", "--no-edit")); cerr != nil {
 		return " (could not commit the resolved merge: " + outputTail(out, 200) + ")", false
 	}
 	return "", true
 }
 
-// stateDocStage reads one merge stage of the state document out of the index.
+// stateDocStage reads one merge stage of the state document out of the index
+// (1=base, 2=ours, 3=theirs).
 func stateDocStage(cloneDir string, stage int) (string, bool) {
-	out, err := runGit(cloneDir, "show", ":"+strconv.Itoa(stage)+":"+localStateDocPath)
+	var show *exec.Cmd
+	switch stage {
+	case 1:
+		show = exec.Command("git", "show", ":1:"+localStateDocPath)
+	case 2:
+		show = exec.Command("git", "show", ":2:"+localStateDocPath)
+	case 3:
+		show = exec.Command("git", "show", ":3:"+localStateDocPath)
+	default:
+		return "", false
+	}
+	out, err := gitExec(cloneDir, show)
 	if err != nil {
 		return "", false
 	}
@@ -4233,18 +4489,15 @@ func nonEmptyLines(out string) []string {
 	return got
 }
 
-// runGit runs `git <args...>` with the given working directory (ignored when
-// empty — used for the initial clone, which has no working dir of its own yet)
-// and returns its combined output wrapped into the error on failure, for a
-// debuggable diagnostic.
-func runGit(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...) //nolint:gosec // fixed trusted binary, internally-derived args (repo URL/branch names)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+// gitExec runs one git invocation in dir and returns its combined output, wrapped into
+// the error on failure for a debuggable diagnostic. Every invocation's argv is fixed at
+// its call site (see the git plumbing block's header): the caller builds the
+// *exec.Cmd, this only places and runs it.
+func gitExec(dir string, cmd *exec.Cmd) (string, error) {
+	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return string(out), fmt.Errorf("%s: %w: %s", strings.Join(cmd.Args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
 }
@@ -4266,9 +4519,9 @@ type mcpConfigFileJSON struct {
 	MCPServers map[string]mcpServerConfigJSON `json:"mcpServers"`
 }
 
-// writeStateMCPConfig writes the ephemeral --mcp-config file OUTSIDE the cloned
-// working tree (in dir, a SEPARATE temp dir from workDir) so an agent running
-// `git add -A` inside the repo clone can never accidentally pick it up. rig is
+// writeStateMCPConfig writes the ephemeral --mcp-config file OUTSIDE the worktree
+// (in dir, dispatch's parentDir, at the fixed name claudeCommand reads) so an agent
+// running `git add -A` inside the worktree can never accidentally pick it up. rig is
 // the SAME fixed AIARCH_* envelope dispatch also stamps on claude's own process
 // env (claudeSubprocessEnv), mirroring the seated workflow's MCP-config env for
 // whichever arm built it:
@@ -4281,7 +4534,7 @@ type mcpConfigFileJSON struct {
 // checked out) and AIARCH_STATE_ROOT pointed at the worktree (workDir) so
 // cmd/aiarch-state-mcp reads/writes the SAME .aiarch/state/project.json claude's own git
 // commits land next to.
-func writeStateMCPConfig(dir, stateMCPBin string, rig map[string]string) (string, error) {
+func writeStateMCPConfig(dir, stateMCPBin string, rig map[string]string) error {
 	cfg := mcpConfigFileJSON{MCPServers: map[string]mcpServerConfigJSON{
 		"aiarch-state": {
 			Command: stateMCPBin,
@@ -4290,15 +4543,10 @@ func writeStateMCPConfig(dir, stateMCPBin string, rig map[string]string) (string
 	}}
 	body, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: marshal mcp config")
+		return fwra.Wrap(fwra.Infrastructure, err, "localexec: marshal mcp config")
 	}
-	f, err := os.CreateTemp(dir, "aiarch-mcp-*.json")
-	if err != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: create mcp config file")
+	if err := writeBesideWorktree(dir, claudeMCPConfigFile, body); err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "localexec: write mcp config file")
 	}
-	defer func() { _ = f.Close() }()
-	if _, err := f.Write(body); err != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: write mcp config file")
-	}
-	return f.Name(), nil
+	return nil
 }
