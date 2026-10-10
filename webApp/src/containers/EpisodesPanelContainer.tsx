@@ -4,10 +4,8 @@
  * Export (JSON/CSV) assembly — none of which the pure `EpisodesPanel` /
  * `EpisodeTimeline` (components layer) may touch directly.
  *
- * Mount points: `SystemDesignContainer.tsx` (via `episodesSlot`, Phase 1),
- * `ProjectDesignExperience.tsx` (Phase 2) — see each file's own comment for
- * why the mount is threaded as a prop rather than mounted from inside a
- * components-layer file.
+ * Mount point: `ActivityExperienceContainer.tsx`, under a construction activity's
+ * body (activityVerbs.ts `isConstructionRail`).
  *
  * There is no `exportEpisodes` op (cut per the 2026-08-02 facet ruling): Export
  * assembles `{records, traces}` client-side from the already-fetched list plus

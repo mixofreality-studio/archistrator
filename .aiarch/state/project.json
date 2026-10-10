@@ -72451,12 +72451,12 @@
                   },
                   {
                     "name": "action",
-                    "value": "{\"kind\":\"click\",\"target\":\"episodes-row-dct-ep-review-engine-0003\"}",
+                    "value": "{\"kind\":\"click\",\"target\":\"episodes-row-construction-1\"}",
                     "schemaRef": "#/$defs/UIAction"
                   }
                 ],
                 "expect": {
-                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"},{\"visible\":\"episodes-panel\"},{\"visible\":\"episode-outcome-chip-dct-ep-review-engine-0003\"},{\"visible\":\"episode-timeline\"},{\"visible\":\"activity-reopen\"}]",
+                  "result": "[{\"url\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"},{\"visible\":\"episodes-panel\"},{\"visible\":\"episode-outcome-chip-construction-1\"},{\"visible\":\"episode-timeline\"},{\"visible\":\"activity-reopen\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },

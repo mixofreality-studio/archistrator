@@ -9,10 +9,10 @@ test('requeue-a-failed-construction-activity-P1 — Requeue a Failed Constructio
   // step 1: OpenFailedActivity (node review-failure)
   await page.goto('/project/dct-owner%2Fdct-delivery/plan');
   await page.getByTestId('plan-row-C-review-engine').click();
-  await page.getByTestId('episodes-row-dct-ep-review-engine-0003').click();
+  await page.getByTestId('episodes-row-construction-1').click();
   await expect(page).toHaveURL(new RegExp('^[a-z][a-z0-9+.-]*://[^/]+/project/dct-owner%2Fdct-delivery/activity/C-review-engine(?:[?#].*)?$'));
   await expect(page.getByTestId('episodes-panel')).toBeVisible();
-  await expect(page.getByTestId('episode-outcome-chip-dct-ep-review-engine-0003')).toBeVisible();
+  await expect(page.getByTestId('episode-outcome-chip-construction-1')).toBeVisible();
   await expect(page.getByTestId('episode-timeline')).toBeVisible();
   await expect(page.getByTestId('activity-reopen')).toBeVisible();
   // step 2: RequeueActivity (node write-change)

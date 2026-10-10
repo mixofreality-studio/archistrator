@@ -64,9 +64,17 @@ export interface EpisodeTimelineProps {
   /** A failed getEpisodeTimeline fetch — surfaced explicitly (2026-08-02 review
    *  finding I1) rather than rendering indistinguishable-from-success emptiness. */
   error?: string | undefined;
+  /** The timeline's own test id: the episode list's expanded row by default; the
+   *  dispatch body names its revision's timeline apart (Activity.REVISION_TIMELINE). */
+  testId?: string | undefined;
 }
 
-export function EpisodeTimeline({ timeline, loading, error }: EpisodeTimelineProps): ReactNode {
+export function EpisodeTimeline({
+  timeline,
+  loading,
+  error,
+  testId = UI_IDENTIFIERS.Episodes.TIMELINE,
+}: EpisodeTimelineProps): ReactNode {
   const t = useTokens();
   const [filter, setFilter] = useState<string>(ALL_EVENT_TYPES);
 
@@ -92,10 +100,7 @@ export function EpisodeTimeline({ timeline, loading, error }: EpisodeTimelinePro
 
   if (loading) {
     return (
-      <Box
-        data-testid={UI_IDENTIFIERS.Episodes.TIMELINE}
-        sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 2 }}
-      >
+      <Box data-testid={testId} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 2 }}>
         <CircularProgress size={16} />
         <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.muted }}>
           loading timeline…
@@ -114,7 +119,7 @@ export function EpisodeTimeline({ timeline, loading, error }: EpisodeTimelinePro
 
   return (
     <Paper
-      data-testid={UI_IDENTIFIERS.Episodes.TIMELINE}
+      data-testid={testId}
       sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1, bgcolor: t.paperAlt }}
     >
       {isGap ? (

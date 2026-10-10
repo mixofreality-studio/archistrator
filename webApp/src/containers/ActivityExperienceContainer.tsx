@@ -131,7 +131,13 @@ import {
   REQUIREMENTS_ACTIVITY_ID,
   taskArtifactFor,
 } from '../components/activity/taskArtifactFor.ts';
-import { REVIEW_ADVANCE, REVIEW_SET_COMMENT_STATUS, verbsFor } from './activityVerbs.ts';
+import {
+  REVIEW_ADVANCE,
+  REVIEW_SET_COMMENT_STATUS,
+  isConstructionRail,
+  verbsFor,
+} from './activityVerbs.ts';
+import { EpisodesPanelContainer } from './EpisodesPanelContainer';
 import { toC4View } from '../contracts/adapters';
 import { ARTIFACT_STAGE_ORDINAL_TO_APP } from '../contracts/enums.gen.ts';
 import { narrowProject } from '../contracts/projectAdapters';
@@ -1061,6 +1067,14 @@ export function ActivityExperienceContainer({
             }}
           />
         )}
+
+        {/* The activity's recorded attempts, under whichever task is on screen: a failed
+            run is diagnosed from what its agent jobs did (requeue-a-failed-construction-
+            activity/read-attempts, read-failed-trace) before the operator re-opens it
+            from the override bar above. */}
+        {view !== undefined && isConstructionRail(view.type) ? (
+          <EpisodesPanelContainer byActivity projectId={projectId} targetRef={activityId} />
+        ) : null}
       </Box>
     </ExperienceChrome>
   );

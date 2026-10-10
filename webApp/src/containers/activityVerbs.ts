@@ -129,6 +129,17 @@ export interface VerbsFor {
 const DESIGN_RAIL_TYPES: ReadonlySet<string> = new Set(['requirements', 'architecture']);
 
 /**
+ * True for an activity whose work is DISPATCHED to agent jobs rather than drafted into
+ * a design slot: every activity type but the two design rails and M0. These are the
+ * activities whose failures an operator diagnoses from their recorded attempts
+ * (requeue-a-failed-construction-activity/review-failure → read-attempts), so the
+ * screen lists the activity's episodes for them and for nothing else.
+ */
+export function isConstructionRail(type: string): boolean {
+  return type !== '' && type !== 'projectDesign' && !DESIGN_RAIL_TYPES.has(type);
+}
+
+/**
  * Why a construction gate offers neither stale exit — the ONE refusal that survived
  * stage 4b1, and it is SEMANTIC, not a missing op.
  *
