@@ -50410,6 +50410,23 @@
                       "errorExpected": false,
                       "errorCode": ""
                     }
+                  },
+                  {
+                    "for": "question-answered",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"reviewThread\":[{\"type\":\"question\",\"status\":\"answered\",\"addressee\":\"architect\",\"replies\":[{}]}]}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
                   }
                 ],
                 "unobservable": null,
@@ -50474,6 +50491,23 @@
                     ],
                     "expect": {
                       "result": "{\"activityId\":\"architecture\",\"state\":\"done\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "question-still-open",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"session\",\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"session\",\"session\":{\"reviewThread\":[{\"type\":\"question\",\"status\":\"open\",\"addressee\":\"architect\"}]}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
