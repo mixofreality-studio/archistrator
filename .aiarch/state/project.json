@@ -71359,6 +71359,11 @@
                   },
                   {
                     "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-basis-chip\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
                     "value": "{\"kind\":\"click\",\"target\":\"stale-mark-reviewed\"}",
                     "schemaRef": "#/$defs/UIAction"
                   },
@@ -71462,6 +71467,11 @@
                   {
                     "name": "action",
                     "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-architectureReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-basis-chip\"}",
                     "schemaRef": "#/$defs/UIAction"
                   },
                   {
@@ -71573,6 +71583,11 @@
                   },
                   {
                     "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-basis-chip\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
                     "value": "{\"kind\":\"click\",\"target\":\"stale-mark-reviewed\"}",
                     "schemaRef": "#/$defs/UIAction"
                   },
@@ -71676,6 +71691,11 @@
                   {
                     "name": "action",
                     "value": "{\"kind\":\"click\",\"target\":\"lifecycle-node-architectureReview\"}",
+                    "schemaRef": "#/$defs/UIAction"
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"stale-basis-chip\"}",
                     "schemaRef": "#/$defs/UIAction"
                   },
                   {
