@@ -306,35 +306,35 @@ func TestScenario_register_a_delivered_system_for_operation_P1(t *testing.T) {
 	})
 }
 
-// inputRetryADeclinedServiceInvoiceP3S1 is step 1's parameters of ApplyDelinquencyPolicy, decoded from the binding's inputs.
-type inputRetryADeclinedServiceInvoiceP3S1 struct {
+// inputRetryADeclinedServiceInvoiceP4S1 is step 1's parameters of ApplyDelinquencyPolicy, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP4S1 struct {
 	CustomerID         uuid.UUID                     `json:"customerID"`
 	DelinquencyContext operations.DelinquencyContext `json:"delinquencyContext"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → escalate-delinquent → customer-delinquent → signal-delinquency-escalation → merge-out → end).
-func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
+// TestScenario_retry_a_declined_service_invoice_P4 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → escalate-delinquent → customer-delinquent → signal-delinquency-escalation → merge-out → end).
+func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
 	h := scenariohost.Start(t)
-	h.RunScenario(t, "operationsManager", "retry-a-declined-service-invoice-P3", func(t *testing.T) {
+	h.RunScenario(t, "operationsManager", "retry-a-declined-service-invoice-P4", func(t *testing.T) {
 		var subject operations.OperationsManager = newSubject(t, h)
 		// step 1: ApplyDelinquencyPolicy (node escalate-delinquent; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
-		var in1 inputRetryADeclinedServiceInvoiceP3S1
+		var in1 inputRetryADeclinedServiceInvoiceP4S1
 		mustUnmarshal(t, `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{"action":1}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP3S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"errorExpected":false}`)
+		out1, err1 = stepRetryADeclinedServiceInvoiceP4S1(t, h, subject, in1)
+		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"errorExpected":false}`)
 		// unobservable: signal-delinquency-escalation
 		// probe 1.1: billingStateAccess.ReadPersistentlyDelinquentCustomers for customer-delinquent
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP3S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"PauseNotWithdraw\":true}]","errorExpected":false}`)
+		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP4S1N1(t, h, subject)
+		expect(t, "retry-a-declined-service-invoice-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"PauseNotWithdraw\":true}]","errorExpected":false}`)
 		// probe 1.2: operatedSystemStateAccess.ReadOperatedSystem for escalate-delinquent
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeRetryADeclinedServiceInvoiceP3S1N2(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":4,\"InFlight\":true}","errorExpected":false}`)
+		pout1_2, perr1_2 = probeRetryADeclinedServiceInvoiceP4S1N2(t, h, subject)
+		expect(t, "retry-a-declined-service-invoice-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":4,\"InFlight\":true}","errorExpected":false}`)
 	})
 }
 

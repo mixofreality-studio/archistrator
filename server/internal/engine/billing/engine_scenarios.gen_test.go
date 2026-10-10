@@ -46,40 +46,18 @@ type inputBillTheUserForUsageP2S1 struct {
 	Terms   billing.BillingTerms `json:"terms"`
 }
 
-// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] · [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → persistent-decline → note-escalation-is-state → customer-delinquent → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
+// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
 func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "bill-the-user-for-usage-P2", func(t *testing.T) {
 		var subject billing.BillingEngine = newSubject(t, h)
-		// step 1: ComputeNet (node price-invoice; guards charge-succeeded=[no], retries-left=[no])
+		// step 1: ComputeNet (node price-invoice; guards charge-succeeded=[no])
 		var in1 inputBillTheUserForUsageP2S1
 		mustUnmarshal(t, `{"revenue":{"GrossInbound":{"minorUnits":346,"currency":"USD"},"EventCount":7},"usage":{"ComputeUnitSeconds":12345.5,"StorageBytesMonths":0,"EgressBytes":0},"terms":{"computeCost":1,"computeMarkupPercent":0,"schedule":2}}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.ComputeNet(callContext(t, h, "1"), in1.Revenue, in1.Usage, in1.Terms)
 		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"{\"SignedNet\":{\"minorUnits\":-12000,\"currency\":\"USD\"},\"RoutingDirective\":2,\"ComputeCostApplied\":{\"minorUnits\":12346,\"currency\":\"USD\"}}","errorExpected":false}`)
-	})
-}
-
-// inputBillTheUserForUsageP3S1 is step 1's parameters of ComputeNet, decoded from the binding's inputs.
-type inputBillTheUserForUsageP3S1 struct {
-	Revenue billing.CycleRevenue `json:"revenue"`
-	Usage   billing.CycleUsage   `json:"usage"`
-	Terms   billing.BillingTerms `json:"terms"`
-}
-
-// TestScenario_bill_the_user_for_usage_P3 — Bill the User for Usage — [no] · [yes] · [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
-func TestScenario_bill_the_user_for_usage_P3(t *testing.T) {
-	h := scenariohost.Start(t)
-	h.RunScenario(t, "billingEngine", "bill-the-user-for-usage-P3", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
-		// step 1: ComputeNet (node price-invoice; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
-		var in1 inputBillTheUserForUsageP3S1
-		mustUnmarshal(t, `{"revenue":{"GrossInbound":{"minorUnits":1000,"currency":"EUR"},"EventCount":3},"usage":{"ComputeUnitSeconds":8000,"StorageBytesMonths":0.25,"EgressBytes":2048},"terms":{"computeCost":2,"computeMarkupPercent":12.5,"schedule":3}}`, &in1)
-		var out1 any
-		var err1 error
-		out1, err1 = subject.ComputeNet(callContext(t, h, "1"), in1.Revenue, in1.Usage, in1.Terms)
-		expect(t, "bill-the-user-for-usage-P3", 1, out1, err1, `{"result":"{\"SignedNet\":{\"minorUnits\":-8000,\"currency\":\"EUR\"},\"RoutingDirective\":2,\"ComputeCostApplied\":{\"minorUnits\":9000,\"currency\":\"EUR\"}}","errorExpected":false}`)
 	})
 }
 

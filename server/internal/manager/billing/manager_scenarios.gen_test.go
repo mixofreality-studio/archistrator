@@ -37,7 +37,7 @@ func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
 		var out1 any
 		var err1 error
 		out1, err1 = stepBillTheUserForUsageP1S1(t, h, subject, in1)
-		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000101\",\"cycleId\":\"2026-09\",\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000101\",\"cycleId\":\"2026-09\",\"routed\":2,\"declined\":false}","errorExpected":false}`)
 		// unobservable: note-charge-idempotency
 		// probe 1.1: billingStateAccess.ReadCycle for period-closed-paid
 		var pout1_1 any
@@ -63,24 +63,24 @@ type inputBillTheUserForUsageP2S1 struct {
 	CycleID    string    `json:"cycleID"`
 }
 
-// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] · [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → persistent-decline → note-escalation-is-state → customer-delinquent → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
+// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
 func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "bill-the-user-for-usage-P2", func(t *testing.T) {
 		var subject billing.BillingManager = newSubject(t, h)
-		// step 1: CloseBillingCycle (node period-elapses; guards charge-succeeded=[no], retries-left=[no])
+		// step 1: CloseBillingCycle (node period-elapses; guards charge-succeeded=[no])
 		var in1 inputBillTheUserForUsageP2S1
 		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000102","cycleID":"2026-09"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepBillTheUserForUsageP2S1(t, h, subject, in1)
-		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"routed\":2,\"escalated\":true}","errorExpected":false}`)
-		// unobservable: note-escalation-is-state
+		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"routed\":2,\"declined\":true}","errorExpected":false}`)
+		// unobservable: note-charge-idempotency
 		// probe 1.1: billingStateAccess.ReadCycle for period-closed-unpaid
 		var pout1_1 any
 		var perr1_1 error
 		pout1_1, perr1_1 = probeBillTheUserForUsageP2S1N1(t, h, subject)
-		expect(t, "bill-the-user-for-usage-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":true}}","errorExpected":false}`)
+		expect(t, "bill-the-user-for-usage-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}","errorExpected":false}`)
 		// probe 1.2: billingManager.GetBillingCycle for invoice-unpaid
 		var pout1_2 any
 		var perr1_2 error
@@ -90,49 +90,12 @@ func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000102","cycleID":"2026-09"}`, &probe1_2)
 		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
-		expect(t, "bill-the-user-for-usage-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":true}","errorExpected":false}`)
-		// probe 1.3: billingStateAccess.ReadPersistentlyDelinquentCustomers for customer-delinquent
+		expect(t, "bill-the-user-for-usage-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		// probe 1.3: billingStateAccess.ReadPersistentlyDelinquentCustomers for period-closed-unpaid
 		var pout1_3 any
 		var perr1_3 error
 		pout1_3, perr1_3 = probeBillTheUserForUsageP2S1N3(t, h, subject)
-		expect(t, "bill-the-user-for-usage-P2 probe 1.3", 1, pout1_3, perr1_3, `{"result":"[{\"ID\":\"0b1a0000-0000-4000-8000-000000000102\"}]","errorExpected":false}`)
-	})
-}
-
-// inputBillTheUserForUsageP3S1 is step 1's parameters of CloseBillingCycle, decoded from the binding's inputs.
-type inputBillTheUserForUsageP3S1 struct {
-	CustomerID uuid.UUID `json:"customerID"`
-	CycleID    string    `json:"cycleID"`
-}
-
-// TestScenario_bill_the_user_for_usage_P3 — Bill the User for Usage — [no] · [yes] · [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
-func TestScenario_bill_the_user_for_usage_P3(t *testing.T) {
-	h := scenariohost.Start(t)
-	h.RunScenario(t, "billingManager", "bill-the-user-for-usage-P3", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
-		// step 1: CloseBillingCycle (node period-elapses; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
-		var in1 inputBillTheUserForUsageP3S1
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000103","cycleID":"2026-09"}`, &in1)
-		var out1 any
-		var err1 error
-		out1, err1 = stepBillTheUserForUsageP3S1(t, h, subject, in1)
-		expect(t, "bill-the-user-for-usage-P3", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000103\",\"cycleId\":\"2026-09\",\"routed\":2,\"escalated\":false}","errorExpected":false}`)
-		// unobservable: note-charge-idempotency
-		// probe 1.1: billingStateAccess.ReadCycle for period-closed-paid
-		var pout1_1 any
-		var perr1_1 error
-		pout1_1, perr1_1 = probeBillTheUserForUsageP3S1N1(t, h, subject)
-		expect(t, "bill-the-user-for-usage-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
-		// probe 1.2: billingManager.GetBillingCycle for invoice-paid
-		var pout1_2 any
-		var perr1_2 error
-		var probe1_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			CycleID    string    `json:"cycleID"`
-		}
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000103","cycleID":"2026-09"}`, &probe1_2)
-		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
-		expect(t, "bill-the-user-for-usage-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000103\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		expect(t, "bill-the-user-for-usage-P2 probe 1.3", 1, pout1_3, perr1_3, `{"result":"[]","errorExpected":false}`)
 	})
 }
 
@@ -250,12 +213,12 @@ type inputRetryADeclinedServiceInvoiceP1S1 struct {
 	TickID string `json:"tickID"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
 		var subject billing.BillingManager = newSubject(t, h)
-		// step 1: RunShortfallSweep (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
+		// step 1: RunShortfallSweep (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
 		var in1 inputRetryADeclinedServiceInvoiceP1S1
 		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P1-tick-0001"}`, &in1)
 		var out1 any
@@ -263,11 +226,47 @@ func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 		out1, err1 = stepRetryADeclinedServiceInvoiceP1S1(t, h, subject, in1)
 		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// unobservable: note-idempotency-key
-		// probe 1.1: billingStateAccess.ReadCycle for cycle-settled
+		// probe 1.1: billingStateAccess.ReadCycle for cycle-awaiting-sweep
 		var pout1_1 any
 		var perr1_1 error
 		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP1S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":2,\"SweepsAged\":1}}","errorExpected":false}`)
+		// probe 1.2: billingManager.GetBillingCycle for cycle-awaiting-sweep
+		var pout1_2 any
+		var perr1_2 error
+		var probe1_2 struct {
+			CustomerID uuid.UUID `json:"customerID"`
+			CycleID    string    `json:"cycleID"`
+		}
+		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000304","cycleID":"2026-08"}`, &probe1_2)
+		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
+		expect(t, "retry-a-declined-service-invoice-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000304\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":false}","errorExpected":false}`)
+	})
+}
+
+// inputRetryADeclinedServiceInvoiceP2S1 is step 1's parameters of RunShortfallSweep, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP2S1 struct {
+	TickID string `json:"tickID"`
+}
+
+// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
+		var subject billing.BillingManager = newSubject(t, h)
+		// step 1: RunShortfallSweep (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
+		var in1 inputRetryADeclinedServiceInvoiceP2S1
+		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P2-tick-0001"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepRetryADeclinedServiceInvoiceP2S1(t, h, subject, in1)
+		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"errorExpected":false}`)
+		// unobservable: note-idempotency-key
+		// probe 1.1: billingStateAccess.ReadCycle for cycle-settled
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP2S1N1(t, h, subject)
+		expect(t, "retry-a-declined-service-invoice-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":2}}","errorExpected":false}`)
 		// probe 1.2: billingManager.GetBillingCycle for cycle-settled
 		var pout1_2 any
 		var perr1_2 error
@@ -277,32 +276,32 @@ func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000301","cycleID":"2026-08"}`, &probe1_2)
 		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
-		expect(t, "retry-a-declined-service-invoice-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000301\",\"cycleId\":\"2026-08\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000301\",\"cycleId\":\"2026-08\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
 	})
 }
 
-// inputRetryADeclinedServiceInvoiceP2S1 is step 1's parameters of RunShortfallSweep, decoded from the binding's inputs.
-type inputRetryADeclinedServiceInvoiceP2S1 struct {
+// inputRetryADeclinedServiceInvoiceP3S1 is step 1's parameters of RunShortfallSweep, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP3S1 struct {
 	TickID string `json:"tickID"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep → cycle-awaiting-sweep → merge-out → end).
-func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
+// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep → cycle-awaiting-sweep → merge-out → end).
+func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
 	h := scenariohost.Start(t)
-	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
+	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P3", func(t *testing.T) {
 		var subject billing.BillingManager = newSubject(t, h)
 		// step 1: RunShortfallSweep (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
-		var in1 inputRetryADeclinedServiceInvoiceP2S1
-		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P2-tick-0001"}`, &in1)
+		var in1 inputRetryADeclinedServiceInvoiceP3S1
+		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P3-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP2S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"errorExpected":false}`)
+		out1, err1 = stepRetryADeclinedServiceInvoiceP3S1(t, h, subject, in1)
+		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: billingStateAccess.ReadCycle for cycle-awaiting-sweep
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP2S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false}}","errorExpected":false}`)
+		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP3S1N1(t, h, subject)
+		expect(t, "retry-a-declined-service-invoice-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false}}","errorExpected":false}`)
 		// probe 1.2: billingManager.GetBillingCycle for cycle-awaiting-sweep
 		var pout1_2 any
 		var perr1_2 error
@@ -312,33 +311,33 @@ func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000302","cycleID":"2026-08"}`, &probe1_2)
 		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
-		expect(t, "retry-a-declined-service-invoice-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":false}","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":false}","errorExpected":false}`)
 	})
 }
 
-// inputRetryADeclinedServiceInvoiceP3S1 is step 1's parameters of RunShortfallSweep, decoded from the binding's inputs.
-type inputRetryADeclinedServiceInvoiceP3S1 struct {
+// inputRetryADeclinedServiceInvoiceP4S1 is step 1's parameters of RunShortfallSweep, decoded from the binding's inputs.
+type inputRetryADeclinedServiceInvoiceP4S1 struct {
 	TickID string `json:"tickID"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → escalate-delinquent → customer-delinquent → signal-delinquency-escalation → merge-out → end).
-func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
+// TestScenario_retry_a_declined_service_invoice_P4 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → escalate-delinquent → customer-delinquent → signal-delinquency-escalation → merge-out → end).
+func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
 	h := scenariohost.Start(t)
-	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P3", func(t *testing.T) {
+	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P4", func(t *testing.T) {
 		var subject billing.BillingManager = newSubject(t, h)
 		// step 1: RunShortfallSweep (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
-		var in1 inputRetryADeclinedServiceInvoiceP3S1
-		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P3-tick-0001"}`, &in1)
+		var in1 inputRetryADeclinedServiceInvoiceP4S1
+		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P4-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP3S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"result":"{\"signalledCustomers\":[\"0b1a0000-0000-4000-8000-000000000303\"]}","errorExpected":false}`)
+		out1, err1 = stepRetryADeclinedServiceInvoiceP4S1(t, h, subject, in1)
+		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"{\"signalledCustomers\":[\"0b1a0000-0000-4000-8000-000000000303\"]}","errorExpected":false}`)
 		// unobservable: signal-delinquency-escalation
 		// probe 1.1: billingStateAccess.ReadPersistentlyDelinquentCustomers for customer-delinquent
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP3S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"0b1a0000-0000-4000-8000-000000000303\"}]","errorExpected":false}`)
+		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP4S1N1(t, h, subject)
+		expect(t, "retry-a-declined-service-invoice-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"0b1a0000-0000-4000-8000-000000000303\"}]","errorExpected":false}`)
 		// probe 1.2: billingManager.GetBillingCycle for customer-delinquent
 		var pout1_2 any
 		var perr1_2 error
@@ -348,43 +347,7 @@ func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000303","cycleID":"2026-08"}`, &probe1_2)
 		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
-		expect(t, "retry-a-declined-service-invoice-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000303\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":true}","errorExpected":false}`)
-	})
-}
-
-// inputRetryADeclinedServiceInvoiceP4S1 is step 1's parameters of RunShortfallSweep, decoded from the binding's inputs.
-type inputRetryADeclinedServiceInvoiceP4S1 struct {
-	TickID string `json:"tickID"`
-}
-
-// TestScenario_retry_a_declined_service_invoice_P4 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] · [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
-func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
-	h := scenariohost.Start(t)
-	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P4", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
-		// step 1: RunShortfallSweep (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
-		var in1 inputRetryADeclinedServiceInvoiceP4S1
-		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P4-tick-0001"}`, &in1)
-		var out1 any
-		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP4S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: note-idempotency-key
-		// probe 1.1: billingStateAccess.ReadCycle for cycle-settled
-		var pout1_1 any
-		var perr1_1 error
-		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP4S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
-		// probe 1.2: billingManager.GetBillingCycle for cycle-settled
-		var pout1_2 any
-		var perr1_2 error
-		var probe1_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			CycleID    string    `json:"cycleID"`
-		}
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000304","cycleID":"2026-08"}`, &probe1_2)
-		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
-		expect(t, "retry-a-declined-service-invoice-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000304\",\"cycleId\":\"2026-08\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000303\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":true}","errorExpected":false}`)
 	})
 }
 

@@ -97,135 +97,54 @@ type inputBillTheUserForUsageP2S2 struct {
 	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
-// inputBillTheUserForUsageP2S3 is step 3's parameters of SettleCycle, decoded from the binding's inputs.
-type inputBillTheUserForUsageP2S3 struct {
-	CustomerID      uuid.UUID                   `json:"customerID"`
-	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
-	Cycle           string                      `json:"cycle"`
-	Outcome         billingstate.BillingOutcome `json:"outcome"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
-}
-
-// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] · [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → persistent-decline → note-escalation-is-state → customer-delinquent → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
+// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
 func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingStateAccess", "bill-the-user-for-usage-P2", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
-		// step 1: ReadBilling (node read-hosting-usage; guards charge-succeeded=[no], retries-left=[no])
+		// step 1: ReadBilling (node read-hosting-usage; guards charge-succeeded=[no])
 		var in1 inputBillTheUserForUsageP2S1
 		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepBillTheUserForUsageP2S1(t, h, subject, in1)
 		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"{\"ID\":\"b1120000-0000-4000-8000-000000000002\",\"Version\":2,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
-		// step 2: SettleCycle (node persistent-decline; guards charge-succeeded=[no], retries-left=[no])
+		// step 2: SettleCycle (node record-unpaid; guards charge-succeeded=[no])
 		var in2 inputBillTheUserForUsageP2S2
-		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002","expectedVersion":2,"cycle":"2026-09","outcome":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":true,"Escalated":true,"Attempts":3,"SweepsAged":0},"idempotencyKey":"settle-state:b1120000-0000-4000-8000-000000000002:2026-09"}`, &in2)
-		var out2 any
-		var err2 error
-		out2, err2 = stepBillTheUserForUsageP2S2(t, h, subject, in2)
-		expect(t, "bill-the-user-for-usage-P2", 2, out2, err2, `{"result":"3","errorExpected":false}`)
-		// probe 2.1: billingStateAccess.ReadPersistentlyDelinquentCustomers for customer-delinquent
-		var pout2_1 any
-		var perr2_1 error
-		var probe2_1 struct {
-			Scope billingstate.DelinquencyScope `json:"scope"`
-		}
-		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.ReadPersistentlyDelinquentCustomers(callContext(t, h, "2.1"), probe2_1.Scope)
-		expect(t, "bill-the-user-for-usage-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"[{\"ID\":\"b1120000-0000-4000-8000-000000000002\"}]","errorExpected":false}`)
-		// step 3: SettleCycle (node record-unpaid; guards charge-succeeded=[no], retries-left=[no])
-		var in3 inputBillTheUserForUsageP2S3
-		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002","expectedVersion":2,"cycle":"2026-09","outcome":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":true,"Escalated":true,"Attempts":3,"SweepsAged":0},"idempotencyKey":"settle-state:b1120000-0000-4000-8000-000000000002:2026-09"}`, &in3)
-		var out3 any
-		var err3 error
-		out3, err3 = subject.SettleCycle(callContext(t, h, "3"), in3.CustomerID, in3.ExpectedVersion, in3.Cycle, in3.Outcome, in3.IdempotencyKey)
-		expect(t, "bill-the-user-for-usage-P2", 3, out3, err3, `{"result":"3","errorExpected":false}`)
-		// probe 3.1: billingStateAccess.ReadCycle for invoice-unpaid
-		var pout3_1 any
-		var perr3_1 error
-		var probe3_1 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			Cycle      string    `json:"cycle"`
-		}
-		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002","cycle":"2026-09"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.ReadCycle(callContext(t, h, "3.1"), probe3_1.CustomerID, probe3_1.Cycle)
-		expect(t, "bill-the-user-for-usage-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":true}}","errorExpected":false}`)
-		// probe 3.2: billingStateAccess.ReadCycle for period-closed-unpaid
-		var pout3_2 any
-		var perr3_2 error
-		var probe3_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			Cycle      string    `json:"cycle"`
-		}
-		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002","cycle":"2026-09"}`, &probe3_2)
-		pout3_2, perr3_2 = subject.ReadCycle(callContext(t, h, "3.2"), probe3_2.CustomerID, probe3_2.Cycle)
-		expect(t, "bill-the-user-for-usage-P2 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2}}","errorExpected":false}`)
-	})
-}
-
-// inputBillTheUserForUsageP3S1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
-type inputBillTheUserForUsageP3S1 struct {
-	CustomerID uuid.UUID `json:"customerID"`
-}
-
-// inputBillTheUserForUsageP3S2 is step 2's parameters of SettleCycle, decoded from the binding's inputs.
-type inputBillTheUserForUsageP3S2 struct {
-	CustomerID      uuid.UUID                   `json:"customerID"`
-	ExpectedVersion billingstate.Version        `json:"expectedVersion"`
-	Cycle           string                      `json:"cycle"`
-	Outcome         billingstate.BillingOutcome `json:"outcome"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
-}
-
-// TestScenario_bill_the_user_for_usage_P3 — Bill the User for Usage — [no] · [yes] · [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
-func TestScenario_bill_the_user_for_usage_P3(t *testing.T) {
-	h := scenariohost.Start(t)
-	h.RunScenario(t, "billingStateAccess", "bill-the-user-for-usage-P3", func(t *testing.T) {
-		var subject billingstate.BillingStateAccess = newSubject(t, h)
-		// step 1: ReadBilling (node read-hosting-usage; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
-		var in1 inputBillTheUserForUsageP3S1
-		mustUnmarshal(t, `{"customerID":"b1130000-0000-4000-8000-000000000003"}`, &in1)
-		var out1 any
-		var err1 error
-		out1, err1 = stepBillTheUserForUsageP3S1(t, h, subject, in1)
-		expect(t, "bill-the-user-for-usage-P3", 1, out1, err1, `{"result":"{\"ID\":\"b1130000-0000-4000-8000-000000000003\",\"Version\":2,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
-		// step 2: SettleCycle (node record-close; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
-		var in2 inputBillTheUserForUsageP3S2
-		mustUnmarshal(t, `{"customerID":"b1130000-0000-4000-8000-000000000003","expectedVersion":2,"cycle":"2026-09","outcome":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":false,"Escalated":false,"Attempts":2,"SweepsAged":0},"idempotencyKey":"settle-state:b1130000-0000-4000-8000-000000000003:2026-09"}`, &in2)
+		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002","expectedVersion":2,"cycle":"2026-09","outcome":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":true,"Escalated":false,"Attempts":1,"SweepsAged":0},"idempotencyKey":"settle-state:b1120000-0000-4000-8000-000000000002:2026-09"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.SettleCycle(callContext(t, h, "2"), in2.CustomerID, in2.ExpectedVersion, in2.Cycle, in2.Outcome, in2.IdempotencyKey)
-		expect(t, "bill-the-user-for-usage-P3", 2, out2, err2, `{"result":"3","errorExpected":false}`)
-		// probe 2.1: billingStateAccess.ReadBilling for record-close
+		expect(t, "bill-the-user-for-usage-P2", 2, out2, err2, `{"result":"3","errorExpected":false}`)
+		// probe 2.1: billingStateAccess.ReadCycle for invoice-unpaid
 		var pout2_1 any
 		var perr2_1 error
 		var probe2_1 struct {
 			CustomerID uuid.UUID `json:"customerID"`
+			Cycle      string    `json:"cycle"`
 		}
-		mustUnmarshal(t, `{"customerID":"b1130000-0000-4000-8000-000000000003"}`, &probe2_1)
-		pout2_1, perr2_1 = subject.ReadBilling(callContext(t, h, "2.1"), probe2_1.CustomerID)
-		expect(t, "bill-the-user-for-usage-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"b1130000-0000-4000-8000-000000000003\",\"Version\":3}","errorExpected":false}`)
-		// probe 2.2: billingStateAccess.ReadCycle for invoice-paid
+		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002","cycle":"2026-09"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadCycle(callContext(t, h, "2.1"), probe2_1.CustomerID, probe2_1.Cycle)
+		expect(t, "bill-the-user-for-usage-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}","errorExpected":false}`)
+		// probe 2.2: billingStateAccess.ReadCycle for period-closed-unpaid
 		var pout2_2 any
 		var perr2_2 error
 		var probe2_2 struct {
 			CustomerID uuid.UUID `json:"customerID"`
 			Cycle      string    `json:"cycle"`
 		}
-		mustUnmarshal(t, `{"customerID":"b1130000-0000-4000-8000-000000000003","cycle":"2026-09"}`, &probe2_2)
+		mustUnmarshal(t, `{"customerID":"b1120000-0000-4000-8000-000000000002","cycle":"2026-09"}`, &probe2_2)
 		pout2_2, perr2_2 = subject.ReadCycle(callContext(t, h, "2.2"), probe2_2.CustomerID, probe2_2.Cycle)
-		expect(t, "bill-the-user-for-usage-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":false,\"Directive\":2}}","errorExpected":false}`)
-		// probe 2.3: billingStateAccess.ReadCycle for period-closed-paid
+		expect(t, "bill-the-user-for-usage-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2}}","errorExpected":false}`)
+		// probe 2.3: billingStateAccess.ReadPersistentlyDelinquentCustomers for period-closed-unpaid
 		var pout2_3 any
 		var perr2_3 error
 		var probe2_3 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			Cycle      string    `json:"cycle"`
+			Scope billingstate.DelinquencyScope `json:"scope"`
 		}
-		mustUnmarshal(t, `{"customerID":"b1130000-0000-4000-8000-000000000003","cycle":"2026-09"}`, &probe2_3)
-		pout2_3, perr2_3 = subject.ReadCycle(callContext(t, h, "2.3"), probe2_3.CustomerID, probe2_3.Cycle)
-		expect(t, "bill-the-user-for-usage-P3 probe 2.3", 2, pout2_3, perr2_3, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"}}}","errorExpected":false}`)
+		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &probe2_3)
+		pout2_3, perr2_3 = subject.ReadPersistentlyDelinquentCustomers(callContext(t, h, "2.3"), probe2_3.Scope)
+		expect(t, "bill-the-user-for-usage-P2 probe 2.3", 2, pout2_3, perr2_3, `{"result":"[]","errorExpected":false}`)
 	})
 }
 
@@ -439,58 +358,58 @@ type inputRetryADeclinedServiceInvoiceP1S4 struct {
 	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingStateAccess", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
-		// step 1: ReadDeclinedCycles (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
+		// step 1: ReadDeclinedCycles (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
 		var in1 inputRetryADeclinedServiceInvoiceP1S1
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepRetryADeclinedServiceInvoiceP1S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"result":"[{\"CustomerID\":\"2e710000-0000-4000-8000-000000000001\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]","errorExpected":false}`)
-		// step 2: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
+		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"result":"[{\"CustomerID\":\"2e740000-0000-4000-8000-000000000004\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]","errorExpected":false}`)
+		// step 2: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
 		var in2 inputRetryADeclinedServiceInvoiceP1S2
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.ReadPersistentlyDelinquentCustomers(callContext(t, h, "2"), in2.Scope)
 		expect(t, "retry-a-declined-service-invoice-P1", 2, out2, err2, `{"result":"[]","errorExpected":false}`)
-		// step 3: ReadBilling (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
+		// step 3: ReadBilling (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
 		var in3 inputRetryADeclinedServiceInvoiceP1S3
-		mustUnmarshal(t, `{"customerID":"2e710000-0000-4000-8000-000000000001"}`, &in3)
+		mustUnmarshal(t, `{"customerID":"2e740000-0000-4000-8000-000000000004"}`, &in3)
 		var out3 any
 		var err3 error
 		out3, err3 = subject.ReadBilling(callContext(t, h, "3"), in3.CustomerID)
-		expect(t, "retry-a-declined-service-invoice-P1", 3, out3, err3, `{"result":"{\"ID\":\"2e710000-0000-4000-8000-000000000001\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
-		// step 4: ResettleCycle (node record-settled; guards retry-budget=[yes: retry], charge-ok=[yes])
+		expect(t, "retry-a-declined-service-invoice-P1", 3, out3, err3, `{"result":"{\"ID\":\"2e740000-0000-4000-8000-000000000004\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		// step 4: ResettleCycle (node delay-sweep; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
 		var in4 inputRetryADeclinedServiceInvoiceP1S4
-		mustUnmarshal(t, `{"customerID":"2e710000-0000-4000-8000-000000000001","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":false,"Escalated":false,"Attempts":2,"SweepsAged":0},"idempotencyKey":"resettle-state:2e710000-0000-4000-8000-000000000001:2026-09"}`, &in4)
+		mustUnmarshal(t, `{"customerID":"2e740000-0000-4000-8000-000000000004","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":true,"Escalated":false,"Attempts":2,"SweepsAged":1},"idempotencyKey":"sweep-state:2e740000-0000-4000-8000-000000000004:2026-09:1"}`, &in4)
 		var out4 any
 		var err4 error
 		out4, err4 = subject.ResettleCycle(callContext(t, h, "4"), in4.CustomerID, in4.ExpectedVersion, in4.Cycle, in4.Correction, in4.IdempotencyKey)
 		expect(t, "retry-a-declined-service-invoice-P1", 4, out4, err4, `{"result":"4","errorExpected":false}`)
-		// probe 4.1: billingStateAccess.ReadBilling for record-settled
+		// probe 4.1: billingStateAccess.ReadCycle for cycle-awaiting-sweep
 		var pout4_1 any
 		var perr4_1 error
 		var probe4_1 struct {
 			CustomerID uuid.UUID `json:"customerID"`
+			Cycle      string    `json:"cycle"`
 		}
-		mustUnmarshal(t, `{"customerID":"2e710000-0000-4000-8000-000000000001"}`, &probe4_1)
-		pout4_1, perr4_1 = subject.ReadBilling(callContext(t, h, "4.1"), probe4_1.CustomerID)
-		expect(t, "retry-a-declined-service-invoice-P1 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"ID\":\"2e710000-0000-4000-8000-000000000001\",\"Version\":4}","errorExpected":false}`)
-		// probe 4.2: billingStateAccess.ReadCycle for cycle-settled
+		mustUnmarshal(t, `{"customerID":"2e740000-0000-4000-8000-000000000004","cycle":"2026-09"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadCycle(callContext(t, h, "4.1"), probe4_1.CustomerID, probe4_1.Cycle)
+		expect(t, "retry-a-declined-service-invoice-P1 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":false,\"Declined\":true,\"Attempts\":2,\"SweepsAged\":1}}","errorExpected":false}`)
+		// probe 4.2: billingStateAccess.ReadPersistentlyDelinquentCustomers for cycle-awaiting-sweep
 		var pout4_2 any
 		var perr4_2 error
 		var probe4_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			Cycle      string    `json:"cycle"`
+			Scope billingstate.DelinquencyScope `json:"scope"`
 		}
-		mustUnmarshal(t, `{"customerID":"2e710000-0000-4000-8000-000000000001","cycle":"2026-09"}`, &probe4_2)
-		pout4_2, perr4_2 = subject.ReadCycle(callContext(t, h, "4.2"), probe4_2.CustomerID, probe4_2.Cycle)
-		expect(t, "retry-a-declined-service-invoice-P1 probe 4.2", 4, pout4_2, perr4_2, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false,\"Declined\":false,\"Attempts\":2,\"SweepsAged\":0}}","errorExpected":false}`)
+		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &probe4_2)
+		pout4_2, perr4_2 = subject.ReadPersistentlyDelinquentCustomers(callContext(t, h, "4.2"), probe4_2.Scope)
+		expect(t, "retry-a-declined-service-invoice-P1 probe 4.2", 4, pout4_2, perr4_2, `{"result":"[]","errorExpected":false}`)
 	})
 }
 
@@ -518,58 +437,58 @@ type inputRetryADeclinedServiceInvoiceP2S4 struct {
 	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep → cycle-awaiting-sweep → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingStateAccess", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
-		// step 1: ReadDeclinedCycles (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
+		// step 1: ReadDeclinedCycles (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
 		var in1 inputRetryADeclinedServiceInvoiceP2S1
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepRetryADeclinedServiceInvoiceP2S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"result":"[{\"CustomerID\":\"2e720000-0000-4000-8000-000000000002\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]","errorExpected":false}`)
-		// step 2: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
+		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"result":"[{\"CustomerID\":\"2e710000-0000-4000-8000-000000000001\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]","errorExpected":false}`)
+		// step 2: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
 		var in2 inputRetryADeclinedServiceInvoiceP2S2
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.ReadPersistentlyDelinquentCustomers(callContext(t, h, "2"), in2.Scope)
 		expect(t, "retry-a-declined-service-invoice-P2", 2, out2, err2, `{"result":"[]","errorExpected":false}`)
-		// step 3: ReadBilling (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
+		// step 3: ReadBilling (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
 		var in3 inputRetryADeclinedServiceInvoiceP2S3
-		mustUnmarshal(t, `{"customerID":"2e720000-0000-4000-8000-000000000002"}`, &in3)
+		mustUnmarshal(t, `{"customerID":"2e710000-0000-4000-8000-000000000001"}`, &in3)
 		var out3 any
 		var err3 error
 		out3, err3 = subject.ReadBilling(callContext(t, h, "3"), in3.CustomerID)
-		expect(t, "retry-a-declined-service-invoice-P2", 3, out3, err3, `{"result":"{\"ID\":\"2e720000-0000-4000-8000-000000000002\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
-		// step 4: ResettleCycle (node delay-sweep; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
+		expect(t, "retry-a-declined-service-invoice-P2", 3, out3, err3, `{"result":"{\"ID\":\"2e710000-0000-4000-8000-000000000001\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		// step 4: ResettleCycle (node record-settled; guards retry-budget=[yes: retry], charge-ok=[yes])
 		var in4 inputRetryADeclinedServiceInvoiceP2S4
-		mustUnmarshal(t, `{"customerID":"2e720000-0000-4000-8000-000000000002","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":true,"Escalated":false,"Attempts":1,"SweepsAged":1},"idempotencyKey":"sweep-state:2e720000-0000-4000-8000-000000000002:2026-09:1"}`, &in4)
+		mustUnmarshal(t, `{"customerID":"2e710000-0000-4000-8000-000000000001","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":false,"Escalated":false,"Attempts":2,"SweepsAged":0},"idempotencyKey":"resettle-state:2e710000-0000-4000-8000-000000000001:2026-09"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepRetryADeclinedServiceInvoiceP2S4(t, h, subject, in4)
+		out4, err4 = subject.ResettleCycle(callContext(t, h, "4"), in4.CustomerID, in4.ExpectedVersion, in4.Cycle, in4.Correction, in4.IdempotencyKey)
 		expect(t, "retry-a-declined-service-invoice-P2", 4, out4, err4, `{"result":"4","errorExpected":false}`)
-		// probe 4.1: billingStateAccess.ReadCycle for cycle-awaiting-sweep
+		// probe 4.1: billingStateAccess.ReadBilling for record-settled
 		var pout4_1 any
 		var perr4_1 error
 		var probe4_1 struct {
 			CustomerID uuid.UUID `json:"customerID"`
-			Cycle      string    `json:"cycle"`
 		}
-		mustUnmarshal(t, `{"customerID":"2e720000-0000-4000-8000-000000000002","cycle":"2026-09"}`, &probe4_1)
-		pout4_1, perr4_1 = subject.ReadCycle(callContext(t, h, "4.1"), probe4_1.CustomerID, probe4_1.Cycle)
-		expect(t, "retry-a-declined-service-invoice-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":false,\"Declined\":true,\"Attempts\":1,\"SweepsAged\":1}}","errorExpected":false}`)
-		// probe 4.2: billingStateAccess.ReadPersistentlyDelinquentCustomers for cycle-awaiting-sweep
+		mustUnmarshal(t, `{"customerID":"2e710000-0000-4000-8000-000000000001"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadBilling(callContext(t, h, "4.1"), probe4_1.CustomerID)
+		expect(t, "retry-a-declined-service-invoice-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"ID\":\"2e710000-0000-4000-8000-000000000001\",\"Version\":4}","errorExpected":false}`)
+		// probe 4.2: billingStateAccess.ReadCycle for cycle-settled
 		var pout4_2 any
 		var perr4_2 error
 		var probe4_2 struct {
-			Scope billingstate.DelinquencyScope `json:"scope"`
+			CustomerID uuid.UUID `json:"customerID"`
+			Cycle      string    `json:"cycle"`
 		}
-		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &probe4_2)
-		pout4_2, perr4_2 = subject.ReadPersistentlyDelinquentCustomers(callContext(t, h, "4.2"), probe4_2.Scope)
-		expect(t, "retry-a-declined-service-invoice-P2 probe 4.2", 4, pout4_2, perr4_2, `{"result":"[]","errorExpected":false}`)
+		mustUnmarshal(t, `{"customerID":"2e710000-0000-4000-8000-000000000001","cycle":"2026-09"}`, &probe4_2)
+		pout4_2, perr4_2 = subject.ReadCycle(callContext(t, h, "4.2"), probe4_2.CustomerID, probe4_2.Cycle)
+		expect(t, "retry-a-declined-service-invoice-P2 probe 4.2", 4, pout4_2, perr4_2, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false,\"Declined\":false,\"Attempts\":2,\"SweepsAged\":0}}","errorExpected":false}`)
 	})
 }
 
@@ -597,39 +516,58 @@ type inputRetryADeclinedServiceInvoiceP3S4 struct {
 	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → escalate-delinquent → customer-delinquent → signal-delinquency-escalation → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingStateAccess", "retry-a-declined-service-invoice-P3", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
-		// step 1: ReadDeclinedCycles (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
+		// step 1: ReadDeclinedCycles (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
 		var in1 inputRetryADeclinedServiceInvoiceP3S1
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepRetryADeclinedServiceInvoiceP3S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"result":"[{\"CustomerID\":\"2e730000-0000-4000-8000-000000000003\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":2}}]","errorExpected":false}`)
-		// step 2: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
+		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"result":"[{\"CustomerID\":\"2e720000-0000-4000-8000-000000000002\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]","errorExpected":false}`)
+		// step 2: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
 		var in2 inputRetryADeclinedServiceInvoiceP3S2
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.ReadPersistentlyDelinquentCustomers(callContext(t, h, "2"), in2.Scope)
 		expect(t, "retry-a-declined-service-invoice-P3", 2, out2, err2, `{"result":"[]","errorExpected":false}`)
-		// step 3: ReadBilling (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
+		// step 3: ReadBilling (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
 		var in3 inputRetryADeclinedServiceInvoiceP3S3
-		mustUnmarshal(t, `{"customerID":"2e730000-0000-4000-8000-000000000003"}`, &in3)
+		mustUnmarshal(t, `{"customerID":"2e720000-0000-4000-8000-000000000002"}`, &in3)
 		var out3 any
 		var err3 error
 		out3, err3 = subject.ReadBilling(callContext(t, h, "3"), in3.CustomerID)
-		expect(t, "retry-a-declined-service-invoice-P3", 3, out3, err3, `{"result":"{\"ID\":\"2e730000-0000-4000-8000-000000000003\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
-		// step 4: ResettleCycle (node escalate-delinquent; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
+		expect(t, "retry-a-declined-service-invoice-P3", 3, out3, err3, `{"result":"{\"ID\":\"2e720000-0000-4000-8000-000000000002\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		// step 4: ResettleCycle (node delay-sweep; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
 		var in4 inputRetryADeclinedServiceInvoiceP3S4
-		mustUnmarshal(t, `{"customerID":"2e730000-0000-4000-8000-000000000003","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":true,"Escalated":true,"Attempts":1,"SweepsAged":3},"idempotencyKey":"escalate-state:2e730000-0000-4000-8000-000000000003:2026-09"}`, &in4)
+		mustUnmarshal(t, `{"customerID":"2e720000-0000-4000-8000-000000000002","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":true,"Escalated":false,"Attempts":1,"SweepsAged":1},"idempotencyKey":"sweep-state:2e720000-0000-4000-8000-000000000002:2026-09:1"}`, &in4)
 		var out4 any
 		var err4 error
 		out4, err4 = stepRetryADeclinedServiceInvoiceP3S4(t, h, subject, in4)
 		expect(t, "retry-a-declined-service-invoice-P3", 4, out4, err4, `{"result":"4","errorExpected":false}`)
+		// probe 4.1: billingStateAccess.ReadCycle for cycle-awaiting-sweep
+		var pout4_1 any
+		var perr4_1 error
+		var probe4_1 struct {
+			CustomerID uuid.UUID `json:"customerID"`
+			Cycle      string    `json:"cycle"`
+		}
+		mustUnmarshal(t, `{"customerID":"2e720000-0000-4000-8000-000000000002","cycle":"2026-09"}`, &probe4_1)
+		pout4_1, perr4_1 = subject.ReadCycle(callContext(t, h, "4.1"), probe4_1.CustomerID, probe4_1.Cycle)
+		expect(t, "retry-a-declined-service-invoice-P3 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":false,\"Declined\":true,\"Attempts\":1,\"SweepsAged\":1}}","errorExpected":false}`)
+		// probe 4.2: billingStateAccess.ReadPersistentlyDelinquentCustomers for cycle-awaiting-sweep
+		var pout4_2 any
+		var perr4_2 error
+		var probe4_2 struct {
+			Scope billingstate.DelinquencyScope `json:"scope"`
+		}
+		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &probe4_2)
+		pout4_2, perr4_2 = subject.ReadPersistentlyDelinquentCustomers(callContext(t, h, "4.2"), probe4_2.Scope)
+		expect(t, "retry-a-declined-service-invoice-P3 probe 4.2", 4, pout4_2, perr4_2, `{"result":"[]","errorExpected":false}`)
 	})
 }
 
@@ -657,58 +595,39 @@ type inputRetryADeclinedServiceInvoiceP4S4 struct {
 	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P4 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] · [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P4 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → escalate-delinquent → customer-delinquent → signal-delinquency-escalation → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingStateAccess", "retry-a-declined-service-invoice-P4", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
-		// step 1: ReadDeclinedCycles (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
+		// step 1: ReadDeclinedCycles (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
 		var in1 inputRetryADeclinedServiceInvoiceP4S1
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepRetryADeclinedServiceInvoiceP4S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"[{\"CustomerID\":\"2e740000-0000-4000-8000-000000000004\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]","errorExpected":false}`)
-		// step 2: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
+		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"[{\"CustomerID\":\"2e730000-0000-4000-8000-000000000003\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":2}}]","errorExpected":false}`)
+		// step 2: ReadPersistentlyDelinquentCustomers (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
 		var in2 inputRetryADeclinedServiceInvoiceP4S2
 		mustUnmarshal(t, `{"scope":{"ProjectID":"stp-billing-project-01"}}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = subject.ReadPersistentlyDelinquentCustomers(callContext(t, h, "2"), in2.Scope)
 		expect(t, "retry-a-declined-service-invoice-P4", 2, out2, err2, `{"result":"[]","errorExpected":false}`)
-		// step 3: ReadBilling (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
+		// step 3: ReadBilling (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
 		var in3 inputRetryADeclinedServiceInvoiceP4S3
-		mustUnmarshal(t, `{"customerID":"2e740000-0000-4000-8000-000000000004"}`, &in3)
+		mustUnmarshal(t, `{"customerID":"2e730000-0000-4000-8000-000000000003"}`, &in3)
 		var out3 any
 		var err3 error
 		out3, err3 = subject.ReadBilling(callContext(t, h, "3"), in3.CustomerID)
-		expect(t, "retry-a-declined-service-invoice-P4", 3, out3, err3, `{"result":"{\"ID\":\"2e740000-0000-4000-8000-000000000004\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
-		// step 4: ResettleCycle (node record-settled; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
+		expect(t, "retry-a-declined-service-invoice-P4", 3, out3, err3, `{"result":"{\"ID\":\"2e730000-0000-4000-8000-000000000003\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		// step 4: ResettleCycle (node escalate-delinquent; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
 		var in4 inputRetryADeclinedServiceInvoiceP4S4
-		mustUnmarshal(t, `{"customerID":"2e740000-0000-4000-8000-000000000004","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":false,"Escalated":false,"Attempts":3,"SweepsAged":0},"idempotencyKey":"resettle-state:2e740000-0000-4000-8000-000000000004:2026-09"}`, &in4)
+		mustUnmarshal(t, `{"customerID":"2e730000-0000-4000-8000-000000000003","expectedVersion":3,"cycle":"2026-09","correction":{"Net":{"MinorUnits":-4200,"Currency":"USD"},"Directive":2,"Declined":true,"Escalated":true,"Attempts":1,"SweepsAged":3},"idempotencyKey":"escalate-state:2e730000-0000-4000-8000-000000000003:2026-09"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.ResettleCycle(callContext(t, h, "4"), in4.CustomerID, in4.ExpectedVersion, in4.Cycle, in4.Correction, in4.IdempotencyKey)
+		out4, err4 = stepRetryADeclinedServiceInvoiceP4S4(t, h, subject, in4)
 		expect(t, "retry-a-declined-service-invoice-P4", 4, out4, err4, `{"result":"4","errorExpected":false}`)
-		// probe 4.1: billingStateAccess.ReadBilling for record-settled
-		var pout4_1 any
-		var perr4_1 error
-		var probe4_1 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-		}
-		mustUnmarshal(t, `{"customerID":"2e740000-0000-4000-8000-000000000004"}`, &probe4_1)
-		pout4_1, perr4_1 = subject.ReadBilling(callContext(t, h, "4.1"), probe4_1.CustomerID)
-		expect(t, "retry-a-declined-service-invoice-P4 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"ID\":\"2e740000-0000-4000-8000-000000000004\",\"Version\":4}","errorExpected":false}`)
-		// probe 4.2: billingStateAccess.ReadCycle for cycle-settled
-		var pout4_2 any
-		var perr4_2 error
-		var probe4_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			Cycle      string    `json:"cycle"`
-		}
-		mustUnmarshal(t, `{"customerID":"2e740000-0000-4000-8000-000000000004","cycle":"2026-09"}`, &probe4_2)
-		pout4_2, perr4_2 = subject.ReadCycle(callContext(t, h, "4.2"), probe4_2.CustomerID, probe4_2.Cycle)
-		expect(t, "retry-a-declined-service-invoice-P4 probe 4.2", 4, pout4_2, perr4_2, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false,\"Declined\":false,\"Attempts\":3,\"SweepsAged\":0}}","errorExpected":false}`)
 	})
 }
 

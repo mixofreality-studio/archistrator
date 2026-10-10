@@ -289,8 +289,8 @@ func arrangeCharged(t *testing.T, h *scenariohost.Host, subject *toolSession, id
 	if err != nil {
 		t.Fatalf("hooks: arrange close %s %s: %v", id, cycle, err)
 	}
-	if res.Routed != billing.RoutingDirectiveCharge || res.Escalated {
-		t.Fatalf("hooks: arrange close %s %s: routed %v escalated %v, want a charge that went through", id, cycle, res.Routed, res.Escalated)
+	if res.Routed != billing.RoutingDirectiveCharge || res.Declined {
+		t.Fatalf("hooks: arrange close %s %s: routed %v declined %v, want a charge that went through", id, cycle, res.Routed, res.Declined)
 	}
 }
 
