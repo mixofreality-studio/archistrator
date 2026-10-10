@@ -32,7 +32,7 @@ type CloseCycleResult struct {
 	CustomerID uuid.UUID        `json:"customerId"`
 	CycleID    string           `json:"cycleId"`
 	Routed     RoutingDirective `json:"routed"`
-	Escalated  bool             `json:"escalated"`
+	Declined   bool             `json:"declined"`
 }
 
 type RoutingDirective int

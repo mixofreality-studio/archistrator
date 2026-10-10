@@ -17,46 +17,6 @@ import (
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "interventionEngine") }
 
-// inputBillTheUserForUsageP2S1 is step 1's parameters of DecideOnSettlementFailure, decoded from the binding's inputs.
-type inputBillTheUserForUsageP2S1 struct {
-	Failure intervention.SettlementFailure `json:"failure"`
-}
-
-// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] · [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → persistent-decline → note-escalation-is-state → customer-delinquent → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
-func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
-	h := scenariohost.Start(t)
-	h.RunScenario(t, "interventionEngine", "bill-the-user-for-usage-P2", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
-		// step 1: DecideOnSettlementFailure (node retries-left; guards charge-succeeded=[no], retries-left=[no])
-		var in1 inputBillTheUserForUsageP2S1
-		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-09","Kind":1,"AttemptCount":2,"ShortfallAge":1,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":2,"ShortfallToleranceSweeps":1}}}`, &in1)
-		var out1 any
-		var err1 error
-		out1, err1 = subject.DecideOnSettlementFailure(callContext(t, h, "1"), in1.Failure)
-		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"2","errorExpected":false}`)
-	})
-}
-
-// inputBillTheUserForUsageP3S1 is step 1's parameters of DecideOnSettlementFailure, decoded from the binding's inputs.
-type inputBillTheUserForUsageP3S1 struct {
-	Failure intervention.SettlementFailure `json:"failure"`
-}
-
-// TestScenario_bill_the_user_for_usage_P3 — Bill the User for Usage — [no] · [yes] · [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
-func TestScenario_bill_the_user_for_usage_P3(t *testing.T) {
-	h := scenariohost.Start(t)
-	h.RunScenario(t, "interventionEngine", "bill-the-user-for-usage-P3", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
-		// step 1: DecideOnSettlementFailure (node retries-left; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
-		var in1 inputBillTheUserForUsageP3S1
-		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-09","Kind":1,"AttemptCount":0,"ShortfallAge":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":2,"ShortfallToleranceSweeps":1}}}`, &in1)
-		var out1 any
-		var err1 error
-		out1, err1 = subject.DecideOnSettlementFailure(callContext(t, h, "1"), in1.Failure)
-		expect(t, "bill-the-user-for-usage-P3", 1, out1, err1, `{"result":"0","errorExpected":false}`)
-	})
-}
-
 // inputExecuteAProjectActivityP2S1 is step 1's parameters of DecideOnVariance, decoded from the binding's inputs.
 type inputExecuteAProjectActivityP2S1 struct {
 	Variance intervention.ConstructionVariance `json:"variance"`
@@ -206,12 +166,12 @@ type inputRetryADeclinedServiceInvoiceP1S1 struct {
 	Failure intervention.SettlementFailure `json:"failure"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
 		var subject intervention.InterventionEngine = newSubject(t, h)
-		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[yes])
+		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
 		var in1 inputRetryADeclinedServiceInvoiceP1S1
 		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":0,"ShortfallAge":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
 		var out1 any
@@ -226,18 +186,18 @@ type inputRetryADeclinedServiceInvoiceP2S1 struct {
 	Failure intervention.SettlementFailure `json:"failure"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep → cycle-awaiting-sweep → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
 		var subject intervention.InterventionEngine = newSubject(t, h)
-		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
+		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[yes])
 		var in1 inputRetryADeclinedServiceInvoiceP2S1
-		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":3,"ShortfallAge":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
+		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":0,"ShortfallAge":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.DecideOnSettlementFailure(callContext(t, h, "1"), in1.Failure)
-		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"result":"1","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"result":"0","errorExpected":false}`)
 	})
 }
 
@@ -246,18 +206,18 @@ type inputRetryADeclinedServiceInvoiceP3S1 struct {
 	Failure intervention.SettlementFailure `json:"failure"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → escalate-delinquent → customer-delinquent → signal-delinquency-escalation → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P3", func(t *testing.T) {
 		var subject intervention.InterventionEngine = newSubject(t, h)
-		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
+		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
 		var in1 inputRetryADeclinedServiceInvoiceP3S1
-		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":3,"ShortfallAge":2,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
+		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":3,"ShortfallAge":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.DecideOnSettlementFailure(callContext(t, h, "1"), in1.Failure)
-		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"result":"2","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"result":"1","errorExpected":false}`)
 	})
 }
 
@@ -266,30 +226,18 @@ type inputRetryADeclinedServiceInvoiceP4S1 struct {
 	Failure intervention.SettlementFailure `json:"failure"`
 }
 
-// inputRetryADeclinedServiceInvoiceP4S2 is step 2's parameters of DecideOnSettlementFailure, decoded from the binding's inputs.
-type inputRetryADeclinedServiceInvoiceP4S2 struct {
-	Failure intervention.SettlementFailure `json:"failure"`
-}
-
-// TestScenario_retry_a_declined_service_invoice_P4 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] · [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P4 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → escalate-delinquent → customer-delinquent → signal-delinquency-escalation → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P4", func(t *testing.T) {
 		var subject intervention.InterventionEngine = newSubject(t, h)
-		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
+		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
 		var in1 inputRetryADeclinedServiceInvoiceP4S1
-		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":0,"ShortfallAge":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
+		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":3,"ShortfallAge":2,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = subject.DecideOnSettlementFailure(callContext(t, h, "1"), in1.Failure)
-		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"0","errorExpected":false}`)
-		// step 2: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes])
-		var in2 inputRetryADeclinedServiceInvoiceP4S2
-		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":1,"ShortfallAge":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in2)
-		var out2 any
-		var err2 error
-		out2, err2 = subject.DecideOnSettlementFailure(callContext(t, h, "2"), in2.Failure)
-		expect(t, "retry-a-declined-service-invoice-P4", 2, out2, err2, `{"result":"0","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"2","errorExpected":false}`)
 	})
 }
 

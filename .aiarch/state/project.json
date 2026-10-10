@@ -2334,7 +2334,7 @@
                   {
                     "id": "note-charge-idempotency",
                     "kind": "note",
-                    "label": "Charge idempotency key is settle:{customerId}:{cycleId}:{attempt}; a retry through retries-left [yes] is the next attempt under a new key (the gateway replays a declined key's decline), and a replay of one attempt reuses its key, so the binding asserts at most one charge per (customer, cycle, attempt)",
+                    "label": "Charge idempotency key is settle:{customerId}:{cycleId}:{attempt}. The close makes attempt 1 and never retries it (B18): a declined charge is retried only by the delinquency sweep (retry-a-declined-service-invoice), after the customer replaces their payment instrument, under the next attempt's key. A replay of one attempt reuses its key, so the binding asserts at most one charge per (customer, cycle, attempt)",
                     "roleName": "",
                     "linkedActorId": null,
                     "anchor": "charge-user"
@@ -2378,40 +2378,9 @@
                     "inState": "[closed]"
                   },
                   {
-                    "id": "retries-left",
-                    "kind": "decision",
-                    "label": "Retries left?",
-                    "roleName": "",
-                    "linkedActorId": null,
-                    "decidedBy": "intervention-engine"
-                  },
-                  {
-                    "id": "persistent-decline",
-                    "kind": "action",
-                    "label": "Record persistent decline; escalate per intervention policy",
-                    "roleName": "",
-                    "linkedActorId": null
-                  },
-                  {
-                    "id": "note-escalation-is-state",
-                    "kind": "note",
-                    "label": "Escalation is not a signal in this use case: it is the persistent-delinquency mark on billing state, which the shortfall sweep picks up later. Bind it by asserting the customer-delinquent state; expect no outbound message",
-                    "roleName": "",
-                    "linkedActorId": null,
-                    "anchor": "persistent-decline"
-                  },
-                  {
-                    "id": "customer-delinquent",
-                    "kind": "objectNode",
-                    "label": "Customer billing standing",
-                    "roleName": "",
-                    "linkedActorId": null,
-                    "inState": "[persistently delinquent]"
-                  },
-                  {
                     "id": "record-unpaid",
                     "kind": "action",
-                    "label": "Record service invoice (unpaid); close period",
+                    "label": "Record the declined charge; close the period with the shortfall left for the delinquency sweep",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -2421,7 +2390,7 @@
                     "label": "Service invoice",
                     "roleName": "",
                     "linkedActorId": null,
-                    "inState": "[unpaid]"
+                    "inState": "[unpaid: declined, awaiting the delinquency sweep]"
                   },
                   {
                     "id": "period-closed-unpaid",
@@ -2491,39 +2460,9 @@
                   },
                   {
                     "from": "charge-succeeded",
-                    "to": "retries-left",
-                    "kind": "guardedFlow",
-                    "guard": "[no]"
-                  },
-                  {
-                    "from": "retries-left",
-                    "to": "charge-user",
-                    "kind": "guardedFlow",
-                    "guard": "[yes]"
-                  },
-                  {
-                    "from": "retries-left",
-                    "to": "persistent-decline",
-                    "kind": "guardedFlow",
-                    "guard": "[no]"
-                  },
-                  {
-                    "from": "persistent-decline",
-                    "to": "note-escalation-is-state",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "note-escalation-is-state",
-                    "to": "customer-delinquent",
-                    "kind": "controlFlow",
-                    "guard": ""
-                  },
-                  {
-                    "from": "customer-delinquent",
                     "to": "record-unpaid",
-                    "kind": "controlFlow",
-                    "guard": ""
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
                   },
                   {
                     "from": "record-unpaid",
@@ -2888,7 +2827,7 @@
                   {
                     "id": "charge-declined",
                     "kind": "timeEvent",
-                    "label": "Retry sweep comes due: the cycle's settlement charge stands declined",
+                    "label": "Delinquency sweep comes due: the cycle's settlement charge stands declined (the close never retries it)",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -2902,7 +2841,7 @@
                   {
                     "id": "note-retry-history",
                     "kind": "note",
-                    "label": "Retry budget and tolerance are read from the cycle's recorded retry history; arrange the history count (and shortfall age) in state to steer intervention-engine to each branch.",
+                    "label": "Retry budget and tolerance are read from the cycle's recorded retry history; arrange the history count (and shortfall age) in state to steer intervention-engine to each branch. A re-charge lands only after the customer replaced the payment instrument: arrange the instrument update after the declining close for [yes]",
                     "roleName": "",
                     "linkedActorId": null,
                     "anchor": "consult-policy"
@@ -2918,14 +2857,14 @@
                   {
                     "id": "recharge",
                     "kind": "action",
-                    "label": "Retry the charge under the next attempt's settlement idempotency key",
+                    "label": "Re-charge once under the next attempt's settlement idempotency key; it lands only if the customer has replaced their payment instrument since the decline",
                     "roleName": "",
                     "linkedActorId": null
                   },
                   {
                     "id": "note-idempotency-key",
                     "kind": "note",
-                    "label": "Each charge attempt carries its attempt number in the settlement idempotency key settle:{customerId}:{cycleId}:{attempt}: the gateway replays a key's recorded outcome, a decline included, so a retry under the same key could never succeed. A replay of one attempt reuses that attempt's key, so the binding asserts at most one charge per (customer, cycle, attempt).",
+                    "label": "Each sweep makes at most one charge attempt per declined cycle, and each attempt carries its number in the settlement idempotency key settle:{customerId}:{cycleId}:{attempt}: the gateway replays a key's recorded outcome, a decline included, so a retry under the same key could never succeed. A replay of one attempt reuses that attempt's key, so the binding asserts at most one charge per (customer, cycle, attempt).",
                     "roleName": "",
                     "linkedActorId": null,
                     "anchor": "recharge"
@@ -3058,7 +2997,7 @@
                   },
                   {
                     "from": "charge-ok",
-                    "to": "consult-policy",
+                    "to": "delay-sweep",
                     "kind": "guardedFlow",
                     "guard": "[no: declined again]"
                   },
@@ -8678,7 +8617,7 @@
                     "from": "merchant-gateway-access",
                     "to": "merchant-gateway",
                     "mode": "sync",
-                    "label": "charge (idempotency: Stripe Idempotency-Key settle:{customerId}:{cycleId}:{attempt})"
+                    "label": "charge (idempotency: Stripe Idempotency-Key settle:{customerId}:{cycleId}:1 — the close's one attempt)"
                   }
                 ]
               },
@@ -8700,35 +8639,13 @@
                 ]
               },
               {
-                "activityNodeId": "retries-left",
-                "calls": [
-                  {
-                    "from": "billing-manager",
-                    "to": "intervention-engine",
-                    "mode": "sync",
-                    "label": "DecideOnSettlementFailure(failure{customerId, cycleId, Kind=ChargeDeclined, AttemptCount, ShortfallAge, Policy}) → {Retry | Delay | Escalate} — the decline remediation is the Engine's policy, not the Manager's; replaces the stale DecideOnBillingFailure label"
-                  }
-                ]
-              },
-              {
-                "activityNodeId": "persistent-decline",
-                "calls": [
-                  {
-                    "from": "billing-manager",
-                    "to": "billing-state-access",
-                    "mode": "sync",
-                    "label": "record persistent decline — marks the customer persistently delinquent (picked up by the shortfall sweep)"
-                  }
-                ]
-              },
-              {
                 "activityNodeId": "record-unpaid",
                 "calls": [
                   {
                     "from": "billing-manager",
                     "to": "billing-state-access",
                     "mode": "sync",
-                    "label": "settleCycle(customerId, cycleId, chargeAmount, outcome=unpaid) — close period"
+                    "label": "settleCycle(customerId, cycleId, outcome{Declined, Attempts=1}) — close period; the shortfall is left for the delinquency sweep (no retry inside a close, B18)"
                   }
                 ]
               }
@@ -9033,7 +8950,7 @@
                     "from": "billing-manager",
                     "to": "merchant-gateway-access",
                     "mode": "sync",
-                    "label": "chargeCustomer(cycleCharge) — a retry carries its attempt in the settlement idempotency key settle:{customerId}:{cycleId}:{attempt}"
+                    "label": "chargeCustomer(cycleCharge) — one attempt per sweep; it carries its attempt in the settlement idempotency key settle:{customerId}:{cycleId}:{attempt}"
                   },
                   {
                     "from": "merchant-gateway-access",
@@ -9067,7 +8984,7 @@
                     "from": "billing-manager",
                     "to": "billing-state-access",
                     "mode": "sync",
-                    "label": "resettleCycle(customerId, cycleId, outcome{Declined, SweepsAged+1}) — the shortfall is left for the next scheduled sweep (within tolerance)"
+                    "label": "resettleCycle(customerId, cycleId, outcome{Declined, Attempts, SweepsAged+1}) — the shortfall is left for the next scheduled sweep: within tolerance, or a re-charge that declined again"
                   }
                 ]
               },
@@ -19814,15 +19731,16 @@
             "routed": {
               "$ref": "#/$defs/RoutingDirective"
             },
-            "escalated": {
-              "type": "boolean"
+            "declined": {
+              "type": "boolean",
+              "description": "The close's one charge attempt declined: the shortfall is recorded and left for the delinquency sweep (B18 — a close never retries and never escalates)."
             }
           },
           "required": [
             "customerId",
             "cycleId",
             "routed",
-            "escalated"
+            "declined"
           ],
           "additionalProperties": false
         },
@@ -46845,40 +46763,6 @@
             ]
           },
           {
-            "scenario": "bill-the-user-for-usage-P3",
-            "steps": [
-              {
-                "seq": 1,
-                "operation": "ComputeNet",
-                "inputs": [
-                  {
-                    "name": "revenue",
-                    "value": "{\"GrossInbound\":{\"minorUnits\":1000,\"currency\":\"EUR\"},\"EventCount\":3}",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "usage",
-                    "value": "{\"ComputeUnitSeconds\":8000,\"StorageBytesMonths\":0.25,\"EgressBytes\":2048}",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "terms",
-                    "value": "{\"computeCost\":2,\"computeMarkupPercent\":12.5,\"schedule\":3}",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "{\"SignedNet\":{\"minorUnits\":-8000,\"currency\":\"EUR\"},\"RoutingDirective\":2,\"ComputeCostApplied\":{\"minorUnits\":9000,\"currency\":\"EUR\"}}",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [],
-                "unobservable": [],
-                "hook": false
-              }
-            ]
-          },
-          {
             "scenario": "commit-to-a-project-option-P1",
             "steps": [
               {
@@ -47220,7 +47104,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000101\",\"cycleId\":\"2026-09\",\"routed\":2,\"escalated\":false}",
+                  "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000101\",\"cycleId\":\"2026-09\",\"routed\":2,\"declined\":false}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -47296,7 +47180,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"routed\":2,\"escalated\":true}",
+                  "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"routed\":2,\"declined\":true}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -47318,7 +47202,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":true}}",
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -47340,13 +47224,13 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":true}",
+                      "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
                   },
                   {
-                    "for": "customer-delinquent",
+                    "for": "period-closed-unpaid",
                     "component": "billingStateAccess",
                     "operation": "ReadPersistentlyDelinquentCustomers",
                     "inputs": [
@@ -47357,83 +47241,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "[{\"ID\":\"0b1a0000-0000-4000-8000-000000000102\"}]",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  }
-                ],
-                "unobservable": [
-                  "note-escalation-is-state"
-                ],
-                "hook": true
-              }
-            ]
-          },
-          {
-            "scenario": "bill-the-user-for-usage-P3",
-            "steps": [
-              {
-                "seq": 1,
-                "operation": "CloseBillingCycle",
-                "inputs": [
-                  {
-                    "name": "customerID",
-                    "value": "0b1a0000-0000-4000-8000-000000000103",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "cycleID",
-                    "value": "2026-09",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000103\",\"cycleId\":\"2026-09\",\"routed\":2,\"escalated\":false}",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [
-                  {
-                    "for": "period-closed-paid",
-                    "component": "billingStateAccess",
-                    "operation": "ReadCycle",
-                    "inputs": [
-                      {
-                        "name": "customerID",
-                        "value": "0b1a0000-0000-4000-8000-000000000103",
-                        "schemaRef": ""
-                      },
-                      {
-                        "name": "cycle",
-                        "value": "2026-09",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  },
-                  {
-                    "for": "invoice-paid",
-                    "component": "billingManager",
-                    "operation": "GetBillingCycle",
-                    "inputs": [
-                      {
-                        "name": "customerID",
-                        "value": "0b1a0000-0000-4000-8000-000000000103",
-                        "schemaRef": ""
-                      },
-                      {
-                        "name": "cycleID",
-                        "value": "2026-09",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000103\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}",
+                      "result": "[]",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -47664,6 +47472,77 @@
                 },
                 "probes": [
                   {
+                    "for": "cycle-awaiting-sweep",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000304",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-08",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":2,\"SweepsAged\":1}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "cycle-awaiting-sweep",
+                    "component": "billingManager",
+                    "operation": "GetBillingCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000304",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycleID",
+                        "value": "2026-08",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000304\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "note-idempotency-key"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RunShortfallSweep",
+                "inputs": [
+                  {
+                    "name": "tickID",
+                    "value": "stp-billing-retry-P2-tick-0001",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
                     "for": "cycle-settled",
                     "component": "billingStateAccess",
                     "operation": "ReadCycle",
@@ -47680,7 +47559,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}",
+                      "result": "{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":2}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -47716,7 +47595,7 @@
             ]
           },
           {
-            "scenario": "retry-a-declined-service-invoice-P2",
+            "scenario": "retry-a-declined-service-invoice-P3",
             "steps": [
               {
                 "seq": 1,
@@ -47724,7 +47603,7 @@
                 "inputs": [
                   {
                     "name": "tickID",
-                    "value": "stp-billing-retry-P2-tick-0001",
+                    "value": "stp-billing-retry-P3-tick-0001",
                     "schemaRef": ""
                   }
                 ],
@@ -47785,7 +47664,7 @@
             ]
           },
           {
-            "scenario": "retry-a-declined-service-invoice-P3",
+            "scenario": "retry-a-declined-service-invoice-P4",
             "steps": [
               {
                 "seq": 1,
@@ -47793,7 +47672,7 @@
                 "inputs": [
                   {
                     "name": "tickID",
-                    "value": "stp-billing-retry-P3-tick-0001",
+                    "value": "stp-billing-retry-P4-tick-0001",
                     "schemaRef": ""
                   }
                 ],
@@ -47810,7 +47689,7 @@
                     "inputs": [
                       {
                         "name": "scope",
-                        "value": "{\"ProjectID\": \"stp-billing-retry-P3-project\"}",
+                        "value": "{\"ProjectID\": \"stp-billing-retry-P4-project\"}",
                         "schemaRef": ""
                       }
                     ],
@@ -47845,77 +47724,6 @@
                 ],
                 "unobservable": [
                   "signal-delinquency-escalation"
-                ],
-                "hook": true
-              }
-            ]
-          },
-          {
-            "scenario": "retry-a-declined-service-invoice-P4",
-            "steps": [
-              {
-                "seq": 1,
-                "operation": "RunShortfallSweep",
-                "inputs": [
-                  {
-                    "name": "tickID",
-                    "value": "stp-billing-retry-P4-tick-0001",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [
-                  {
-                    "for": "cycle-settled",
-                    "component": "billingStateAccess",
-                    "operation": "ReadCycle",
-                    "inputs": [
-                      {
-                        "name": "customerID",
-                        "value": "0b1a0000-0000-4000-8000-000000000304",
-                        "schemaRef": ""
-                      },
-                      {
-                        "name": "cycle",
-                        "value": "2026-08",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  },
-                  {
-                    "for": "cycle-settled",
-                    "component": "billingManager",
-                    "operation": "GetBillingCycle",
-                    "inputs": [
-                      {
-                        "name": "customerID",
-                        "value": "0b1a0000-0000-4000-8000-000000000304",
-                        "schemaRef": ""
-                      },
-                      {
-                        "name": "cycleID",
-                        "value": "2026-08",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000304\",\"cycleId\":\"2026-08\",\"closed\":true,\"routed\":2,\"escalated\":false}",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  }
-                ],
-                "unobservable": [
-                  "note-idempotency-key"
                 ],
                 "hook": true
               }
@@ -48198,64 +48006,7 @@
                   },
                   {
                     "name": "outcome",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":true,\"Attempts\":3,\"SweepsAged\":0}",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "idempotencyKey",
-                    "value": "settle-state:b1120000-0000-4000-8000-000000000002:2026-09",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "3",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [
-                  {
-                    "for": "customer-delinquent",
-                    "component": "billingStateAccess",
-                    "operation": "ReadPersistentlyDelinquentCustomers",
-                    "inputs": [
-                      {
-                        "name": "scope",
-                        "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "[{\"ID\":\"b1120000-0000-4000-8000-000000000002\"}]",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  }
-                ],
-                "unobservable": [],
-                "hook": true
-              },
-              {
-                "seq": 3,
-                "operation": "SettleCycle",
-                "inputs": [
-                  {
-                    "name": "customerID",
-                    "value": "b1120000-0000-4000-8000-000000000002",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "cycle",
-                    "value": "2026-09",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "outcome",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":true,\"Attempts\":3,\"SweepsAged\":0}",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}",
                     "schemaRef": ""
                   },
                   {
@@ -48287,7 +48038,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":true}}",
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -48313,128 +48064,20 @@
                       "errorExpected": false,
                       "errorCode": ""
                     }
-                  }
-                ],
-                "unobservable": [],
-                "hook": false
-              }
-            ]
-          },
-          {
-            "scenario": "bill-the-user-for-usage-P3",
-            "steps": [
-              {
-                "seq": 1,
-                "operation": "ReadBilling",
-                "inputs": [
-                  {
-                    "name": "customerID",
-                    "value": "b1130000-0000-4000-8000-000000000003",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "{\"ID\":\"b1130000-0000-4000-8000-000000000003\",\"Version\":2,\"Registered\":true,\"GatewayBound\":true}",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [],
-                "unobservable": [],
-                "hook": true
-              },
-              {
-                "seq": 2,
-                "operation": "SettleCycle",
-                "inputs": [
-                  {
-                    "name": "customerID",
-                    "value": "b1130000-0000-4000-8000-000000000003",
-                    "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "cycle",
-                    "value": "2026-09",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "outcome",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":2,\"SweepsAged\":0}",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "idempotencyKey",
-                    "value": "settle-state:b1130000-0000-4000-8000-000000000003:2026-09",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "3",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [
-                  {
-                    "for": "record-close",
+                    "for": "period-closed-unpaid",
                     "component": "billingStateAccess",
-                    "operation": "ReadBilling",
+                    "operation": "ReadPersistentlyDelinquentCustomers",
                     "inputs": [
                       {
-                        "name": "customerID",
-                        "value": "b1130000-0000-4000-8000-000000000003",
+                        "name": "scope",
+                        "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
                         "schemaRef": ""
                       }
                     ],
                     "expect": {
-                      "result": "{\"ID\":\"b1130000-0000-4000-8000-000000000003\",\"Version\":3}",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  },
-                  {
-                    "for": "invoice-paid",
-                    "component": "billingStateAccess",
-                    "operation": "ReadCycle",
-                    "inputs": [
-                      {
-                        "name": "customerID",
-                        "value": "b1130000-0000-4000-8000-000000000003",
-                        "schemaRef": ""
-                      },
-                      {
-                        "name": "cycle",
-                        "value": "2026-09",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":false,\"Directive\":2}}",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  },
-                  {
-                    "for": "period-closed-paid",
-                    "component": "billingStateAccess",
-                    "operation": "ReadCycle",
-                    "inputs": [
-                      {
-                        "name": "customerID",
-                        "value": "b1130000-0000-4000-8000-000000000003",
-                        "schemaRef": ""
-                      },
-                      {
-                        "name": "cycle",
-                        "value": "2026-09",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"}}}",
+                      "result": "[]",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -48792,6 +48435,147 @@
                   }
                 ],
                 "expect": {
+                  "result": "[{\"CustomerID\":\"2e740000-0000-4000-8000-000000000004\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadPersistentlyDelinquentCustomers",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "2e740000-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"2e740000-0000-4000-8000-000000000004\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 4,
+                "operation": "ResettleCycle",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "2e740000-0000-4000-8000-000000000004",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cycle",
+                    "value": "2026-09",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "correction",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":2,\"SweepsAged\":1}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "sweep-state:2e740000-0000-4000-8000-000000000004:2026-09:1",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "4",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "cycle-awaiting-sweep",
+                    "component": "billingStateAccess",
+                    "operation": "ReadCycle",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "2e740000-0000-4000-8000-000000000004",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "cycle",
+                        "value": "2026-09",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":false,\"Declined\":true,\"Attempts\":2,\"SweepsAged\":1}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "cycle-awaiting-sweep",
+                    "component": "billingStateAccess",
+                    "operation": "ReadPersistentlyDelinquentCustomers",
+                    "inputs": [
+                      {
+                        "name": "scope",
+                        "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "[]",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadDeclinedCycles",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
                   "result": "[{\"CustomerID\":\"2e710000-0000-4000-8000-000000000001\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]",
                   "errorExpected": false,
                   "errorCode": ""
@@ -48920,7 +48704,7 @@
             ]
           },
           {
-            "scenario": "retry-a-declined-service-invoice-P2",
+            "scenario": "retry-a-declined-service-invoice-P3",
             "steps": [
               {
                 "seq": 1,
@@ -49061,7 +48845,7 @@
             ]
           },
           {
-            "scenario": "retry-a-declined-service-invoice-P3",
+            "scenario": "retry-a-declined-service-invoice-P4",
             "steps": [
               {
                 "seq": 1,
@@ -49158,147 +48942,6 @@
                 "probes": [],
                 "unobservable": [],
                 "hook": true
-              }
-            ]
-          },
-          {
-            "scenario": "retry-a-declined-service-invoice-P4",
-            "steps": [
-              {
-                "seq": 1,
-                "operation": "ReadDeclinedCycles",
-                "inputs": [
-                  {
-                    "name": "scope",
-                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "[{\"CustomerID\":\"2e740000-0000-4000-8000-000000000004\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [],
-                "unobservable": [],
-                "hook": true
-              },
-              {
-                "seq": 2,
-                "operation": "ReadPersistentlyDelinquentCustomers",
-                "inputs": [
-                  {
-                    "name": "scope",
-                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "[]",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [],
-                "unobservable": [],
-                "hook": false
-              },
-              {
-                "seq": 3,
-                "operation": "ReadBilling",
-                "inputs": [
-                  {
-                    "name": "customerID",
-                    "value": "2e740000-0000-4000-8000-000000000004",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "{\"ID\":\"2e740000-0000-4000-8000-000000000004\",\"Version\":3,\"Registered\":true,\"GatewayBound\":true}",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [],
-                "unobservable": [],
-                "hook": false
-              },
-              {
-                "seq": 4,
-                "operation": "ResettleCycle",
-                "inputs": [
-                  {
-                    "name": "customerID",
-                    "value": "2e740000-0000-4000-8000-000000000004",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "cycle",
-                    "value": "2026-09",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "correction",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":3,\"SweepsAged\":0}",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "idempotencyKey",
-                    "value": "resettle-state:2e740000-0000-4000-8000-000000000004:2026-09",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "4",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [
-                  {
-                    "for": "record-settled",
-                    "component": "billingStateAccess",
-                    "operation": "ReadBilling",
-                    "inputs": [
-                      {
-                        "name": "customerID",
-                        "value": "2e740000-0000-4000-8000-000000000004",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "{\"ID\":\"2e740000-0000-4000-8000-000000000004\",\"Version\":4}",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  },
-                  {
-                    "for": "cycle-settled",
-                    "component": "billingStateAccess",
-                    "operation": "ReadCycle",
-                    "inputs": [
-                      {
-                        "name": "customerID",
-                        "value": "2e740000-0000-4000-8000-000000000004",
-                        "schemaRef": ""
-                      },
-                      {
-                        "name": "cycle",
-                        "value": "2026-09",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false,\"Declined\":false,\"Attempts\":3,\"SweepsAged\":0}}",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  }
-                ],
-                "unobservable": [],
-                "hook": false
               }
             ]
           },
@@ -57245,54 +56888,6 @@
         "component": "interventionEngine",
         "bindings": [
           {
-            "scenario": "bill-the-user-for-usage-P2",
-            "steps": [
-              {
-                "seq": 1,
-                "operation": "DecideOnSettlementFailure",
-                "inputs": [
-                  {
-                    "name": "failure",
-                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-09\",\"Kind\":1,\"AttemptCount\":2,\"ShortfallAge\":1,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":2,\"ShortfallToleranceSweeps\":1}}",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "2",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [],
-                "unobservable": [],
-                "hook": false
-              }
-            ]
-          },
-          {
-            "scenario": "bill-the-user-for-usage-P3",
-            "steps": [
-              {
-                "seq": 1,
-                "operation": "DecideOnSettlementFailure",
-                "inputs": [
-                  {
-                    "name": "failure",
-                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-09\",\"Kind\":1,\"AttemptCount\":0,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":2,\"ShortfallToleranceSweeps\":1}}",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "0",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [],
-                "unobservable": [],
-                "hook": false
-              }
-            ]
-          },
-          {
             "scenario": "execute-a-project-activity-P2",
             "steps": [
               {
@@ -57547,12 +57142,12 @@
                 "inputs": [
                   {
                     "name": "failure",
-                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":3,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
+                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":0,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
                     "schemaRef": ""
                   }
                 ],
                 "expect": {
-                  "result": "1",
+                  "result": "0",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -57571,12 +57166,12 @@
                 "inputs": [
                   {
                     "name": "failure",
-                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":3,\"ShortfallAge\":2,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
+                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":3,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
                     "schemaRef": ""
                   }
                 ],
                 "expect": {
-                  "result": "2",
+                  "result": "1",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -57595,31 +57190,12 @@
                 "inputs": [
                   {
                     "name": "failure",
-                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":0,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
+                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":3,\"ShortfallAge\":2,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
                     "schemaRef": ""
                   }
                 ],
                 "expect": {
-                  "result": "0",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [],
-                "unobservable": [],
-                "hook": false
-              },
-              {
-                "seq": 2,
-                "operation": "DecideOnSettlementFailure",
-                "inputs": [
-                  {
-                    "name": "failure",
-                    "value": "{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"CycleID\":\"2026-08\",\"Kind\":1,\"AttemptCount\":1,\"ShortfallAge\":0,\"Policy\":{\"Mode\":2,\"SLATier\":0,\"RetryBudget\":3,\"ShortfallToleranceSweeps\":2}}",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "0",
+                  "result": "2",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -62578,73 +62154,6 @@
             ]
           },
           {
-            "scenario": "bill-the-user-for-usage-P3",
-            "steps": [
-              {
-                "seq": 1,
-                "operation": "ChargeCustomer",
-                "inputs": [
-                  {
-                    "name": "customerID",
-                    "value": "d1130000-0000-4000-8000-000000000003",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "amount",
-                    "value": "{\"MinorUnits\":4200,\"Currency\":\"USD\"}",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "idempotencyKey",
-                    "value": "settle:d1130000-0000-4000-8000-000000000003:2026-09:1",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "",
-                  "errorExpected": true,
-                  "errorCode": "Auth"
-                },
-                "probes": [],
-                "unobservable": [
-                  "charge-user"
-                ],
-                "hook": false
-              },
-              {
-                "seq": 2,
-                "operation": "ChargeCustomer",
-                "inputs": [
-                  {
-                    "name": "customerID",
-                    "value": "d1130000-0000-4000-8000-000000000003",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "amount",
-                    "value": "{\"MinorUnits\":4200,\"Currency\":\"USD\"}",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "idempotencyKey",
-                    "value": "settle:d1130000-0000-4000-8000-000000000003:2026-09:2",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [],
-                "unobservable": [
-                  "charge-user"
-                ],
-                "hook": true
-              }
-            ]
-          },
-          {
             "scenario": "onboard-a-new-customer-P2",
             "steps": [
               {
@@ -62819,42 +62328,6 @@
                 "inputs": [
                   {
                     "name": "customerID",
-                    "value": "d3310000-0000-4000-8000-000000000001",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "amount",
-                    "value": "{\"MinorUnits\":4200,\"Currency\":\"USD\"}",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "idempotencyKey",
-                    "value": "settle:d3310000-0000-4000-8000-000000000001:2026-09:2",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [],
-                "unobservable": [
-                  "recharge"
-                ],
-                "hook": true
-              }
-            ]
-          },
-          {
-            "scenario": "retry-a-declined-service-invoice-P4",
-            "steps": [
-              {
-                "seq": 1,
-                "operation": "ChargeCustomer",
-                "inputs": [
-                  {
-                    "name": "customerID",
                     "value": "d3340000-0000-4000-8000-000000000004",
                     "schemaRef": ""
                   },
@@ -62879,14 +62352,19 @@
                   "recharge"
                 ],
                 "hook": true
-              },
+              }
+            ]
+          },
+          {
+            "scenario": "retry-a-declined-service-invoice-P2",
+            "steps": [
               {
-                "seq": 2,
+                "seq": 1,
                 "operation": "ChargeCustomer",
                 "inputs": [
                   {
                     "name": "customerID",
-                    "value": "d3340000-0000-4000-8000-000000000004",
+                    "value": "d3310000-0000-4000-8000-000000000001",
                     "schemaRef": ""
                   },
                   {
@@ -62896,7 +62374,7 @@
                   },
                   {
                     "name": "idempotencyKey",
-                    "value": "settle:d3340000-0000-4000-8000-000000000004:2026-09:3",
+                    "value": "settle:d3310000-0000-4000-8000-000000000001:2026-09:2",
                     "schemaRef": ""
                   }
                 ],
@@ -65877,7 +65355,7 @@
             ]
           },
           {
-            "scenario": "retry-a-declined-service-invoice-P3",
+            "scenario": "retry-a-declined-service-invoice-P4",
             "steps": [
               {
                 "seq": 1,
@@ -71599,48 +71077,6 @@
                     ],
                     "expect": {
                       "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0001\",\"Units\":{\"Amount\":40.0,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0002\",\"Units\":{\"Amount\":3.5,\"Unit\":\"vCPU-hour\"}}]",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  }
-                ],
-                "unobservable": [],
-                "hook": true
-              }
-            ]
-          },
-          {
-            "scenario": "bill-the-user-for-usage-P3",
-            "steps": [
-              {
-                "seq": 1,
-                "operation": "ReadRange",
-                "inputs": [
-                  {
-                    "name": "query",
-                    "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"CycleID\":\"2026-09\",\"OperatedAppID\":null}",
-                    "schemaRef": "#/$defs/UsageRangeQuery"
-                  }
-                ],
-                "expect": {
-                  "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p3-0001\",\"Units\":{\"Amount\":0.5,\"Unit\":\"vCPU-hour\"}}]",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
-                "probes": [
-                  {
-                    "for": "read-hosting-usage",
-                    "component": "usageAccess",
-                    "operation": "ReadRange",
-                    "inputs": [
-                      {
-                        "name": "query",
-                        "value": "{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"CycleID\":\"2026-09\",\"OperatedAppID\":null}",
-                        "schemaRef": "#/$defs/UsageRangeQuery"
-                      }
-                    ],
-                    "expect": {
-                      "result": "[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p3-0001\",\"Units\":{\"Amount\":0.5,\"Unit\":\"vCPU-hour\"}}]",
                       "errorExpected": false,
                       "errorCode": ""
                     }

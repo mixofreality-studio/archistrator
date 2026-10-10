@@ -43,10 +43,10 @@ const billingProject = "stp-billing-project-01"
 // The retry scenarios read the persistently-delinquent set; the customer each one
 // expects to find is fixed by its binding, so the arrangement names it here.
 const (
-	retryP1Customer = "2e710000-0000-4000-8000-000000000001"
-	retryP2Customer = "2e720000-0000-4000-8000-000000000002"
-	retryP3Customer = "2e730000-0000-4000-8000-000000000003"
-	retryP4Customer = "2e740000-0000-4000-8000-000000000004"
+	retryP2Customer = "2e710000-0000-4000-8000-000000000001"
+	retryP3Customer = "2e720000-0000-4000-8000-000000000002"
+	retryP4Customer = "2e730000-0000-4000-8000-000000000003"
+	retryP1Customer = "2e740000-0000-4000-8000-000000000004"
 )
 
 // The arrangement calls the contract's own write ops with arguments decoded from
@@ -139,27 +139,6 @@ func stepBillTheUserForUsageP2S1(t *testing.T, h *scenariohost.Host, subject bil
 	return subject.ReadBilling(callContext(t, h, "1"), in.CustomerID)
 }
 
-// stepBillTheUserForUsageP2S2 — Bill the User for Usage — [no] · [no], step 2: SettleCycle
-// Projected stimulus (JSON): {"seq":2,"node":"persistent-decline","input":{"kind":"call","from":"billing-manager","to":"billingstateaccess","op":"","call":"bill-the-user-for-usage/persistent-decline/0"},"expectedOutputs":null,"expectedStates":[{"node":"customer-delinquent","object":"Customer billing standing","inState":"[persistently delinquent]"}],"hints":["Escalation is not a signal in this use case: it is the persistent-delinquency mark on billing state, which the shortfall sweep picks up later. Bind it by asserting the customer-delinquent state; expect no outbound message"]}
-// Binding (JSON): {"seq":2,"operation":"SettleCycle","inputs":[{"name":"customerID","value":"b1120000-0000-4000-8000-000000000002"},{"name":"expectedVersion","value":"2"},{"name":"cycle","value":"2026-09"},{"name":"outcome","value":"{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":true,\"Attempts\":3,\"SweepsAged\":0}"},{"name":"idempotencyKey","value":"settle-state:b1120000-0000-4000-8000-000000000002:2026-09"}],"expect":{"result":"3","errorExpected":false},"probes":[{"for":"customer-delinquent","component":"billingStateAccess","operation":"ReadPersistentlyDelinquentCustomers","inputs":[{"name":"scope","value":"{\"ProjectID\":\"stp-billing-project-01\"}"}],"expect":{"result":"[{\"ID\":\"b1120000-0000-4000-8000-000000000002\"}]","errorExpected":false}}],"unobservable":[],"hook":true}
-// Arranges, through the contract's own write ops, the state in which guards charge-succeeded=[no], retries-left=[no] hold; then calls the operation exactly as billingManager does.
-func stepBillTheUserForUsageP2S2(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputBillTheUserForUsageP2S2) (any, error) {
-	t.Helper()
-	// The charge failed and no retry is left: the manager closes the cycle with an
-	// escalated outcome, which is what marks the customer persistently delinquent.
-	return subject.SettleCycle(callContext(t, h, "2"), in.CustomerID, in.ExpectedVersion, in.Cycle, in.Outcome, in.IdempotencyKey)
-}
-
-// stepBillTheUserForUsageP3S1 — Bill the User for Usage — [no] · [yes] · [yes], step 1: ReadBilling
-// Projected stimulus (JSON): {"seq":1,"node":"read-hosting-usage","input":{"kind":"call","from":"billing-manager","to":"billingstateaccess","op":"ReadBilling","call":"bill-the-user-for-usage/read-hosting-usage/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"ReadBilling","inputs":[{"name":"customerID","value":"b1130000-0000-4000-8000-000000000003"}],"expect":{"result":"{\"ID\":\"b1130000-0000-4000-8000-000000000003\",\"Version\":2,\"Registered\":true,\"GatewayBound\":true}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
-// Arranges, through the contract's own write ops, the state in which guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes] hold; then calls the operation exactly as billingManager does.
-func stepBillTheUserForUsageP3S1(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputBillTheUserForUsageP3S1) (any, error) {
-	t.Helper()
-	arrangeBound(t, h, subject, in.CustomerID.String())
-	return subject.ReadBilling(callContext(t, h, "1"), in.CustomerID)
-}
-
 // stepOnboardANewCustomerP1S1 — Onboard a New Customer — [yes], step 1: ReadBilling
 // Projected stimulus (JSON): {"seq":1,"node":"resolve-app","input":{"kind":"call","from":"billing-manager","to":"billingstateaccess","op":"ReadBilling","call":"onboard-a-new-customer/resolve-app/4"},"expectedOutputs":[{"node":"resolve-app","kind":"inferred","to":"","label":"Resolve the deployed app to its billing customer"}],"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadBilling","inputs":[{"name":"customerID","value":"0b010000-0000-4000-8000-000000000001"}],"expect":{"result":"{\"ID\":\"0b010000-0000-4000-8000-000000000001\",\"Version\":1,\"Registered\":true,\"GatewayBound\":false}","errorExpected":false},"probes":[{"for":"resolve-app","component":"billingStateAccess","operation":"ReadBilling","inputs":[{"name":"customerID","value":"0b010000-0000-4000-8000-000000000001"}],"expect":{"result":"{\"ID\":\"0b010000-0000-4000-8000-000000000001\",\"Registered\":true}","errorExpected":false}}],"unobservable":[],"hook":true}
@@ -171,65 +150,65 @@ func stepOnboardANewCustomerP1S1(t *testing.T, h *scenariohost.Host, subject bil
 	return subject.ReadBilling(callContext(t, h, "1"), in.CustomerID)
 }
 
-// stepRetryADeclinedServiceInvoiceP1S1 — Retry a Declined Service Invoice — [yes: retry] · [yes], step 1: ReadDeclinedCycles
+// stepRetryADeclinedServiceInvoiceP2S1 — Retry a Declined Service Invoice — [yes: retry] · [yes], step 1: ReadDeclinedCycles
 // Projected stimulus (JSON): {"seq":1,"node":"charge-declined","input":{"kind":"call","from":"billing-manager","to":"billingstateaccess","op":"ReadDeclinedCycles","call":"retry-a-declined-service-invoice/charge-declined/1.0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadDeclinedCycles","inputs":[{"name":"scope","value":"{\"ProjectID\":\"stp-billing-project-01\"}"}],"expect":{"result":"[{\"CustomerID\":\"2e710000-0000-4000-8000-000000000001\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges, through the contract's own write ops, the state in which guards retry-budget=[yes: retry], charge-ok=[yes] hold; then calls the operation exactly as billingManager does.
-func stepRetryADeclinedServiceInvoiceP1S1(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP1S1) (any, error) {
-	t.Helper()
-	arrangeDeclined(t, h, subject, retryP1Customer, 0)
-	return subject.ReadDeclinedCycles(callContext(t, h, "1"), in.Scope)
-}
-
-// stepRetryADeclinedServiceInvoiceP2S1 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay], step 1: ReadDeclinedCycles
-// Projected stimulus (JSON): {"seq":1,"node":"charge-declined","input":{"kind":"call","from":"billing-manager","to":"billingstateaccess","op":"ReadDeclinedCycles","call":"retry-a-declined-service-invoice/charge-declined/1.0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"ReadDeclinedCycles","inputs":[{"name":"scope","value":"{\"ProjectID\":\"stp-billing-project-01\"}"}],"expect":{"result":"[{\"CustomerID\":\"2e720000-0000-4000-8000-000000000002\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
-// Arranges, through the contract's own write ops, the state in which guards retry-budget=[no: exhausted], tolerance=[yes: delay] hold; then calls the operation exactly as billingManager does.
 func stepRetryADeclinedServiceInvoiceP2S1(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP2S1) (any, error) {
 	t.Helper()
 	arrangeDeclined(t, h, subject, retryP2Customer, 0)
 	return subject.ReadDeclinedCycles(callContext(t, h, "1"), in.Scope)
 }
 
-// stepRetryADeclinedServiceInvoiceP2S3 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay], step 3: ResettleCycle
+// stepRetryADeclinedServiceInvoiceP3S1 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay], step 1: ReadDeclinedCycles
+// Projected stimulus (JSON): {"seq":1,"node":"charge-declined","input":{"kind":"call","from":"billing-manager","to":"billingstateaccess","op":"ReadDeclinedCycles","call":"retry-a-declined-service-invoice/charge-declined/1.0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":1,"operation":"ReadDeclinedCycles","inputs":[{"name":"scope","value":"{\"ProjectID\":\"stp-billing-project-01\"}"}],"expect":{"result":"[{\"CustomerID\":\"2e720000-0000-4000-8000-000000000002\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Arranges, through the contract's own write ops, the state in which guards retry-budget=[no: exhausted], tolerance=[yes: delay] hold; then calls the operation exactly as billingManager does.
+func stepRetryADeclinedServiceInvoiceP3S1(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP3S1) (any, error) {
+	t.Helper()
+	arrangeDeclined(t, h, subject, retryP3Customer, 0)
+	return subject.ReadDeclinedCycles(callContext(t, h, "1"), in.Scope)
+}
+
+// stepRetryADeclinedServiceInvoiceP3S3 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay], step 3: ResettleCycle
 // Projected stimulus (JSON): {"seq":4,"node":"delay-sweep","input":{"kind":"call","from":"billing-manager","to":"billingstateaccess","op":"ResettleCycle","call":"retry-a-declined-service-invoice/delay-sweep/0"},"expectedOutputs":null,"expectedStates":[{"node":"cycle-awaiting-sweep","object":"SettlementCycle","inState":"[declined, shortfall awaiting next sweep]"}],"hints":null}
 // Binding (JSON): {"seq":4,"operation":"ResettleCycle","inputs":[{"name":"customerID","value":"2e720000-0000-4000-8000-000000000002"},{"name":"expectedVersion","value":"3"},{"name":"cycle","value":"2026-09"},{"name":"correction","value":"{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":1}"},{"name":"idempotencyKey","value":"sweep-state:2e720000-0000-4000-8000-000000000002:2026-09:1"}],"expect":{"result":"4","errorExpected":false},"probes":[{"for":"cycle-awaiting-sweep","component":"billingStateAccess","operation":"ReadCycle","inputs":[{"name":"customerID","value":"2e720000-0000-4000-8000-000000000002"},{"name":"cycle","value":"2026-09"}],"expect":{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":false,\"Declined\":true,\"Attempts\":1,\"SweepsAged\":1}}","errorExpected":false}},{"for":"cycle-awaiting-sweep","component":"billingStateAccess","operation":"ReadPersistentlyDelinquentCustomers","inputs":[{"name":"scope","value":"{\"ProjectID\":\"stp-billing-project-01\"}"}],"expect":{"result":"[]","errorExpected":false}}],"unobservable":[],"hook":true}
 // Arranges, through the contract's own write ops, the state in which guards retry-budget=[no: exhausted], tolerance=[yes: delay] hold; then calls the operation exactly as billingManager does.
-func stepRetryADeclinedServiceInvoiceP2S4(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP2S4) (any, error) {
+func stepRetryADeclinedServiceInvoiceP3S4(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP3S4) (any, error) {
 	t.Helper()
 	// retry budget exhausted, still inside tolerance: the cycle is re-settled still
 	// declined, one sweep older, leaving the shortfall for the next sweep.
 	return subject.ResettleCycle(callContext(t, h, "4"), in.CustomerID, in.ExpectedVersion, in.Cycle, in.Correction, in.IdempotencyKey)
 }
 
-// stepRetryADeclinedServiceInvoiceP3S1 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1: ReadDeclinedCycles
+// stepRetryADeclinedServiceInvoiceP4S1 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1: ReadDeclinedCycles
 // Projected stimulus (JSON): {"seq":1,"node":"charge-declined","input":{"kind":"call","from":"billing-manager","to":"billingstateaccess","op":"ReadDeclinedCycles","call":"retry-a-declined-service-invoice/charge-declined/1.0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadDeclinedCycles","inputs":[{"name":"scope","value":"{\"ProjectID\":\"stp-billing-project-01\"}"}],"expect":{"result":"[{\"CustomerID\":\"2e730000-0000-4000-8000-000000000003\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":2}}]","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges, through the contract's own write ops, the state in which guards retry-budget=[no: exhausted], tolerance=[no: aged out] hold; then calls the operation exactly as billingManager does.
-func stepRetryADeclinedServiceInvoiceP3S1(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP3S1) (any, error) {
+func stepRetryADeclinedServiceInvoiceP4S1(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP4S1) (any, error) {
 	t.Helper()
-	arrangeDeclined(t, h, subject, retryP3Customer, 2)
+	arrangeDeclined(t, h, subject, retryP4Customer, 2)
 	return subject.ReadDeclinedCycles(callContext(t, h, "1"), in.Scope)
 }
 
-// stepRetryADeclinedServiceInvoiceP3S3 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 3: ResettleCycle
+// stepRetryADeclinedServiceInvoiceP4S3 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 3: ResettleCycle
 // Projected stimulus (JSON): {"seq":4,"node":"escalate-delinquent","input":{"kind":"call","from":"billing-manager","to":"billingstateaccess","op":"ResettleCycle","call":"retry-a-declined-service-invoice/escalate-delinquent/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":4,"operation":"ResettleCycle","inputs":[{"name":"customerID","value":"2e730000-0000-4000-8000-000000000003"},{"name":"expectedVersion","value":"3"},{"name":"cycle","value":"2026-09"},{"name":"correction","value":"{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":true,\"Attempts\":1,\"SweepsAged\":3}"},{"name":"idempotencyKey","value":"escalate-state:2e730000-0000-4000-8000-000000000003:2026-09"}],"expect":{"result":"4","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges, through the contract's own write ops, the state in which guards retry-budget=[no: exhausted], tolerance=[no: aged out] hold; then calls the operation exactly as billingManager does.
-func stepRetryADeclinedServiceInvoiceP3S4(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP3S4) (any, error) {
+func stepRetryADeclinedServiceInvoiceP4S4(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP4S4) (any, error) {
 	t.Helper()
 	// retry budget exhausted and aged out of tolerance: the cycle is re-settled as an
 	// escalated outcome (the escalation to a human is the persistent-delinquency mark).
 	return subject.ResettleCycle(callContext(t, h, "4"), in.CustomerID, in.ExpectedVersion, in.Cycle, in.Correction, in.IdempotencyKey)
 }
 
-// stepRetryADeclinedServiceInvoiceP4S1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] · [yes: retry] · [yes], step 1: ReadDeclinedCycles
+// stepRetryADeclinedServiceInvoiceP1S1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again], step 1: ReadDeclinedCycles
 // Projected stimulus (JSON): {"seq":1,"node":"charge-declined","input":{"kind":"call","from":"billing-manager","to":"billingstateaccess","op":"ReadDeclinedCycles","call":"retry-a-declined-service-invoice/charge-declined/1.0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadDeclinedCycles","inputs":[{"name":"scope","value":"{\"ProjectID\":\"stp-billing-project-01\"}"}],"expect":{"result":"[{\"CustomerID\":\"2e740000-0000-4000-8000-000000000004\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
-// Arranges, through the contract's own write ops, the state in which guards retry-budget=[yes: retry], charge-ok=[no: declined again], retry-budget=[yes: retry], charge-ok=[yes] hold; then calls the operation exactly as billingManager does.
-func stepRetryADeclinedServiceInvoiceP4S1(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP4S1) (any, error) {
+// Arranges, through the contract's own write ops, the state in which guards retry-budget=[yes: retry], charge-ok=[no: declined again] hold; then calls the operation exactly as billingManager does.
+func stepRetryADeclinedServiceInvoiceP1S1(t *testing.T, h *scenariohost.Host, subject billingstate.BillingStateAccess, in inputRetryADeclinedServiceInvoiceP1S1) (any, error) {
 	t.Helper()
-	arrangeDeclined(t, h, subject, retryP4Customer, 0)
+	arrangeDeclined(t, h, subject, retryP1Customer, 0)
 	return subject.ReadDeclinedCycles(callContext(t, h, "1"), in.Scope)
 }
 

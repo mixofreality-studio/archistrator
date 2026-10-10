@@ -157,24 +157,6 @@ func bounded(ctx context.Context, t *testing.T) context.Context {
 	return ctx
 }
 
-// unarrangeable fails a step whose guards no collaborator's contract can arrange, so the
-// scenario cannot pass on a state its path does not hold.
-func unarrangeable(t *testing.T, why string) {
-	t.Helper()
-	t.Fatalf("unarrangeable: %s", why)
-}
-
-// noDeclineThenAccept is why a path that needs one charge declined and the next accepted
-// cannot be arranged: merchantGatewayAccess declines exactly when the customer holds no
-// validated instrument, which holds alike for every attempt of one charge sequence (the
-// close's in-close retry, one sweep's re-charges). Escalated in plan-5 round 3 (which
-// retry semantics the product has is not settled by a principle). Arranged with an
-// instrument, the first charge lands and the scenario would pass on the [yes] path's
-// state; arranged without one, every charge declines.
-const noDeclineThenAccept = "the path needs a charge declined and the next accepted within one charge sequence; " +
-	"merchantGatewayAccess declines exactly when no validated instrument is held, which no op changes between " +
-	"two attempts of one sequence (plan-5 r3 escalation: the product's retry semantics)"
-
 // ---------------------------------------------------------------------------
 // Arrangement through the collaborators' own contract ops.
 // ---------------------------------------------------------------------------
@@ -194,7 +176,7 @@ func refOf(t *testing.T, customerID, cycle string) cycleRef {
 // onboarding registration reads its committed option.
 const (
 	billP2Project    = "stp-billing-bill-P2-project"
-	retryP3Project   = "stp-billing-retry-P3-project"
+	retryP4Project   = "stp-billing-retry-P4-project"
 	billingProject   = "stp-billing-project"
 	chosenOptionID   = "opt-normal"
 	committedByActor = "founder@stp.test"
@@ -405,10 +387,11 @@ func probeBillTheUserForUsageP1S1N1(t *testing.T, h *scenariohost.Host, subject 
 	return readCycle(t, h, subject, "0b1a0000-0000-4000-8000-000000000101", closedCycle)
 }
 
-// stepBillTheUserForUsageP2S1 — Bill the User for Usage — [no] · [no], step 1: CloseBillingCycle
-// An onboarded customer whose gateway holds no validated instrument: every charge
-// attempt declines, the retry budget runs out, and the close records the persistent
-// decline.
+// stepBillTheUserForUsageP2S1 — Bill the User for Usage — [no], step 1: CloseBillingCycle
+// An onboarded customer whose gateway holds no validated instrument: the close's one
+// charge attempt declines, and the close records the decline and ends — no retry inside
+// the close, no escalation (spec §12 B18); the shortfall is left for the delinquency
+// sweep.
 func stepBillTheUserForUsageP2S1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager, in inputBillTheUserForUsageP2S1) (any, error) {
 	t.Helper()
 	st := stackOf(t, subject)
@@ -420,36 +403,16 @@ func stepBillTheUserForUsageP2S1(t *testing.T, h *scenariohost.Host, subject bil
 	return subject.CloseBillingCycle(rc, in.CustomerID, in.CycleID)
 }
 
-// probeBillTheUserForUsageP2S1N1 — Bill the User for Usage — [no] · [no], step 1, probe 1: billingStateAccess.ReadCycle proves period-closed-unpaid.
+// probeBillTheUserForUsageP2S1N1 — Bill the User for Usage — [no], step 1, probe 1: billingStateAccess.ReadCycle proves period-closed-unpaid.
 func probeBillTheUserForUsageP2S1N1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
 	t.Helper()
 	return readCycle(t, h, subject, "0b1a0000-0000-4000-8000-000000000102", closedCycle)
 }
 
-// probeBillTheUserForUsageP2S1N3 — Bill the User for Usage — [no] · [no], step 1, probe 3: billingStateAccess.ReadPersistentlyDelinquentCustomers proves customer-delinquent.
+// probeBillTheUserForUsageP2S1N3 — Bill the User for Usage — [no], step 1, probe 3: billingStateAccess.ReadPersistentlyDelinquentCustomers proves period-closed-unpaid left the customer in good standing (a close never escalates).
 func probeBillTheUserForUsageP2S1N3(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
 	t.Helper()
 	return readDelinquent(t, h, subject, billP2Project)
-}
-
-// stepBillTheUserForUsageP3S1 — Bill the User for Usage — [no] · [yes] · [yes], step 1: CloseBillingCycle
-// The close's first charge must decline and its in-close retry land (noDeclineThenAccept).
-func stepBillTheUserForUsageP3S1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager, in inputBillTheUserForUsageP3S1) (any, error) {
-	t.Helper()
-	st := stackOf(t, subject)
-	r := cycleRef(in)
-	arrangeOperated(t, h, st, r, billingProject)
-	arrangeUsage(t, h, st, r)
-	unarrangeable(t, noDeclineThenAccept)
-	rc := callContext(t, h, "1")
-	rc.Context = bounded(rc.Context, t)
-	return subject.CloseBillingCycle(rc, in.CustomerID, in.CycleID)
-}
-
-// probeBillTheUserForUsageP3S1N1 — Bill the User for Usage — [no] · [yes] · [yes], step 1, probe 1: billingStateAccess.ReadCycle proves period-closed-paid.
-func probeBillTheUserForUsageP3S1N1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
-	t.Helper()
-	return readCycle(t, h, subject, "0b1a0000-0000-4000-8000-000000000103", closedCycle)
 }
 
 // ---------------------------------------------------------------------------
@@ -536,16 +499,36 @@ func probeOnboardANewCustomerP3S2N1(t *testing.T, h *scenariohost.Host, subject 
 // ---------------------------------------------------------------------------
 // Retry a Declined Service Invoice.
 //
-// The sweep's policy (billingManager's own Tiered configuration) retries a declined
-// charge while fewer than 2 attempts have been made, then leaves it for the next sweep
-// while it has aged fewer than 3 sweeps, then escalates it. Each scenario arranges the
+// The sweep's policy (billingManager's own Tiered configuration) re-charges a declined
+// cycle once per sweep while fewer than 2 attempts have been made (the close's own
+// attempt counts), then leaves it for the next sweep while it has aged fewer than 3
+// sweeps, then escalates it. Each scenario arranges the
 // declined cycle's retry history to steer it (note-retry-history).
 // ---------------------------------------------------------------------------
 
-// stepRetryADeclinedServiceInvoiceP1S1 — Retry a Declined Service Invoice — [yes: retry] · [yes], step 1: RunShortfallSweep
-// The customer's August charge declined once and the customer has since fixed its
-// instrument: the sweep's re-charge, under the second attempt's key, goes through.
+// stepRetryADeclinedServiceInvoiceP1S1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again], step 1: RunShortfallSweep
+// The customer's August close declined its one attempt and the customer has not replaced
+// the instrument since: the sweep's one re-charge, under the second attempt's key,
+// declines again and the shortfall is left for the next sweep, a sweep older (B18).
 func stepRetryADeclinedServiceInvoiceP1S1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager, in inputRetryADeclinedServiceInvoiceP1S1) (any, error) {
+	t.Helper()
+	arrangeDeclined(t, h, stackOf(t, subject), refOf(t, "0b1a0000-0000-4000-8000-000000000304", declinedCycle), billingProject, 1, 0)
+	rc := callContext(t, h, "1")
+	rc.Context = bounded(rc.Context, t)
+	return subject.RunShortfallSweep(rc, in.TickID)
+}
+
+// probeRetryADeclinedServiceInvoiceP1S1N1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again], step 1, probe 1: billingStateAccess.ReadCycle proves cycle-awaiting-sweep.
+func probeRetryADeclinedServiceInvoiceP1S1N1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
+	t.Helper()
+	return readCycle(t, h, subject, "0b1a0000-0000-4000-8000-000000000304", declinedCycle)
+}
+
+// stepRetryADeclinedServiceInvoiceP2S1 — Retry a Declined Service Invoice — [yes: retry] · [yes], step 1: RunShortfallSweep
+// The customer's August close declined its one attempt and the customer has since
+// replaced the instrument: the sweep's re-charge, under the second attempt's key, goes
+// through (B18).
+func stepRetryADeclinedServiceInvoiceP2S1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager, in inputRetryADeclinedServiceInvoiceP2S1) (any, error) {
 	t.Helper()
 	st := stackOf(t, subject)
 	r := refOf(t, "0b1a0000-0000-4000-8000-000000000301", declinedCycle)
@@ -556,16 +539,16 @@ func stepRetryADeclinedServiceInvoiceP1S1(t *testing.T, h *scenariohost.Host, su
 	return subject.RunShortfallSweep(rc, in.TickID)
 }
 
-// probeRetryADeclinedServiceInvoiceP1S1N1 — Retry a Declined Service Invoice — [yes: retry] · [yes], step 1, probe 1: billingStateAccess.ReadCycle proves cycle-settled.
-func probeRetryADeclinedServiceInvoiceP1S1N1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
+// probeRetryADeclinedServiceInvoiceP2S1N1 — Retry a Declined Service Invoice — [yes: retry] · [yes], step 1, probe 1: billingStateAccess.ReadCycle proves cycle-settled.
+func probeRetryADeclinedServiceInvoiceP2S1N1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
 	t.Helper()
 	return readCycle(t, h, subject, "0b1a0000-0000-4000-8000-000000000301", declinedCycle)
 }
 
-// stepRetryADeclinedServiceInvoiceP2S1 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay], step 1: RunShortfallSweep
+// stepRetryADeclinedServiceInvoiceP3S1 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay], step 1: RunShortfallSweep
 // The customer's August charge declined on both attempts its budget allows and has aged
 // no sweep: the sweep leaves it declined for the next one, a sweep older.
-func stepRetryADeclinedServiceInvoiceP2S1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager, in inputRetryADeclinedServiceInvoiceP2S1) (any, error) {
+func stepRetryADeclinedServiceInvoiceP3S1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager, in inputRetryADeclinedServiceInvoiceP3S1) (any, error) {
 	t.Helper()
 	arrangeDeclined(t, h, stackOf(t, subject), refOf(t, "0b1a0000-0000-4000-8000-000000000302", declinedCycle), billingProject, 2, 0)
 	rc := callContext(t, h, "1")
@@ -573,45 +556,28 @@ func stepRetryADeclinedServiceInvoiceP2S1(t *testing.T, h *scenariohost.Host, su
 	return subject.RunShortfallSweep(rc, in.TickID)
 }
 
-// probeRetryADeclinedServiceInvoiceP2S1N1 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay], step 1, probe 1: billingStateAccess.ReadCycle proves cycle-awaiting-sweep.
-func probeRetryADeclinedServiceInvoiceP2S1N1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
+// probeRetryADeclinedServiceInvoiceP3S1N1 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay], step 1, probe 1: billingStateAccess.ReadCycle proves cycle-awaiting-sweep.
+func probeRetryADeclinedServiceInvoiceP3S1N1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
 	t.Helper()
 	return readCycle(t, h, subject, "0b1a0000-0000-4000-8000-000000000302", declinedCycle)
 }
 
-// stepRetryADeclinedServiceInvoiceP3S1 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1: RunShortfallSweep
+// stepRetryADeclinedServiceInvoiceP4S1 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1: RunShortfallSweep
 // The customer's August charge declined on both attempts its budget allows and has aged
 // its three sweeps of tolerance, under the project the delinquency probe scopes by: the
 // sweep escalates the cycle and signals the now delinquent customer to operations.
-func stepRetryADeclinedServiceInvoiceP3S1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager, in inputRetryADeclinedServiceInvoiceP3S1) (any, error) {
-	t.Helper()
-	arrangeDeclined(t, h, stackOf(t, subject), refOf(t, "0b1a0000-0000-4000-8000-000000000303", declinedCycle), retryP3Project, 2, 3)
-	rc := callContext(t, h, "1")
-	rc.Context = bounded(rc.Context, t)
-	return subject.RunShortfallSweep(rc, in.TickID)
-}
-
-// probeRetryADeclinedServiceInvoiceP3S1N1 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1, probe 1: billingStateAccess.ReadPersistentlyDelinquentCustomers proves customer-delinquent.
-func probeRetryADeclinedServiceInvoiceP3S1N1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
-	t.Helper()
-	return readDelinquent(t, h, subject, retryP3Project)
-}
-
-// stepRetryADeclinedServiceInvoiceP4S1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] · [yes: retry] · [yes], step 1: RunShortfallSweep
-// The sweep's first re-charge must decline and its second land (noDeclineThenAccept).
 func stepRetryADeclinedServiceInvoiceP4S1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager, in inputRetryADeclinedServiceInvoiceP4S1) (any, error) {
 	t.Helper()
-	arrangeDeclined(t, h, stackOf(t, subject), refOf(t, "0b1a0000-0000-4000-8000-000000000304", declinedCycle), billingProject, 0, 0)
-	unarrangeable(t, noDeclineThenAccept)
+	arrangeDeclined(t, h, stackOf(t, subject), refOf(t, "0b1a0000-0000-4000-8000-000000000303", declinedCycle), retryP4Project, 2, 3)
 	rc := callContext(t, h, "1")
 	rc.Context = bounded(rc.Context, t)
 	return subject.RunShortfallSweep(rc, in.TickID)
 }
 
-// probeRetryADeclinedServiceInvoiceP4S1N1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] · [yes: retry] · [yes], step 1, probe 1: billingStateAccess.ReadCycle proves cycle-settled.
+// probeRetryADeclinedServiceInvoiceP4S1N1 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1, probe 1: billingStateAccess.ReadPersistentlyDelinquentCustomers proves customer-delinquent.
 func probeRetryADeclinedServiceInvoiceP4S1N1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
 	t.Helper()
-	return readCycle(t, h, subject, "0b1a0000-0000-4000-8000-000000000304", declinedCycle)
+	return readDelinquent(t, h, subject, retryP4Project)
 }
 
 // ---------------------------------------------------------------------------

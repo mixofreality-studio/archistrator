@@ -51,12 +51,12 @@ type inputBillTheUserForUsageP2S1 struct {
 	Query usage.UsageRangeQuery `json:"query"`
 }
 
-// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] · [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → persistent-decline → note-escalation-is-state → customer-delinquent → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
+// TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
 func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "usageAccess", "bill-the-user-for-usage-P2", func(t *testing.T) {
 		var subject usage.UsageAccess = newSubject(t, h)
-		// step 1: ReadRange (node read-hosting-usage; guards charge-succeeded=[no], retries-left=[no])
+		// step 1: ReadRange (node read-hosting-usage; guards charge-succeeded=[no])
 		var in1 inputBillTheUserForUsageP2S1
 		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002","CycleID":"2026-09","OperatedAppID":null}}`, &in1)
 		var out1 any
@@ -72,35 +72,6 @@ func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002","CycleID":"2026-09","OperatedAppID":null}}`, &probe1_1)
 		pout1_1, perr1_1 = subject.ReadRange(callContext(t, h, "1.1"), probe1_1.Query)
 		expect(t, "bill-the-user-for-usage-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0001\",\"Units\":{\"Amount\":40.0,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0002\",\"Units\":{\"Amount\":3.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-	})
-}
-
-// inputBillTheUserForUsageP3S1 is step 1's parameters of ReadRange, decoded from the binding's inputs.
-type inputBillTheUserForUsageP3S1 struct {
-	Query usage.UsageRangeQuery `json:"query"`
-}
-
-// TestScenario_bill_the_user_for_usage_P3 — Bill the User for Usage — [no] · [yes] · [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → retries-left → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
-func TestScenario_bill_the_user_for_usage_P3(t *testing.T) {
-	h := scenariohost.Start(t)
-	h.RunScenario(t, "usageAccess", "bill-the-user-for-usage-P3", func(t *testing.T) {
-		var subject usage.UsageAccess = newSubject(t, h)
-		// step 1: ReadRange (node read-hosting-usage; guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes])
-		var in1 inputBillTheUserForUsageP3S1
-		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003","CycleID":"2026-09","OperatedAppID":null}}`, &in1)
-		var out1 any
-		var err1 error
-		out1, err1 = stepBillTheUserForUsageP3S1(t, h, subject, in1)
-		expect(t, "bill-the-user-for-usage-P3", 1, out1, err1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p3-0001\",\"Units\":{\"Amount\":0.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-		// probe 1.1: usageAccess.ReadRange for read-hosting-usage
-		var pout1_1 any
-		var perr1_1 error
-		var probe1_1 struct {
-			Query usage.UsageRangeQuery `json:"query"`
-		}
-		mustUnmarshal(t, `{"query":{"CustomerID":"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003","CycleID":"2026-09","OperatedAppID":null}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.ReadRange(callContext(t, h, "1.1"), probe1_1.Query)
-		expect(t, "bill-the-user-for-usage-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p3-0001\",\"Units\":{\"Amount\":0.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
 	})
 }
 

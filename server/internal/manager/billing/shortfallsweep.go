@@ -1,11 +1,16 @@
 package billing
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
@@ -25,8 +30,9 @@ type shortfallSweepInput struct {
 //  1. ReadDeclinedCycles → every settled cycle whose charge stands declined and is not
 //     escalated, each with its retry history (attempts made, sweeps aged).
 //  2. for each, retryDeclined: the interventionEngine decides under settlementPolicy —
-//     re-charge under the next attempt's key, leave it for the next sweep, or escalate
-//     it — and ResettleCycle records the result.
+//     one re-charge under the next attempt's key (B18: it lands once the customer has
+//     replaced the payment instrument), leave it for the next sweep, or escalate it —
+//     and ResettleCycle records the result.
 //  3. ReadDelinquentActivity → the persistently-delinquent customer set; for each,
 //     DeliverDelinquencySignalActivity → the queued applyDelinquencyPolicy Signal to
 //     operationsManager (the single sanctioned queued M→M edge).
@@ -63,23 +69,49 @@ func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSw
 	return result, nil
 }
 
-// retryDeclined runs one declined cycle through the retry use case (consult-policy →
-// retry-budget → recharge / tolerance → delay-sweep / escalate-delinquent) and records
-// the result on the cycle. The charge is the declined net's magnitude, under the next
-// attempt's key settle:{customerId}:{cycleId}:{attempt} (B6). A cycle the sweep leaves
-// declined or escalates has aged one more sweep; one whose charge lands is paid.
+// retryDeclined runs one declined cycle through the retry use case and records the result
+// on the cycle. consult-policy: the interventionEngine (direct, in-workflow) decides on the
+// cycle's recorded history under settlementPolicy. Retry → ONE re-charge under the next
+// attempt's key settle:{customerId}:{cycleId}:{attempt} (B6, B18): it lands only when the
+// customer has replaced the payment instrument since the decline, and a decline again is
+// left for the next sweep (delay-sweep). Delay leaves the shortfall for the next sweep;
+// Escalate marks it persistently delinquent. A cycle the sweep leaves declined or escalates
+// has aged one more sweep; one whose charge lands is paid.
 func (wf *workflows) retryDeclined(ctx workflow.Context, c billingstate.DeclinedCycle) error {
-	amount := merchantgateway.Money{MinorUnits: -c.Outcome.Net.MinorUnits, Currency: c.Outcome.Net.Currency}
-	history := chargeRecord{attempts: c.Outcome.Attempts, declined: true}
-	rec, err := wf.chargeWithRetries(ctx, c.CustomerID, c.Cycle, amount, history, c.Outcome.SweepsAged, settlementPolicy())
-	if err != nil {
-		return err
+	directive, derr := wf.Intervention.DecideOnSettlementFailure(fweng.Context{Context: context.Background()},
+		intervention.SettlementFailure{
+			CustomerID:   intervention.CustomerID(c.CustomerID.String()),
+			CycleID:      intervention.CycleID(c.Cycle),
+			Kind:         intervention.ChargeDeclined,
+			AttemptCount: c.Outcome.Attempts,
+			ShortfallAge: c.Outcome.SweepsAged,
+			Policy:       settlementPolicy(),
+		})
+	if derr != nil {
+		return fwmgr.MapError(derr)
 	}
 	correction := c.Outcome
-	correction.Attempts = rec.attempts
-	correction.Declined = rec.declined
-	correction.Escalated = rec.escalated
-	if rec.declined {
+	switch directive {
+	case intervention.SettlementRetry:
+		amount := merchantgateway.Money{MinorUnits: -c.Outcome.Net.MinorUnits, Currency: c.Outcome.Net.Currency}
+		rec, err := wf.chargeAttempt(ctx, c.CustomerID, c.Cycle, amount, chargeRecord{attempts: c.Outcome.Attempts, declined: true})
+		if err != nil {
+			return err
+		}
+		correction.Attempts = rec.attempts
+		correction.Declined = rec.declined
+	case intervention.SettlementDelay:
+		workflow.GetLogger(ctx).Info("declined charge left for the next shortfall sweep",
+			"customerId", c.CustomerID.String(), "cycleId", c.Cycle, "attempts", c.Outcome.Attempts)
+	case intervention.SettlementEscalate:
+		workflow.GetLogger(ctx).Warn("declined charge escalated to persistent delinquency",
+			"customerId", c.CustomerID.String(), "cycleId", c.Cycle, "attempts", c.Outcome.Attempts)
+		correction.Escalated = true
+	default:
+		return temporal.NewNonRetryableApplicationError(
+			"intervention returned an unknown billing-failure directive", "UnknownBillingDirective", nil)
+	}
+	if correction.Declined {
 		correction.SweepsAged++
 	}
 	billing, err := wf.readBilling(ctx, c.CustomerID)

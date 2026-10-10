@@ -108,23 +108,6 @@ func stepBillTheUserForUsageP2S1(t *testing.T, h *scenariohost.Host, subject usa
 	return subject.ReadRange(callContext(t, h, "1"), in.Query)
 }
 
-// stepBillTheUserForUsageP3S1 — Bill the User for Usage — [no] · [yes] · [yes], step 1: ReadRange
-// Projected stimulus (JSON): {"seq":1,"node":"read-hosting-usage","input":{"kind":"call","from":"billing-manager","to":"usageaccess","op":"ReadRange","call":"bill-the-user-for-usage/read-hosting-usage/2"},"expectedOutputs":[{"node":"read-hosting-usage","kind":"inferred","to":"","label":"Read hosting usage for the period"}],"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"CycleID\":\"2026-09\",\"OperatedAppID\":null}","schemaRef":"#/$defs/UsageRangeQuery"}],"expect":{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p3-0001\",\"Units\":{\"Amount\":0.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false},"probes":[{"for":"read-hosting-usage","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"CycleID\":\"2026-09\",\"OperatedAppID\":null}","schemaRef":"#/$defs/UsageRangeQuery"}],"expect":{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0003\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p3-0001\",\"Units\":{\"Amount\":0.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}}],"unobservable":[],"hook":true}
-// Arranges the ledger for the path that takes guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes], then calls the operation as its caller does.
-func stepBillTheUserForUsageP3S1(t *testing.T, h *scenariohost.Host, subject usage.UsageAccess, in inputBillTheUserForUsageP3S1) (any, error) {
-	t.Helper()
-	// The guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes]
-	// are the retry loop downstream of this read; the ledger's part is the one
-	// fact the period holds — plus a fact of the next period the close read must
-	// not fold in.
-	arrangeRecorded(t, h, subject, in.Query,
-		fact{app: appA1, cycle: "2026-09", runtimeEventID: "rt-bill-p3-0001", amount: 0.5},
-		fact{app: appA1, cycle: "2026-10", runtimeEventID: "rt-bill-p3-next-0001", amount: 1},
-	)
-	return subject.ReadRange(callContext(t, h, "1"), in.Query)
-}
-
 // stepViewOperatingCostProjectionP1S1 — View Operating-Cost Projection — [yes], step 1: ReadRange
 // Projected stimulus (JSON): {"seq":1,"node":"read-usage","input":{"kind":"call","from":"operations-manager","to":"usageaccess","op":"ReadRange","call":"view-operating-cost-projection/read-usage/0"},"expectedOutputs":[{"node":"read-usage","kind":"inferred","to":"","label":"Read observed compute usage for the current cycle"}],"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}","schemaRef":"#/$defs/UsageRangeQuery"}],"expect":{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-view-p1-0001\",\"Units\":{\"Amount\":6.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false},"probes":[{"for":"read-usage","component":"usageAccess","operation":"ReadRange","inputs":[{"name":"query","value":"{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"CycleID\":\"2026-10\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}","schemaRef":"#/$defs/UsageRangeQuery"}],"expect":{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-view-p1-0001\",\"Units\":{\"Amount\":6.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}}],"unobservable":[],"hook":true}

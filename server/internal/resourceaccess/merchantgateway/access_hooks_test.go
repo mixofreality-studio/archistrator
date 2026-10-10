@@ -115,26 +115,6 @@ func stepBillTheUserForUsageP1S1(t *testing.T, h *scenariohost.Host, subject mer
 	return nil, err
 }
 
-// stepBillTheUserForUsageP3S2 — Bill the User for Usage — [no] · [yes] · [yes], step 2: ChargeCustomer
-// Projected stimulus (JSON): {"seq":2,"node":"charge-user","input":{"kind":"call","from":"billing-manager","to":"merchantgatewayaccess","op":"ChargeCustomer","call":"bill-the-user-for-usage/charge-user/0"},"expectedOutputs":[{"node":"charge-user","kind":"inferred","to":"","label":"Charge the customer for the period"}],"expectedStates":null,"hints":["Charge idempotency key is settle:{customerId}:{cycleId}:{attempt}; a retry through retries-left [yes] is the next attempt under a new key (the gateway replays a declined key's decline), and a replay of one attempt reuses its key, so the binding asserts at most one charge per (customer, cycle, attempt)"]}
-// Binding (JSON): {"seq":2,"operation":"ChargeCustomer","inputs":[{"name":"customerID","value":"d1130000-0000-4000-8000-000000000003"},{"name":"amount","value":"{\"MinorUnits\":4200,\"Currency\":\"USD\"}"},{"name":"idempotencyKey","value":"settle:d1130000-0000-4000-8000-000000000003:2026-09:2"}],"expect":{"errorExpected":false},"probes":[],"unobservable":["charge-user"],"hook":true}
-// Arranges, through the contract's own write ops, the state in which guards charge-succeeded=[no], retries-left=[yes], charge-succeeded=[yes] hold; then calls the operation exactly as billingManager does, and replays both attempts under their keys.
-func stepBillTheUserForUsageP3S2(t *testing.T, h *scenariohost.Host, subject merchantgateway.MerchantGatewayAccess, in inputBillTheUserForUsageP3S2) (any, error) {
-	t.Helper()
-	// Step 1 declined attempt 1 (no validated instrument) and recorded the decline
-	// under its key. retries-left=[yes], charge-succeeded=[yes]: the customer's
-	// instrument is validated before the retry, and the retry is attempt 2 under its
-	// own key.
-	arrangeValidated(t, h, subject, chargeArgs(in))
-	err := subject.ChargeCustomer(callContext(t, h, "2"), in.CustomerID, in.Amount, in.IdempotencyKey)
-	if err == nil {
-		requireReplayed(t, h, subject, chargeArgs(in), in.IdempotencyKey, false)
-		// The gateway replays a declined key's decline: attempt 1 stays declined.
-		requireReplayed(t, h, subject, chargeArgs(in), "settle:"+in.CustomerID.String()+":2026-09:1", true)
-	}
-	return nil, err
-}
-
 // stepOnboardANewCustomerP2S1 — Onboard a New Customer — [no], step 1: ValidateStoredInstrument
 // Projected stimulus (JSON): {"seq":1,"node":"validate-instrument","input":{"kind":"call","from":"billing-manager","to":"merchantgatewayaccess","op":"ValidateStoredInstrument","call":"onboard-a-new-customer/validate-instrument/4"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ValidateStoredInstrument","inputs":[{"name":"customerID","value":"d2210000-0000-4000-8000-000000000001"},{"name":"idempotencyKey","value":"validate:d2210000-0000-4000-8000-000000000001"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
@@ -161,11 +141,11 @@ func stepOnboardANewCustomerP3S1(t *testing.T, h *scenariohost.Host, subject mer
 	return stepOnboardANewCustomerP2S1(t, h, subject, inputOnboardANewCustomerP2S1(in))
 }
 
-// stepRetryADeclinedServiceInvoiceP1S1— Retry a Declined Service Invoice — [yes: retry] · [yes], step 1: ChargeCustomer
+// stepRetryADeclinedServiceInvoiceP2S1— Retry a Declined Service Invoice — [yes: retry] · [yes], step 1: ChargeCustomer
 // Projected stimulus (JSON): {"seq":1,"node":"recharge","input":{"kind":"call","from":"billing-manager","to":"merchantgatewayaccess","op":"ChargeCustomer","call":"retry-a-declined-service-invoice/recharge/0"},"expectedOutputs":[{"node":"recharge","kind":"inferred","to":"","label":"Retry the charge under the next attempt's settlement idempotency key"}],"expectedStates":null,"hints":["Each charge attempt carries its attempt number in the settlement idempotency key settle:{customerId}:{cycleId}:{attempt}: the gateway replays a key's recorded outcome, a decline included, so a retry under the same key could never succeed. A replay of one attempt reuses that attempt's key, so the binding asserts at most one charge per (customer, cycle, attempt)."]}
 // Binding (JSON): {"seq":1,"operation":"ChargeCustomer","inputs":[{"name":"customerID","value":"d3310000-0000-4000-8000-000000000001"},{"name":"amount","value":"{\"MinorUnits\":4200,\"Currency\":\"USD\"}"},{"name":"idempotencyKey","value":"settle:d3310000-0000-4000-8000-000000000001:2026-09:2"}],"expect":{"errorExpected":false},"probes":[],"unobservable":["recharge"],"hook":true}
 // Arranges, through the contract's own ops, the state in which guards retry-budget=[yes: retry], charge-ok=[yes] hold; then calls the operation exactly as billingManager does, and replays the attempt under its key.
-func stepRetryADeclinedServiceInvoiceP1S1(t *testing.T, h *scenariohost.Host, subject merchantgateway.MerchantGatewayAccess, in inputRetryADeclinedServiceInvoiceP1S1) (any, error) {
+func stepRetryADeclinedServiceInvoiceP2S1(t *testing.T, h *scenariohost.Host, subject merchantgateway.MerchantGatewayAccess, in inputRetryADeclinedServiceInvoiceP2S1) (any, error) {
 	t.Helper()
 	// charge-declined: attempt 1 was declined and recorded under its key.
 	// retry-budget=[yes: retry], charge-ok=[yes]: the instrument is validated before
@@ -179,11 +159,11 @@ func stepRetryADeclinedServiceInvoiceP1S1(t *testing.T, h *scenariohost.Host, su
 	return nil, err
 }
 
-// stepRetryADeclinedServiceInvoiceP4S1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] · [yes: retry] · [yes], step 1: ChargeCustomer
+// stepRetryADeclinedServiceInvoiceP1S1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again], step 1: ChargeCustomer
 // Projected stimulus (JSON): {"seq":1,"node":"recharge","input":{"kind":"call","from":"billing-manager","to":"merchantgatewayaccess","op":"ChargeCustomer","call":"retry-a-declined-service-invoice/recharge/0"},"expectedOutputs":[{"node":"recharge","kind":"inferred","to":"","label":"Retry the charge under the next attempt's settlement idempotency key"}],"expectedStates":null,"hints":["Each charge attempt carries its attempt number in the settlement idempotency key settle:{customerId}:{cycleId}:{attempt}: the gateway replays a key's recorded outcome, a decline included, so a retry under the same key could never succeed. A replay of one attempt reuses that attempt's key, so the binding asserts at most one charge per (customer, cycle, attempt)."]}
 // Binding (JSON): {"seq":1,"operation":"ChargeCustomer","inputs":[{"name":"customerID","value":"d3340000-0000-4000-8000-000000000004"},{"name":"amount","value":"{\"MinorUnits\":4200,\"Currency\":\"USD\"}"},{"name":"idempotencyKey","value":"settle:d3340000-0000-4000-8000-000000000004:2026-09:2"}],"expect":{"errorExpected":true,"errorCode":"Auth"},"probes":[],"unobservable":["recharge"],"hook":true}
 // Arranges, through the contract's own ops, the state in which guards retry-budget=[yes: retry], charge-ok=[no: declined again] hold; then calls the operation exactly as billingManager does, and replays the declined attempt under its key.
-func stepRetryADeclinedServiceInvoiceP4S1(t *testing.T, h *scenariohost.Host, subject merchantgateway.MerchantGatewayAccess, in inputRetryADeclinedServiceInvoiceP4S1) (any, error) {
+func stepRetryADeclinedServiceInvoiceP1S1(t *testing.T, h *scenariohost.Host, subject merchantgateway.MerchantGatewayAccess, in inputRetryADeclinedServiceInvoiceP1S1) (any, error) {
 	t.Helper()
 	// charge-declined: attempt 1 was declined and recorded under its key.
 	// retry-budget=[yes: retry], charge-ok=[no: declined again]: the customer still
@@ -192,26 +172,6 @@ func stepRetryADeclinedServiceInvoiceP4S1(t *testing.T, h *scenariohost.Host, su
 	err := subject.ChargeCustomer(callContext(t, h, "1"), in.CustomerID, in.Amount, in.IdempotencyKey)
 	if err != nil {
 		requireReplayed(t, h, subject, chargeArgs(in), in.IdempotencyKey, true)
-	}
-	return nil, err
-}
-
-// stepRetryADeclinedServiceInvoiceP4S2 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] · [yes: retry] · [yes], step 2: ChargeCustomer
-// Projected stimulus (JSON): {"seq":2,"node":"recharge","input":{"kind":"call","from":"billing-manager","to":"merchantgatewayaccess","op":"ChargeCustomer","call":"retry-a-declined-service-invoice/recharge/0"},"expectedOutputs":[{"node":"recharge","kind":"inferred","to":"","label":"Retry the charge under the next attempt's settlement idempotency key"}],"expectedStates":null,"hints":["Each charge attempt carries its attempt number in the settlement idempotency key settle:{customerId}:{cycleId}:{attempt}: the gateway replays a key's recorded outcome, a decline included, so a retry under the same key could never succeed. A replay of one attempt reuses that attempt's key, so the binding asserts at most one charge per (customer, cycle, attempt)."]}
-// Binding (JSON): {"seq":2,"operation":"ChargeCustomer","inputs":[{"name":"customerID","value":"d3340000-0000-4000-8000-000000000004"},{"name":"amount","value":"{\"MinorUnits\":4200,\"Currency\":\"USD\"}"},{"name":"idempotencyKey","value":"settle:d3340000-0000-4000-8000-000000000004:2026-09:3"}],"expect":{"errorExpected":false},"probes":[],"unobservable":["recharge"],"hook":true}
-// Arranges, through the contract's own write ops, the state in which guards retry-budget=[yes: retry], charge-ok=[yes] hold after a second decline; then calls the operation exactly as billingManager does, and replays both attempts under their keys.
-func stepRetryADeclinedServiceInvoiceP4S2(t *testing.T, h *scenariohost.Host, subject merchantgateway.MerchantGatewayAccess, in inputRetryADeclinedServiceInvoiceP4S2) (any, error) {
-	t.Helper()
-	// Step 1 declined attempt 2. retry-budget=[yes: retry], charge-ok=[yes]: the
-	// instrument is validated before the next retry, which is attempt 3 under its own
-	// key.
-	arrangeValidated(t, h, subject, chargeArgs(in))
-	err := subject.ChargeCustomer(callContext(t, h, "2"), in.CustomerID, in.Amount, in.IdempotencyKey)
-	if err == nil {
-		requireReplayed(t, h, subject, chargeArgs(in), in.IdempotencyKey, false)
-		// The gateway replays a declined key's decline: attempt 2 stays declined
-		// even though the instrument is now validated.
-		requireReplayed(t, h, subject, chargeArgs(in), "settle:"+in.CustomerID.String()+":2026-09:2", true)
 	}
 	return nil, err
 }

@@ -341,31 +341,31 @@ func probeRegisterADeliveredSystemForOperationP1S1N2(t *testing.T, h *scenarioho
 	return readInFlight(t, h, subject, `{"AppIDs":["6f1c2b9e-0a11-4c00-8000-0000000000a2"]}`)
 }
 
-// stepRetryADeclinedServiceInvoiceP3S1 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1: ApplyDelinquencyPolicy
+// stepRetryADeclinedServiceInvoiceP4S1 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1: ApplyDelinquencyPolicy
 // Projected stimulus (JSON): {"seq":1,"node":"escalate-delinquent","input":{"kind":"call","from":"billing-manager","to":"operationsmanager","op":"ApplyDelinquencyPolicy","call":"retry-a-declined-service-invoice/escalate-delinquent/1"},"expectedOutputs":[{"node":"signal-delinquency-escalation","kind":"sendSignal","to":"settlement-manager","label":"Escalate persistent delinquency to the Settlement Manager"}],"expectedStates":[{"node":"customer-delinquent","object":"Customer","inState":"[delinquent]"}],"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ApplyDelinquencyPolicy","inputs":[{"name":"customerID","value":"6f1c2b9e-0c00-4c00-8000-0000000000c1"},{"name":"delinquencyContext","value":"{\"action\":1}"}],"expect":{"errorExpected":false},"probes":[{"for":"customer-delinquent","component":"billingStateAccess","operation":"ReadPersistentlyDelinquentCustomers","inputs":[{"name":"scope","value":"{\"ProjectID\":\"stp-ops-fixture-project\"}"}],"expect":{"result":"[{\"ID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"PauseNotWithdraw\":true}]","errorExpected":false}},{"for":"escalate-delinquent","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":4,\"InFlight\":true}","errorExpected":false}}],"unobservable":["signal-delinquency-escalation"],"hook":true}
 // Hook: the customer is persistently delinquent on the fixture project (registered, its cycle settled escalated) and its app is an operating system (v3); billing's escalation pauses it, and the hook waits for the enforcement workflow to record the pause.
-func stepRetryADeclinedServiceInvoiceP3S1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager, in inputRetryADeclinedServiceInvoiceP3S1) (any, error) {
+func stepRetryADeclinedServiceInvoiceP4S1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager, in inputRetryADeclinedServiceInvoiceP4S1) (any, error) {
 	t.Helper()
 	v := operating(t, h, subject, planApp.ID)
 	delinquent(t, h, subject)
 	return nil, applyDelinquency(t, h, subject, in.CustomerID, in.DelinquencyContext, planApp.ID, v)
 }
 
-// probeRetryADeclinedServiceInvoiceP3S1N1 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1, probe 1: billingStateAccess.ReadPersistentlyDelinquentCustomers proves customer-delinquent.
+// probeRetryADeclinedServiceInvoiceP4S1N1 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1, probe 1: billingStateAccess.ReadPersistentlyDelinquentCustomers proves customer-delinquent.
 // Probe (JSON): {"for":"customer-delinquent","component":"billingStateAccess","operation":"ReadPersistentlyDelinquentCustomers","inputs":[{"name":"scope","value":"{\"ProjectID\":\"stp-ops-fixture-project\"}"}],"expect":{"result":"[{\"ID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"PauseNotWithdraw\":true}]","errorExpected":false}}
 // Hook: read the fixture project's persistently delinquent customers.
-func probeRetryADeclinedServiceInvoiceP3S1N1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
+func probeRetryADeclinedServiceInvoiceP4S1N1(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
 	t.Helper()
 	var scope billingstate.DelinquencyScope
 	mustUnmarshal(t, `{"ProjectID":"stp-ops-fixture-project"}`, &scope)
 	return stackOf(t, subject).billing.ReadPersistentlyDelinquentCustomers(h.ResourceAccessContext(t, "read"), scope)
 }
 
-// probeRetryADeclinedServiceInvoiceP3S1N2 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1, probe 2: operatedSystemStateAccess.ReadOperatedSystem proves escalate-delinquent.
+// probeRetryADeclinedServiceInvoiceP4S1N2 — Retry a Declined Service Invoice — [no: exhausted] · [no: aged out], step 1, probe 2: operatedSystemStateAccess.ReadOperatedSystem proves escalate-delinquent.
 // Probe (JSON): {"for":"escalate-delinquent","component":"operatedSystemStateAccess","operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}],"expect":{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":4,\"InFlight\":true}","errorExpected":false}}
 // Hook: read the app's head-state row.
-func probeRetryADeclinedServiceInvoiceP3S1N2(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
+func probeRetryADeclinedServiceInvoiceP4S1N2(t *testing.T, h *scenariohost.Host, subject operations.OperationsManager) (any, error) {
 	t.Helper()
 	return readApp(t, h, subject, planApp.ID)
 }
