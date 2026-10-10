@@ -79,6 +79,10 @@ import (
 	"sync"
 	"time"
 
+	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
@@ -1882,23 +1886,29 @@ func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, files 
 	if err := writeManagedFiles(cloneDir, files); err != nil {
 		return "", err
 	}
-	addArgs := []string{"add", "--"}
+	// The paths reach `git add` as a NUL-separated pathspec file, never as argv: no
+	// caller-supplied path is ever parsed by git as an option.
+	pathspec := make([]byte, 0, len(files)*32)
 	for _, f := range files {
-		addArgs = append(addArgs, f.Path)
+		pathspec = append(pathspec, f.Path...)
+		pathspec = append(pathspec, 0)
 	}
-	if out, aerr := gitLocalRun(cloneDir, addArgs...); aerr != nil {
+	if err := writeGitLocalScratch(cloneDir, gitLocalPathspecFile, pathspec); err != nil {
+		return "", err
+	}
+	if out, aerr := gitLocalExec(cloneDir, exec.Command("git", "add", "--pathspec-from-file="+gitLocalPathspecFile, "--pathspec-file-nul")); aerr != nil {
 		return "", fwra.Wrap(fwra.Infrastructure, aerr, "gitlocal CommitManagedFiles: stage failed: "+strings.TrimSpace(out))
 	}
 	// Converged: nothing staged differs from main → no commit; main's tip is the handle.
-	if _, derr := gitLocalRun(cloneDir, "diff", "--cached", "--quiet"); derr == nil {
+	if _, derr := gitLocalExec(cloneDir, exec.Command("git", "diff", "--cached", "--quiet")); derr == nil {
 		sha, herr := gitLocalHeadSHA(cloneDir)
 		return CommitRef(sha), herr
 	}
-	if out, cerr := gitLocalRun(cloneDir, "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
-		"commit", "-m", ManagedCommitMessage); cerr != nil {
+	if out, cerr := gitLocalExec(cloneDir, exec.Command("git", "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"commit", "-m", ManagedCommitMessage)); cerr != nil {
 		return "", fwra.Wrap(fwra.Infrastructure, cerr, "gitlocal CommitManagedFiles: commit failed: "+strings.TrimSpace(out))
 	}
-	if out, perr := gitLocalRun(cloneDir, "push", "origin", gitLocalMainBranch); perr != nil {
+	if out, perr := gitLocalExec(cloneDir, exec.Command("git", "push", "origin", gitLocalMainBranch)); perr != nil {
 		if strings.Contains(out, "[rejected]") {
 			fe := fwra.New(fwra.Conflict, "gitlocal CommitManagedFiles: "+gitLocalMainBranch+" moved during the seat; nothing pushed")
 			fe.Retryable = true
@@ -1986,6 +1996,9 @@ func (a *gitLocalAccess) OpenBranch(_ fwra.Context, repo RepoRef, branch BranchN
 	if b == "" {
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenBranch: empty branch")
 	}
+	if !gitLocalValidBranch(b) {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenBranch: "+b+" is not a valid branch name")
+	}
 	a.gitMu.Lock()
 	defer a.gitMu.Unlock()
 
@@ -1994,14 +2007,21 @@ func (a *gitLocalAccess) OpenBranch(_ fwra.Context, repo RepoRef, branch BranchN
 		return "", err
 	}
 	defer cleanup()
+	clone, err := openGitLocalClone(cloneDir)
+	if err != nil {
+		return "", err
+	}
 
 	// Idempotent: the branch already exists in the shared repo → no-op success.
-	if _, verr := gitLocalRun(cloneDir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+b); verr == nil {
+	if _, found, rerr := gitLocalRemoteBranch(clone, b); rerr != nil {
+		return "", rerr
+	} else if found {
 		return BranchRef(b), nil
 	}
-	// Create off main: the clone's HEAD is origin/main's tip; push it to the new ref.
-	if out, perr := gitLocalRun(cloneDir, "push", "origin", "HEAD:refs/heads/"+b); perr != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal OpenBranch: create branch "+b+" failed: "+strings.TrimSpace(out))
+	// Create off main: the clone's main is origin/main's tip; push it to the new ref.
+	refspec := gitconfig.RefSpec(plumbing.NewBranchReferenceName(gitLocalMainBranch) + ":" + plumbing.NewBranchReferenceName(b))
+	if perr := gitLocalPush(clone, refspec); perr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal OpenBranch: create branch "+b+" failed")
 	}
 	return BranchRef(b), nil
 }
@@ -2091,21 +2111,167 @@ func (a *gitLocalAccess) MergePullRequest(_ fwra.Context, repo RepoRef, pr PullR
 // mirrors agenticjob.mergeActivityBranch's style).
 // ---------------------------------------------------------------------------
 
-// cloneMain clones the shared repo's main into a throwaway temp dir and returns the clone
-// dir + a cleanup func removing the whole temp tree. A clone failure (repo absent / no
-// main) is an Infrastructure error.
+// gitLocalMergeRef is the fixed ref a merge reads the PR's head through: the head's tip
+// is pinned here (go-git, from the clone's remote-tracking ref) before any `git merge`,
+// so the branch name — caller-derived — never reaches git's argv.
+const gitLocalMergeRef = "refs/aiarch/merge-head"
+
+// gitLocalRemote is the throwaway clone's name for the shared repo.
+const gitLocalRemote = "origin"
+
+// gitLocalPathspecFile and gitLocalMergeMsgFile are clone-relative scratch files that
+// carry caller-derived values (managed-file paths, the merge message naming the head) to
+// git as file content rather than argv. Both live under the clone's .git, so neither is
+// ever part of the working tree a commit stages.
+const (
+	gitLocalPathspecFile = ".git/AIARCH_PATHSPEC"
+	gitLocalMergeMsgFile = ".git/AIARCH_MERGE_MSG"
+)
+
+// cloneMain materialises the shared repo's main in a throwaway temp dir and returns the
+// clone dir + a cleanup func removing the whole temp tree. The clone is assembled rather
+// than `git clone`d so the repo URL is configured through go-git, never git's argv: an
+// empty repo, an origin remote fetching every branch to refs/remotes/origin/*, a fetch,
+// and main checked out at origin/main. Any failure (repo absent / no main) is an
+// Infrastructure error.
 func (a *gitLocalAccess) cloneMain() (cloneDir string, cleanup func(), err error) {
+	remoteURL, uerr := gitLocalRemoteURL(a.repoURL)
+	if uerr != nil {
+		return "", func() {}, uerr
+	}
 	parentDir, mkErr := os.MkdirTemp("", "aiarch-scm-*")
 	if mkErr != nil {
 		return "", func() {}, fwra.Wrap(fwra.Infrastructure, mkErr, "gitlocal: create work dir")
 	}
 	cleanup = func() { _ = os.RemoveAll(parentDir) }
 	cloneDir = filepath.Join(parentDir, "clone")
-	if out, cErr := gitLocalRun("", "clone", "--branch", gitLocalMainBranch, a.repoURL, cloneDir); cErr != nil {
+	if err := os.Mkdir(cloneDir, 0o700); err != nil {
 		cleanup()
-		return "", func() {}, fwra.Wrap(fwra.Infrastructure, cErr, "gitlocal: clone failed: "+strings.TrimSpace(out))
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, err, "gitlocal: create clone dir")
+	}
+	if out, ierr := gitLocalExec(cloneDir, exec.Command("git", "init", "--quiet")); ierr != nil {
+		cleanup()
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, ierr, "gitlocal: init clone failed: "+strings.TrimSpace(out))
+	}
+	repo, err := openGitLocalClone(cloneDir)
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if _, rerr := repo.CreateRemote(&gitconfig.RemoteConfig{Name: gitLocalRemote, URLs: []string{remoteURL}}); rerr != nil {
+		cleanup()
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, rerr, "gitlocal: configure origin")
+	}
+	if out, ferr := gitLocalExec(cloneDir, exec.Command("git", "fetch", "--quiet", gitLocalRemote)); ferr != nil {
+		cleanup()
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, ferr, "gitlocal: clone failed: "+strings.TrimSpace(out))
+	}
+	if out, cerr := gitLocalExec(cloneDir, exec.Command("git", "checkout", "--quiet", "-B", gitLocalMainBranch,
+		"refs/remotes/"+gitLocalRemote+"/"+gitLocalMainBranch)); cerr != nil {
+		cleanup()
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, cerr, "gitlocal: clone failed: no "+gitLocalMainBranch+": "+strings.TrimSpace(out))
 	}
 	return cloneDir, cleanup, nil
+}
+
+// gitLocalRemoteURL resolves the configured repo URL into the form the clone's origin
+// carries. A URL (scheme://…) or an absolute path is used as is; a relative plain path
+// is anchored to the process's working directory, the directory the composition root
+// configured it against (the clone's own directory is not).
+func gitLocalRemoteURL(repoURL string) (string, error) {
+	if strings.Contains(repoURL, "://") || filepath.IsAbs(repoURL) {
+		return repoURL, nil
+	}
+	abs, err := filepath.Abs(repoURL)
+	if err != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, err, "gitlocal: resolve repo path "+repoURL)
+	}
+	return abs, nil
+}
+
+// openGitLocalClone opens a throwaway clone through go-git, for the reads and writes that
+// name a caller-derived ref.
+func openGitLocalClone(cloneDir string) (*git.Repository, error) {
+	repo, err := git.PlainOpen(cloneDir)
+	if err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "gitlocal: open clone")
+	}
+	return repo, nil
+}
+
+// gitLocalRemoteBranch reports the shared repo's tip of branch, read from the clone's
+// remote-tracking ref (refs/remotes/origin/<branch>); found=false when the branch does
+// not exist there.
+func gitLocalRemoteBranch(repo *git.Repository, branch string) (plumbing.Hash, bool, error) {
+	ref, err := repo.Reference(plumbing.NewRemoteReferenceName(gitLocalRemote, branch), true)
+	if errors.Is(err, plumbing.ErrReferenceNotFound) {
+		return plumbing.ZeroHash, false, nil
+	}
+	if err != nil {
+		return plumbing.ZeroHash, false, fwra.Wrap(fwra.Infrastructure, err, "gitlocal: resolve "+branch)
+	}
+	return ref.Hash(), true, nil
+}
+
+// gitLocalPush pushes one refspec to the shared repo through go-git. A push with nothing
+// to update is success.
+func gitLocalPush(repo *git.Repository, refspec gitconfig.RefSpec) error {
+	err := repo.Push(&git.PushOptions{RemoteName: gitLocalRemote, RefSpecs: []gitconfig.RefSpec{refspec}})
+	if errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return nil
+	}
+	return err
+}
+
+// gitLocalDeleteBranch deletes branch from the shared repo.
+func gitLocalDeleteBranch(repo *git.Repository, branch string) error {
+	return gitLocalPush(repo, gitconfig.RefSpec(":"+plumbing.NewBranchReferenceName(branch)))
+}
+
+// gitLocalValidBranch reports whether name is a branch name git accepts
+// (check-ref-format's rules for refs/heads/<name>, including no leading "-").
+func gitLocalValidBranch(name string) bool {
+	return plumbing.NewBranchReferenceName(name).Validate() == nil
+}
+
+// pinGitLocalMergeHead resolves head on the shared repo and pins its tip at
+// gitLocalMergeRef in the clone; found=false when the head branch does not exist (merged
+// and deleted, or never created).
+func pinGitLocalMergeHead(cloneDir, head string) (bool, error) {
+	repo, err := openGitLocalClone(cloneDir)
+	if err != nil {
+		return false, err
+	}
+	hash, found, err := gitLocalRemoteBranch(repo, head)
+	if err != nil || !found {
+		return false, err
+	}
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(gitLocalMergeRef, hash)); err != nil {
+		return false, fwra.Wrap(fwra.Infrastructure, err, "gitlocal: pin "+head)
+	}
+	return true, nil
+}
+
+// gitLocalMergeHeadIsAncestor reports whether the pinned head is already contained in
+// the clone's main.
+func gitLocalMergeHeadIsAncestor(cloneDir string) bool {
+	_, err := gitLocalExec(cloneDir, exec.Command("git", "merge-base", "--is-ancestor", gitLocalMergeRef, "HEAD"))
+	return err == nil
+}
+
+// gitLocalAbortMerge abandons an in-progress merge, best-effort: the clone is thrown
+// away regardless.
+func gitLocalAbortMerge(cloneDir string) {
+	_, _ = gitLocalExec(cloneDir, exec.Command("git", "merge", "--abort"))
+}
+
+// writeGitLocalScratch writes one of the clone's .git scratch files (name is
+// clone-relative, e.g. gitLocalMergeMsgFile).
+func writeGitLocalScratch(cloneDir, name string, content []byte) error {
+	if err := os.WriteFile(filepath.Join(cloneDir, filepath.FromSlash(name)), content, 0o600); err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "gitlocal: write "+name)
+	}
+	return nil
 }
 
 // trialMerge reports whether head merges cleanly into main, computed by a --no-commit
@@ -2120,16 +2286,19 @@ func (a *gitLocalAccess) trialMerge(head string) (bool, error) {
 	}
 	defer cleanup()
 
-	remoteHead := "refs/remotes/origin/" + head
-	if _, verr := gitLocalRun(cloneDir, "rev-parse", "--verify", "--quiet", remoteHead); verr != nil {
+	found, err := pinGitLocalMergeHead(cloneDir, head)
+	if err != nil {
+		return false, err
+	}
+	if !found {
 		return false, nil // head gone → nothing to merge
 	}
-	if _, anc := gitLocalRun(cloneDir, "merge-base", "--is-ancestor", remoteHead, "HEAD"); anc == nil {
+	if gitLocalMergeHeadIsAncestor(cloneDir) {
 		return true, nil // already merged → trivially mergeable
 	}
-	_, mErr := gitLocalRun(cloneDir, "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
-		"merge", "--no-commit", "--no-ff", remoteHead)
-	_, _ = gitLocalRun(cloneDir, "merge", "--abort") // best-effort; the clone is thrown away regardless
+	_, mErr := gitLocalExec(cloneDir, exec.Command("git", "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"merge", "--no-commit", "--no-ff", gitLocalMergeRef))
+	gitLocalAbortMerge(cloneDir)
 	return mErr == nil, nil
 }
 
@@ -2144,10 +2313,9 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 	}
 	defer cleanup()
 
-	remoteHead := "refs/remotes/origin/" + head
-	headExists := false
-	if _, verr := gitLocalRun(cloneDir, "rev-parse", "--verify", "--quiet", remoteHead); verr == nil {
-		headExists = true
+	headExists, err := pinGitLocalMergeHead(cloneDir, head)
+	if err != nil {
+		return "", err
 	}
 
 	// Idempotent re-entry: the head was merged AND deleted by a prior successful call —
@@ -2155,12 +2323,16 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 	if !headExists {
 		return gitLocalHeadSHA(cloneDir)
 	}
+	repo, err := openGitLocalClone(cloneDir)
+	if err != nil {
+		return "", err
+	}
 
 	// Already merged but the branch survived (a prior attempt merged then crashed before
 	// the delete) → skip straight to the branch delete, no second merge commit.
-	if _, anc := gitLocalRun(cloneDir, "merge-base", "--is-ancestor", remoteHead, "HEAD"); anc == nil {
-		if out, derr := gitLocalRun(cloneDir, "push", "origin", "--delete", head); derr != nil {
-			return "", fwra.Wrap(fwra.Infrastructure, derr, "gitlocal merge: already merged but branch delete failed: "+strings.TrimSpace(out))
+	if gitLocalMergeHeadIsAncestor(cloneDir) {
+		if derr := gitLocalDeleteBranch(repo, head); derr != nil {
+			return "", fwra.Wrap(fwra.Infrastructure, derr, "gitlocal merge: already merged but branch delete failed")
 		}
 		return gitLocalHeadSHA(cloneDir)
 	}
@@ -2184,17 +2356,21 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 	// imported from here either — same NoSideways rule — so this realisation carries both
 	// defects until the shared home exists. Off the paid path for the same reason.
 	//
-	// Real --no-ff merge with a pinned author identity (independent of host git config).
-	mergeOut, mErr := gitLocalRun(cloneDir, "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
-		"merge", "--no-ff", "-m", "aiarch: merge "+head, remoteHead)
+	// Real --no-ff merge with a pinned author identity (independent of host git config);
+	// the message names the head, so it is read from a scratch file.
+	if err := writeGitLocalScratch(cloneDir, gitLocalMergeMsgFile, []byte("aiarch: merge "+head+"\n")); err != nil {
+		return "", err
+	}
+	mergeOut, mErr := gitLocalExec(cloneDir, exec.Command("git", "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"merge", "--no-ff", "-F", gitLocalMergeMsgFile, gitLocalMergeRef))
 	if mErr != nil {
-		_, _ = gitLocalRun(cloneDir, "merge", "--abort") // best-effort; clone is throwaway
+		gitLocalAbortMerge(cloneDir)
 		if strings.Contains(mergeOut, "CONFLICT") {
 			return "", fwra.New(fwra.Conflict, "gitlocal merge: conflict merging "+head+" into "+gitLocalMainBranch+"; nothing pushed")
 		}
 		return "", fwra.Wrap(fwra.Infrastructure, mErr, "gitlocal merge: merge of "+head+" failed: "+strings.TrimSpace(mergeOut))
 	}
-	if out, perr := gitLocalRun(cloneDir, "push", "origin", gitLocalMainBranch); perr != nil {
+	if out, perr := gitLocalExec(cloneDir, exec.Command("git", "push", gitLocalRemote, gitLocalMainBranch)); perr != nil {
 		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal merge: push of merged "+gitLocalMainBranch+" failed: "+strings.TrimSpace(out))
 	}
 	sha, err := gitLocalHeadSHA(cloneDir)
@@ -2203,8 +2379,8 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 	}
 	// The merge IS landed; a delete failure is recoverable — a retry takes the
 	// already-merged delete-only path above.
-	if out, derr := gitLocalRun(cloneDir, "push", "origin", "--delete", head); derr != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, derr, "gitlocal merge: merged but branch "+head+" could not be deleted: "+strings.TrimSpace(out))
+	if derr := gitLocalDeleteBranch(repo, head); derr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, derr, "gitlocal merge: merged but branch "+head+" could not be deleted")
 	}
 	return sha, nil
 }
@@ -2212,7 +2388,7 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 // gitLocalHeadSHA resolves the clone's current HEAD tip SHA (the landed merge commit, or
 // main's tip on an idempotent re-entry).
 func gitLocalHeadSHA(cloneDir string) (string, error) {
-	out, err := gitLocalRun(cloneDir, "rev-parse", "HEAD")
+	out, err := gitLocalExec(cloneDir, exec.Command("git", "rev-parse", "HEAD"))
 	if err != nil {
 		return "", fwra.Wrap(fwra.Infrastructure, err, "gitlocal: rev-parse HEAD")
 	}
@@ -2220,26 +2396,26 @@ func gitLocalHeadSHA(cloneDir string) (string, error) {
 }
 
 // gitLocalPRHead decodes the head branch from a local PullRequestRef ("local#<head>"). A
-// ref that is not local-shaped / empty is a caller pre-condition violation.
+// ref that is not local-shaped, empty, or not a valid branch name is a caller
+// pre-condition violation.
 func gitLocalPRHead(pr PullRequestRef) (string, error) {
 	head, ok := strings.CutPrefix(PullRequestRefString(pr), gitLocalPRPrefix)
-	if !ok || strings.TrimSpace(head) == "" {
+	if !ok || strings.TrimSpace(head) == "" || !gitLocalValidBranch(head) {
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal: malformed local PullRequestRef "+PullRequestRefString(pr))
 	}
 	return head, nil
 }
 
-// gitLocalRun runs `git <args...>` with the given working dir (ignored when empty — used
-// for the initial clone) and wraps combined output into the error on failure, for a
-// debuggable diagnostic. Mirrors agenticjob.runGit.
-func gitLocalRun(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...) //nolint:gosec // fixed trusted binary, internally-derived args (repo URL / branch names)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+// gitLocalExec runs one git invocation in dir and wraps its combined output into the
+// error on failure, for a debuggable diagnostic. Every invocation's argv is fixed at its
+// call site: each caller-derived value (the repo URL, a branch name, a path, a message
+// naming a branch) reaches git through go-git, the pinned gitLocalMergeRef, or a .git
+// scratch file — never as an argument git could parse as an option.
+func gitLocalExec(dir string, cmd *exec.Cmd) (string, error) {
+	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return string(out), fmt.Errorf("%s: %w: %s", strings.Join(cmd.Args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
 }
