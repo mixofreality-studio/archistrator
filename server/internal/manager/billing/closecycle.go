@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -23,20 +24,41 @@ import (
 // example.
 // ===========================================================================
 
-// CloseInput is the start payload for CloseCycleWorkflow.
+// CloseInput is the start payload for CloseCycleWorkflow. The façade
+// (CloseBillingCycle) names both; the customer's cycle-close Schedule names the customer
+// alone, and the firing closes the cycle that has just elapsed (elapsedCycle).
 type closeInput struct {
 	CustomerID customerID
 	CycleID    cycleID
 }
 
-// CloseCycleWorkflow drives UC6 cycle-close (billingManager.md §6.3):
+// cycleIDLayout is a cycle id's layout: a calendar month.
+const cycleIDLayout = "2006-01"
+
+// elapsedCycle is the cycle a scheduled close firing at now closes: the calendar month
+// before now's, in UTC — the Schedule fires at the start of every month (closeCycleCron).
+func elapsedCycle(now time.Time) cycleID {
+	start := time.Date(now.UTC().Year(), now.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	return start.AddDate(0, -1, 0).Format(cycleIDLayout)
+}
+
+// CloseCycleWorkflow drives UC6 cycle-close (billingManager.md §6.3; use case
+// bill-the-user-for-usage):
 //  1. ReadBillingActivity → terms + expectedVersion.
 //  2. ReadUsageRangeActivity → the usage value snapshot (revenue is the zero snapshot).
 //  3. billingengine.BillingEngine.ComputeNet (direct, by value) → {signedNet, routingDirective}.
-//  4. execute the directive: Charge (on failure decide→execute) / NoAction.
-//  5. SettleCycleActivity (head-state; Conflict loop).
+//  4. execute the directive: Charge (each decline decided by the interventionEngine:
+//     retry under the next attempt's key, or record the persistent decline) / NoAction.
+//  5. SettleCycleActivity (head-state; Conflict loop) — the outcome with its charge's
+//     retry history (Declined, Escalated, Attempts), which the shortfall sweep reads.
 func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (CloseCycleResult, error) {
 	logger := workflow.GetLogger(ctx)
+
+	if in.CycleID == "" {
+		// A scheduled firing: workflow.Now is the firing's recorded time, so the derived
+		// cycle replays identically.
+		in.CycleID = elapsedCycle(workflow.Now(ctx))
+	}
 
 	billing, err := wf.readBilling(ctx, in.CustomerID)
 	if err != nil {
@@ -62,7 +84,7 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 		return CloseCycleResult{}, fwmgr.MapError(cerr)
 	}
 
-	escalated, routeErr := wf.routeNet(ctx, in.CustomerID, in.CycleID, result, 0)
+	charge, routeErr := wf.routeNet(ctx, in.CustomerID, in.CycleID, result)
 	if routeErr != nil {
 		return CloseCycleResult{}, routeErr
 	}
@@ -73,14 +95,17 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	outcome := billingstate.BillingOutcome{
 		Net:       billingstate.Money{MinorUnits: result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency},
 		Directive: routingDirectiveToState(result.RoutingDirective),
-		Escalated: escalated,
+		Declined:  charge.declined,
+		Escalated: charge.escalated,
+		Attempts:  charge.attempts,
 	}
 	if _, serr := wf.settleCycle(ctx, in.CustomerID, billing.Version, in.CycleID, outcome); serr != nil {
 		return CloseCycleResult{}, serr
 	}
 
 	logger.Info("cycle settled", "customerId", in.CustomerID.String(), "cycleId", in.CycleID,
-		"directive", routingDirectiveName(RoutingDirective(result.RoutingDirective)), "escalated", escalated)
+		"directive", routingDirectiveName(RoutingDirective(result.RoutingDirective)),
+		"attempts", charge.attempts, "declined", charge.declined, "escalated", charge.escalated)
 
 	return CloseCycleResult{
 		CustomerID: in.CustomerID,
@@ -89,78 +114,114 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 		// boundary (full encapsulation: the public contract carries billing's own
 		// enum, not the engine's). The iota order matches, so the cast is faithful.
 		Routed:    RoutingDirective(result.RoutingDirective),
-		Escalated: escalated,
+		Escalated: charge.escalated,
 	}, nil
 }
 
+// chargeRecord is what executing a cycle's routing directive leaves on its outcome: the
+// charge attempts made, and whether the charge stands declined and, if so, escalated to
+// persistent delinquency.
+type chargeRecord struct {
+	attempts  int64
+	declined  bool
+	escalated bool
+}
+
 // routeNet executes the Engine's routing directive (billingManager.md §6.3 / §0
-// decision 2). Charge → chargeCustomer (on failure decide→execute
-// {Retry|Escalate|Delay}); NoAction → skip. Charge-only: there is no Payout directive —
-// a non-negative net routes NoAction. Returns whether the cycle
-// was escalated (the OQ-4 head-state escalation flag). attempt seeds the re-charge
-// budget for the Retry directive.
-func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycleID cycleID, result billingengine.BillingResult, attempt int) (escalated bool, err error) {
+// decision 2). Charge → chargeCustomer, each decline decided by the interventionEngine
+// under closeSettlementPolicy (retries-left [yes] re-charges under the next attempt's
+// key; [no] records the persistent decline); NoAction → skip. Charge-only: there is no
+// Payout directive — a non-negative net routes NoAction.
+func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycleID cycleID, result billingengine.BillingResult) (chargeRecord, error) {
 	switch result.RoutingDirective {
 	case billingengine.RoutingCharge:
 		// Charge the positive magnitude of the negative shortfall net.
-		chargeAmount := merchantgateway.Money{MinorUnits: -result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency}
-		cerr := wf.chargeCustomer(ctx, customerID, cycleID, attempt, chargeAmount)
-		if cerr == nil {
-			return false, nil
-		}
-		if !isGatewayDecline(cerr) {
-			return false, cerr
-		}
-		// On a charge DECLINE, decide+execute (intervention.InterventionEngine, direct in-workflow).
-		return wf.handleChargeFailure(ctx, customerID, cycleID, result, attempt)
+		amount := merchantgateway.Money{MinorUnits: -result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency}
+		return wf.chargeWithRetries(ctx, customerID, cycleID, amount, chargeRecord{}, 0, closeSettlementPolicy())
 	case billingengine.RoutingNoAction:
-		return false, nil
+		return chargeRecord{}, nil
 	default:
-		return false, temporal.NewNonRetryableApplicationError(
+		return chargeRecord{}, temporal.NewNonRetryableApplicationError(
 			"billing engine returned an unknown routing directive", "UnknownRoutingDirective", nil)
 	}
 }
 
-// handleChargeFailure runs the OQ-4 decide→execute branch on a declined charge:
-//   - Retry   → re-enter the charge within the bounded re-charge budget.
-//   - Delay   → leave the shortfall for the next shortfallSweep (the head-state record
-//     carries no escalation; the sweep re-attempts). Returns escalated=false.
-//   - Escalate→ flag delinquency on head-state (escalated=true); the operator dashboard
-//     reads it via readBilling (no new DSL edge; §6.3).
-func (wf *workflows) handleChargeFailure(ctx workflow.Context, customerID customerID, cycleID cycleID, result billingengine.BillingResult, attempt int) (escalated bool, err error) {
-	directive, derr := wf.Intervention.DecideOnSettlementFailure(fweng.Context{Context: context.Background()},
-		intervention.SettlementFailure{
-			CustomerID:   intervention.CustomerID(customerID.String()),
-			CycleID:      intervention.CycleID(cycleID),
-			Kind:         intervention.ChargeDeclined,
-			AttemptCount: int64(attempt + 1),
-		})
-	if derr != nil {
-		return false, fwmgr.MapError(derr)
-	}
-	switch directive {
-	case intervention.SettlementRetry:
-		if attempt+1 >= maxChargeRetries {
-			// Budget exhausted — flip to an escalation rather than loop forever.
-			return true, nil
+// chargeWithRetries is the charge loop the close and the shortfall sweep share (use
+// cases bill-the-user-for-usage charge-user → charge-succeeded → retries-left, and
+// retry-a-declined-service-invoice consult-policy → retry-budget → recharge → charge-ok).
+// rec is the charge's history so far; shortfallAge the sweeps the shortfall has aged.
+// Before every charge it asks the interventionEngine (direct, in-workflow) what the
+// history allows, under policy: Retry charges under the next attempt's key — a success
+// clears the decline, a decline is decided again; Delay leaves the shortfall declined for
+// the next sweep; Escalate marks it persistently delinquent. A first charge (a close) is
+// made unasked: there is no failure to decide on yet.
+func (wf *workflows) chargeWithRetries(ctx workflow.Context, customerID customerID, cycleID cycleID, amount merchantgateway.Money, rec chargeRecord, shortfallAge int64, policy intervention.InterventionPolicy) (chargeRecord, error) {
+	for {
+		if rec.declined {
+			directive, derr := wf.Intervention.DecideOnSettlementFailure(fweng.Context{Context: context.Background()},
+				intervention.SettlementFailure{
+					CustomerID:   intervention.CustomerID(customerID.String()),
+					CycleID:      intervention.CycleID(cycleID),
+					Kind:         intervention.ChargeDeclined,
+					AttemptCount: rec.attempts,
+					ShortfallAge: shortfallAge,
+					Policy:       policy,
+				})
+			if derr != nil {
+				return chargeRecord{}, fwmgr.MapError(derr)
+			}
+			switch directive {
+			case intervention.SettlementRetry:
+				// retries-left [yes]: the next attempt, below.
+			case intervention.SettlementDelay:
+				workflow.GetLogger(ctx).Info("declined charge left for the next shortfall sweep",
+					"customerId", customerID.String(), "cycleId", cycleID, "attempts", rec.attempts)
+				return rec, nil
+			case intervention.SettlementEscalate:
+				workflow.GetLogger(ctx).Warn("declined charge escalated to persistent delinquency",
+					"customerId", customerID.String(), "cycleId", cycleID, "attempts", rec.attempts)
+				rec.escalated = true
+				return rec, nil
+			default:
+				return chargeRecord{}, temporal.NewNonRetryableApplicationError(
+					"intervention returned an unknown billing-failure directive", "UnknownBillingDirective", nil)
+			}
 		}
-		// EXECUTE Retry: re-route the same net (re-enters the charge).
-		return wf.routeNet(ctx, customerID, cycleID, result, attempt+1)
-	case intervention.SettlementDelay:
-		// EXECUTE Delay: leave for the next shortfallSweep; no escalation flag.
-		workflow.GetLogger(ctx).Info("charge delayed to next shortfall sweep",
-			"customerId", customerID.String(), "cycleId", cycleID)
-		return false, nil
-	case intervention.SettlementEscalate:
-		// EXECUTE Escalate: flag delinquency on the head-state outcome (read by the
-		// operator dashboard via readBilling; no new edge).
-		workflow.GetLogger(ctx).Warn("billing charge escalated to delinquency",
-			"customerId", customerID.String(), "cycleId", cycleID)
-		return true, nil
-	default:
-		return false, temporal.NewNonRetryableApplicationError(
-			"intervention returned an unknown billing-failure directive", "UnknownBillingDirective", nil)
+		cerr := wf.chargeCustomer(ctx, customerID, cycleID, rec.attempts, amount)
+		rec.attempts++
+		if cerr == nil {
+			rec.declined = false
+			return rec, nil
+		}
+		if !isGatewayDecline(cerr) {
+			return chargeRecord{}, cerr
+		}
+		rec.declined = true
 	}
+}
+
+// settlementPolicy is billingManager's own intervention policy for a declined charge
+// (the Manager's Tiered configuration, as operations' is for health): a declined charge
+// is retried while fewer than settlementRetryBudget attempts have been made, then left
+// for the shortfall sweep while it has aged fewer than settlementToleranceSweeps sweeps,
+// then escalated to persistent delinquency.
+func settlementPolicy() intervention.InterventionPolicy {
+	return intervention.InterventionPolicy{
+		Mode:                     intervention.Tiered,
+		RetryBudget:              settlementRetryBudget,
+		ShortfallToleranceSweeps: settlementToleranceSweeps,
+	}
+}
+
+// closeSettlementPolicy is settlementPolicy at a cycle's close. The close grants the
+// charge its retry budget but no sweeps of tolerance: tolerance is what the shortfall
+// sweep extends to a shortfall it finds declined, while a charge the close cannot land
+// within its retries is a persistent decline (bill-the-user-for-usage retries-left [no]
+// → persistent-decline → customer-delinquent).
+func closeSettlementPolicy() intervention.InterventionPolicy {
+	p := settlementPolicy()
+	p.ShortfallToleranceSweeps = 0
+	return p
 }
 
 // chargeOnlyRevenue is the cycle's revenue snapshot under the charge-only model: zero,
@@ -192,7 +253,7 @@ func (wf *workflows) foldUsage(ctx workflow.Context, customerID customerID, cycl
 // chargeCustomer invokes merchantGatewayAccess.chargeCustomer (caller-keyed
 // settle:{customerId}:{cycleId}:{attempt}). A terminal decline (RA Auth) surfaces to the
 // decideOnBillingFailure branch (OQ-4).
-func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, attempt int, amount merchantgateway.Money) error {
+func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, attempt int64, amount merchantgateway.Money) error {
 	key := gatewayIdempotencyKey(customerID, cycleID, attempt)
 	return wf.Acts.MerchantGatewayChargeCustomer(ctx, fwra.IdempotencyKey(key), customerID, amount, key)
 }
@@ -213,7 +274,7 @@ func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, se
 // A pure, business-stable string composition — replay-safe, so it is built workflow-side
 // and supplied EXPLICITLY to the caller-keyed gateway invoker (as BOTH the caller key and
 // the contract's idempotencyKey param).
-func gatewayIdempotencyKey(customerID customerID, cycleID cycleID, attempt int) string {
+func gatewayIdempotencyKey(customerID customerID, cycleID cycleID, attempt int64) string {
 	return fmt.Sprintf("settle:%s:%s:%d", customerID, cycleID, attempt+1)
 }
 

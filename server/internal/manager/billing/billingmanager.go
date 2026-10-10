@@ -48,6 +48,7 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	billingengine "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
@@ -160,7 +161,7 @@ func (m *billingManager) OnboardPaymentIntegration(rc fwmgr.Context, deployedApp
 	}
 	var result BillingRef
 	if err := we.Get(ctx, &result); err != nil {
-		return BillingRef{}, newError(fwmgr.Infrastructure, err.Error())
+		return BillingRef{}, mapResultError(err)
 	}
 	return result, nil
 }
@@ -192,7 +193,7 @@ func (m *billingManager) RegisterCustomer(rc fwmgr.Context, customerID customerI
 	}
 	var result BillingRef
 	if err := we.Get(ctx, &result); err != nil {
-		return BillingRef{}, newError(fwmgr.Infrastructure, err.Error())
+		return BillingRef{}, mapResultError(err)
 	}
 	return result, nil
 }
@@ -228,7 +229,7 @@ func (m *billingManager) CloseBillingCycle(rc fwmgr.Context, customerID customer
 	}
 	var result CloseCycleResult
 	if err := we.Get(ctx, &result); err != nil {
-		return CloseCycleResult{}, newError(fwmgr.Infrastructure, err.Error())
+		return CloseCycleResult{}, mapResultError(err)
 	}
 	return result, nil
 }
@@ -307,7 +308,7 @@ func (m *billingManager) RunShortfallSweep(rc fwmgr.Context, tickID string) (Sho
 	}
 	var result ShortfallSweepResult
 	if err := we.Get(ctx, &result); err != nil {
-		return ShortfallSweepResult{}, newError(fwmgr.Infrastructure, err.Error())
+		return ShortfallSweepResult{}, mapResultError(err)
 	}
 	return result, nil
 }
@@ -345,6 +346,46 @@ func mapStartError(err error) error {
 	// A "workflow already started" race under UseExisting policy is benign; any other
 	// error is treated as an infrastructure fault at the transport layer.
 	return newError(fwmgr.Infrastructure, err.Error())
+}
+
+// mapResultError maps a billing workflow's failure onto the façade error model. A
+// workflow fails with the layer kind its body raised or carried up from an activity or
+// an Engine, and that kind is the caller's answer: a FailedPrecondition is a state the
+// caller can act on (a customer with no gateway binding, a refused instrument, a project
+// with no committed option to bill under), a NotFound names a missing entity, a
+// ContractMisuse a malformed request. Only a failure that carries no such kind (a
+// timeout, a cancellation, a lost worker) is Infrastructure.
+func mapResultError(err error) error {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		if kind, ok := resultErrorKind(appErr.Type()); ok {
+			return fwmgr.Wrap(kind, err, "billing workflow failed")
+		}
+	}
+	return newError(fwmgr.Infrastructure, err.Error())
+}
+
+// resultErrorKind maps a workflow failure's application error type to the façade kind it
+// reports; ok is false for a type with no façade meaning.
+func resultErrorKind(errType string) (fwmgr.Kind, bool) {
+	for _, k := range fwmgr.Kinds() {
+		if errType == fwmgr.ErrType(k) {
+			return k, true
+		}
+	}
+	switch errType {
+	case fwmgr.RAErrType(fwra.NotFound):
+		return fwmgr.NotFound, true
+	case fwmgr.RAErrType(fwra.ContractMisuse), fwmgr.EngineErrType(fweng.ContractMisuse):
+		return fwmgr.ContractMisuse, true
+	case fwmgr.RAErrType(fwra.Auth), fwmgr.RAErrType(fwra.Conflict), fwmgr.EngineErrType(fweng.InvalidInput):
+		// Auth: the merchant gateway refused the customer's instrument — the customer's
+		// standing, not the caller's authorization. Conflict: a head-state write the
+		// workflow could not converge. InvalidInput: the customer's terms cannot price
+		// the cycle.
+		return fwmgr.FailedPrecondition, true
+	}
+	return fwmgr.Unknown, false
 }
 
 // ---------------------------------------------------------------------------
@@ -626,10 +667,15 @@ const (
 	// (§6.5).
 	maxMutateConflictAttempts = 20
 
-	// maxChargeRetries bounds the in-workflow Retry directive re-charge budget (OQ-4;
-	// the external-gateway retry budget). The Activity RetryPolicy handles transport
-	// retries; this bounds the intervention-decided re-charges.
-	maxChargeRetries = 5
+	// settlementRetryBudget is the charge attempts settlementPolicy allows a declined
+	// cycle before its decline stops being retried (the interventionEngine's Tiered
+	// retry budget). The Activity RetryPolicy handles transport retries; this bounds the
+	// intervention-decided re-charges.
+	settlementRetryBudget = 2
+
+	// settlementToleranceSweeps is the shortfall sweeps a declined cycle past its retry
+	// budget is left for before it is escalated to persistent delinquency.
+	settlementToleranceSweeps = 3
 )
 
 // raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
@@ -679,10 +725,10 @@ const (
 	// (registered at startup).
 	scheduleIDShortfallSweep = "shortfallSweep"
 
-	// closeCycleDefaultIntervalSecs is the default per-customer cycle cadence (daily) the
-	// onboarding Schedule registers; the real cadence is derived from the customer's
-	// BillingSchedule (operational-concepts.md §4 line 113). Default = 24h.
-	closeCycleDefaultIntervalSecs = 24 * 60 * 60
+	// closeCycleCron is the per-customer cycle-close cadence the onboarding Schedule
+	// registers: 00:00 UTC on the first of every month. A cycle is a calendar month (its
+	// id is "2006-01"), so each firing closes the month that has just elapsed.
+	closeCycleCron = "0 0 1 * *"
 
 	// shortfallSweepIntervalSecs is the hourly shortfall-sweep cadence (1h;
 	// operational-concepts.md §4).
@@ -751,6 +797,7 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 	presets := map[string]workflow.ActivityOptions{
 		"billingStateAccess.readBilling":                         readHeadActivityOptions(),
 		"billingStateAccess.readPersistentlyDelinquentCustomers": readHeadActivityOptions(),
+		"billingStateAccess.readDeclinedCycles":                  readHeadActivityOptions(),
 		"billingStateAccess.registerCustomer":                    recordHeadActivityOptions(),
 		"billingStateAccess.bindGatewayLive":                     recordHeadActivityOptions(),
 		"billingStateAccess.settleCycle":                         recordHeadActivityOptions(),
