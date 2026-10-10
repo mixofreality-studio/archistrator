@@ -4397,18 +4397,39 @@ type inputProjectStateAccessOnboardANewCustomerP2S1 struct {
 	ProjectID projectstate.ProjectID `json:"projectID"`
 }
 
-// TestScenario_ProjectStateAccess_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+// TestScenario_ProjectStateAccess_onboard_a_new_customer_P2 — Onboard a New Customer — [no] · [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_ProjectStateAccess_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "projectStateAccess", "onboard-a-new-customer-P2", func(t *testing.T) {
 		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
-		// step 1: ReadProject (node register-customer; guards registered=[no])
+		// step 1: ReadProject (node read-commitment; guards registered=[no], project-committed=[yes])
 		var in1 inputProjectStateAccessOnboardANewCustomerP2S1
 		mustUnmarshal(t, `{"projectID":"stp-psa-onb-p2"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepProjectStateAccessOnboardANewCustomerP2S1(t, h, subject, in1)
 		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-onb-p2\",\"SdpReview\":{\"Status\":2},\"PlanningAssumptions\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessOnboardANewCustomerP3S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessOnboardANewCustomerP3S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_onboard_a_new_customer_P3 — Onboard a New Customer — [no] · [no: no committed option] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → send-registration-refused → end).
+func TestScenario_ProjectStateAccess_onboard_a_new_customer_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "onboard-a-new-customer-P3", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node read-commitment; guards registered=[no], project-committed=[no: no committed option])
+		var in1 inputProjectStateAccessOnboardANewCustomerP3S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-onb-p3"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessOnboardANewCustomerP3S1(t, h, subject, in1)
+		expect(t, "onboard-a-new-customer-P3", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-onb-p3\",\"Phase\":1,\"SdpReview\":{\"Status\":0},\"PlanningAssumptions\":{\"Status\":2}}","errorExpected":false}`)
+		// unobservable: send-registration-refused
 	})
 }
 

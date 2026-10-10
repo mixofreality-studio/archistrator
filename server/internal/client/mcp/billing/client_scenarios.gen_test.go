@@ -34,18 +34,18 @@ func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] · [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientBilling", "onboard-a-new-customer-P2", func(t *testing.T) {
 		subject := serveTools(t, h, newSubject(t, h))
-		// step 1: BillingOnboardPaymentIntegration → tool billingOnboardPaymentIntegration (node resolve-app; guards registered=[no])
+		// step 1: BillingOnboardPaymentIntegration → tool billingOnboardPaymentIntegration (node resolve-app; guards registered=[no], project-committed=[yes])
 		out1, err1 := stepOnboardANewCustomerP2S1(t, h, subject, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000302"}`)
-		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
+		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\"}}","errorExpected":false}`)
 		// probe 1.1: billingStateAccess.ReadBilling for registered
 		pout1_1, perr1_1 := probeOnboardANewCustomerP2S1N1(t, h, subject)
 		expect(t, "onboard-a-new-customer-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
-		// step 2: BillingRegisterCustomer → tool billingRegisterCustomer (node validate-instrument; guards registered=[no])
+		// step 2: BillingRegisterCustomer → tool billingRegisterCustomer (node validate-instrument; guards registered=[no], project-committed=[yes])
 		out2, err2 := stepOnboardANewCustomerP2S2(t, h, subject, `{"customerID":"0b1a0000-0000-4000-8000-000000000302","projectID":"stp-mcpbilling-onboard-P2-project"}`)
 		expect(t, "onboard-a-new-customer-P2", 2, out2, err2, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\"}}","errorExpected":false}`)
 		// probe 2.1: merchantGatewayAccess.ReadStoredInstrument for obj-instrument-validated
@@ -54,6 +54,26 @@ func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 		// probe 2.2: billingStateAccess.ReadBilling for obj-customer-registered
 		pout2_2, perr2_2 := probeOnboardANewCustomerP2S2N2(t, h, subject)
 		expect(t, "onboard-a-new-customer-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000302\",\"Registered\":true}","errorExpected":false}`)
+	})
+}
+
+// TestScenario_onboard_a_new_customer_P3 — Onboard a New Customer — [no] · [no: no committed option] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → send-registration-refused → end).
+func TestScenario_onboard_a_new_customer_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "mcpClientBilling", "onboard-a-new-customer-P3", func(t *testing.T) {
+		subject := serveTools(t, h, newSubject(t, h))
+		// step 1: BillingOnboardPaymentIntegration → tool billingOnboardPaymentIntegration (node resolve-app; guards registered=[no], project-committed=[no: no committed option])
+		out1, err1 := stepOnboardANewCustomerP3S1(t, h, subject, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000303"}`)
+		expect(t, "onboard-a-new-customer-P3", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000303\"}}","errorExpected":false}`)
+		// probe 1.1: billingStateAccess.ReadBilling for registered
+		pout1_1, perr1_1 := probeOnboardANewCustomerP3S1N1(t, h, subject)
+		expect(t, "onboard-a-new-customer-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
+		// step 2: BillingRegisterCustomer → tool billingRegisterCustomer (node validate-instrument; guards registered=[no], project-committed=[no: no committed option])
+		out2, err2 := stepOnboardANewCustomerP3S2(t, h, subject, `{"customerID":"0b1a0000-0000-4000-8000-000000000303","projectID":"stp-mcpbilling-onboard-P3-project"}`)
+		expect(t, "onboard-a-new-customer-P3", 2, out2, err2, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
+		// probe 2.1: billingStateAccess.ReadBilling for send-registration-refused
+		pout2_1, perr2_1 := probeOnboardANewCustomerP3S2N1(t, h, subject)
+		expect(t, "onboard-a-new-customer-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000303\",\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
 	})
 }
 
@@ -81,7 +101,7 @@ func TestScenario_view_a_billing_cycle_P2(t *testing.T) {
 		expect(t, "view-a-billing-cycle-P2", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000502\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}}","errorExpected":false}`)
 		// probe 1.1: billingStateAccess.ReadCycle for send-cycle-settlement
 		pout1_1, perr1_1 := probeViewABillingCycleP2S1N1(t, h, subject)
-		expect(t, "view-a-billing-cycle-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}","errorExpected":false}`)
+		expect(t, "view-a-billing-cycle-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
 	})
 }
 

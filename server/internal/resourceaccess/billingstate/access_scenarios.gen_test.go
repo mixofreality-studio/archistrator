@@ -312,12 +312,12 @@ type inputOnboardANewCustomerP2S3 struct {
 	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
-// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] · [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingStateAccess", "onboard-a-new-customer-P2", func(t *testing.T) {
 		var subject billingstate.BillingStateAccess = newSubject(t, h)
-		// step 1: ReadBilling (node resolve-app; guards registered=[no])
+		// step 1: ReadBilling (node resolve-app; guards registered=[no], project-committed=[yes])
 		var in1 inputOnboardANewCustomerP2S1
 		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000002"}`, &in1)
 		var out1 any
@@ -333,7 +333,7 @@ func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000002"}`, &probe1_1)
 		pout1_1, perr1_1 = subject.ReadBilling(callContext(t, h, "1.1"), probe1_1.CustomerID)
 		expect(t, "onboard-a-new-customer-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Registered\":false}","errorExpected":false}`)
-		// step 2: RegisterCustomer (node register-customer; guards registered=[no])
+		// step 2: RegisterCustomer (node register-customer; guards registered=[no], project-committed=[yes])
 		var in2 inputOnboardANewCustomerP2S2
 		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000002","expectedVersion":0,"profile":{},"idempotencyKey":"register:0b020000-0000-4000-8000-000000000002"}`, &in2)
 		var out2 any
@@ -358,7 +358,7 @@ func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000002"}`, &probe2_2)
 		pout2_2, perr2_2 = subject.ReadBilling(callContext(t, h, "2.2"), probe2_2.CustomerID)
 		expect(t, "onboard-a-new-customer-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Registered\":true,\"GatewayBound\":false}","errorExpected":false}`)
-		// step 3: BindGatewayLive (node bind-gateway; guards registered=[no])
+		// step 3: BindGatewayLive (node bind-gateway; guards registered=[no], project-committed=[yes])
 		var in3 inputOnboardANewCustomerP2S3
 		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000002","expectedVersion":1,"binding":{"GatewayCustomerRef":"cus_stp_onboard_p2"},"idempotencyKey":"bind:0b020000-0000-4000-8000-000000000002"}`, &in3)
 		var out3 any
@@ -383,6 +383,35 @@ func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000002"}`, &probe3_2)
 		pout3_2, perr3_2 = subject.ReadBilling(callContext(t, h, "3.2"), probe3_2.CustomerID)
 		expect(t, "onboard-a-new-customer-P2 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+	})
+}
+
+// inputOnboardANewCustomerP3S1 is step 1's parameters of ReadBilling, decoded from the binding's inputs.
+type inputOnboardANewCustomerP3S1 struct {
+	CustomerID uuid.UUID `json:"customerID"`
+}
+
+// TestScenario_onboard_a_new_customer_P3 — Onboard a New Customer — [no] · [no: no committed option] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → send-registration-refused → end).
+func TestScenario_onboard_a_new_customer_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingStateAccess", "onboard-a-new-customer-P3", func(t *testing.T) {
+		var subject billingstate.BillingStateAccess = newSubject(t, h)
+		// step 1: ReadBilling (node resolve-app; guards registered=[no], project-committed=[no: no committed option])
+		var in1 inputOnboardANewCustomerP3S1
+		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000003"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = subject.ReadBilling(callContext(t, h, "1"), in1.CustomerID)
+		expect(t, "onboard-a-new-customer-P3", 1, out1, err1, `{"result":"{\"Version\":0,\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
+		// probe 1.1: billingStateAccess.ReadBilling for resolve-app
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			CustomerID uuid.UUID `json:"customerID"`
+		}
+		mustUnmarshal(t, `{"customerID":"0b020000-0000-4000-8000-000000000003"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadBilling(callContext(t, h, "1.1"), probe1_1.CustomerID)
+		expect(t, "onboard-a-new-customer-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Registered\":false}","errorExpected":false}`)
 	})
 }
 

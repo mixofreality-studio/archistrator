@@ -35,9 +35,7 @@ package billing_test
 
 import (
 	"context"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -67,9 +65,13 @@ const (
 	closedCycle = "2026-09" // a period whose close charged the customer
 
 	// fixtureProject is the project every customer here registers to be billed for:
-	// the one onboard-a-new-customer-P2 names. The git-local store's identity is the
-	// repository, so each scenario's repository holds exactly this project.
+	// the one onboard-a-new-customer-P2 names, committed to an option. Each scenario has
+	// its own repository, and arranges in it the one project it names.
 	fixtureProject = "stp-mcpbilling-onboard-P2-project"
+	// plannedProject is the project onboard-a-new-customer-P3 registers for: still in
+	// project design, so it has no committed option to bill under.
+	plannedProject    = "stp-mcpbilling-onboard-P3-project"
+	onboardP3Customer = "0b1a0000-0000-4000-8000-000000000303"
 
 	// stepTimeout bounds one tool or manager call, so a workflow that cannot finish
 	// fails its scenario instead of hanging the package.
@@ -92,6 +94,9 @@ type stack struct {
 	merchantGateway merchantgateway.MerchantGatewayAccess
 	usage           usage.UsageAccess
 	messageBus      messagebus.MessageBus
+	projects        projectstate.ProjectStateAccess
+	designs         projectstate.DesignSessionAccess
+	arranged        map[string]bool // projects this scenario has already arranged
 }
 
 var (
@@ -136,8 +141,8 @@ func newSubject(t *testing.T, h *scenariohost.Host) toolServer {
 		t.Fatalf("hooks: usageAccess: %v", err)
 	}
 	projectRepo := ghtestinfra.StartLocalGitRepo(t, "main")
-	commitProject(t, projectRepo, committedProject())
 	projects := projectstate.NewGitLocalProjectStateAccess(projectRepo.URL)
+	designs := projectstate.NewGitLocalDesignSessionAccess(projectRepo.URL)
 	bus := messagebus.NewTemporalMessageBus(h.TemporalClient(), messageBusKinds)
 
 	manager := billing.NewBillingManager(h.TemporalClient(), billingState, usageAccess, merchantGateway, bus,
@@ -145,7 +150,8 @@ func newSubject(t *testing.T, h *scenariohost.Host) toolServer {
 	h.StartWorker(t, billing.TaskQueue, func(w scenariohost.Worker) { billing.RegisterManagerWorker(w, manager) })
 
 	stacksMu.Lock()
-	stacks[t] = &stack{manager: manager, billingState: billingState, merchantGateway: merchantGateway, usage: usageAccess, messageBus: bus}
+	stacks[t] = &stack{manager: manager, billingState: billingState, merchantGateway: merchantGateway, usage: usageAccess, messageBus: bus,
+		projects: projects, designs: designs, arranged: map[string]bool{}}
 	stacksMu.Unlock()
 	t.Cleanup(func() {
 		stacksMu.Lock()
@@ -155,64 +161,64 @@ func newSubject(t *testing.T, h *scenariohost.Host) toolServer {
 	return toolServer{Handlers: []toolRegistrar{&mcpbilling.Handler{Manager: manager}}}
 }
 
-// committedProject is the fixture project as its store holds it once its SDP review
-// is committed: option "normal" chosen, priced under flat-markup monthly terms in USD.
-func committedProject() projectstate.Project {
-	chosen := projectstate.OptionID("normal")
-	return projectstate.Project{
-		ID:      projectstate.ProjectID(fixtureProject),
-		Name:    "STP billing fixture",
-		Version: 1,
-		Phase:   projectstate.PhaseConstruction,
-		PlanningAssumptions: projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 1, Model: &projectstate.PlanningAssumptions{
-			Terms: projectstate.SettlementTerms{
-				ComputeCost:          projectstate.ComputeCostFlatMarkup,
-				ComputeMarkupPercent: 20,
-				Schedule:             projectstate.ScheduleMonthly,
-			},
-			IndirectDailyRate: projectstate.Money{MinorUnits: 100000, Currency: "USD"},
-		}},
-		SdpReview: projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 1, Model: &projectstate.SdpReview{
-			Options:        []projectstate.SdpOptionRow{{OptionID: chosen, SolutionKind: projectstate.KindNormalSolution}},
-			Recommendation: chosen,
-			Rationale:      "the normal solution meets the deadline at the lowest risk",
-			ChosenOption:   &chosen,
-		}},
-	}
-}
-
-// commitProject commits p to repo's main branch as the store's own document
-// (.aiarch/state/project.json): the Resource, not the ResourceAccess, is what the
-// arrangement writes.
-func commitProject(t *testing.T, repo ghtestinfra.LocalGitRepo, p projectstate.Project) {
+// arrangeProject writes a project the way the use cases write one, through the real
+// collaborators' public ops: created through projectStateAccess, then its planning
+// assumptions — flat-markup monthly terms in USD — staged and committed through
+// designSessionAccess; when chosen, its SDP review too, option "normal" chosen
+// (commit-to-a-project-option). Without chosen the project is still in project design,
+// with no option to bill under. A project the scenario already arranged is left as is.
+func arrangeProject(t *testing.T, h *scenariohost.Host, project string, chosen bool) {
 	t.Helper()
-	raw, err := projectstate.EncodeProjectJSON(p)
+	s := stackOf(t)
+	if s.arranged[project] {
+		return
+	}
+	s.arranged[project] = true
+	pid := projectstate.ProjectID(project)
+	v, err := s.projects.CreateProject(h.ResourceAccessContext(t, "arrange-create-"+project), pid,
+		projectstate.OwnerScope("stp-mcpbilling-owner"), "STP billing fixture")
 	if err != nil {
-		t.Fatalf("hooks: encode project %s: %v", p.ID, err)
+		t.Fatalf("hooks: arrange CreateProject %s: %v", project, err)
 	}
-	work := filepath.Join(t.TempDir(), "arrange")
-	git(t, "", "clone", "--quiet", repo.Dir, work)
-	stateDir := filepath.Join(work, ".aiarch", "state")
-	if err := os.MkdirAll(stateDir, 0o750); err != nil {
-		t.Fatalf("hooks: %v", err)
+	v = stageAndCommit(t, h, s, pid, v, &projectstate.PlanningAssumptions{
+		Terms: projectstate.SettlementTerms{
+			ComputeCost:          projectstate.ComputeCostFlatMarkup,
+			ComputeMarkupPercent: 20,
+			Schedule:             projectstate.ScheduleMonthly,
+		},
+		IndirectDailyRate: projectstate.Money{MinorUnits: 100000, Currency: "USD"},
+	})
+	if !chosen {
+		return
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "project.json"), raw, 0o600); err != nil {
-		t.Fatalf("hooks: %v", err)
-	}
-	git(t, work, "add", ".aiarch/state/project.json")
-	git(t, work, "-c", "user.name=scenario-arrange", "-c", "user.email=arrange@aiarch.local",
-		"-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "arrange "+string(p.ID))
-	git(t, work, "push", "--quiet", "origin", "main")
+	option := projectstate.OptionID("normal")
+	stageAndCommit(t, h, s, pid, v, &projectstate.SdpReview{
+		Options:        []projectstate.SdpOptionRow{{OptionID: option, SolutionKind: projectstate.KindNormalSolution}},
+		Recommendation: option,
+		Rationale:      "the normal solution meets the deadline at the lowest risk",
+		ChosenOption:   &option,
+	})
 }
 
-// git runs one git command in dir.
-func git(t *testing.T, dir string, args ...string) {
+// stageAndCommit stages model on main and commits it with its provenance through
+// designSessionAccess, returning the project's version after the commit.
+func stageAndCommit(t *testing.T, h *scenariohost.Host, s *stack, pid projectstate.ProjectID, v projectstate.Version, model projectstate.ArtifactModel) projectstate.Version {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("hooks: git %v: %v\n%s", args, err, out)
+	env, err := projectstate.EncodeModel(model)
+	if err != nil {
+		t.Fatalf("hooks: arrange encode %v: %v", model.Kind(), err)
 	}
+	rc := h.ResourceAccessContext(t, fmt.Sprintf("arrange-stage-%s-%d", pid, model.Kind()))
+	v, err = s.designs.StageArtifactForReviewOnBranch(rc, pid, v, "", env, rc.IdempotencyKey)
+	if err != nil {
+		t.Fatalf("hooks: arrange stage %v: %v", model.Kind(), err)
+	}
+	v, err = s.designs.CommitArtifactWithProvenance(h.ResourceAccessContext(t, fmt.Sprintf("arrange-commit-%s-%d", pid, model.Kind())),
+		pid, v, model.Kind(), "founder@stp.test", "project-manager")
+	if err != nil {
+		t.Fatalf("hooks: arrange commit %v: %v", model.Kind(), err)
+	}
+	return v
 }
 
 // callTool calls one tool on the subject, bounded by stepTimeout.
@@ -245,6 +251,7 @@ func arrangeTool(t *testing.T, h *scenariohost.Host, subject *toolSession, name,
 // aggregate opened under the project's committed terms.
 func arrangeRegistered(t *testing.T, h *scenariohost.Host, subject *toolSession, id string) {
 	t.Helper()
+	arrangeProject(t, h, fixtureProject, true)
 	arrangeTool(t, h, subject, "billingRegisterCustomer", `{"customerID":"`+id+`","projectID":"`+fixtureProject+`"}`)
 }
 
@@ -348,6 +355,7 @@ func probeOnboardANewCustomerP2S1N1(t *testing.T, h *scenariohost.Host, _ *toolS
 // Arranged: registered=[no] still holds — step 1 left the customer unregistered.
 func stepOnboardANewCustomerP2S2(t *testing.T, h *scenariohost.Host, subject *toolSession, args string) (any, error) {
 	t.Helper()
+	arrangeProject(t, h, fixtureProject, true)
 	return callTool(t, h, subject, "billingRegisterCustomer", args)
 }
 
@@ -363,6 +371,37 @@ func probeOnboardANewCustomerP2S2N1(t *testing.T, h *scenariohost.Host, _ *toolS
 func probeOnboardANewCustomerP2S2N2(t *testing.T, h *scenariohost.Host, _ *toolSession) (any, error) {
 	t.Helper()
 	return readBilling(t, h, onboardP2Customer)
+}
+
+// stepOnboardANewCustomerP3S1 — Onboard a New Customer — [no] · [no: no committed option], step 1: BillingOnboardPaymentIntegration (tool billingOnboardPaymentIntegration)
+// Arranged: registered=[no] — nothing is arranged: the deployed app's customer has no
+// billing aggregate on this scenario's empty stack.
+func stepOnboardANewCustomerP3S1(t *testing.T, h *scenariohost.Host, subject *toolSession, args string) (any, error) {
+	t.Helper()
+	return callTool(t, h, subject, "billingOnboardPaymentIntegration", args)
+}
+
+// probeOnboardANewCustomerP3S1N1 — Onboard a New Customer — [no] · [no: no committed option], step 1, probe 1: billingStateAccess.ReadBilling proves registered.
+func probeOnboardANewCustomerP3S1N1(t *testing.T, h *scenariohost.Host, _ *toolSession) (any, error) {
+	t.Helper()
+	return readBilling(t, h, onboardP3Customer)
+}
+
+// stepOnboardANewCustomerP3S2 — Onboard a New Customer — [no] · [no: no committed option], step 2: BillingRegisterCustomer (tool billingRegisterCustomer)
+// Arranged: project-committed=[no: no committed option] — the project the customer
+// registers for is still in project design: its planning assumptions are committed, no
+// SDP option is.
+func stepOnboardANewCustomerP3S2(t *testing.T, h *scenariohost.Host, subject *toolSession, args string) (any, error) {
+	t.Helper()
+	arrangeProject(t, h, plannedProject, false)
+	return callTool(t, h, subject, "billingRegisterCustomer", args)
+}
+
+// probeOnboardANewCustomerP3S2N1 — Onboard a New Customer — [no] · [no: no committed option], step 2, probe 1: billingStateAccess.ReadBilling proves send-registration-refused.
+// The refusal opened no billing record and bound no gateway.
+func probeOnboardANewCustomerP3S2N1(t *testing.T, h *scenariohost.Host, _ *toolSession) (any, error) {
+	t.Helper()
+	return readBilling(t, h, onboardP3Customer)
 }
 
 // stepViewABillingCycleP1S1 — View a Billing Cycle — [no: period open], step 1: BillingGetBillingCycle (tool billingGetBillingCycle)

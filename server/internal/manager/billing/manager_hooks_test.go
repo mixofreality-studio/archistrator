@@ -306,6 +306,24 @@ func arrangeDeclined(t *testing.T, h *scenariohost.Host, st *stack, r cycleRef, 
 // projectStateAccess, each artifact staged and committed through designSessionAccess.
 func arrangeCommittedOption(t *testing.T, h *scenariohost.Host, st *stack, project string) {
 	t.Helper()
+	pid, v := arrangePlannedProject(t, h, st, project)
+	chosen := projectstate.OptionID(chosenOptionID)
+	stageAndCommit(t, h, st, pid, v, &projectstate.SdpReview{
+		Options: []projectstate.SdpOptionRow{{
+			OptionID: chosen, SolutionKind: projectstate.KindNormalSolution, DurationDays: 100,
+			BuildCost: projectstate.Money{MinorUnits: 1000000, Currency: "USD"},
+		}},
+		Recommendation: chosen,
+		ChosenOption:   &chosen,
+	})
+}
+
+// arrangePlannedProject is a project in project design whose planning assumptions,
+// carrying its billing terms and cost currency, are committed and whose SDP review is
+// not: nothing has been chosen to bill under yet. It returns the project and its
+// version after the commit.
+func arrangePlannedProject(t *testing.T, h *scenariohost.Host, st *stack, project string) (projectstate.ProjectID, projectstate.Version) {
+	t.Helper()
 	pid := projectstate.ProjectID(project)
 	v, err := st.projects.CreateProject(h.ResourceAccessContext(t, "arrange-create-project"), pid,
 		projectstate.OwnerScope("stp-billing-owner"), "STP Billing Onboarding")
@@ -316,15 +334,7 @@ func arrangeCommittedOption(t *testing.T, h *scenariohost.Host, st *stack, proje
 		Terms:             projectstate.SettlementTerms{ComputeCost: projectstate.ComputeCostTieredFloors, Schedule: projectstate.ScheduleMonthly},
 		IndirectDailyRate: projectstate.Money{MinorUnits: 50000, Currency: "USD"},
 	})
-	chosen := projectstate.OptionID(chosenOptionID)
-	stageAndCommit(t, h, st, pid, v, &projectstate.SdpReview{
-		Options: []projectstate.SdpOptionRow{{
-			OptionID: chosen, SolutionKind: projectstate.KindNormalSolution, DurationDays: 100,
-			BuildCost: projectstate.Money{MinorUnits: 1000000, Currency: "USD"},
-		}},
-		Recommendation: chosen,
-		ChosenOption:   &chosen,
-	})
+	return pid, v
 }
 
 // stageAndCommit stages model on main and commits it with its provenance, returning the
@@ -494,6 +504,33 @@ func probeOnboardANewCustomerP2S2N1(t *testing.T, h *scenariohost.Host, subject 
 func probeOnboardANewCustomerP2S2N2(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
 	t.Helper()
 	return readBilling(t, h, subject, "0b1a0000-0000-4000-8000-000000000202")
+}
+
+// stepOnboardANewCustomerP3S1 — Onboard a New Customer — [no] · [no: no committed option], step 1: OnboardPaymentIntegration
+// Nothing is arranged: the deployed app's customer has no billing record yet.
+func stepOnboardANewCustomerP3S1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager, in inputOnboardANewCustomerP3S1) (any, error) {
+	t.Helper()
+	rc := callContext(t, h, "1")
+	rc.Context = bounded(rc.Context, t)
+	return subject.OnboardPaymentIntegration(rc, in.DeployedAppID)
+}
+
+// stepOnboardANewCustomerP3S2 — Onboard a New Customer — [no] · [no: no committed option], step 2: RegisterCustomer
+// The customer registers for a project still in project design: its planning
+// assumptions are committed but no SDP option is, so there are no terms to bill under.
+func stepOnboardANewCustomerP3S2(t *testing.T, h *scenariohost.Host, subject billing.BillingManager, in inputOnboardANewCustomerP3S2) (any, error) {
+	t.Helper()
+	arrangePlannedProject(t, h, stackOf(t, subject), in.ProjectID)
+	rc := callContext(t, h, "2")
+	rc.Context = bounded(rc.Context, t)
+	return subject.RegisterCustomer(rc, in.CustomerID, in.ProjectID)
+}
+
+// probeOnboardANewCustomerP3S2N1 — Onboard a New Customer — [no] · [no: no committed option], step 2, probe 1: billingStateAccess.ReadBilling proves send-registration-refused.
+// The refusal opened no billing record and bound no gateway.
+func probeOnboardANewCustomerP3S2N1(t *testing.T, h *scenariohost.Host, subject billing.BillingManager) (any, error) {
+	t.Helper()
+	return readBilling(t, h, subject, "0b1a0000-0000-4000-8000-000000000203")
 }
 
 // ---------------------------------------------------------------------------

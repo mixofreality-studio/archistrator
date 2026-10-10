@@ -113,19 +113,19 @@ type inputOnboardANewCustomerP2S2 struct {
 	CustomerID uuid.UUID `json:"customerID"`
 }
 
-// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] · [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "onboard-a-new-customer-P2", func(t *testing.T) {
 		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
-		// step 1: ValidateStoredInstrument (node validate-instrument; guards registered=[no])
+		// step 1: ValidateStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[yes])
 		var in1 inputOnboardANewCustomerP2S1
 		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001","idempotencyKey":"validate:d2210000-0000-4000-8000-000000000001"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepOnboardANewCustomerP2S1(t, h, subject, in1)
 		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"errorExpected":false}`)
-		// step 2: ReadStoredInstrument (node validate-instrument; guards registered=[no])
+		// step 2: ReadStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[yes])
 		var in2 inputOnboardANewCustomerP2S2
 		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &in2)
 		var out2 any
@@ -150,6 +150,57 @@ func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &probe2_2)
 		pout2_2, perr2_2 = subject.ReadStoredInstrument(callContext(t, h, "2.2"), probe2_2.CustomerID)
 		expect(t, "onboard-a-new-customer-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+	})
+}
+
+// inputOnboardANewCustomerP3S1 is step 1's parameters of ValidateStoredInstrument, decoded from the binding's inputs.
+type inputOnboardANewCustomerP3S1 struct {
+	CustomerID     uuid.UUID `json:"customerID"`
+	IdempotencyKey string    `json:"idempotencyKey"`
+}
+
+// inputOnboardANewCustomerP3S2 is step 2's parameters of ReadStoredInstrument, decoded from the binding's inputs.
+type inputOnboardANewCustomerP3S2 struct {
+	CustomerID uuid.UUID `json:"customerID"`
+}
+
+// TestScenario_onboard_a_new_customer_P3 — Onboard a New Customer — [no] · [no: no committed option] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → send-registration-refused → end).
+func TestScenario_onboard_a_new_customer_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "merchantGatewayAccess", "onboard-a-new-customer-P3", func(t *testing.T) {
+		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		// step 1: ValidateStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[no: no committed option])
+		var in1 inputOnboardANewCustomerP3S1
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003","idempotencyKey":"validate:d2210000-0000-4000-8000-000000000003"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOnboardANewCustomerP3S1(t, h, subject, in1)
+		expect(t, "onboard-a-new-customer-P3", 1, out1, err1, `{"errorExpected":false}`)
+		// step 2: ReadStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[no: no committed option])
+		var in2 inputOnboardANewCustomerP3S2
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = subject.ReadStoredInstrument(callContext(t, h, "2"), in2.CustomerID)
+		expect(t, "onboard-a-new-customer-P3", 2, out2, err2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		// probe 2.1: merchantGatewayAccess.ReadStoredInstrument for obj-instrument-validated
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			CustomerID uuid.UUID `json:"customerID"`
+		}
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadStoredInstrument(callContext(t, h, "2.1"), probe2_1.CustomerID)
+		expect(t, "onboard-a-new-customer-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		// probe 2.2: merchantGatewayAccess.ReadStoredInstrument for validate-instrument
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			CustomerID uuid.UUID `json:"customerID"`
+		}
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadStoredInstrument(callContext(t, h, "2.2"), probe2_2.CustomerID)
+		expect(t, "onboard-a-new-customer-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
 	})
 }
 

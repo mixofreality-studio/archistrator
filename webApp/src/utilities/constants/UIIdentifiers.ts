@@ -592,15 +592,18 @@ export const UI_IDENTIFIERS = {
     CYCLE_OUTCOME: 'billing-cycle-outcome',
     // Payment onboarding (use case onboard-a-new-customer): open it for a deployed app
     // (billingManager.OnboardPaymentIntegration), then register the customer's payment
-    // instrument (billingManager.RegisterCustomer). Each step shows what it returned.
+    // instrument (billingManager.RegisterCustomer). Each step shows what it returned; a
+    // refusal shows under its own id.
     ONBOARDING: 'billing-onboarding',
     ONBOARD_APP_ID_INPUT: 'billing-onboard-app-id',
     ONBOARD_SUBMIT: 'billing-onboard-submit',
     ONBOARD_RESULT: 'billing-onboard-result',
+    ONBOARD_REFUSED: 'billing-onboard-refused',
     REGISTER_CUSTOMER_ID_INPUT: 'billing-register-customer-id',
     REGISTER_PROJECT_ID_INPUT: 'billing-register-project-id',
     REGISTER_SUBMIT: 'billing-register-submit',
     REGISTER_RESULT: 'billing-register-result',
+    REGISTER_REFUSED: 'billing-register-refused',
   },
   Team: {
     ROOT: 'team-screen',

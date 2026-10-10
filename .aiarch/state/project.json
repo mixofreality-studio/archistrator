@@ -3193,6 +3193,27 @@
                     "anchor": "validate-instrument"
                   },
                   {
+                    "id": "read-commitment",
+                    "kind": "action",
+                    "label": "Read the project's committed SDP option, whose terms the customer is billed under",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "project-committed",
+                    "kind": "decision",
+                    "label": "Is the project committed to an SDP option?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "send-registration-refused",
+                    "kind": "sendSignal",
+                    "label": "Refuse the registration: the project has no committed SDP option to bill under, so no customer opens under terms nobody chose (FailedPrecondition)",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
                     "id": "register-customer",
                     "kind": "action",
                     "label": "Open the customer billing record",
@@ -3300,7 +3321,31 @@
                   },
                   {
                     "from": "note-validate-idempotency",
+                    "to": "read-commitment",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "read-commitment",
+                    "to": "project-committed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "project-committed",
                     "to": "register-customer",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "project-committed",
+                    "to": "send-registration-refused",
+                    "kind": "guardedFlow",
+                    "guard": "[no: no committed option]"
+                  },
+                  {
+                    "from": "send-registration-refused",
+                    "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
                   },
@@ -6765,7 +6810,7 @@
                     "from": "anything-deployed",
                     "to": "send-nothing-deployed",
                     "kind": "guardedFlow",
-                    "guard": "[no: no deployable bundle]"
+                    "guard": "[no: nothing deployed yet]"
                   },
                   {
                     "from": "send-nothing-deployed",
@@ -9147,14 +9192,19 @@
                 ]
               },
               {
-                "activityNodeId": "register-customer",
+                "activityNodeId": "read-commitment",
                 "calls": [
                   {
                     "from": "billing-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "readProject(projectId) → the committed SDP option + the planning assumptions' billing terms (DCT §12 B13: billing reads the commitment, no Manager-to-Manager call)"
-                  },
+                    "label": "readProject(projectId) → the committed SDP option + the planning assumptions' billing terms (DCT §12 B13: billing reads the commitment, no Manager-to-Manager call); a project with no committed option is refused (FailedPrecondition)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "register-customer",
+                "calls": [
                   {
                     "from": "billing-manager",
                     "to": "billing-engine",
@@ -47646,6 +47696,74 @@
             ]
           },
           {
+            "scenario": "onboard-a-new-customer-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OnboardPaymentIntegration",
+                "inputs": [
+                  {
+                    "name": "deployedAppID",
+                    "value": "0b1a0000-0000-4000-8000-000000000203",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000203\"}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RegisterCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b1a0000-0000-4000-8000-000000000203",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "projectID",
+                    "value": "stp-billing-onboard-P3-project",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "FailedPrecondition"
+                },
+                "probes": [
+                  {
+                    "for": "send-registration-refused",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000203",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0b1a0000-0000-4000-8000-000000000203\",\"Registered\":false,\"GatewayBound\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [
+                  "obj-instrument-validated"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
             "scenario": "retry-a-declined-service-invoice-P1",
             "steps": [
               {
@@ -48727,6 +48845,48 @@
                     ],
                     "expect": {
                       "result": "{\"Registered\":true,\"GatewayBound\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "onboard-a-new-customer-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadBilling",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b020000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Version\":0,\"Registered\":false,\"GatewayBound\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "resolve-app",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b020000-0000-4000-8000-000000000003",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Registered\":false}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -61436,6 +61596,90 @@
             ]
           },
           {
+            "scenario": "onboard-a-new-customer-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "BillingOnboardPaymentIntegration",
+                "inputs": [
+                  {
+                    "name": "deployedAppID",
+                    "value": "0b1a0000-0000-4000-8000-000000000303",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000303\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "registered",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000303",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Registered\":false,\"GatewayBound\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "BillingRegisterCustomer",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "0b1a0000-0000-4000-8000-000000000303",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "projectID",
+                    "value": "stp-mcpbilling-onboard-P3-project",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "FailedPrecondition"
+                },
+                "probes": [
+                  {
+                    "for": "send-registration-refused",
+                    "component": "billingStateAccess",
+                    "operation": "ReadBilling",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "0b1a0000-0000-4000-8000-000000000303",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"0b1a0000-0000-4000-8000-000000000303\",\"Registered\":false,\"GatewayBound\":false}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
             "scenario": "view-a-billing-cycle-P1",
             "steps": [
               {
@@ -61564,8 +61808,8 @@
                 ],
                 "expect": {
                   "result": "",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "errorExpected": true,
+                  "errorCode": "ContractMisuse"
                 },
                 "probes": [
                   {
@@ -62069,7 +62313,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"result\":{\"Nodes\":[{\"ModelKey\":\"stp-operated-app\",\"Health\":1},{\"ModelKey\":\"stp-architect-laptop\",\"Health\":0}]}}",
+                  "result": "{\"result\":{\"Nodes\":[{\"ModelKey\":\"stp-ns-stp-mcpops-project\",\"Health\":0},{\"ModelKey\":\"stp-infra-gateway\",\"Health\":1},{\"ModelKey\":\"stp-infra-idp\",\"Health\":0},{\"ModelKey\":\"stp-infra-db\",\"Health\":1},{\"ModelKey\":\"stp-operated-app\",\"Health\":1},{\"ModelKey\":\"stp-architect-laptop\",\"Health\":0}]}}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -62553,6 +62797,89 @@
                       {
                         "name": "customerID",
                         "value": "d2210000-0000-4000-8000-000000000001",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Validated\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
+            "scenario": "onboard-a-new-customer-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ValidateStoredInstrument",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d2210000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "validate:d2210000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "ReadStoredInstrument",
+                "inputs": [
+                  {
+                    "name": "customerID",
+                    "value": "d2210000-0000-4000-8000-000000000003",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Validated\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "obj-instrument-validated",
+                    "component": "merchantGatewayAccess",
+                    "operation": "ReadStoredInstrument",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "d2210000-0000-4000-8000-000000000003",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Validated\":true}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "validate-instrument",
+                    "component": "merchantGatewayAccess",
+                    "operation": "ReadStoredInstrument",
+                    "inputs": [
+                      {
+                        "name": "customerID",
+                        "value": "d2210000-0000-4000-8000-000000000003",
                         "schemaRef": ""
                       }
                     ],
@@ -67972,6 +68299,32 @@
             ]
           },
           {
+            "scenario": "onboard-a-new-customer-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-onb-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-onb-p3\",\"Phase\":1,\"SdpReview\":{\"Status\":0},\"PlanningAssumptions\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [
+                  "send-registration-refused"
+                ],
+                "hook": true
+              }
+            ]
+          },
+          {
             "scenario": "operate-a-delivered-system-P1",
             "steps": [
               {
@@ -73054,6 +73407,64 @@
                 ],
                 "expect": {
                   "result": "[{\"visible\":\"billing-register-result\"},{\"target\":\"billing-register-result\",\"text\":\"Customer registered c1b10000-0000-4000-8000-000000000402.\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "onboard-a-new-customer-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenPaymentOnboarding",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-onboard-app-id\",\"value\":\"c1b10000-0000-4000-8000-000000000403\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"billing-onboard-submit\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"billing-onboard-result\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "RegisterPaymentInstrument",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-register-customer-id\",\"value\":\"c1b10000-0000-4000-8000-000000000403\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-register-project-id\",\"value\":\"stp-wcbilling-onboard-P3-project\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"billing-register-submit\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"billing-register-refused\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },

@@ -1471,6 +1471,16 @@ func stepProjectStateAccessOnboardANewCustomerP2S1(t *testing.T, h *scenariohost
 	return subject.ReadProject(callContext(t, h, "1"), in.ProjectID)
 }
 
+// stepProjectStateAccessOnboardANewCustomerP3S1 — Onboard a New Customer — [no] · [no: no committed option], step 1: ReadProject
+// Arranges a project still in project design — planning assumptions committed, no SDP
+// review committed — then reads it as billing does when a customer registers for it:
+// the read billing refuses the registration on.
+func stepProjectStateAccessOnboardANewCustomerP3S1(t *testing.T, h *scenariohost.Host, subject projectstate.ProjectStateAccess, in inputProjectStateAccessOnboardANewCustomerP3S1) (any, error) {
+	t.Helper()
+	seedMain(t, plannedUncommitted(in.ProjectID, 40))
+	return subject.ReadProject(callContext(t, h, "1"), in.ProjectID)
+}
+
 // stepProjectStateAccessOperateADeliveredSystemP1S1 — Operate a Delivered System, step 1: ReadProject
 // Projected stimulus (JSON): {"seq":1,"node":"render-manifests-a","input":{"kind":"call","from":"operations-manager","to":"projectstateaccess","op":"ReadProject","call":"operate-a-delivered-system/render-manifests-a/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-ods-p1"}],"expect":{"result":"{\"ID\":\"stp-psa-ods-p1\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
@@ -2422,6 +2432,18 @@ func committedCommitment(id projectstate.ProjectID, v projectstate.Version) proj
 		}},
 		Recommendation: "opt-normal",
 		ChosenOption:   &chosen,
+	}), 1)
+	return p
+}
+
+// plannedUncommitted: a project in project design whose planning assumptions (billing
+// terms, USD cost currency) are committed and whose SDP review is not — no option has
+// been chosen to bill under.
+func plannedUncommitted(id projectstate.ProjectID, v projectstate.Version) projectstate.Project {
+	p := baseProject(id, v, projectstate.PhaseProjectDesign)
+	p.PlanningAssumptions = revision(committed(&projectstate.PlanningAssumptions{
+		Terms:             projectstate.SettlementTerms{ComputeCost: projectstate.ComputeCostTieredFloors, Schedule: projectstate.ScheduleMonthly},
+		IndirectDailyRate: projectstate.Money{MinorUnits: 50000, Currency: "USD"},
 	}), 1)
 	return p
 }

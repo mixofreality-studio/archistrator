@@ -363,12 +363,12 @@ type inputViewLiveDeploymentHealthP2S1 struct {
 	OperatedAppID uuid.UUID `json:"operatedAppID"`
 }
 
-// TestScenario_view_live_deployment_health_P2 — View Live Deployment Health — [no: no deployable bundle] (use case view-live-deployment-health; path start → open-deployment-diagram → request-health → anything-deployed → send-nothing-deployed → end).
+// TestScenario_view_live_deployment_health_P2 — View Live Deployment Health — [no: nothing deployed yet] (use case view-live-deployment-health; path start → open-deployment-diagram → request-health → anything-deployed → send-nothing-deployed → end).
 func TestScenario_view_live_deployment_health_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "view-live-deployment-health-P2", func(t *testing.T) {
 		var subject operations.OperationsManager = newSubject(t, h)
-		// step 1: QueryDeploymentHealth (node request-health; guards anything-deployed=[no: no deployable bundle])
+		// step 1: QueryDeploymentHealth (node request-health; guards anything-deployed=[no: nothing deployed yet])
 		var in1 inputViewLiveDeploymentHealthP2S1
 		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000ff"}`, &in1)
 		var out1 any
