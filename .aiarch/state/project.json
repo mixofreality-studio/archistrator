@@ -47311,7 +47311,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}",
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -47480,7 +47480,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}",
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -47681,7 +47681,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}",
+                      "result": "{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -47752,7 +47752,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":true}}",
+                      "result": "{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -47774,7 +47774,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":true}",
+                      "result": "{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":false}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -47887,7 +47887,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}",
+                      "result": "{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -48015,7 +48015,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}",
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -61348,9 +61348,9 @@
                   }
                 ],
                 "expect": {
-                  "result": "",
-                  "errorExpected": true,
-                  "errorCode": "FailedPrecondition"
+                  "result": "{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\"}}",
+                  "errorExpected": false,
+                  "errorCode": ""
                 },
                 "probes": [
                   {
@@ -61528,7 +61528,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}",
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
