@@ -57,7 +57,7 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	// through the published contract (fweng.Context{Context: context.Background()} is
 	// the replay-safe idiom the Engine op requires).
 	result, cerr := wf.Billing.ComputeNet(fweng.Context{Context: context.Background()},
-		chargeOnlyRevenue(), usage, termsToEngine(billing.Terms))
+		chargeOnlyRevenue(billing.Terms.Currency), usage, termsToEngine(billing.Terms))
 	if cerr != nil {
 		return CloseCycleResult{}, fwmgr.MapError(cerr)
 	}
@@ -164,10 +164,10 @@ func (wf *workflows) handleChargeFailure(ctx workflow.Context, customerID custom
 }
 
 // chargeOnlyRevenue is the cycle's revenue snapshot under the charge-only model: zero,
-// in no currency, from no events — exactly what folding the retired no-op ledger's empty
-// range produced. The net is the hosting-cost charge alone.
-func chargeOnlyRevenue() billingengine.CycleRevenue {
-	return billingengine.CycleRevenue{}
+// from no events, in the currency the customer's terms settle in (DCT §12 B13). The net
+// is the hosting-cost charge alone.
+func chargeOnlyRevenue(currency string) billingengine.CycleRevenue {
+	return billingengine.CycleRevenue{GrossInbound: billingengine.Money{Currency: currency}}
 }
 
 // foldUsage invokes usageAccess.readRange (whole cycle; OperatedAppID nil) and folds the
@@ -262,8 +262,9 @@ func routingDirectiveName(d RoutingDirective) string {
 // earmarked for a project.json contract alignment (see plan Task 12 earmarks).
 func termsToEngine(t billingstate.BillingTerms) billingengine.BillingTerms {
 	return billingengine.BillingTerms{
-		ComputeCost: billingengine.ComputeCostKind(t.ComputeCostKind),
-		Schedule:    billingengine.ScheduleKind(t.ScheduleKind),
+		ComputeCost:          billingengine.ComputeCostKind(t.ComputeCostKind),
+		ComputeMarkupPercent: t.ComputeMarkupPercent,
+		Schedule:             billingengine.ScheduleKind(t.ScheduleKind),
 	}
 }
 

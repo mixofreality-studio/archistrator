@@ -10,6 +10,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 	"go.temporal.io/sdk/client"
@@ -50,7 +51,7 @@ type BillingManager interface {
 	CloseBillingCycle(rc fwm.Context, customerID uuid.UUID, cycleID string) (CloseCycleResult, error)
 	GetBillingCycle(rc fwm.Context, customerID uuid.UUID, cycleID string) (BillingCycleView, error)
 	OnboardPaymentIntegration(rc fwm.Context, deployedAppID uuid.UUID) (BillingRef, error)
-	RegisterCustomer(rc fwm.Context, customerID uuid.UUID) (BillingRef, error)
+	RegisterCustomer(rc fwm.Context, customerID uuid.UUID, projectID string) (BillingRef, error)
 	RunShortfallSweep(rc fwm.Context, tickID string) (ShortfallSweepResult, error)
 }
 
@@ -58,6 +59,6 @@ type BillingManager interface {
 // builder newBillingManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewBillingManager(client client.Client, billingState billingstate.BillingStateAccess, usage usage.UsageAccess, merchantGateway merchantgateway.MerchantGatewayAccess, messageBus messagebus.MessageBus, billing billing.BillingEngine, intervention intervention.InterventionEngine) BillingManager {
-	return newBillingManager(client, billingState, usage, merchantGateway, messageBus, billing, intervention)
+func NewBillingManager(client client.Client, billingState billingstate.BillingStateAccess, usage usage.UsageAccess, merchantGateway merchantgateway.MerchantGatewayAccess, messageBus messagebus.MessageBus, billing billing.BillingEngine, intervention intervention.InterventionEngine, projectState projectstate.ProjectStateAccess) BillingManager {
+	return newBillingManager(client, billingState, usage, merchantGateway, messageBus, billing, intervention, projectState)
 }

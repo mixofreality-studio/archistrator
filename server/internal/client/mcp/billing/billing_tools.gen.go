@@ -53,6 +53,7 @@ type onboardPaymentIntegrationOutput struct {
 
 type registerCustomerInput struct {
 	CustomerID uuid.UUID `json:"customerID"`
+	ProjectID  string    `json:"projectID"`
 }
 
 type registerCustomerOutput struct {
@@ -85,7 +86,7 @@ func registerCustomerInputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
-	s.Required = []string{"customerID"}
+	s.Required = []string{"customerID", "projectID"}
 	return s
 }
 
@@ -218,7 +219,7 @@ func (h *Handler) handleRegisterCustomer(ctx context.Context, _ *mcp.CallToolReq
 	var out registerCustomerOutput
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
-	result, err := h.Manager.RegisterCustomer(rc, in.CustomerID)
+	result, err := h.Manager.RegisterCustomer(rc, in.CustomerID, in.ProjectID)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}

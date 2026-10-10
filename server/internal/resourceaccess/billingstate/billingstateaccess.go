@@ -70,15 +70,15 @@ const delinquentPauses = true
 // ---------------------------------------------------------------------------
 
 const selectCustomerSQL = `
-SELECT version, gateway_bound
+SELECT version, gateway_bound,
+       terms_compute_cost_kind, terms_compute_markup_pct, terms_schedule_kind, terms_currency
 FROM billing_customer
 WHERE customer_id = $1`
 
-// ReadBilling returns the customer's billing aggregate. A customer that was never
-// registered is not an error: it reads as Registered=false at Version 0 — the version
-// RegisterCustomer expects to open it from.
-//
-// BillingTerms are the zero (unknown) regime: no op writes a customer's terms yet.
+// ReadBilling returns the customer's billing aggregate, with the terms it registered
+// under. A customer that was never registered is not an error: it reads as
+// Registered=false at Version 0 — the version RegisterCustomer expects to open it from —
+// with the zero (unknown) terms.
 func (s *postgresBillingStateAccess) ReadBilling(rc fwra.Context, customerID uuid.UUID) (Billing, error) {
 	const op = "billingstate.ReadBilling"
 	if customerID == uuid.Nil {
@@ -86,7 +86,8 @@ func (s *postgresBillingStateAccess) ReadBilling(rc fwra.Context, customerID uui
 	}
 	out := Billing{ID: customerID}
 	var version uint64
-	err := s.pool.QueryRow(rc.Context, selectCustomerSQL, customerID).Scan(&version, &out.GatewayBound)
+	err := s.pool.QueryRow(rc.Context, selectCustomerSQL, customerID).Scan(&version, &out.GatewayBound,
+		&out.Terms.ComputeCostKind, &out.Terms.ComputeMarkupPercent, &out.Terms.ScheduleKind, &out.Terms.Currency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, nil
 	}
@@ -99,9 +100,17 @@ func (s *postgresBillingStateAccess) ReadBilling(rc fwra.Context, customerID uui
 }
 
 const selectCycleSQL = `
-SELECT net_minor_units, net_currency, directive, escalated
+SELECT ` + outcomeColumns + `
 FROM billing_cycle
 WHERE customer_id = $1 AND cycle = $2`
+
+// outcomeColumns are a cycle's BillingOutcome columns, in scanOutcome's order.
+const outcomeColumns = `net_minor_units, net_currency, directive, declined, escalated, attempts, sweeps_aged`
+
+// outcomeDest is the Scan destination list for outcomeColumns; directive lands in d.
+func outcomeDest(o *BillingOutcome, d *int16) []any {
+	return []any{&o.Net.MinorUnits, &o.Net.Currency, d, &o.Declined, &o.Escalated, &o.Attempts, &o.SweepsAged}
+}
 
 // ReadCycle returns one billing cycle of a registered customer. A cycle nothing has
 // settled yet is an open period — Settled=false, not an error; a customer that was
@@ -116,8 +125,7 @@ func (s *postgresBillingStateAccess) ReadCycle(rc fwra.Context, customerID uuid.
 	}
 	out := BillingCycle{Cycle: cycle}
 	var directive int16
-	err := s.pool.QueryRow(rc.Context, selectCycleSQL, customerID, cycle).
-		Scan(&out.Outcome.Net.MinorUnits, &out.Outcome.Net.Currency, &directive, &out.Outcome.Escalated)
+	err := s.pool.QueryRow(rc.Context, selectCycleSQL, customerID, cycle).Scan(outcomeDest(&out.Outcome, &directive)...)
 	if err == nil {
 		out.Settled = true
 		out.Outcome.Directive = RoutingDirective(directive)
@@ -168,29 +176,79 @@ func (s *postgresBillingStateAccess) ReadPersistentlyDelinquentCustomers(rc fwra
 	return out, nil
 }
 
+// selectDeclinedSQL is the shortfall sweep's scan: every settled cycle whose charge
+// stands declined and is not escalated, narrowed to one project's customers when $1 is
+// non-empty. Ordered by customer then cycle so a sweep visits them deterministically.
+const selectDeclinedSQL = `
+SELECT y.customer_id, y.cycle, ` + qualifiedOutcomeColumns + `
+FROM billing_cycle y
+JOIN billing_customer c ON c.customer_id = y.customer_id
+WHERE y.declined AND NOT y.escalated
+  AND ($1 = '' OR c.project_id = $1)
+ORDER BY y.customer_id, y.cycle`
+
+// qualifiedOutcomeColumns are outcomeColumns of the billing_cycle alias y.
+const qualifiedOutcomeColumns = `y.net_minor_units, y.net_currency, y.directive, y.declined, y.escalated, y.attempts, y.sweeps_aged`
+
+// ReadDeclinedCycles returns the settled cycles whose charge stands declined and is not
+// escalated — the shortfall sweep's retry candidates — each with its retry history
+// (attempts made, sweeps aged). scope.ProjectID narrows them to one project's
+// customers; an empty ProjectID is the platform-wide sweep. An empty result is an empty
+// (non-nil) slice, never NotFound.
+func (s *postgresBillingStateAccess) ReadDeclinedCycles(rc fwra.Context, scope DelinquencyScope) ([]DeclinedCycle, error) {
+	const op = "billingstate.ReadDeclinedCycles"
+	rows, err := s.pool.Query(rc.Context, selectDeclinedSQL, scope.ProjectID)
+	if err != nil {
+		return nil, fwpg.MapError(err, op)
+	}
+	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (DeclinedCycle, error) {
+		var (
+			d         DeclinedCycle
+			directive int16
+		)
+		err := row.Scan(append([]any{&d.CustomerID, &d.Cycle}, outcomeDest(&d.Outcome, &directive)...)...)
+		d.Outcome.Directive = RoutingDirective(directive)
+		return d, err
+	})
+	if err != nil {
+		return nil, fwpg.MapError(err, op)
+	}
+	if out == nil {
+		out = []DeclinedCycle{}
+	}
+	return out, nil
+}
+
 // ---------------------------------------------------------------------------
 // Writes (version-guarded, dedup-first).
 // ---------------------------------------------------------------------------
 
 const insertCustomerSQL = `
-INSERT INTO billing_customer (customer_id, version, project_id)
-VALUES ($1, 1, $2)
+INSERT INTO billing_customer (customer_id, version, project_id,
+    terms_compute_cost_kind, terms_compute_markup_pct, terms_schedule_kind, terms_currency)
+VALUES ($1, 1, $2, $3, $4, $5, $6)
 ON CONFLICT (customer_id) DO NOTHING
 RETURNING version`
 
 // RegisterCustomer opens the customer's billing aggregate at version 1 under the
-// profile's project. Only expectedVersion 0 opens it: registering a customer that
+// profile's project and terms (the committed option's regime, markup, schedule and
+// currency, DCT §12 B13). Only expectedVersion 0 opens it: registering a customer that
 // already exists, under a different key, is a Conflict (a replay of the same key is
 // the recorded version), and a positive expectation for a customer that does not exist
-// is NotFound.
+// is NotFound. A negative markup is ContractMisuse.
 func (s *postgresBillingStateAccess) RegisterCustomer(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, profile CustomerProfile, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	const op = "billingstate.RegisterCustomer"
+	if profile.Terms.ComputeMarkupPercent < 0 {
+		return 0, fwra.New(fwra.ContractMisuse, op+": negative compute markup")
+	}
+	t := profile.Terms
 	return s.mutate(rc, op, customerID, idempotencyKey, func(ctx context.Context, tx pgx.Tx) (Version, error) {
 		if expectedVersion != 0 {
 			return 0, missOrConflict(ctx, tx, op, customerID, "registration opens the aggregate from version 0")
 		}
 		var v uint64
-		err := tx.QueryRow(ctx, insertCustomerSQL, customerID, profile.ProjectID).Scan(&v)
+		err := tx.QueryRow(ctx, insertCustomerSQL, customerID, profile.ProjectID,
+			t.ComputeCostKind, t.ComputeMarkupPercent, t.ScheduleKind, t.Currency).Scan(&v)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, fwra.New(fwra.Conflict, op+": customer already registered")
 		}
@@ -218,8 +276,8 @@ RETURNING version`, customerID, uint64(expectedVersion), binding.GatewayCustomer
 }
 
 const insertCycleSQL = `
-INSERT INTO billing_cycle (customer_id, cycle, net_minor_units, net_currency, directive, escalated)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO billing_cycle (customer_id, cycle, ` + outcomeColumns + `)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (customer_id, cycle) DO NOTHING
 RETURNING customer_id`
 
@@ -239,13 +297,15 @@ func (s *postgresBillingStateAccess) SettleCycle(rc fwra.Context, customerID uui
 
 const updateCycleSQL = `
 UPDATE billing_cycle
-SET net_minor_units = $3, net_currency = $4, directive = $5, escalated = $6, updated_at = now()
+SET net_minor_units = $3, net_currency = $4, directive = $5, declined = $6, escalated = $7,
+    attempts = $8, sweeps_aged = $9, updated_at = now()
 WHERE customer_id = $1 AND cycle = $2
 RETURNING customer_id`
 
 // ResettleCycle replaces the outcome of an already settled cycle with its correction
-// (a retried charge that went through, or one escalated again). Version-guarded; a
-// cycle that was never settled has nothing to correct (NotFound).
+// (a retried charge that went through, a shortfall left for the next sweep, or one
+// escalated). Version-guarded; a cycle that was never settled has nothing to correct
+// (NotFound).
 func (s *postgresBillingStateAccess) ResettleCycle(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, cycle string, correction BillingOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	const op = "billingstate.ResettleCycle"
 	if err := checkCycleWrite(op, cycle, correction); err != nil {
@@ -257,11 +317,18 @@ func (s *postgresBillingStateAccess) ResettleCycle(rc fwra.Context, customerID u
 	})
 }
 
-// checkCycleWrite enforces the cycle-write preconditions: a named cycle and a routing
-// directive the contract defines.
+// checkCycleWrite enforces the cycle-write preconditions: a named cycle, a retry
+// history that is not negative, a declined or escalated outcome only on a charge, and
+// a routing directive the contract defines.
 func checkCycleWrite(op, cycle string, outcome BillingOutcome) error {
 	if cycle == "" {
 		return fwra.New(fwra.ContractMisuse, op+": empty cycle")
+	}
+	if outcome.Attempts < 0 || outcome.SweepsAged < 0 {
+		return fwra.New(fwra.ContractMisuse, op+": negative retry history")
+	}
+	if (outcome.Declined || outcome.Escalated) && outcome.Directive != RoutingCharge {
+		return fwra.New(fwra.ContractMisuse, op+": only a charge can be declined or escalated")
 	}
 	switch outcome.Directive {
 	case RoutingNoAction, RoutingCharge:
@@ -285,7 +352,8 @@ RETURNING version`, customerID, uint64(expectedVersion))
 	}
 	var written uuid.UUID
 	err = tx.QueryRow(ctx, sql, customerID, cycle,
-		outcome.Net.MinorUnits, outcome.Net.Currency, int(outcome.Directive), outcome.Escalated).Scan(&written)
+		outcome.Net.MinorUnits, outcome.Net.Currency, int(outcome.Directive), outcome.Declined, outcome.Escalated,
+		outcome.Attempts, outcome.SweepsAged).Scan(&written)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, noRow
 	}

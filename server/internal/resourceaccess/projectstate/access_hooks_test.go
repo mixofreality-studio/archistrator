@@ -1401,6 +1401,17 @@ func stepProjectStateAccessManageProjectsP2S1(t *testing.T, h *scenariohost.Host
 	return subject.CreateProject(callContext(t, h, "1"), in.ProjectID, in.Owner, in.Name)
 }
 
+// stepProjectStateAccessOnboardANewCustomerP2S1 — Onboard a New Customer — [no], step 1: ReadProject
+// Projected stimulus (JSON): {"seq":1,"node":"register-customer","input":{"kind":"call","from":"billing-manager","to":"projectstateaccess","op":"ReadProject","call":"onboard-a-new-customer/register-customer/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":1,"operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-onb-p2"}],"expect":{"result":"{\"ID\":\"stp-psa-onb-p2\",\"SdpReview\":{\"Status\":2},\"PlanningAssumptions\":{\"Status\":2}}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Arranges a project whose SDP option is committed under planning assumptions carrying
+// its billing terms, then reads it as billing does when a customer registers for it.
+func stepProjectStateAccessOnboardANewCustomerP2S1(t *testing.T, h *scenariohost.Host, subject projectstate.ProjectStateAccess, in inputProjectStateAccessOnboardANewCustomerP2S1) (any, error) {
+	t.Helper()
+	seedMain(t, committedCommitment(in.ProjectID, 40))
+	return subject.ReadProject(callContext(t, h, "1"), in.ProjectID)
+}
+
 // stepProjectStateAccessOperateADeliveredSystemP1S1 — Operate a Delivered System, step 1: ReadProject
 // Projected stimulus (JSON): {"seq":1,"node":"render-manifests-a","input":{"kind":"call","from":"operations-manager","to":"projectstateaccess","op":"ReadProject","call":"operate-a-delivered-system/render-manifests-a/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-ods-p1"}],"expect":{"result":"{\"ID\":\"stp-psa-ods-p1\",\"Version\":40,\"Phase\":2,\"OperationalConcepts\":{\"Status\":2}}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
@@ -2332,6 +2343,25 @@ func plannedDesignPrefix(id projectstate.ProjectID, v projectstate.Version) proj
 func deliveredSystem(id projectstate.ProjectID, v projectstate.Version) projectstate.Project {
 	p := baseProject(id, v, projectstate.PhaseConstruction)
 	p.OperationalConcepts = revision(committed(&projectstate.DeploymentOperationsModel{}), 1)
+	return p
+}
+
+// committedCommitment: a project in construction whose SDP review is committed (one
+// option, recommended) under committed planning assumptions carrying its billing terms
+// (tiered floors, no markup, monthly) and its USD cost currency.
+func committedCommitment(id projectstate.ProjectID, v projectstate.Version) projectstate.Project {
+	p := baseProject(id, v, projectstate.PhaseConstruction)
+	p.PlanningAssumptions = revision(committed(&projectstate.PlanningAssumptions{
+		Terms:             projectstate.SettlementTerms{ComputeCost: projectstate.ComputeCostTieredFloors, Schedule: projectstate.ScheduleMonthly},
+		IndirectDailyRate: projectstate.Money{MinorUnits: 50000, Currency: "USD"},
+	}), 1)
+	p.SdpReview = revision(committed(&projectstate.SdpReview{
+		Options: []projectstate.SdpOptionRow{{
+			OptionID: "opt-normal", SolutionKind: projectstate.KindNormalSolution, DurationDays: 100,
+			BuildCost: projectstate.Money{MinorUnits: 1000000, Currency: "USD"},
+		}},
+		Recommendation: "opt-normal",
+	}), 1)
 	return p
 }
 

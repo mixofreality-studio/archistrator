@@ -7808,7 +7808,7 @@
             "from": "web-client",
             "to": "billing-manager",
             "mode": "sync",
-            "label": "registerCustomer | bindPaymentInstrument | getBillingCycle"
+            "label": "registerCustomer(customerId, projectId) | bindPaymentInstrument | getBillingCycle"
           },
           {
             "from": "mcp-client",
@@ -7820,7 +7820,7 @@
             "from": "mcp-client",
             "to": "billing-manager",
             "mode": "sync",
-            "label": "registerCustomer | bindPaymentInstrument | getBillingCycle"
+            "label": "registerCustomer(customerId, projectId) | bindPaymentInstrument | getBillingCycle"
           },
           {
             "from": "scheduler-client",
@@ -7856,7 +7856,7 @@
             "from": "billing-manager",
             "to": "billing-engine",
             "mode": "sync",
-            "label": "ComputeNet(revenue, usage, terms) → {signedNet, routingDirective, computeCostApplied}"
+            "label": "ComputeNet(revenue, usage, terms) → {signedNet, routingDirective, computeCostApplied} | ProjectCommitTimeComputeCost(option) → the compute-cost regime at registration"
           },
           {
             "from": "billing-manager",
@@ -7892,7 +7892,7 @@
             "from": "billing-manager",
             "to": "billing-state-access",
             "mode": "sync",
-            "label": "readBilling / readCycle / registerCustomer / bindPaymentInstrument / settleCycle / resettleCycle / readPersistentlyDelinquentCustomers"
+            "label": "readBilling / readCycle / registerCustomer / bindPaymentInstrument / settleCycle / resettleCycle / readPersistentlyDelinquentCustomers / readDeclinedCycles"
           },
           {
             "from": "billing-manager",
@@ -8127,6 +8127,12 @@
             "to": "diagnostics",
             "mode": "sync",
             "label": "Reports health"
+          },
+          {
+            "from": "billing-manager",
+            "to": "project-state-access",
+            "mode": "sync",
+            "label": "readProject (the committed SDP option and the planning assumptions' billing terms, at registration)"
           }
         ],
         "dynamicViews": [
@@ -8575,7 +8581,7 @@
                     "from": "billing-manager",
                     "to": "billing-state-access",
                     "mode": "sync",
-                    "label": "readBilling(customerId) → terms + instrument binding"
+                    "label": "readBilling(customerId) → terms (compute-cost regime, markup, currency) + instrument binding"
                   },
                   {
                     "from": "billing-state-access",
@@ -8954,7 +8960,7 @@
                     "from": "billing-manager",
                     "to": "billing-state-access",
                     "mode": "sync",
-                    "label": "readPersistentlyDelinquentCustomers / readBilling → declined cycles awaiting retry"
+                    "label": "readDeclinedCycles(scope) → the declined cycles awaiting retry, each with its attempts and sweeps aged / readPersistentlyDelinquentCustomers(scope) → the customers already escalated, re-signalled / readBilling(customerId) → the terms a re-charge settles in"
                   }
                 ]
               },
@@ -8965,7 +8971,7 @@
                     "from": "billing-manager",
                     "to": "intervention-engine",
                     "mode": "sync",
-                    "label": "DecideOnSettlementFailure(failure{customerId, cycleId, Kind=ChargeDeclined, AttemptCount=retry history count, ShortfallAge=sweeps aged, Policy}) → {Retry | Delay | Escalate} — steers retry-budget / tolerance; replaces the stale DecideOnBillingFailure label"
+                    "label": "DecideOnSettlementFailure(failure{customerId, cycleId, Kind=ChargeDeclined, AttemptCount=the cycle's recorded attempts, ShortfallAge=its recorded sweeps aged, Policy}) → {Retry | Delay | Escalate}"
                   }
                 ]
               },
@@ -9010,7 +9016,7 @@
                     "from": "billing-manager",
                     "to": "billing-state-access",
                     "mode": "sync",
-                    "label": "record the sweep outcome — shortfall left for the next scheduled sweep (within tolerance)"
+                    "label": "resettleCycle(customerId, cycleId, outcome{Declined, SweepsAged+1}) — the shortfall is left for the next scheduled sweep (within tolerance)"
                   }
                 ]
               },
@@ -9021,7 +9027,7 @@
                     "from": "billing-manager",
                     "to": "billing-state-access",
                     "mode": "sync",
-                    "label": "record persistent delinquency; escalate to a human (flag surfaces on the operations and billing views)"
+                    "label": "resettleCycle(customerId, cycleId, outcome{Escalated}) — record persistent delinquency; escalate to a human (flag surfaces on the operations and billing views)"
                   },
                   {
                     "from": "billing-manager",
@@ -9097,21 +9103,21 @@
                     "from": "architect-user",
                     "to": "mcp-client",
                     "mode": "sync",
-                    "label": "BillingRegisterCustomer(customerID) — registers the customer via the MCP surface (R4 cross-surface equivalence)",
+                    "label": "BillingRegisterCustomer(customerID, projectID) — registers the customer via the MCP surface (R4 cross-surface equivalence)",
                     "alt": "s1"
                   },
                   {
                     "from": "web-client",
                     "to": "billing-manager",
                     "mode": "sync",
-                    "label": "registerCustomer(customerId)",
+                    "label": "registerCustomer(customerId, projectId)",
                     "alt": "s2"
                   },
                   {
                     "from": "mcp-client",
                     "to": "billing-manager",
                     "mode": "sync",
-                    "label": "registerCustomer(customerId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "label": "registerCustomer(customerId, projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
                     "alt": "s2"
                   },
                   {
@@ -9139,9 +9145,21 @@
                 "calls": [
                   {
                     "from": "billing-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject(projectId) → the committed SDP option + the planning assumptions' billing terms (DCT §12 B13: billing reads the commitment, no Manager-to-Manager call)"
+                  },
+                  {
+                    "from": "billing-manager",
+                    "to": "billing-engine",
+                    "mode": "sync",
+                    "label": "ProjectCommitTimeComputeCost(option) → the compute-cost regime the customer is billed under (refuses unknown terms, so no customer registers under an unpriced regime)"
+                  },
+                  {
+                    "from": "billing-manager",
                     "to": "billing-state-access",
                     "mode": "sync",
-                    "label": "registerCustomer(customerId, profile) — open the billing aggregate (Conflict loop)"
+                    "label": "registerCustomer(customerId, profile{projectId, terms}) — open the billing aggregate under the committed option's terms: regime, markup, schedule, currency (Conflict loop)"
                   },
                   {
                     "from": "billing-state-access",
@@ -19783,6 +19801,10 @@
         {
           "name": "intervention",
           "component": "interventionEngine"
+        },
+        {
+          "name": "projectState",
+          "component": "projectStateAccess"
         }
       ],
       "title": "billing-manager contract",
@@ -19983,6 +20005,12 @@
                   "x-go-import": "github.com/google/uuid",
                   "x-go-type": "uuid.UUID"
                 }
+              },
+              {
+                "name": "projectID",
+                "schema": {
+                  "type": "string"
+                }
               }
             ],
             "result": {
@@ -20079,36 +20107,62 @@
             "Directive": {
               "$ref": "#/$defs/RoutingDirective"
             },
+            "Declined": {
+              "type": "boolean",
+              "description": "The cycle's settlement charge stands declined: the shortfall awaits the next shortfall sweep."
+            },
             "Escalated": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Persistent delinquency: the retry policy gave up on the charge and the customer was escalated."
+            },
+            "Attempts": {
+              "type": "integer",
+              "description": "Charge attempts the cycle's settlement has made, this outcome's included."
+            },
+            "SweepsAged": {
+              "type": "integer",
+              "description": "Shortfall sweeps the declined charge has been left through."
             }
           },
           "required": [
             "Net",
             "Directive",
-            "Escalated"
+            "Declined",
+            "Escalated",
+            "Attempts",
+            "SweepsAged"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "A cycle's settlement as its close (or a later sweep) recorded it, with the charge's retry history."
         },
         "BillingTerms": {
           "type": "object",
           "properties": {
             "ComputeCostKind": {
-              "type": "integer"
+              "type": "integer",
+              "description": "The committed SDP option's compute-cost regime (billingEngine ComputeCostKind: 1 flat markup, 2 tiered floors); 0 is unknown, which no close settles under."
+            },
+            "ComputeMarkupPercent": {
+              "type": "number",
+              "description": "The regime's markup over metered compute cost, in percent."
             },
             "ScheduleKind": {
-              "type": "integer"
+              "type": "integer",
+              "description": "The settlement schedule (billingEngine ScheduleKind: 1 monthly, 2 weekly, 3 daily)."
             },
-            "BillingKind": {
-              "type": "integer"
+            "Currency": {
+              "type": "string",
+              "description": "ISO 4217 code every cycle of the customer settles in: the committed option's cost currency."
             }
           },
           "required": [
             "ComputeCostKind",
+            "ComputeMarkupPercent",
             "ScheduleKind",
-            "BillingKind"
+            "Currency"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "The terms a customer is billed under, fixed at registration from the committed SDP option (DCT §12 B13)."
         },
         "CustomerProfile": {
           "type": "object",
@@ -20116,13 +20170,17 @@
             "ProjectID": {
               "type": "string",
               "description": "The project the customer is billed for: the link a DelinquencyScope narrows ReadPersistentlyDelinquentCustomers by. Empty = registered under no project (only a platform-wide sweep, an empty scope, finds the customer)."
+            },
+            "Terms": {
+              "$ref": "#/$defs/BillingTerms"
             }
           },
           "required": [
-            "ProjectID"
+            "ProjectID",
+            "Terms"
           ],
           "additionalProperties": false,
-          "description": "Charge-only customer profile — the registration attributes. Carries no payout/connected-account fields."
+          "description": "Charge-only customer profile — the registration attributes: the project the customer is billed for and the terms of its committed option. Carries no payout/connected-account fields."
         },
         "CustomerSummary": {
           "type": "object",
@@ -20142,6 +20200,30 @@
             "PauseNotWithdraw"
           ],
           "additionalProperties": false
+        },
+        "DeclinedCycle": {
+          "type": "object",
+          "properties": {
+            "CustomerID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "Cycle": {
+              "type": "string"
+            },
+            "Outcome": {
+              "$ref": "#/$defs/BillingOutcome"
+            }
+          },
+          "required": [
+            "CustomerID",
+            "Cycle",
+            "Outcome"
+          ],
+          "additionalProperties": false,
+          "description": "A settled cycle whose charge stands declined and is not escalated: the shortfall sweep's retry candidate."
         },
         "DelinquencyScope": {
           "type": "object",
@@ -20245,24 +20327,6 @@
             "error": true
           },
           {
-            "name": "ReadPersistentlyDelinquentCustomers",
-            "params": [
-              {
-                "name": "scope",
-                "schema": {
-                  "$ref": "#/$defs/DelinquencyScope"
-                }
-              }
-            ],
-            "result": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/CustomerSummary"
-              }
-            },
-            "error": true
-          },
-          {
             "name": "ReadBilling",
             "params": [
               {
@@ -20301,6 +20365,42 @@
             ],
             "result": {
               "$ref": "#/$defs/BillingCycle"
+            },
+            "error": true
+          },
+          {
+            "name": "ReadDeclinedCycles",
+            "params": [
+              {
+                "name": "scope",
+                "schema": {
+                  "$ref": "#/$defs/DelinquencyScope"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/DeclinedCycle"
+              }
+            },
+            "error": true
+          },
+          {
+            "name": "ReadPersistentlyDelinquentCustomers",
+            "params": [
+              {
+                "name": "scope",
+                "schema": {
+                  "$ref": "#/$defs/DelinquencyScope"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CustomerSummary"
+              }
             },
             "error": true
           },
@@ -30948,6 +31048,12 @@
                   "format": "uuid",
                   "x-go-import": "github.com/google/uuid",
                   "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "projectID",
+                "schema": {
+                  "type": "string"
                 }
               }
             ],
@@ -46836,6 +46942,30 @@
             ]
           },
           {
+            "scenario": "onboard-a-new-customer-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ProjectCommitTimeComputeCost",
+                "inputs": [
+                  {
+                    "name": "option",
+                    "value": "{\"OptionID\":\"opt-normal\",\"Terms\":{\"computeCost\":2,\"computeMarkupPercent\":0,\"schedule\":1}}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":0}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              }
+            ]
+          },
+          {
             "scenario": "replan-under-scope-change-P2",
             "steps": [
               {
@@ -47206,6 +47336,11 @@
                   {
                     "name": "customerID",
                     "value": "0b1a0000-0000-4000-8000-000000000202",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "projectID",
+                    "value": "stp-billing-onboard-P2-project",
                     "schemaRef": ""
                   }
                 ],
@@ -47687,7 +47822,7 @@
                   },
                   {
                     "name": "outcome",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}",
                     "schemaRef": ""
                   },
                   {
@@ -47812,7 +47947,7 @@
                   },
                   {
                     "name": "outcome",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":true}",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":true,\"Attempts\":3,\"SweepsAged\":0}",
                     "schemaRef": ""
                   },
                   {
@@ -47869,7 +48004,7 @@
                   },
                   {
                     "name": "outcome",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":true}",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":true,\"Attempts\":3,\"SweepsAged\":0}",
                     "schemaRef": ""
                   },
                   {
@@ -47977,7 +48112,7 @@
                   },
                   {
                     "name": "outcome",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":2,\"SweepsAged\":0}",
                     "schemaRef": ""
                   },
                   {
@@ -48355,7 +48490,7 @@
             "steps": [
               {
                 "seq": 1,
-                "operation": "ReadPersistentlyDelinquentCustomers",
+                "operation": "ReadDeclinedCycles",
                 "inputs": [
                   {
                     "name": "scope",
@@ -48364,7 +48499,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"ID\":\"2e710000-0000-4000-8000-000000000001\"}]",
+                  "result": "[{\"CustomerID\":\"2e710000-0000-4000-8000-000000000001\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -48374,6 +48509,25 @@
               },
               {
                 "seq": 2,
+                "operation": "ReadPersistentlyDelinquentCustomers",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
                 "operation": "ReadBilling",
                 "inputs": [
                   {
@@ -48392,7 +48546,7 @@
                 "hook": false
               },
               {
-                "seq": 3,
+                "seq": 4,
                 "operation": "ResettleCycle",
                 "inputs": [
                   {
@@ -48412,7 +48566,7 @@
                   },
                   {
                     "name": "correction",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":2,\"SweepsAged\":0}",
                     "schemaRef": ""
                   },
                   {
@@ -48461,7 +48615,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}}",
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false,\"Declined\":false,\"Attempts\":2,\"SweepsAged\":0}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -48477,7 +48631,7 @@
             "steps": [
               {
                 "seq": 1,
-                "operation": "ReadPersistentlyDelinquentCustomers",
+                "operation": "ReadDeclinedCycles",
                 "inputs": [
                   {
                     "name": "scope",
@@ -48486,7 +48640,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"ID\":\"2e720000-0000-4000-8000-000000000002\"}]",
+                  "result": "[{\"CustomerID\":\"2e720000-0000-4000-8000-000000000002\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -48496,6 +48650,25 @@
               },
               {
                 "seq": 2,
+                "operation": "ReadPersistentlyDelinquentCustomers",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
                 "operation": "ReadBilling",
                 "inputs": [
                   {
@@ -48514,7 +48687,7 @@
                 "hook": false
               },
               {
-                "seq": 3,
+                "seq": 4,
                 "operation": "ResettleCycle",
                 "inputs": [
                   {
@@ -48534,7 +48707,7 @@
                   },
                   {
                     "name": "correction",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":true}",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":1}",
                     "schemaRef": ""
                   },
                   {
@@ -48566,7 +48739,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":true}}",
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Escalated\":false,\"Declined\":true,\"Attempts\":1,\"SweepsAged\":1}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -48583,7 +48756,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "[{\"ID\":\"2e720000-0000-4000-8000-000000000002\"}]",
+                      "result": "[]",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -48599,7 +48772,7 @@
             "steps": [
               {
                 "seq": 1,
-                "operation": "ReadPersistentlyDelinquentCustomers",
+                "operation": "ReadDeclinedCycles",
                 "inputs": [
                   {
                     "name": "scope",
@@ -48608,7 +48781,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"ID\":\"2e730000-0000-4000-8000-000000000003\"}]",
+                  "result": "[{\"CustomerID\":\"2e730000-0000-4000-8000-000000000003\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":2}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -48618,6 +48791,25 @@
               },
               {
                 "seq": 2,
+                "operation": "ReadPersistentlyDelinquentCustomers",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
                 "operation": "ReadBilling",
                 "inputs": [
                   {
@@ -48636,7 +48828,7 @@
                 "hook": false
               },
               {
-                "seq": 3,
+                "seq": 4,
                 "operation": "ResettleCycle",
                 "inputs": [
                   {
@@ -48656,7 +48848,7 @@
                   },
                   {
                     "name": "correction",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":true}",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":true,\"Attempts\":1,\"SweepsAged\":3}",
                     "schemaRef": ""
                   },
                   {
@@ -48681,7 +48873,7 @@
             "steps": [
               {
                 "seq": 1,
-                "operation": "ReadPersistentlyDelinquentCustomers",
+                "operation": "ReadDeclinedCycles",
                 "inputs": [
                   {
                     "name": "scope",
@@ -48690,7 +48882,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"ID\":\"2e740000-0000-4000-8000-000000000004\"}]",
+                  "result": "[{\"CustomerID\":\"2e740000-0000-4000-8000-000000000004\",\"Cycle\":\"2026-09\",\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -48700,6 +48892,25 @@
               },
               {
                 "seq": 2,
+                "operation": "ReadPersistentlyDelinquentCustomers",
+                "inputs": [
+                  {
+                    "name": "scope",
+                    "value": "{\"ProjectID\":\"stp-billing-project-01\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": false
+              },
+              {
+                "seq": 3,
                 "operation": "ReadBilling",
                 "inputs": [
                   {
@@ -48718,7 +48929,7 @@
                 "hook": false
               },
               {
-                "seq": 3,
+                "seq": 4,
                 "operation": "ResettleCycle",
                 "inputs": [
                   {
@@ -48738,7 +48949,7 @@
                   },
                   {
                     "name": "correction",
-                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}",
+                    "value": "{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":3,\"SweepsAged\":0}",
                     "schemaRef": ""
                   },
                   {
@@ -48787,7 +48998,7 @@
                       }
                     ],
                     "expect": {
-                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false}}",
+                      "result": "{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Net\":{\"MinorUnits\":-4200,\"Currency\":\"USD\"},\"Directive\":2,\"Escalated\":false,\"Declined\":false,\"Attempts\":3,\"SweepsAged\":0}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -60795,6 +61006,11 @@
                     "name": "customerID",
                     "value": "0b1a0000-0000-4000-8000-000000000302",
                     "schemaRef": ""
+                  },
+                  {
+                    "name": "projectID",
+                    "value": "stp-mcpbilling-onboard-P2-project",
+                    "schemaRef": ""
                   }
                 ],
                 "expect": {
@@ -67438,6 +67654,30 @@
             ]
           },
           {
+            "scenario": "onboard-a-new-customer-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-onb-p2",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-onb-p2\",\"SdpReview\":{\"Status\":2},\"PlanningAssumptions\":{\"Status\":2}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
             "scenario": "operate-a-delivered-system-P1",
             "steps": [
               {
@@ -72505,6 +72745,11 @@
                   {
                     "name": "action",
                     "value": "{\"kind\":\"fill\",\"target\":\"billing-register-customer-id\",\"value\":\"c1b10000-0000-4000-8000-000000000402\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"fill\",\"target\":\"billing-register-project-id\",\"value\":\"stp-wcbilling-onboard-P2-project\"}",
                     "schemaRef": ""
                   },
                   {

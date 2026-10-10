@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
@@ -27,6 +28,7 @@ type genActivities struct {
 	Usage           usage.UsageAccess
 	MerchantGateway merchantgateway.MerchantGatewayAccess
 	MessageBus      messagebus.MessageBus
+	ProjectState    projectstate.ProjectStateAccess
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -56,6 +58,13 @@ func (a *genActivities) BillingStateReadBilling(ctx context.Context, customerID 
 // Registered as "billingStateAccess.readCycle".
 func (a *genActivities) BillingStateReadCycle(ctx context.Context, customerID uuid.UUID, cycle string) (billingstate.BillingCycle, error) {
 	v, err := a.BillingState.ReadCycle(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, customerID, cycle)
+	return v, fwmanager.MapError(err)
+}
+
+// BillingStateReadDeclinedCycles wraps billingStateAccess.readDeclinedCycles.
+// Registered as "billingStateAccess.readDeclinedCycles".
+func (a *genActivities) BillingStateReadDeclinedCycles(ctx context.Context, scope billingstate.DelinquencyScope) ([]billingstate.DeclinedCycle, error) {
+	v, err := a.BillingState.ReadDeclinedCycles(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scope)
 	return v, fwmanager.MapError(err)
 }
 
@@ -141,4 +150,95 @@ func (a *genActivities) MessageBusDescribeSchedule(ctx context.Context, schedule
 func (a *genActivities) MessageBusRegisterSchedule(ctx context.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
 	err := a.MessageBus.RegisterSchedule(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scheduleID, spec)
 	return fwmanager.MapError(err)
+}
+
+// ProjectStateAcknowledgeStaleBasis wraps projectStateAccess.acknowledgeStaleBasis.
+// Registered as "projectStateAccess.acknowledgeStaleBasis".
+func (a *genActivities) ProjectStateAcknowledgeStaleBasis(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string) (projectstate.Version, error) {
+	v, err := a.ProjectState.AcknowledgeStaleBasis(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, kind, note, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateAdvancePhase wraps projectStateAccess.advancePhase.
+// Registered as "projectStateAccess.advancePhase".
+func (a *genActivities) ProjectStateAdvancePhase(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	v, err := a.ProjectState.AdvancePhase(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateCreateProject wraps projectStateAccess.createProject.
+// Registered as "projectStateAccess.createProject".
+func (a *genActivities) ProjectStateCreateProject(ctx context.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error) {
+	v, err := a.ProjectState.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, owner, name)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateListProjects wraps projectStateAccess.listProjects.
+// Registered as "projectStateAccess.listProjects".
+func (a *genActivities) ProjectStateListProjects(ctx context.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	v, err := a.ProjectState.ListProjects(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, owner)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateReadProject wraps projectStateAccess.readProject.
+// Registered as "projectStateAccess.readProject".
+func (a *genActivities) ProjectStateReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+	v, err := a.ProjectState.ReadProject(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateReadProjectVersion wraps projectStateAccess.readProjectVersion.
+// Registered as "projectStateAccess.readProjectVersion".
+func (a *genActivities) ProjectStateReadProjectVersion(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	v, err := a.ProjectState.ReadProjectVersion(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordOperatorPaused wraps projectStateAccess.recordOperatorPaused.
+// Registered as "projectStateAccess.recordOperatorPaused".
+func (a *genActivities) ProjectStateRecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordOperatorPaused(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, reason, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordOperatorResumed wraps projectStateAccess.recordOperatorResumed.
+// Registered as "projectStateAccess.recordOperatorResumed".
+func (a *genActivities) ProjectStateRecordOperatorResumed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordOperatorResumed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordReviewPolicy wraps projectStateAccess.recordReviewPolicy.
+// Registered as "projectStateAccess.recordReviewPolicy".
+func (a *genActivities) ProjectStateRecordReviewPolicy(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordReviewPolicy(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, policy, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordSdpReviewOutcome wraps projectStateAccess.recordSdpReviewOutcome.
+// Registered as "projectStateAccess.recordSdpReviewOutcome".
+func (a *genActivities) ProjectStateRecordSdpReviewOutcome(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, outcome projectstate.ArtifactReviewStatus, feedback string) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordSdpReviewOutcome(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, outcome, feedback, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordTrackingPoint wraps projectStateAccess.recordTrackingPoint.
+// Registered as "projectStateAccess.recordTrackingPoint".
+func (a *genActivities) ProjectStateRecordTrackingPoint(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, point projectstate.EvPoint) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordTrackingPoint(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, point, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateSetOperatingModel wraps projectStateAccess.setOperatingModel.
+// Registered as "projectStateAccess.setOperatingModel".
+func (a *genActivities) ProjectStateSetOperatingModel(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
+	v, err := a.ProjectState.SetOperatingModel(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, model)
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateSetResearchInput wraps projectStateAccess.setResearchInput.
+// Registered as "projectStateAccess.setResearchInput".
+func (a *genActivities) ProjectStateSetResearchInput(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error) {
+	v, err := a.ProjectState.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, research)
+	return v, fwmanager.MapError(err)
 }

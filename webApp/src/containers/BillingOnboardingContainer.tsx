@@ -12,8 +12,8 @@ import {
 } from '../hooks/useBillingOnboarding';
 import { BillingOnboarding, type OnboardingStepResult } from '../components/BillingOnboarding';
 
-function stepResult(
-  m: UseMutationResult<BillingRef, Error, string>
+function stepResult<V>(
+  m: UseMutationResult<BillingRef, Error, V>
 ): OnboardingStepResult | undefined {
   if (m.isPending) return { kind: 'pending' };
   if (m.data !== undefined) return { kind: 'done', customerId: m.data.customerId };
@@ -31,8 +31,8 @@ export function BillingOnboardingContainer(): ReactNode {
       onOnboard={(deployedAppId) => {
         onboard.mutate(deployedAppId);
       }}
-      onRegister={(customerId) => {
-        register.mutate(customerId);
+      onRegister={(customerId, projectId) => {
+        register.mutate({ customerId, projectId });
       }}
     />
   );

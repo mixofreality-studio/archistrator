@@ -592,7 +592,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	reviewEngine := review.NewReviewEngine()
 
 	// Managers — generated DI constructors + one embedded Worker each.
-	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, messageBus, billingEngine, interventionEngine)
+	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, messageBus, billingEngine, interventionEngine, projectStateAccess)
 	wBillingManager := worker.New(tc, managerbilling.TaskQueue, worker.Options{})
 	managerbilling.RegisterManagerWorker(wBillingManager, billingManager)
 	if err := wBillingManager.Start(); err != nil {

@@ -598,6 +598,7 @@ export const UI_IDENTIFIERS = {
     ONBOARD_SUBMIT: 'billing-onboard-submit',
     ONBOARD_RESULT: 'billing-onboard-result',
     REGISTER_CUSTOMER_ID_INPUT: 'billing-register-customer-id',
+    REGISTER_PROJECT_ID_INPUT: 'billing-register-project-id',
     REGISTER_SUBMIT: 'billing-register-submit',
     REGISTER_RESULT: 'billing-register-result',
   },

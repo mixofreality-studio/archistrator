@@ -4731,6 +4731,17 @@ paths:
                     type: string
                     x-go-import: github.com/google/uuid
                     x-go-type: uuid.UUID
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                projectID:
+                                    type: string
+                            required:
+                                - projectID
+                            type: object
+                required: true
             responses:
                 "200":
                     content:

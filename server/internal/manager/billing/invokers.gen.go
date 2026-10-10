@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
@@ -67,6 +68,13 @@ func (i genInvokers) BillingStateReadBilling(ctx workflow.Context, customerID uu
 func (i genInvokers) BillingStateReadCycle(ctx workflow.Context, customerID uuid.UUID, cycle string) (billingstate.BillingCycle, error) {
 	var out billingstate.BillingCycle
 	err := workflow.ExecuteActivity(i.options(ctx, "billingStateAccess.readCycle"), "billingStateAccess.readCycle", customerID, cycle).Get(ctx, &out)
+	return out, err
+}
+
+// BillingStateReadDeclinedCycles invokes activity "billingStateAccess.readDeclinedCycles".
+func (i genInvokers) BillingStateReadDeclinedCycles(ctx workflow.Context, scope billingstate.DelinquencyScope) ([]billingstate.DeclinedCycle, error) {
+	var out []billingstate.DeclinedCycle
+	err := workflow.ExecuteActivity(i.options(ctx, "billingStateAccess.readDeclinedCycles"), "billingStateAccess.readDeclinedCycles", scope).Get(ctx, &out)
 	return out, err
 }
 
@@ -148,4 +156,95 @@ func (i genInvokers) MessageBusDescribeSchedule(ctx workflow.Context, scheduleID
 func (i genInvokers) MessageBusRegisterSchedule(ctx workflow.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
 	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.registerSchedule"), "messageBus.registerSchedule", scheduleID, spec).Get(ctx, nil)
 	return err
+}
+
+// ProjectStateAcknowledgeStaleBasis invokes activity "projectStateAccess.acknowledgeStaleBasis".
+func (i genInvokers) ProjectStateAcknowledgeStaleBasis(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.acknowledgeStaleBasis"), "projectStateAccess.acknowledgeStaleBasis", projectID, expectedVersion, kind, note).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateAdvancePhase invokes activity "projectStateAccess.advancePhase".
+func (i genInvokers) ProjectStateAdvancePhase(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.advancePhase"), "projectStateAccess.advancePhase", projectID, expectedVersion).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateCreateProject invokes activity "projectStateAccess.createProject".
+func (i genInvokers) ProjectStateCreateProject(ctx workflow.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.createProject"), "projectStateAccess.createProject", projectID, owner, name).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateListProjects invokes activity "projectStateAccess.listProjects".
+func (i genInvokers) ProjectStateListProjects(ctx workflow.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	var out []projectstate.ProjectSummary
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.listProjects"), "projectStateAccess.listProjects", owner).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateReadProject invokes activity "projectStateAccess.readProject".
+func (i genInvokers) ProjectStateReadProject(ctx workflow.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+	var out projectstate.Project
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.readProject"), "projectStateAccess.readProject", projectID).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateReadProjectVersion invokes activity "projectStateAccess.readProjectVersion".
+func (i genInvokers) ProjectStateReadProjectVersion(ctx workflow.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.readProjectVersion"), "projectStateAccess.readProjectVersion", projectID).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordOperatorPaused invokes activity "projectStateAccess.recordOperatorPaused".
+func (i genInvokers) ProjectStateRecordOperatorPaused(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordOperatorPaused"), "projectStateAccess.recordOperatorPaused", projectID, expectedVersion, reason).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordOperatorResumed invokes activity "projectStateAccess.recordOperatorResumed".
+func (i genInvokers) ProjectStateRecordOperatorResumed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordOperatorResumed"), "projectStateAccess.recordOperatorResumed", projectID, expectedVersion).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordReviewPolicy invokes activity "projectStateAccess.recordReviewPolicy".
+func (i genInvokers) ProjectStateRecordReviewPolicy(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordReviewPolicy"), "projectStateAccess.recordReviewPolicy", projectID, expectedVersion, policy).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordSdpReviewOutcome invokes activity "projectStateAccess.recordSdpReviewOutcome".
+func (i genInvokers) ProjectStateRecordSdpReviewOutcome(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, outcome projectstate.ArtifactReviewStatus, feedback string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordSdpReviewOutcome"), "projectStateAccess.recordSdpReviewOutcome", projectID, expectedVersion, outcome, feedback).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordTrackingPoint invokes activity "projectStateAccess.recordTrackingPoint".
+func (i genInvokers) ProjectStateRecordTrackingPoint(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, point projectstate.EvPoint) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordTrackingPoint"), "projectStateAccess.recordTrackingPoint", projectID, expectedVersion, point).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateSetOperatingModel invokes activity "projectStateAccess.setOperatingModel".
+func (i genInvokers) ProjectStateSetOperatingModel(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.setOperatingModel"), "projectStateAccess.setOperatingModel", projectID, expectedVersion, model).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateSetResearchInput invokes activity "projectStateAccess.setResearchInput".
+func (i genInvokers) ProjectStateSetResearchInput(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.setResearchInput"), "projectStateAccess.setResearchInput", projectID, expectedVersion, research).Get(ctx, &out)
+	return out, err
 }

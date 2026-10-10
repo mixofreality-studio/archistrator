@@ -18820,7 +18820,7 @@
               ]
              },
              {
-              "Signature": "RegisterCustomer(customerID: uuid.UUID) → (BillingRef, fwm.Error)",
+              "Signature": "RegisterCustomer(customerID: uuid.UUID, projectID: string) → (BillingRef, fwm.Error)",
               "Stereotype": "",
               "Note": "",
               "Inputs": [
@@ -18830,6 +18830,16 @@
                  {
                   "Name": "customerID",
                   "Type": "uuid.UUID",
+                  "Note": ""
+                 }
+                ]
+               },
+               {
+                "Name": "string",
+                "Fields": [
+                 {
+                  "Name": "projectID",
+                  "Type": "string",
                   "Note": ""
                  }
                 ]
@@ -19145,6 +19155,45 @@
               ]
              },
              {
+              "Signature": "ReadDeclinedCycles(scope: DelinquencyScope) → ([]DeclinedCycle, fwra.Error)",
+              "Stereotype": "",
+              "Note": "",
+              "Inputs": [
+               {
+                "Name": "DelinquencyScope",
+                "Fields": [
+                 {
+                  "Name": "ProjectID",
+                  "Type": "string",
+                  "Note": ""
+                 }
+                ]
+               }
+              ],
+              "Outputs": [
+               {
+                "Name": "[]DeclinedCycle",
+                "Fields": [
+                 {
+                  "Name": "result",
+                  "Type": "[]DeclinedCycle",
+                  "Note": ""
+                 }
+                ]
+               },
+               {
+                "Name": "fwra.Error",
+                "Fields": [
+                 {
+                  "Name": "fault",
+                  "Type": "fwra.Error",
+                  "Note": ""
+                 }
+                ]
+               }
+              ]
+             },
+             {
               "Signature": "RegisterCustomer(customerID: uuid.UUID, expectedVersion: Version, profile: CustomerProfile, idempotencyKey: fwra.IdempotencyKey) → (Version, fwra.Error)",
               "Stereotype": "",
               "Note": "",
@@ -19175,6 +19224,11 @@
                  {
                   "Name": "ProjectID",
                   "Type": "string",
+                  "Note": ""
+                 },
+                 {
+                  "Name": "Terms",
+                  "Type": "BillingTerms",
                   "Note": ""
                  }
                 ]
@@ -19265,6 +19319,21 @@
                   "Name": "Escalated",
                   "Type": "bool",
                   "Note": ""
+                 },
+                 {
+                  "Name": "Declined",
+                  "Type": "bool",
+                  "Note": ""
+                 },
+                 {
+                  "Name": "Attempts",
+                  "Type": "int64",
+                  "Note": ""
+                 },
+                 {
+                  "Name": "SweepsAged",
+                  "Type": "int64",
+                  "Note": ""
                  }
                 ]
                },
@@ -19354,6 +19423,21 @@
                   "Name": "Escalated",
                   "Type": "bool",
                   "Note": ""
+                 },
+                 {
+                  "Name": "Declined",
+                  "Type": "bool",
+                  "Note": ""
+                 },
+                 {
+                  "Name": "Attempts",
+                  "Type": "int64",
+                  "Note": ""
+                 },
+                 {
+                  "Name": "SweepsAged",
+                  "Type": "int64",
+                  "Note": ""
                  }
                 ]
                },
@@ -19399,6 +19483,7 @@
              "BillingTerms",
              "CustomerProfile",
              "CustomerSummary",
+             "DeclinedCycle",
              "DelinquencyScope",
              "GatewayBinding",
              "Money",
@@ -22924,7 +23009,7 @@
               ]
              },
              {
-              "Signature": "BillingRegisterCustomer(customerID: uuid.UUID) → (BillingRegisterCustomerOutput, error)",
+              "Signature": "BillingRegisterCustomer(customerID: uuid.UUID, projectID: string) → (BillingRegisterCustomerOutput, error)",
               "Stereotype": "",
               "Note": "",
               "Inputs": [
@@ -22934,6 +23019,16 @@
                  {
                   "Name": "customerID",
                   "Type": "uuid.UUID",
+                  "Note": ""
+                 }
+                ]
+               },
+               {
+                "Name": "string",
+                "Fields": [
+                 {
+                  "Name": "projectID",
+                  "Type": "string",
                   "Note": ""
                  }
                 ]

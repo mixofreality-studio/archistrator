@@ -184,7 +184,7 @@ func (m loggingBillingManager) OnboardPaymentIntegration(rc fwmanager.Context, d
 	return v, logInfraError(m.log, "Billing.OnboardPaymentIntegration", deployedAppID.String(), err)
 }
 
-func (m loggingBillingManager) RegisterCustomer(rc fwmanager.Context, customerID uuid.UUID) (billing.BillingRef, error) {
-	v, err := m.BillingManager.RegisterCustomer(rc, customerID)
+func (m loggingBillingManager) RegisterCustomer(rc fwmanager.Context, customerID uuid.UUID, projectID string) (billing.BillingRef, error) {
+	v, err := m.BillingManager.RegisterCustomer(rc, customerID, projectID)
 	return v, logInfraError(m.log, "Billing.RegisterCustomer", customerID.String(), err)
 }

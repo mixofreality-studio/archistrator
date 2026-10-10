@@ -4272,6 +4272,26 @@ func TestScenario_ProjectStateAccess_manage_projects_P2(t *testing.T) {
 	})
 }
 
+// inputProjectStateAccessOnboardANewCustomerP2S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessOnboardANewCustomerP2S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+func TestScenario_ProjectStateAccess_onboard_a_new_customer_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "onboard-a-new-customer-P2", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node register-customer; guards registered=[no])
+		var in1 inputProjectStateAccessOnboardANewCustomerP2S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-onb-p2"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessOnboardANewCustomerP2S1(t, h, subject, in1)
+		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-onb-p2\",\"SdpReview\":{\"Status\":2},\"PlanningAssumptions\":{\"Status\":2}}","errorExpected":false}`)
+	})
+}
+
 // inputProjectStateAccessOperateADeliveredSystemP1S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
 type inputProjectStateAccessOperateADeliveredSystemP1S1 struct {
 	ProjectID projectstate.ProjectID `json:"projectID"`

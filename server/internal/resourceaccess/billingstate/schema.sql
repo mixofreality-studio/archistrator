@@ -26,14 +26,20 @@
 --   billing_customer.project_id           -> CustomerProfile.ProjectID: the
 --                                            customer -> project link the
 --                                            DelinquencyScope narrows by
+--   billing_customer.terms_*              -> CustomerProfile.Terms / Billing.Terms:
+--                                            the committed option's terms the
+--                                            customer registered under (B13)
 --   billing_cycle (row exists)            -> BillingCycle.Settled (SettleCycle
 --                                            creates it, ResettleCycle corrects it)
 --   billing_cycle.net_* / directive /
---   escalated                             -> BillingCycle.Outcome
+--   declined / escalated / attempts /
+--   sweeps_aged                           -> BillingCycle.Outcome (the settlement
+--                                            and its charge's retry history)
 --
 -- A customer is PERSISTENTLY DELINQUENT while any of its settled cycles carries an
 -- escalated outcome (a declined charge with no retry left — the invoice unpaid);
--- a ResettleCycle that records the cycle paid takes it out of the set.
+-- a ResettleCycle that records the cycle paid takes it out of the set. A cycle whose
+-- charge stands DECLINED and is not escalated awaits the shortfall sweep's retry.
 
 CREATE TABLE IF NOT EXISTS billing_customer (
     customer_id          uuid        PRIMARY KEY,
@@ -62,6 +68,20 @@ CREATE TABLE IF NOT EXISTS billing_cycle (
 );
 
 -- ReadPersistentlyDelinquentCustomers: only escalated cycles participate.
+-- Columns added since the first schema (2026-10-09, DCT §12 B13 and the retry
+-- history): reconcile a database the earlier schema created.
+ALTER TABLE billing_customer ADD COLUMN IF NOT EXISTS terms_compute_cost_kind    smallint         NOT NULL DEFAULT 0;
+ALTER TABLE billing_customer ADD COLUMN IF NOT EXISTS terms_compute_markup_pct   double precision NOT NULL DEFAULT 0;
+ALTER TABLE billing_customer ADD COLUMN IF NOT EXISTS terms_schedule_kind        smallint         NOT NULL DEFAULT 0;
+ALTER TABLE billing_customer ADD COLUMN IF NOT EXISTS terms_currency             text             NOT NULL DEFAULT '';
+ALTER TABLE billing_cycle    ADD COLUMN IF NOT EXISTS declined                   boolean          NOT NULL DEFAULT false;
+ALTER TABLE billing_cycle    ADD COLUMN IF NOT EXISTS attempts                   bigint           NOT NULL DEFAULT 0;
+ALTER TABLE billing_cycle    ADD COLUMN IF NOT EXISTS sweeps_aged                bigint           NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS billing_cycle_declined_idx
+    ON billing_cycle (customer_id)
+    WHERE declined AND NOT escalated;
+
 CREATE INDEX IF NOT EXISTS billing_cycle_escalated_idx
     ON billing_cycle (customer_id)
     WHERE escalated;

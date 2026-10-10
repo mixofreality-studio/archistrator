@@ -89,6 +89,14 @@ func (f *fakeRegistry) RegisterActivityWithOptions(_ any, options activity.Regis
 // Plan 5 round 1 ADDS four: projectStateAccess gained recordSdpReviewOutcome and
 // recordTrackingPoint (the M0 non-commit outcomes and the weekly tracking points),
 // registered by the two Managers that depend on the RA. Additions again: nothing to drain.
+//
+// Plan 5 round 3 ADDS fifteen: billingManager now depends on projectStateAccess (DCT §12
+// B13: it reads the committed SDP option's terms at registration), so its worker
+// registers that RA's thirteen activities too; billingStateAccess gained
+// readDeclinedCycles (the shortfall sweep's retry history) and operatedRuntimeAccess
+// gained readWorkloadTelemetry (the autoscaler's utilization signal). Additions: nothing
+// to drain for the names — but the reconcile, deploy and register workflows' command
+// sequences changed, so drain in-flight operations and billing executions before deploy.
 var registeredTemporalNamesGolden = []string{
 	"activityExecutionAccess.appendReviewVerdict",
 	"activityExecutionAccess.decideReviewRound",
@@ -117,6 +125,7 @@ var registeredTemporalNamesGolden = []string{
 	"billingStateAccess.bindGatewayLive",
 	"billingStateAccess.readBilling",
 	"billingStateAccess.readCycle",
+	"billingStateAccess.readDeclinedCycles",
 	"billingStateAccess.readPersistentlyDelinquentCustomers",
 	"billingStateAccess.registerCustomer",
 	"billingStateAccess.resettleCycle",
@@ -153,6 +162,7 @@ var registeredTemporalNamesGolden = []string{
 	"operatedRuntimeAccess.getSloStatus",
 	"operatedRuntimeAccess.publishDesiredState",
 	"operatedRuntimeAccess.readComputeAttribution",
+	"operatedRuntimeAccess.readWorkloadTelemetry",
 	"operatedRuntimeAccess.withdraw",
 	"operatedSystemStateAccess.publishDesiredState",
 	"operatedSystemStateAccess.readInFlightOperatedApps",
@@ -171,28 +181,41 @@ var registeredTemporalNamesGolden = []string{
 	"operationsWithdraw",
 	"projectStateAccess.acknowledgeStaleBasis",
 	"projectStateAccess.acknowledgeStaleBasis",
+	"projectStateAccess.acknowledgeStaleBasis",
+	"projectStateAccess.advancePhase",
 	"projectStateAccess.advancePhase",
 	"projectStateAccess.advancePhase",
 	"projectStateAccess.createProject",
 	"projectStateAccess.createProject",
+	"projectStateAccess.createProject",
+	"projectStateAccess.listProjects",
 	"projectStateAccess.listProjects",
 	"projectStateAccess.listProjects",
 	"projectStateAccess.readProject",
 	"projectStateAccess.readProject",
+	"projectStateAccess.readProject",
+	"projectStateAccess.readProjectVersion",
 	"projectStateAccess.readProjectVersion",
 	"projectStateAccess.readProjectVersion",
 	"projectStateAccess.recordOperatorPaused",
 	"projectStateAccess.recordOperatorPaused",
+	"projectStateAccess.recordOperatorPaused",
+	"projectStateAccess.recordOperatorResumed",
 	"projectStateAccess.recordOperatorResumed",
 	"projectStateAccess.recordOperatorResumed",
 	"projectStateAccess.recordReviewPolicy",
 	"projectStateAccess.recordReviewPolicy",
+	"projectStateAccess.recordReviewPolicy",
+	"projectStateAccess.recordSdpReviewOutcome",
 	"projectStateAccess.recordSdpReviewOutcome",
 	"projectStateAccess.recordSdpReviewOutcome",
 	"projectStateAccess.recordTrackingPoint",
 	"projectStateAccess.recordTrackingPoint",
+	"projectStateAccess.recordTrackingPoint",
 	"projectStateAccess.setOperatingModel",
 	"projectStateAccess.setOperatingModel",
+	"projectStateAccess.setOperatingModel",
+	"projectStateAccess.setResearchInput",
 	"projectStateAccess.setResearchInput",
 	"projectStateAccess.setResearchInput",
 	"sourceControlAccess.adoptProjectRepo",
@@ -221,7 +244,7 @@ func mustRegisteredNames(t *testing.T) []string {
 
 	var reg fakeRegistry
 
-	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil)
+	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	billing.RegisterManagerWorker(&reg, billingMgr)
 
 	deliveryMgr := delivery.NewDeliveryManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, "")
