@@ -56,8 +56,8 @@ func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedS
 	// Run-rate only (no what-if points) — same usage read the cost-projection path uses.
 	appID := in.OperatedAppID
 	events, uerr := wf.readUsageRange(ctx, usage.UsageRangeQuery{
-		CustomerID:    wf.CustomerID,
-		CycleID:       usage.CycleID(wf.CurrentCycleID),
+		CustomerID:    op.CustomerID,
+		CycleID:       usageCycleID(workflow.Now(ctx)),
 		OperatedAppID: &appID,
 	})
 	if uerr != nil {
