@@ -1120,31 +1120,13 @@ func stepProjectStateAccessCommitToAProjectOptionP1S1(t *testing.T, h *scenarioh
 }
 
 // stepProjectStateAccessCommitToAProjectOptionP1S2 — Commit to a Project Option — [commit] · [no], step 2: AdvancePhase
-// Projected stimulus (JSON): {"seq":2,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"projectstateaccess","op":"","call":"commit-to-a-project-option/commit-option/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":2,"operation":"AdvancePhase","inputs":[{"name":"projectID","value":"stp-psa-cpo-p1"},{"name":"expectedVersion","value":"21"}],"expect":{"result":"22","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Projected stimulus (JSON): {"seq":2,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"projectstateaccess","op":"AdvancePhase","call":"commit-to-a-project-option/commit-option/1"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":2,"operation":"AdvancePhase","inputs":[{"name":"projectID","value":"stp-psa-cpo-p1"},{"name":"expectedVersion","value":"21"}],"expect":{"result":"22","errorExpected":false},"probes":[{"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p1"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}},{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p1"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}}],"unobservable":[],"hook":true}
 // Arranges decision=[commit]: designSessionAccess commits the chosen SDP review on main (the commit-option write before the seal), then advances the phase.
 func stepProjectStateAccessCommitToAProjectOptionP1S2(t *testing.T, h *scenariohost.Host, subject projectstate.ProjectStateAccess, in inputProjectStateAccessCommitToAProjectOptionP1S2) (any, error) {
 	t.Helper()
 	commitOnMain(t, h, in.ProjectID, projectstate.KindSdpReview, "founder@stp.test", "project-manager")
 	return subject.AdvancePhase(callContext(t, h, "2"), in.ProjectID, in.ExpectedVersion)
-}
-
-// stepProjectStateAccessCommitToAProjectOptionP1S3 — Commit to a Project Option — [commit] · [no], step 3: ReadProject
-// Projected stimulus (JSON): {"seq":3,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"projectstateaccess","op":"","call":"commit-to-a-project-option/commit-option/1"},"expectedOutputs":[{"node":"commit-option","kind":"inferred","to":"","label":"Record the commitment; project approved for construction"}],"expectedStates":[{"node":"sdp-review-committed","object":"SDP Review (chosen option + build-cost ceiling)","inState":"[committed]"},{"node":"construction-work-items-opened","object":"Construction Work Items","inState":"[opened]"}],"hints":null}
-// Binding (JSON): {"seq":3,"operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p1"}],"expect":{"result":"{\"ID\":\"stp-psa-cpo-p1\",\"Phase\":2}","errorExpected":false},"probes":[{"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p1"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}},{"for":"construction-work-items-opened","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-psa-cpo-p1"},{"name":"activityID","value":"C-project-state-access"}],"expect":{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}},{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p1"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}}],"unobservable":[],"hook":true}
-// Arranges the construction work items opened: activityExecutionAccess opens the first construction activity, then reads the project.
-func stepProjectStateAccessCommitToAProjectOptionP1S3(t *testing.T, h *scenariohost.Host, subject projectstate.ProjectStateAccess, in inputProjectStateAccessCommitToAProjectOptionP1S3) (any, error) {
-	t.Helper()
-	openActivity(t, h, in.ProjectID, "C-project-state-access", projectstate.ActivityTypeService, "service")
-	return subject.ReadProject(callContext(t, h, "3"), in.ProjectID)
-}
-
-// probeProjectStateAccessCommitToAProjectOptionP1S3N2 — Commit to a Project Option — [commit] · [no], step 3, probe 2: activityExecutionAccess.ReadActivityExecution proves construction-work-items-opened.
-// Probe (JSON): {"for":"construction-work-items-opened","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-psa-cpo-p1"},{"name":"activityID","value":"C-project-state-access"}],"expect":{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}}
-// Reads activityExecutionAccess.ReadActivityExecution with the probe's inputs over the scenario's own repo.
-func probeProjectStateAccessCommitToAProjectOptionP1S3N2(t *testing.T, h *scenariohost.Host, _ projectstate.ProjectStateAccess) (any, error) {
-	t.Helper()
-	return readExecution(t, h, "stp-psa-cpo-p1", "C-project-state-access")
 }
 
 // stepProjectStateAccessCommitToAProjectOptionP2S1 — Commit to a Project Option — [commit] · [yes], step 1: ReadProject
@@ -1158,8 +1140,8 @@ func stepProjectStateAccessCommitToAProjectOptionP2S1(t *testing.T, h *scenarioh
 }
 
 // stepProjectStateAccessCommitToAProjectOptionP2S2 — Commit to a Project Option — [commit] · [yes], step 2: AdvancePhase
-// Projected stimulus (JSON): {"seq":2,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"projectstateaccess","op":"","call":"commit-to-a-project-option/commit-option/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":2,"operation":"AdvancePhase","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"},{"name":"expectedVersion","value":"21"}],"expect":{"result":"22","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Projected stimulus (JSON): {"seq":2,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"projectstateaccess","op":"AdvancePhase","call":"commit-to-a-project-option/commit-option/1"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":2,"operation":"AdvancePhase","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"},{"name":"expectedVersion","value":"21"}],"expect":{"result":"22","errorExpected":false},"probes":[{"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}},{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}}],"unobservable":[],"hook":true}
 // Arranges decision=[commit]: designSessionAccess commits the chosen SDP review on main (the commit-option write before the seal), then advances the phase.
 func stepProjectStateAccessCommitToAProjectOptionP2S2(t *testing.T, h *scenariohost.Host, subject projectstate.ProjectStateAccess, in inputProjectStateAccessCommitToAProjectOptionP2S2) (any, error) {
 	t.Helper()
@@ -1167,33 +1149,110 @@ func stepProjectStateAccessCommitToAProjectOptionP2S2(t *testing.T, h *scenarioh
 	return subject.AdvancePhase(callContext(t, h, "2"), in.ProjectID, in.ExpectedVersion)
 }
 
-// stepProjectStateAccessCommitToAProjectOptionP2S3 — Commit to a Project Option — [commit] · [yes], step 3: ReadProject
-// Projected stimulus (JSON): {"seq":3,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"projectstateaccess","op":"","call":"commit-to-a-project-option/commit-option/1"},"expectedOutputs":[{"node":"commit-option","kind":"inferred","to":"","label":"Record the commitment; project approved for construction"}],"expectedStates":[{"node":"sdp-review-committed","object":"SDP Review (chosen option + build-cost ceiling)","inState":"[committed]"},{"node":"construction-work-items-opened","object":"Construction Work Items","inState":"[opened]"}],"hints":null}
-// Binding (JSON): {"seq":3,"operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"}],"expect":{"result":"{\"ID\":\"stp-psa-cpo-p2\",\"Phase\":2}","errorExpected":false},"probes":[{"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}},{"for":"construction-work-items-opened","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"},{"name":"activityID","value":"C-project-state-access"}],"expect":{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}},{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}}],"unobservable":[],"hook":true}
-// Arranges the construction work items opened: activityExecutionAccess opens the first construction activity, then reads the project.
+// stepProjectStateAccessCommitToAProjectOptionP2S3 — Commit to a Project Option — [commit] · [yes], step 3: RecordSdpReviewOutcome
+// Projected stimulus (JSON): {"seq":3,"node":"revoke","input":{"kind":"call","from":"delivery-manager","to":"projectstateaccess","op":"RecordSdpReviewOutcome","call":"commit-to-a-project-option/revoke/4"},"expectedOutputs":null,"expectedStates":[{"node":"sdp-review-revoked","object":"SDP Review","inState":"[revoked]"}],"hints":null}
+// Binding (JSON): {"seq":3,"operation":"RecordSdpReviewOutcome","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"},{"name":"expectedVersion","value":"23"},{"name":"outcome","value":"4"},{"name":"feedback","value":"Revoked inside the grace window: the decompressed option is preferred."},{"name":"idempotencyKey","value":"stp-psa-cpo-p2:revoke"}],"expect":{"errorExpected":false},"probes":[{"for":"sdp-review-revoked","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"}],"expect":{"result":"{\"Phase\":1,\"SdpReview\":{\"Status\":4}}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Arranges the construction work items opened after the commitment (activityExecutionAccess opens the first construction activity, the head version the revoke expects), then revokes the commitment inside its grace window.
 func stepProjectStateAccessCommitToAProjectOptionP2S3(t *testing.T, h *scenariohost.Host, subject projectstate.ProjectStateAccess, in inputProjectStateAccessCommitToAProjectOptionP2S3) (any, error) {
 	t.Helper()
 	openActivity(t, h, in.ProjectID, "C-project-state-access", projectstate.ActivityTypeService, "service")
-	return subject.ReadProject(callContext(t, h, "3"), in.ProjectID)
+	return subject.RecordSdpReviewOutcome(callContext(t, h, "3"), in.ProjectID, in.ExpectedVersion, in.Outcome, in.Feedback, in.IdempotencyKey)
 }
 
-// probeProjectStateAccessCommitToAProjectOptionP2S3N2 — Commit to a Project Option — [commit] · [yes], step 3, probe 2: activityExecutionAccess.ReadActivityExecution proves construction-work-items-opened.
-// Probe (JSON): {"for":"construction-work-items-opened","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"},{"name":"activityID","value":"C-project-state-access"}],"expect":{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}}
-// Reads activityExecutionAccess.ReadActivityExecution with the probe's inputs over the scenario's own repo.
-func probeProjectStateAccessCommitToAProjectOptionP2S3N2(t *testing.T, h *scenariohost.Host, _ projectstate.ProjectStateAccess) (any, error) {
+// stepDesignSessionAccessCommitToAProjectOptionP1S1 — Commit to a Project Option — [commit] · [no], step 1: CommitArtifactWithProvenance
+// Projected stimulus (JSON): {"seq":1,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"designsessionaccess","op":"CommitArtifactWithProvenance","call":"commit-to-a-project-option/commit-option/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":1,"operation":"CommitArtifactWithProvenance","inputs":[{"name":"projectID","value":"stp-dsa-cpo-p1"},{"name":"expectedVersion","value":"20"},{"name":"kind","value":"16"},{"name":"approvedBy","value":"founder@stp.test"},{"name":"draftedBy","value":"project-manager"}],"expect":{"result":"21","errorExpected":false},"probes":[{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-dsa-cpo-p1"}],"expect":{"result":"{\"ID\":\"stp-dsa-cpo-p1\",\"SdpReview\":{\"Status\":2,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Arranges the SDP review presented for the decision (staged on main), then commits it as the architect's commit-option decision does.
+func stepDesignSessionAccessCommitToAProjectOptionP1S1(t *testing.T, h *scenariohost.Host, subject projectstate.DesignSessionAccess, in inputDesignSessionAccessCommitToAProjectOptionP1S1) (any, error) {
 	t.Helper()
-	return readExecution(t, h, "stp-psa-cpo-p2", "C-project-state-access")
+	seedMain(t, sdpAwaitingDecision(in.ProjectID, in.ExpectedVersion))
+	return subject.CommitArtifactWithProvenance(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.Kind, in.ApprovedBy, in.DraftedBy)
 }
 
-// stepProjectStateAccessCommitToAProjectOptionP2S4 — Commit to a Project Option — [commit] · [yes], step 4: RecordSdpReviewOutcome
-// Projected stimulus (JSON): {"seq":4,"node":"revoke","input":{"kind":"call","from":"delivery-manager","to":"projectstateaccess","op":"RecordSdpReviewOutcome","call":"commit-to-a-project-option/revoke/4"},"expectedOutputs":null,"expectedStates":[{"node":"sdp-review-revoked","object":"SDP Review","inState":"[revoked]"}],"hints":null}
-// Binding (JSON): {"seq":4,"operation":"RecordSdpReviewOutcome","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"},{"name":"expectedVersion","value":"23"},{"name":"outcome","value":"4"},{"name":"feedback","value":"Revoked inside the grace window: the decompressed option is preferred."},{"name":"idempotencyKey","value":"stp-psa-cpo-p2:revoke"}],"expect":{"errorExpected":false},"probes":[{"for":"sdp-review-revoked","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-cpo-p2"}],"expect":{"result":"{\"Phase\":1,\"SdpReview\":{\"Status\":4}}","errorExpected":false}}],"unobservable":[],"hook":true}
-// Reads the project after the revoke window; nothing is arranged, because no operation of this unit revokes a committed SDP review.
-func stepProjectStateAccessCommitToAProjectOptionP2S4(t *testing.T, h *scenariohost.Host, subject projectstate.ProjectStateAccess, in inputProjectStateAccessCommitToAProjectOptionP2S4) (any, error) {
+// probeDesignSessionAccessCommitToAProjectOptionP1S1N1 — Commit to a Project Option — [commit] · [no], step 1, probe 1: projectStateAccess.ReadProject proves commit-option.
+// Probe (JSON): {"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-dsa-cpo-p1"}],"expect":{"result":"{\"ID\":\"stp-dsa-cpo-p1\",\"SdpReview\":{\"Status\":2,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}","errorExpected":false}}
+// Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
+func probeDesignSessionAccessCommitToAProjectOptionP1S1N1(t *testing.T, h *scenariohost.Host, subject projectstate.DesignSessionAccess) (any, error) {
 	t.Helper()
-	// No arrange: no operation of this unit revokes a committed SDP review (see the
-	// unit's blockers) — the read returns what the commit left.
-	return subject.RecordSdpReviewOutcome(callContext(t, h, "4"), in.ProjectID, in.ExpectedVersion, in.Outcome, in.Feedback, in.IdempotencyKey)
+	return readProject(t, h, "stp-dsa-cpo-p1")
+}
+
+// stepActivityExecutionAccessCommitToAProjectOptionP1S1 — Commit to a Project Option — [commit] · [no], step 1: OpenActivity
+// Projected stimulus (JSON): {"seq":1,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"commit-to-a-project-option/commit-option/2"},"expectedOutputs":[{"node":"commit-option","kind":"inferred","to":"","label":"Record the commitment; project approved for construction"}],"expectedStates":[{"node":"sdp-review-committed","object":"SDP Review (chosen option + build-cost ceiling)","inState":"[committed]"},{"node":"construction-work-items-opened","object":"Construction Work Items","inState":"[opened]"}],"hints":null}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"},{"name":"expectedVersion","value":"22"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"C-project-state-access"},{"name":"typ","value":"0"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"service\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-cpo-p1:open"}],"expect":{"errorExpected":false},"probes":[{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"}],"expect":{"result":"{\"ID\":\"stp-aea-cpo-p1\",\"Version\":23,\"Phase\":2}","errorExpected":false}},{"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}},{"for":"construction-work-items-opened","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"},{"name":"activityID","value":"C-project-state-access"}],"expect":{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Arranges the commitment as delivery records it before the work items open — the SDP review committed through designSessionAccess and the project advanced into construction through projectStateAccess — then opens the first construction activity.
+func stepActivityExecutionAccessCommitToAProjectOptionP1S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessCommitToAProjectOptionP1S1) (any, error) {
+	t.Helper()
+	seedMain(t, sdpAwaitingDecision(in.ProjectID, 20))
+	commitOnMain(t, h, in.ProjectID, projectstate.KindSdpReview, "founder@stp.test", "project-manager")
+	if _, err := psaOn(t).AdvancePhase(callContext(t, h, "arrange-advance"), in.ProjectID, headVersion(t, h, in.ProjectID)); err != nil {
+		t.Fatalf("arrange: advance %s: %v", in.ProjectID, err)
+	}
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+}
+
+// probeActivityExecutionAccessCommitToAProjectOptionP1S1N1 — Commit to a Project Option — [commit] · [no], step 1, probe 1: projectStateAccess.ReadProject proves commit-option.
+// Probe (JSON): {"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"}],"expect":{"result":"{\"ID\":\"stp-aea-cpo-p1\",\"Version\":23,\"Phase\":2}","errorExpected":false}}
+// Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
+func probeActivityExecutionAccessCommitToAProjectOptionP1S1N1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess) (any, error) {
+	t.Helper()
+	return readProject(t, h, "stp-aea-cpo-p1")
+}
+
+// probeActivityExecutionAccessCommitToAProjectOptionP1S1N2 — Commit to a Project Option — [commit] · [no], step 1, probe 2: projectStateAccess.ReadProject proves sdp-review-committed.
+// Probe (JSON): {"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}}
+// Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
+func probeActivityExecutionAccessCommitToAProjectOptionP1S1N2(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess) (any, error) {
+	t.Helper()
+	return readProject(t, h, "stp-aea-cpo-p1")
+}
+
+// stepDesignSessionAccessCommitToAProjectOptionP2S1 — Commit to a Project Option — [commit] · [yes], step 1: CommitArtifactWithProvenance
+// Projected stimulus (JSON): {"seq":1,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"designsessionaccess","op":"CommitArtifactWithProvenance","call":"commit-to-a-project-option/commit-option/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":1,"operation":"CommitArtifactWithProvenance","inputs":[{"name":"projectID","value":"stp-dsa-cpo-p2"},{"name":"expectedVersion","value":"20"},{"name":"kind","value":"16"},{"name":"approvedBy","value":"founder@stp.test"},{"name":"draftedBy","value":"project-manager"}],"expect":{"result":"21","errorExpected":false},"probes":[{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-dsa-cpo-p2"}],"expect":{"result":"{\"ID\":\"stp-dsa-cpo-p2\",\"SdpReview\":{\"Status\":2,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Arranges the SDP review presented for the decision (staged on main), then commits it as the architect's commit-option decision does.
+func stepDesignSessionAccessCommitToAProjectOptionP2S1(t *testing.T, h *scenariohost.Host, subject projectstate.DesignSessionAccess, in inputDesignSessionAccessCommitToAProjectOptionP2S1) (any, error) {
+	t.Helper()
+	seedMain(t, sdpAwaitingDecision(in.ProjectID, in.ExpectedVersion))
+	return subject.CommitArtifactWithProvenance(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.Kind, in.ApprovedBy, in.DraftedBy)
+}
+
+// probeDesignSessionAccessCommitToAProjectOptionP2S1N1 — Commit to a Project Option — [commit] · [yes], step 1, probe 1: projectStateAccess.ReadProject proves commit-option.
+// Probe (JSON): {"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-dsa-cpo-p2"}],"expect":{"result":"{\"ID\":\"stp-dsa-cpo-p2\",\"SdpReview\":{\"Status\":2,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}","errorExpected":false}}
+// Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
+func probeDesignSessionAccessCommitToAProjectOptionP2S1N1(t *testing.T, h *scenariohost.Host, subject projectstate.DesignSessionAccess) (any, error) {
+	t.Helper()
+	return readProject(t, h, "stp-dsa-cpo-p2")
+}
+
+// stepActivityExecutionAccessCommitToAProjectOptionP2S1 — Commit to a Project Option — [commit] · [yes], step 1: OpenActivity
+// Projected stimulus (JSON): {"seq":1,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"commit-to-a-project-option/commit-option/2"},"expectedOutputs":[{"node":"commit-option","kind":"inferred","to":"","label":"Record the commitment; project approved for construction"}],"expectedStates":[{"node":"sdp-review-committed","object":"SDP Review (chosen option + build-cost ceiling)","inState":"[committed]"},{"node":"construction-work-items-opened","object":"Construction Work Items","inState":"[opened]"}],"hints":null}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"},{"name":"expectedVersion","value":"22"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"C-project-state-access"},{"name":"typ","value":"0"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"service\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-cpo-p2:open"}],"expect":{"errorExpected":false},"probes":[{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"}],"expect":{"result":"{\"ID\":\"stp-aea-cpo-p2\",\"Version\":23,\"Phase\":2}","errorExpected":false}},{"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}},{"for":"construction-work-items-opened","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"},{"name":"activityID","value":"C-project-state-access"}],"expect":{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Arranges the commitment as delivery records it before the work items open — the SDP review committed through designSessionAccess and the project advanced into construction through projectStateAccess — then opens the first construction activity.
+func stepActivityExecutionAccessCommitToAProjectOptionP2S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessCommitToAProjectOptionP2S1) (any, error) {
+	t.Helper()
+	seedMain(t, sdpAwaitingDecision(in.ProjectID, 20))
+	commitOnMain(t, h, in.ProjectID, projectstate.KindSdpReview, "founder@stp.test", "project-manager")
+	if _, err := psaOn(t).AdvancePhase(callContext(t, h, "arrange-advance"), in.ProjectID, headVersion(t, h, in.ProjectID)); err != nil {
+		t.Fatalf("arrange: advance %s: %v", in.ProjectID, err)
+	}
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+}
+
+// probeActivityExecutionAccessCommitToAProjectOptionP2S1N1 — Commit to a Project Option — [commit] · [yes], step 1, probe 1: projectStateAccess.ReadProject proves commit-option.
+// Probe (JSON): {"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"}],"expect":{"result":"{\"ID\":\"stp-aea-cpo-p2\",\"Version\":23,\"Phase\":2}","errorExpected":false}}
+// Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
+func probeActivityExecutionAccessCommitToAProjectOptionP2S1N1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess) (any, error) {
+	t.Helper()
+	return readProject(t, h, "stp-aea-cpo-p2")
+}
+
+// probeActivityExecutionAccessCommitToAProjectOptionP2S1N2 — Commit to a Project Option — [commit] · [yes], step 1, probe 2: projectStateAccess.ReadProject proves sdp-review-committed.
+// Probe (JSON): {"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}}
+// Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
+func probeActivityExecutionAccessCommitToAProjectOptionP2S1N2(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess) (any, error) {
+	t.Helper()
+	return readProject(t, h, "stp-aea-cpo-p2")
 }
 
 // stepProjectStateAccessCommitToAProjectOptionP3S1 — Commit to a Project Option — [reject-all + feedback], step 1: ReadProject
@@ -2347,9 +2406,10 @@ func deliveredSystem(id projectstate.ProjectID, v projectstate.Version) projects
 }
 
 // committedCommitment: a project in construction whose SDP review is committed (one
-// option, recommended) under committed planning assumptions carrying its billing terms
-// (tiered floors, no markup, monthly) and its USD cost currency.
+// option, recommended and chosen) under committed planning assumptions carrying its
+// billing terms (tiered floors, no markup, monthly) and its USD cost currency.
 func committedCommitment(id projectstate.ProjectID, v projectstate.Version) projectstate.Project {
+	chosen := projectstate.OptionID("opt-normal")
 	p := baseProject(id, v, projectstate.PhaseConstruction)
 	p.PlanningAssumptions = revision(committed(&projectstate.PlanningAssumptions{
 		Terms:             projectstate.SettlementTerms{ComputeCost: projectstate.ComputeCostTieredFloors, Schedule: projectstate.ScheduleMonthly},
@@ -2361,6 +2421,7 @@ func committedCommitment(id projectstate.ProjectID, v projectstate.Version) proj
 			BuildCost: projectstate.Money{MinorUnits: 1000000, Currency: "USD"},
 		}},
 		Recommendation: "opt-normal",
+		ChosenOption:   &chosen,
 	}), 1)
 	return p
 }

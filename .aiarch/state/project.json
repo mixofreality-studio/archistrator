@@ -8176,7 +8176,7 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "readProject → sdpReview + chosenOption"
+                    "label": "readProject → sdpReview (options, recommendation; chosenOption once committed)"
                   },
                   {
                     "from": "delivery-manager",
@@ -8254,13 +8254,19 @@
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "commitOption(optionId) — the chosen option is committed and the project enters construction"
+                    "label": "CommitArtifactWithProvenance(projectId, sdpReview{chosenOption}, provenance) — the SDP review commits naming the chosen option (designSessionAccess)"
                   },
                   {
                     "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
-                    "label": "recordActivityWorkItemOpened(activityId, WorkItemRef) — open construction work items"
+                    "label": "AdvancePhase(projectId, expectedVersion, construction) — the project enters construction"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "OpenActivity(projectId, activityId, type, pin) — open the construction work items (activityExecutionAccess)"
                   },
                   {
                     "from": "project-state-access",
@@ -36702,6 +36708,10 @@
             },
             "rationale": {
               "type": "string"
+            },
+            "chosenOption": {
+              "$ref": "#/$defs/OptionID",
+              "description": "The option the architect committed at M0 (the decision's optionId), recorded with the commitment; absent until an option is committed."
             }
           },
           "required": [
@@ -40177,6 +40187,248 @@
                   }
                 ],
                 "unobservable": null,
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-cpo-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "22",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-project-state-access",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "typ",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"service\",\"assetsVersion\":\"v0.10.1\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-cpo-p1:open",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "commit-option",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-cpo-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-aea-cpo-p1\",\"Version\":23,\"Phase\":2}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "sdp-review-committed",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-cpo-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Phase\":2,\"SdpReview\":{\"Status\":2}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "construction-work-items-opened",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-cpo-p1",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-project-state-access",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"C-project-state-access\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-cpo-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "22",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "C-project-state-access",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "typ",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"service\",\"assetsVersion\":\"v0.10.1\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-cpo-p2:open",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "commit-option",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-cpo-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-aea-cpo-p2\",\"Version\":23,\"Phase\":2}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "sdp-review-committed",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-cpo-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"Phase\":2,\"SdpReview\":{\"Status\":2}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "construction-work-items-opened",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-cpo-p2",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "C-project-state-access",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"C-project-state-access\"}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
                 "hook": true
               }
             ]
@@ -53452,6 +53704,130 @@
             ]
           },
           {
+            "scenario": "commit-to-a-project-option-P1",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-cpo-p1",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "20",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "16",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "founder@stp.test",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "project-manager",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "21",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "commit-option",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-cpo-p1",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-dsa-cpo-p1\",\"SdpReview\":{\"Status\":2,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "CommitArtifactWithProvenance",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-dsa-cpo-p2",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "20",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": "16",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "approvedBy",
+                    "value": "founder@stp.test",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "draftedBy",
+                    "value": "project-manager",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "21",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "commit-option",
+                    "component": "projectStateAccess",
+                    "operation": "ReadProject",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-dsa-cpo-p2",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"ID\":\"stp-dsa-cpo-p2\",\"SdpReview\":{\"Status\":2,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
             "scenario": "execute-a-project-activity-P1",
             "steps": [
               {
@@ -66453,25 +66829,6 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": [],
-                "unobservable": [],
-                "hook": true
-              },
-              {
-                "seq": 3,
-                "operation": "ReadProject",
-                "inputs": [
-                  {
-                    "name": "projectID",
-                    "value": "stp-psa-cpo-p1",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "{\"ID\":\"stp-psa-cpo-p1\",\"Phase\":2}",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
                 "probes": [
                   {
                     "for": "sdp-review-committed",
@@ -66486,28 +66843,6 @@
                     ],
                     "expect": {
                       "result": "{\"Phase\":2,\"SdpReview\":{\"Status\":2}}",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  },
-                  {
-                    "for": "construction-work-items-opened",
-                    "component": "activityExecutionAccess",
-                    "operation": "ReadActivityExecution",
-                    "inputs": [
-                      {
-                        "name": "projectID",
-                        "value": "stp-psa-cpo-p1",
-                        "schemaRef": ""
-                      },
-                      {
-                        "name": "activityID",
-                        "value": "C-project-state-access",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "{\"activityID\":\"C-project-state-access\"}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -66577,25 +66912,6 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": [],
-                "unobservable": [],
-                "hook": true
-              },
-              {
-                "seq": 3,
-                "operation": "ReadProject",
-                "inputs": [
-                  {
-                    "name": "projectID",
-                    "value": "stp-psa-cpo-p2",
-                    "schemaRef": ""
-                  }
-                ],
-                "expect": {
-                  "result": "{\"ID\":\"stp-psa-cpo-p2\",\"Phase\":2}",
-                  "errorExpected": false,
-                  "errorCode": ""
-                },
                 "probes": [
                   {
                     "for": "sdp-review-committed",
@@ -66610,28 +66926,6 @@
                     ],
                     "expect": {
                       "result": "{\"Phase\":2,\"SdpReview\":{\"Status\":2}}",
-                      "errorExpected": false,
-                      "errorCode": ""
-                    }
-                  },
-                  {
-                    "for": "construction-work-items-opened",
-                    "component": "activityExecutionAccess",
-                    "operation": "ReadActivityExecution",
-                    "inputs": [
-                      {
-                        "name": "projectID",
-                        "value": "stp-psa-cpo-p2",
-                        "schemaRef": ""
-                      },
-                      {
-                        "name": "activityID",
-                        "value": "C-project-state-access",
-                        "schemaRef": ""
-                      }
-                    ],
-                    "expect": {
-                      "result": "{\"activityID\":\"C-project-state-access\"}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -66658,7 +66952,7 @@
                 "hook": true
               },
               {
-                "seq": 4,
+                "seq": 3,
                 "operation": "RecordSdpReviewOutcome",
                 "inputs": [
                   {

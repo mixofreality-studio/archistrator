@@ -68,10 +68,12 @@ func (wf *workflows) RegisterCustomerWorkflow(ctx workflow.Context, in registerI
 }
 
 // committedTerms are the terms a customer of projectID is billed under (DCT §12 B13):
-// the compute-cost regime, markup and schedule every option of the project's committed
-// SDP review is priced under (its planning assumptions' terms), validated by the
-// billingEngine's commit-time projection, in the project's cost currency. A project with
-// no committed SDP review has no terms to bill under: FailedPrecondition.
+// the committed SDP option's compute-cost regime, markup and schedule (every option is
+// priced under the project's planning-assumption terms), validated by the
+// billingEngine's commit-time projection, in the project's cost currency. A project whose
+// SDP review is not committed, or whose commitment names no chosen option, has no terms
+// to bill under: FailedPrecondition — a customer is never registered under an option
+// nobody chose.
 func (wf *workflows) committedTerms(ctx workflow.Context, projectID string) (billingstate.BillingTerms, error) {
 	proj, err := wf.Acts.ProjectStateReadProject(ctx, projectstate.ProjectID(projectID))
 	if err != nil {
@@ -82,7 +84,7 @@ func (wf *workflows) committedTerms(ctx workflow.Context, projectID string) (bil
 			"project "+projectID+" "+why, fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
 	}
 	sdp, ok := proj.SdpReview.Model.(*projectstate.SdpReview)
-	if proj.SdpReview.Status != projectstate.ReviewCommitted || !ok || sdp == nil {
+	if proj.SdpReview.Status != projectstate.ReviewCommitted || !ok || sdp == nil || sdp.ChosenOption == nil {
 		return refuse("has no committed SDP option to bill under")
 	}
 	pa, ok := proj.PlanningAssumptions.Model.(*projectstate.PlanningAssumptions)
@@ -94,7 +96,7 @@ func (wf *workflows) committedTerms(ctx workflow.Context, projectID string) (bil
 	}
 	projection, perr := wf.Billing.ProjectCommitTimeComputeCost(fweng.Context{Context: context.Background()},
 		billingengine.ProjectOption{
-			OptionID: billingengine.OptionID(sdp.Recommendation),
+			OptionID: billingengine.OptionID(*sdp.ChosenOption),
 			Terms: billingengine.BillingTerms{
 				ComputeCost:          billingengine.ComputeCostKind(pa.Terms.ComputeCost),
 				ComputeMarkupPercent: pa.Terms.ComputeMarkupPercent,

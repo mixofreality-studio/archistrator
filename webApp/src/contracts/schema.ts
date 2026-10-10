@@ -1693,6 +1693,7 @@ export interface components {
         | 'sdpReview';
     };
     ModelSdpReview: {
+      chosenOption?: null | string;
       options: null | components['schemas']['ModelSdpOptionRow'][];
       rationale: string;
       recommendation: string;
@@ -2088,7 +2089,13 @@ export interface operations {
       };
       cookie?: never;
     };
-    requestBody?: never;
+    requestBody: {
+      content: {
+        'application/json': {
+          projectID: string;
+        };
+      };
+    };
     responses: {
       /** @description success */
       200: {

@@ -302,6 +302,102 @@ func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_revie
 	})
 }
 
+// inputActivityExecutionAccessCommitToAProjectOptionP1S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessCommitToAProjectOptionP1S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_commit_to_a_project_option_P1 — Commit to a Project Option — [commit] · [no] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → merge → end).
+func TestScenario_ActivityExecutionAccess_commit_to_a_project_option_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "commit-to-a-project-option-P1", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node commit-option; guards decision=[commit], revoke-window=[no])
+		var in1 inputActivityExecutionAccessCommitToAProjectOptionP1S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-cpo-p1","expectedVersion":22,"expectedActivityVersion":0,"activityID":"C-project-state-access","typ":0,"variant":0,"pin":{"typeKey":"service","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-cpo-p1:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessCommitToAProjectOptionP1S1(t, h, subject, in1)
+		expect(t, "commit-to-a-project-option-P1", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for commit-option
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeActivityExecutionAccessCommitToAProjectOptionP1S1N1(t, h, subject)
+		expect(t, "commit-to-a-project-option-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-aea-cpo-p1\",\"Version\":23,\"Phase\":2}","errorExpected":false}`)
+		// probe 1.2: projectStateAccess.ReadProject for sdp-review-committed
+		var pout1_2 any
+		var perr1_2 error
+		pout1_2, perr1_2 = probeActivityExecutionAccessCommitToAProjectOptionP1S1N2(t, h, subject)
+		expect(t, "commit-to-a-project-option-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
+		// probe 1.3: activityExecutionAccess.ReadActivityExecution for construction-work-items-opened
+		var pout1_3 any
+		var perr1_3 error
+		var probe1_3 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-cpo-p1","activityID":"C-project-state-access"}`, &probe1_3)
+		pout1_3, perr1_3 = subject.ReadActivityExecution(callContext(t, h, "1.3"), probe1_3.ProjectID, probe1_3.ActivityID)
+		expect(t, "commit-to-a-project-option-P1 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessCommitToAProjectOptionP2S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessCommitToAProjectOptionP2S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_commit_to_a_project_option_P2 — Commit to a Project Option — [commit] · [yes] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → revoke → sdp-review-revoked → merge → end).
+func TestScenario_ActivityExecutionAccess_commit_to_a_project_option_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "commit-to-a-project-option-P2", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node commit-option; guards decision=[commit], revoke-window=[yes])
+		var in1 inputActivityExecutionAccessCommitToAProjectOptionP2S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-cpo-p2","expectedVersion":22,"expectedActivityVersion":0,"activityID":"C-project-state-access","typ":0,"variant":0,"pin":{"typeKey":"service","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-cpo-p2:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessCommitToAProjectOptionP2S1(t, h, subject, in1)
+		expect(t, "commit-to-a-project-option-P2", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for commit-option
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeActivityExecutionAccessCommitToAProjectOptionP2S1N1(t, h, subject)
+		expect(t, "commit-to-a-project-option-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-aea-cpo-p2\",\"Version\":23,\"Phase\":2}","errorExpected":false}`)
+		// probe 1.2: projectStateAccess.ReadProject for sdp-review-committed
+		var pout1_2 any
+		var perr1_2 error
+		pout1_2, perr1_2 = probeActivityExecutionAccessCommitToAProjectOptionP2S1N2(t, h, subject)
+		expect(t, "commit-to-a-project-option-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
+		// probe 1.3: activityExecutionAccess.ReadActivityExecution for construction-work-items-opened
+		var pout1_3 any
+		var perr1_3 error
+		var probe1_3 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-cpo-p2","activityID":"C-project-state-access"}`, &probe1_3)
+		pout1_3, perr1_3 = subject.ReadActivityExecution(callContext(t, h, "1.3"), probe1_3.ProjectID, probe1_3.ActivityID)
+		expect(t, "commit-to-a-project-option-P2 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}`)
+	})
+}
+
 // inputActivityExecutionAccessExecuteAProjectActivityP1S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP1S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
@@ -2333,6 +2429,64 @@ func TestScenario_DesignSessionAccess_ask_a_clarifying_question_during_review_P4
 	})
 }
 
+// inputDesignSessionAccessCommitToAProjectOptionP1S1 is step 1's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessCommitToAProjectOptionP1S1 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// TestScenario_DesignSessionAccess_commit_to_a_project_option_P1 — Commit to a Project Option — [commit] · [no] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → merge → end).
+func TestScenario_DesignSessionAccess_commit_to_a_project_option_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "commit-to-a-project-option-P1", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: CommitArtifactWithProvenance (node commit-option; guards decision=[commit], revoke-window=[no])
+		var in1 inputDesignSessionAccessCommitToAProjectOptionP1S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-cpo-p1","expectedVersion":20,"kind":16,"approvedBy":"founder@stp.test","draftedBy":"project-manager"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessCommitToAProjectOptionP1S1(t, h, subject, in1)
+		expect(t, "commit-to-a-project-option-P1", 1, out1, err1, `{"result":"21","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for commit-option
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeDesignSessionAccessCommitToAProjectOptionP1S1N1(t, h, subject)
+		expect(t, "commit-to-a-project-option-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-dsa-cpo-p1\",\"SdpReview\":{\"Status\":2,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}","errorExpected":false}`)
+	})
+}
+
+// inputDesignSessionAccessCommitToAProjectOptionP2S1 is step 1's parameters of CommitArtifactWithProvenance, decoded from the binding's inputs.
+type inputDesignSessionAccessCommitToAProjectOptionP2S1 struct {
+	ProjectID       projectstate.ProjectID    `json:"projectID"`
+	ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+	Kind            projectstate.ArtifactKind `json:"kind"`
+	ApprovedBy      string                    `json:"approvedBy"`
+	DraftedBy       string                    `json:"draftedBy"`
+}
+
+// TestScenario_DesignSessionAccess_commit_to_a_project_option_P2 — Commit to a Project Option — [commit] · [yes] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → revoke → sdp-review-revoked → merge → end).
+func TestScenario_DesignSessionAccess_commit_to_a_project_option_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "designSessionAccess", "commit-to-a-project-option-P2", func(t *testing.T) {
+		var subject projectstate.DesignSessionAccess = newSubjectDesignSessionAccess(t, h)
+		// step 1: CommitArtifactWithProvenance (node commit-option; guards decision=[commit], revoke-window=[yes])
+		var in1 inputDesignSessionAccessCommitToAProjectOptionP2S1
+		mustUnmarshal(t, `{"projectID":"stp-dsa-cpo-p2","expectedVersion":20,"kind":16,"approvedBy":"founder@stp.test","draftedBy":"project-manager"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepDesignSessionAccessCommitToAProjectOptionP2S1(t, h, subject, in1)
+		expect(t, "commit-to-a-project-option-P2", 1, out1, err1, `{"result":"21","errorExpected":false}`)
+		// probe 1.1: projectStateAccess.ReadProject for commit-option
+		var pout1_1 any
+		var perr1_1 error
+		pout1_1, perr1_1 = probeDesignSessionAccessCommitToAProjectOptionP2S1N1(t, h, subject)
+		expect(t, "commit-to-a-project-option-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-dsa-cpo-p2\",\"SdpReview\":{\"Status\":2,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}","errorExpected":false}`)
+	})
+}
+
 // inputDesignSessionAccessExecuteAProjectActivityP1S1 is step 1's parameters of ReadProjectOnBranch, decoded from the binding's inputs.
 type inputDesignSessionAccessExecuteAProjectActivityP1S1 struct {
 	ProjectID projectstate.ProjectID `json:"projectID"`
@@ -3572,11 +3726,6 @@ type inputProjectStateAccessCommitToAProjectOptionP1S2 struct {
 	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
 }
 
-// inputProjectStateAccessCommitToAProjectOptionP1S3 is step 3's parameters of ReadProject, decoded from the binding's inputs.
-type inputProjectStateAccessCommitToAProjectOptionP1S3 struct {
-	ProjectID projectstate.ProjectID `json:"projectID"`
-}
-
 // TestScenario_ProjectStateAccess_commit_to_a_project_option_P1 — Commit to a Project Option — [commit] · [no] (use case commit-to-a-project-option; path start → await-decision → present-sdp-review → review-options → decision → bind-option → apply-price → commit-option → sdp-review-committed → construction-work-items-opened → revoke-window → merge → end).
 func TestScenario_ProjectStateAccess_commit_to_a_project_option_P1(t *testing.T) {
 	h := scenariohost.Start(t)
@@ -3596,36 +3745,24 @@ func TestScenario_ProjectStateAccess_commit_to_a_project_option_P1(t *testing.T)
 		var err2 error
 		out2, err2 = stepProjectStateAccessCommitToAProjectOptionP1S2(t, h, subject, in2)
 		expect(t, "commit-to-a-project-option-P1", 2, out2, err2, `{"result":"22","errorExpected":false}`)
-		// step 3: ReadProject (node commit-option; guards decision=[commit], revoke-window=[no])
-		var in3 inputProjectStateAccessCommitToAProjectOptionP1S3
-		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p1"}`, &in3)
-		var out3 any
-		var err3 error
-		out3, err3 = stepProjectStateAccessCommitToAProjectOptionP1S3(t, h, subject, in3)
-		expect(t, "commit-to-a-project-option-P1", 3, out3, err3, `{"result":"{\"ID\":\"stp-psa-cpo-p1\",\"Phase\":2}","errorExpected":false}`)
-		// probe 3.1: projectStateAccess.ReadProject for sdp-review-committed
-		var pout3_1 any
-		var perr3_1 error
-		var probe3_1 struct {
+		// probe 2.1: projectStateAccess.ReadProject for sdp-review-committed
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
 			ProjectID projectstate.ProjectID `json:"projectID"`
 		}
-		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p1"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.ReadProject(callContext(t, h, "3.1"), probe3_1.ProjectID)
-		expect(t, "commit-to-a-project-option-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
-		// probe 3.2: activityExecutionAccess.ReadActivityExecution for construction-work-items-opened
-		var pout3_2 any
-		var perr3_2 error
-		pout3_2, perr3_2 = probeProjectStateAccessCommitToAProjectOptionP1S3N2(t, h, subject)
-		expect(t, "commit-to-a-project-option-P1 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}`)
-		// probe 3.3: projectStateAccess.ReadProject for commit-option
-		var pout3_3 any
-		var perr3_3 error
-		var probe3_3 struct {
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p1"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "commit-to-a-project-option-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
+		// probe 2.2: projectStateAccess.ReadProject for commit-option
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
 			ProjectID projectstate.ProjectID `json:"projectID"`
 		}
-		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p1"}`, &probe3_3)
-		pout3_3, perr3_3 = subject.ReadProject(callContext(t, h, "3.3"), probe3_3.ProjectID)
-		expect(t, "commit-to-a-project-option-P1 probe 3.3", 3, pout3_3, perr3_3, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p1"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadProject(callContext(t, h, "2.2"), probe2_2.ProjectID)
+		expect(t, "commit-to-a-project-option-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
 	})
 }
 
@@ -3640,13 +3777,8 @@ type inputProjectStateAccessCommitToAProjectOptionP2S2 struct {
 	ExpectedVersion projectstate.Version   `json:"expectedVersion"`
 }
 
-// inputProjectStateAccessCommitToAProjectOptionP2S3 is step 3's parameters of ReadProject, decoded from the binding's inputs.
+// inputProjectStateAccessCommitToAProjectOptionP2S3 is step 3's parameters of RecordSdpReviewOutcome, decoded from the binding's inputs.
 type inputProjectStateAccessCommitToAProjectOptionP2S3 struct {
-	ProjectID projectstate.ProjectID `json:"projectID"`
-}
-
-// inputProjectStateAccessCommitToAProjectOptionP2S4 is step 4's parameters of RecordSdpReviewOutcome, decoded from the binding's inputs.
-type inputProjectStateAccessCommitToAProjectOptionP2S4 struct {
 	ProjectID       projectstate.ProjectID            `json:"projectID"`
 	ExpectedVersion projectstate.Version              `json:"expectedVersion"`
 	Outcome         projectstate.ArtifactReviewStatus `json:"outcome"`
@@ -3673,14 +3805,32 @@ func TestScenario_ProjectStateAccess_commit_to_a_project_option_P2(t *testing.T)
 		var err2 error
 		out2, err2 = stepProjectStateAccessCommitToAProjectOptionP2S2(t, h, subject, in2)
 		expect(t, "commit-to-a-project-option-P2", 2, out2, err2, `{"result":"22","errorExpected":false}`)
-		// step 3: ReadProject (node commit-option; guards decision=[commit], revoke-window=[yes])
+		// probe 2.1: projectStateAccess.ReadProject for sdp-review-committed
+		var pout2_1 any
+		var perr2_1 error
+		var probe2_1 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &probe2_1)
+		pout2_1, perr2_1 = subject.ReadProject(callContext(t, h, "2.1"), probe2_1.ProjectID)
+		expect(t, "commit-to-a-project-option-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
+		// probe 2.2: projectStateAccess.ReadProject for commit-option
+		var pout2_2 any
+		var perr2_2 error
+		var probe2_2 struct {
+			ProjectID projectstate.ProjectID `json:"projectID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &probe2_2)
+		pout2_2, perr2_2 = subject.ReadProject(callContext(t, h, "2.2"), probe2_2.ProjectID)
+		expect(t, "commit-to-a-project-option-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
+		// step 3: RecordSdpReviewOutcome (node revoke; guards decision=[commit], revoke-window=[yes])
 		var in3 inputProjectStateAccessCommitToAProjectOptionP2S3
-		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &in3)
+		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2","expectedVersion":23,"outcome":4,"feedback":"Revoked inside the grace window: the decompressed option is preferred.","idempotencyKey":"stp-psa-cpo-p2:revoke"}`, &in3)
 		var out3 any
 		var err3 error
 		out3, err3 = stepProjectStateAccessCommitToAProjectOptionP2S3(t, h, subject, in3)
-		expect(t, "commit-to-a-project-option-P2", 3, out3, err3, `{"result":"{\"ID\":\"stp-psa-cpo-p2\",\"Phase\":2}","errorExpected":false}`)
-		// probe 3.1: projectStateAccess.ReadProject for sdp-review-committed
+		expect(t, "commit-to-a-project-option-P2", 3, out3, err3, `{"errorExpected":false}`)
+		// probe 3.1: projectStateAccess.ReadProject for sdp-review-revoked
 		var pout3_1 any
 		var perr3_1 error
 		var probe3_1 struct {
@@ -3688,37 +3838,7 @@ func TestScenario_ProjectStateAccess_commit_to_a_project_option_P2(t *testing.T)
 		}
 		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &probe3_1)
 		pout3_1, perr3_1 = subject.ReadProject(callContext(t, h, "3.1"), probe3_1.ProjectID)
-		expect(t, "commit-to-a-project-option-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
-		// probe 3.2: activityExecutionAccess.ReadActivityExecution for construction-work-items-opened
-		var pout3_2 any
-		var perr3_2 error
-		pout3_2, perr3_2 = probeProjectStateAccessCommitToAProjectOptionP2S3N2(t, h, subject)
-		expect(t, "commit-to-a-project-option-P2 probe 3.2", 3, pout3_2, perr3_2, `{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}`)
-		// probe 3.3: projectStateAccess.ReadProject for commit-option
-		var pout3_3 any
-		var perr3_3 error
-		var probe3_3 struct {
-			ProjectID projectstate.ProjectID `json:"projectID"`
-		}
-		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &probe3_3)
-		pout3_3, perr3_3 = subject.ReadProject(callContext(t, h, "3.3"), probe3_3.ProjectID)
-		expect(t, "commit-to-a-project-option-P2 probe 3.3", 3, pout3_3, perr3_3, `{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}`)
-		// step 4: RecordSdpReviewOutcome (node revoke; guards decision=[commit], revoke-window=[yes])
-		var in4 inputProjectStateAccessCommitToAProjectOptionP2S4
-		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2","expectedVersion":23,"outcome":4,"feedback":"Revoked inside the grace window: the decompressed option is preferred.","idempotencyKey":"stp-psa-cpo-p2:revoke"}`, &in4)
-		var out4 any
-		var err4 error
-		out4, err4 = stepProjectStateAccessCommitToAProjectOptionP2S4(t, h, subject, in4)
-		expect(t, "commit-to-a-project-option-P2", 4, out4, err4, `{"errorExpected":false}`)
-		// probe 4.1: projectStateAccess.ReadProject for sdp-review-revoked
-		var pout4_1 any
-		var perr4_1 error
-		var probe4_1 struct {
-			ProjectID projectstate.ProjectID `json:"projectID"`
-		}
-		mustUnmarshal(t, `{"projectID":"stp-psa-cpo-p2"}`, &probe4_1)
-		pout4_1, perr4_1 = subject.ReadProject(callContext(t, h, "4.1"), probe4_1.ProjectID)
-		expect(t, "commit-to-a-project-option-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"Phase\":1,\"SdpReview\":{\"Status\":4}}","errorExpected":false}`)
+		expect(t, "commit-to-a-project-option-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"Phase\":1,\"SdpReview\":{\"Status\":4}}","errorExpected":false}`)
 	})
 }
 
