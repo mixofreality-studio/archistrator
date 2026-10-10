@@ -885,7 +885,7 @@ func gitOpsRefuseSelfManagedDowngrade(workdir string, d RuntimeDesiredState) err
 		return nil
 	}
 	appFile := gitOpsApplicationFile(workdir, d.AppName)
-	raw, err := os.ReadFile(appFile) // #nosec G304 -- appFile is built from a validated app name (validAppName), not from raw input
+	raw, err := readInClone(workdir, filepath.Join(gitOpsApplicationsPath, d.AppName+".yaml"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // first publish for this app — nothing to downgrade.
@@ -907,6 +907,23 @@ func gitOpsRefuseSelfManagedDowngrade(workdir string, d RuntimeDesiredState) err
 				"A self-managed to tenant downgrade is a deliberate human operation, never an automated publish")
 	}
 	return nil
+}
+
+// readInClone reads rel beneath dir through an os.Root, so the read cannot leave dir —
+// not through "..", an absolute rel, or a symlink the repository's contents planted.
+// The GitOps clone is external content: containment is enforced by the filesystem API,
+// not asserted about how rel was built. A missing file reports an error os.IsNotExist
+// recognizes, as os.ReadFile's does.
+func readInClone(dir, rel string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	raw, rerr := root.ReadFile(rel)
+	if cerr := root.Close(); rerr == nil && cerr != nil {
+		return nil, cerr
+	}
+	return raw, rerr
 }
 
 // gitOpsResolvedApp is what gitOpsResolveAppByID reports about the Application whose
@@ -946,7 +963,7 @@ func gitOpsResolveAppByID(workdir string, appID uuid.UUID) (resolved gitOpsResol
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
-		raw, rerr := os.ReadFile(path) // #nosec G304 -- e.Name() comes from os.ReadDir's own listing of dir, not external input
+		raw, rerr := readInClone(dir, e.Name())
 		if rerr != nil {
 			return gitOpsResolvedApp{}, false, fwra.Wrap(fwra.Infrastructure, rerr, "operatedruntime.gitops: read "+path)
 		}
