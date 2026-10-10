@@ -73571,7 +73571,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"visible\":\"operations-deployments-tab\"},{\"visible\":\"operations-deploy\"}]",
+                  "result": "[{\"visible\":\"operations-deployments-tab\"},{\"visible\":\"operations-deploy\"},{\"visible\":\"operations-action-result\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -73644,7 +73644,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"visible\":\"architecture-view\"},{\"visible\":\"arch-view-switch\"}]",
+                  "result": "[{\"visible\":\"architecture-view\"},{\"visible\":\"arch-view-switch\"},{\"visible\":\"arch-deployment-health\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -73668,7 +73668,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"visible\":\"architecture-view\"},{\"visible\":\"arch-view-switch\"}]",
+                  "result": "[{\"visible\":\"architecture-view\"},{\"visible\":\"arch-view-switch\"},{\"visible\":\"arch-deployment-health-unavailable\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -73788,7 +73788,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"visible\":\"operations-console\"},{\"visible\":\"operations-deployments-tab\"}]",
+                  "result": "[{\"visible\":\"operations-console\"},{\"visible\":\"operations-deployments-tab\"},{\"visible\":\"operations-action-result\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -73822,7 +73822,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"visible\":\"operations-console\"},{\"visible\":\"operations-deployments-tab\"}]",
+                  "result": "[{\"visible\":\"operations-console\"},{\"visible\":\"operations-deployments-tab\"},{\"visible\":\"operations-action-result\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
