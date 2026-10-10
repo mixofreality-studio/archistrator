@@ -1172,7 +1172,7 @@ func stepDesignSessionAccessCommitToAProjectOptionP1S1(t *testing.T, h *scenario
 // probeDesignSessionAccessCommitToAProjectOptionP1S1N1 — Commit to a Project Option — [commit] · [no], step 1, probe 1: projectStateAccess.ReadProject proves commit-option.
 // Probe (JSON): {"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-dsa-cpo-p1"}],"expect":{"result":"{\"ID\":\"stp-dsa-cpo-p1\",\"SdpReview\":{\"Status\":2,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}","errorExpected":false}}
 // Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
-func probeDesignSessionAccessCommitToAProjectOptionP1S1N1(t *testing.T, h *scenariohost.Host, subject projectstate.DesignSessionAccess) (any, error) {
+func probeDesignSessionAccessCommitToAProjectOptionP1S1N1(t *testing.T, h *scenariohost.Host, _ projectstate.DesignSessionAccess) (any, error) {
 	t.Helper()
 	return readProject(t, h, "stp-dsa-cpo-p1")
 }
@@ -1194,7 +1194,7 @@ func stepActivityExecutionAccessCommitToAProjectOptionP1S1(t *testing.T, h *scen
 // probeActivityExecutionAccessCommitToAProjectOptionP1S1N1 — Commit to a Project Option — [commit] · [no], step 1, probe 1: projectStateAccess.ReadProject proves commit-option.
 // Probe (JSON): {"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"}],"expect":{"result":"{\"ID\":\"stp-aea-cpo-p1\",\"Version\":23,\"Phase\":2}","errorExpected":false}}
 // Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
-func probeActivityExecutionAccessCommitToAProjectOptionP1S1N1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess) (any, error) {
+func probeActivityExecutionAccessCommitToAProjectOptionP1S1N1(t *testing.T, h *scenariohost.Host, _ projectstate.ActivityExecutionAccess) (any, error) {
 	t.Helper()
 	return readProject(t, h, "stp-aea-cpo-p1")
 }
@@ -1202,7 +1202,7 @@ func probeActivityExecutionAccessCommitToAProjectOptionP1S1N1(t *testing.T, h *s
 // probeActivityExecutionAccessCommitToAProjectOptionP1S1N2 — Commit to a Project Option — [commit] · [no], step 1, probe 2: projectStateAccess.ReadProject proves sdp-review-committed.
 // Probe (JSON): {"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}}
 // Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
-func probeActivityExecutionAccessCommitToAProjectOptionP1S1N2(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess) (any, error) {
+func probeActivityExecutionAccessCommitToAProjectOptionP1S1N2(t *testing.T, h *scenariohost.Host, _ projectstate.ActivityExecutionAccess) (any, error) {
 	t.Helper()
 	return readProject(t, h, "stp-aea-cpo-p1")
 }
@@ -1220,7 +1220,7 @@ func stepDesignSessionAccessCommitToAProjectOptionP2S1(t *testing.T, h *scenario
 // probeDesignSessionAccessCommitToAProjectOptionP2S1N1 — Commit to a Project Option — [commit] · [yes], step 1, probe 1: projectStateAccess.ReadProject proves commit-option.
 // Probe (JSON): {"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-dsa-cpo-p2"}],"expect":{"result":"{\"ID\":\"stp-dsa-cpo-p2\",\"SdpReview\":{\"Status\":2,\"Provenance\":{\"approvedBy\":\"founder@stp.test\",\"draftedBy\":\"project-manager\"}}}","errorExpected":false}}
 // Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
-func probeDesignSessionAccessCommitToAProjectOptionP2S1N1(t *testing.T, h *scenariohost.Host, subject projectstate.DesignSessionAccess) (any, error) {
+func probeDesignSessionAccessCommitToAProjectOptionP2S1N1(t *testing.T, h *scenariohost.Host, _ projectstate.DesignSessionAccess) (any, error) {
 	t.Helper()
 	return readProject(t, h, "stp-dsa-cpo-p2")
 }
@@ -1242,7 +1242,7 @@ func stepActivityExecutionAccessCommitToAProjectOptionP2S1(t *testing.T, h *scen
 // probeActivityExecutionAccessCommitToAProjectOptionP2S1N1 — Commit to a Project Option — [commit] · [yes], step 1, probe 1: projectStateAccess.ReadProject proves commit-option.
 // Probe (JSON): {"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"}],"expect":{"result":"{\"ID\":\"stp-aea-cpo-p2\",\"Version\":23,\"Phase\":2}","errorExpected":false}}
 // Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
-func probeActivityExecutionAccessCommitToAProjectOptionP2S1N1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess) (any, error) {
+func probeActivityExecutionAccessCommitToAProjectOptionP2S1N1(t *testing.T, h *scenariohost.Host, _ projectstate.ActivityExecutionAccess) (any, error) {
 	t.Helper()
 	return readProject(t, h, "stp-aea-cpo-p2")
 }
@@ -1250,7 +1250,7 @@ func probeActivityExecutionAccessCommitToAProjectOptionP2S1N1(t *testing.T, h *s
 // probeActivityExecutionAccessCommitToAProjectOptionP2S1N2 — Commit to a Project Option — [commit] · [yes], step 1, probe 2: projectStateAccess.ReadProject proves sdp-review-committed.
 // Probe (JSON): {"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}}
 // Reads projectStateAccess.ReadProject with the probe's inputs over the scenario's own repo.
-func probeActivityExecutionAccessCommitToAProjectOptionP2S1N2(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess) (any, error) {
+func probeActivityExecutionAccessCommitToAProjectOptionP2S1N2(t *testing.T, h *scenariohost.Host, _ projectstate.ActivityExecutionAccess) (any, error) {
 	t.Helper()
 	return readProject(t, h, "stp-aea-cpo-p2")
 }
