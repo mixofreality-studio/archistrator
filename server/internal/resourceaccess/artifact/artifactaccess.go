@@ -615,11 +615,27 @@ func (localTestRunStore) root(run TestRunRef) (string, error) {
 	return run.Artifact, nil
 }
 
+// open roots every read of the run at its results directory: an *os.Root
+// refuses any name (a "..", an absolute path or a symlink) that would escape
+// it, so neither a caller's path nor a planted link can read outside the run.
+func (s localTestRunStore) open(run TestRunRef) (*os.Root, error) {
+	dir, err := s.root(run)
+	if err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "artifact: open test-run directory")
+	}
+	return r, nil
+}
+
 func (s localTestRunStore) index(_ context.Context, run TestRunRef) (TestRunIndex, error) {
-	root, err := s.root(run)
+	root, err := s.open(run)
 	if err != nil {
 		return TestRunIndex{}, err
 	}
+	defer func() { _ = root.Close() }()
 	var files []string
 	walk := func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil {
@@ -628,20 +644,16 @@ func (s localTestRunStore) index(_ context.Context, run TestRunRef) (TestRunInde
 		if d.IsDir() {
 			return nil
 		}
-		rel, rerr := filepath.Rel(root, p)
-		if rerr != nil {
-			return rerr
-		}
-		files = append(files, filepath.ToSlash(rel))
+		files = append(files, p)
 		return nil
 	}
-	if err := filepath.WalkDir(root, walk); err != nil {
+	if err := fs.WalkDir(root.FS(), ".", walk); err != nil {
 		return TestRunIndex{}, fwra.Wrap(fwra.Infrastructure, err, "artifact: walk test-run directory")
 	}
 	sort.Strings(files)
 	idx := TestRunIndex{Files: files}
 	if name, ok := pickResults(files); ok {
-		b, rerr := os.ReadFile(filepath.Join(root, filepath.FromSlash(name))) //nolint:gosec // name came out of the walk of root itself, never from a caller
+		b, rerr := root.ReadFile(filepath.FromSlash(name))
 		if rerr != nil {
 			return TestRunIndex{}, fwra.Wrap(fwra.Infrastructure, rerr, "artifact: read "+name)
 		}
@@ -655,11 +667,12 @@ func (s localTestRunStore) read(_ context.Context, run TestRunRef, p string) (Co
 	if err != nil {
 		return ConstructionOutput{}, err
 	}
-	root, err := s.root(run)
+	root, err := s.open(run)
 	if err != nil {
 		return ConstructionOutput{}, err
 	}
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))) //nolint:gosec // rel is cleanTestRunPath-validated (relative, no ".." segment) under the run's own root
+	defer func() { _ = root.Close() }()
+	b, err := root.ReadFile(filepath.FromSlash(rel))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return ConstructionOutput{}, fwra.New(fwra.NotFound, "artifact: test-run file not found: "+rel)
