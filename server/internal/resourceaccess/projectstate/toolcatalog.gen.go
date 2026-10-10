@@ -656,7 +656,7 @@ func internalToolCatalog() []InternalTool {
 			AgentHidden:  false,
 			Description:  "ReadWorkloadTelemetry on the operatedRuntimeAccess ResourceAccess contract (read-only). Raw generated internal tool.",
 			InputSchema:  json.RawMessage("{\"additionalProperties\":false,\"properties\":{\"appID\":{\"type\":\"string\",\"format\":\"uuid\",\"x-go-import\":\"github.com/google/uuid\",\"x-go-type\":\"uuid.UUID\"}},\"required\":[\"appID\"],\"type\":\"object\"}"),
-			OutputSchema: json.RawMessage("{\"$defs\":{\"WorkloadTelemetry\":{\"type\":\"object\",\"properties\":{\"CPUUtilization\":{\"type\":\"number\"}},\"required\":[\"CPUUtilization\"],\"additionalProperties\":false}},\"$ref\":\"#/$defs/WorkloadTelemetry\"}"),
+			OutputSchema: json.RawMessage("{\"$defs\":{\"WorkloadTelemetry\":{\"type\":\"object\",\"properties\":{\"Measured\":{\"type\":\"boolean\"},\"CPUUtilization\":{\"type\":\"number\"}},\"required\":[\"Measured\",\"CPUUtilization\"],\"additionalProperties\":false}},\"$ref\":\"#/$defs/WorkloadTelemetry\"}"),
 		},
 		{
 			Name:         "operatedRuntimeWithdraw",
