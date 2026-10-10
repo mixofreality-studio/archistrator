@@ -317,3 +317,7 @@ Expected states, outputs and hints still attach to the **last stimulus before th
 | B10 (D-1) | Every "deprecated in place" note, deprecated field and alias is deleted. |
 | B11 | Every schema change also conforms archistrator's own committed `project.json` in the same change. |
 | B12 | **Test plan and construction run in parallel (founder, 2026-10-04); supersedes §8's serialization.** service/frontend lifecycles: `stp` dependsOn `designReview`; `construction` dependsOn `designReview` (not `stpReview`); `integration` dependsOn `codeReview`; `testing` dependsOn `integration` + `stpReview` — the join. Construction builds the component only; the **integration** task generates the black-box tests from the reviewed test plan (`make gen-tests`), fills the hooks, runs them against the integrated component and records the TestRun; the testing task reviews that run. |
+| B13 | **BillingTerms** at customer registration: `billingManager` reads the committed SDP option's compute-cost regime through `projectStateAccess` (no Manager-to-Manager call) (founder, 2026-10-09). |
+| B14 | `OperatedSystemView.RecentEvents` and `Autoscaler.Decisions` are **deleted**, with the SPA recent-events panel (founder, 2026-10-09). |
+| B15 | The M0 grace window for revoking a committed option stays **1 day** (founder, 2026-10-09). |
+| B16 | The **local profile serves the operations console** in dry-run, so webClient operations scenarios run on the local test stack (founder, 2026-10-09). |
