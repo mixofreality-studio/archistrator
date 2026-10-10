@@ -350,13 +350,13 @@ func TestRig_ConstructModeFullCycleOverStdio(t *testing.T) {
 		t.Skip("git not available")
 	}
 	bin := buildBinary(t)
-	repo := initGitRepoWithProject(t, minimalProject(), "activity/C-BE")
+	repo := initGitRepoWithProject(t, projectWithComponent("billing-engine", "billingEngine"), "activity/C-BE")
 
 	cmd := exec.Command(bin)
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(),
 		envJobMode+"="+jobModeConstruct,
-		envComponentID+"=billingEngine",
+		envComponentID+"=billing-engine",
 		envActivityID+"=C-BE",
 		envTargetBranch+"=activity/C-BE",
 		envProjectID+"=rigproj",

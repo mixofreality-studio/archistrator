@@ -70,19 +70,19 @@ type inputOnboardANewCustomerP2S2 struct {
 	ScheduleID messagebus.ScheduleID `json:"scheduleID"`
 }
 
-// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] · [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "messageBus", "onboard-a-new-customer-P2", func(t *testing.T) {
 		var subject messagebus.MessageBus = newSubject(t, h)
-		// step 1: RegisterSchedule (node register-schedule; guards registered=[no])
+		// step 1: RegisterSchedule (node register-schedule; guards registered=[no], project-committed=[yes])
 		var in1 inputOnboardANewCustomerP2S1
 		mustUnmarshal(t, `{"scheduleID":"closeBillingCycle:0b5c0000-0000-4000-8000-000000000202","spec":{"ExecutionKind":"billingCloseCycle","Cadence":{"Every":86400000000000,"CronExpr":""},"TargetIDTemplate":"billingCloseCycle:0b5c0000-0000-4000-8000-000000000202","StartPayload":{"Bytes":"","ContentType":""}}}`, &in1)
 		var out1 any
 		var err1 error
 		err1 = subject.RegisterSchedule(callContext(t, h, "1"), in1.ScheduleID, in1.Spec)
 		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"errorExpected":false}`)
-		// step 2: DescribeSchedule (node register-schedule; guards registered=[no])
+		// step 2: DescribeSchedule (node register-schedule; guards registered=[no], project-committed=[yes])
 		var in2 inputOnboardANewCustomerP2S2
 		mustUnmarshal(t, `{"scheduleID":"closeBillingCycle:0b5c0000-0000-4000-8000-000000000202"}`, &in2)
 		var out2 any

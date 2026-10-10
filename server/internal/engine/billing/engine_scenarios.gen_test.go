@@ -291,12 +291,12 @@ type inputOnboardANewCustomerP2S1 struct {
 	Option billing.ProjectOption `json:"option"`
 }
 
-// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] · [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "onboard-a-new-customer-P2", func(t *testing.T) {
 		var subject billing.BillingEngine = newSubject(t, h)
-		// step 1: ProjectCommitTimeComputeCost (node register-customer; guards registered=[no])
+		// step 1: ProjectCommitTimeComputeCost (node register-customer; guards registered=[no], project-committed=[yes])
 		var in1 inputOnboardANewCustomerP2S1
 		mustUnmarshal(t, `{"option":{"OptionID":"opt-normal","Terms":{"computeCost":2,"computeMarkupPercent":0,"schedule":1}}}`, &in1)
 		var out1 any

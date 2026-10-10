@@ -152,7 +152,16 @@ func stepOnboardANewCustomerP2S1(t *testing.T, h *scenariohost.Host, subject mer
 	return nil, subject.ValidateStoredInstrument(callContext(t, h, "1"), in.CustomerID, in.IdempotencyKey)
 }
 
-// stepRetryADeclinedServiceInvoiceP1S1 — Retry a Declined Service Invoice — [yes: retry] · [yes], step 1: ChargeCustomer
+// stepOnboardANewCustomerP3S1 — Onboard a New Customer — [no] · [no: no committed option], step 1: ValidateStoredInstrument
+// The gateway's part of the path is P2's: registered=[no], a new customer the gateway has
+// never validated, validated as billingManager does. The project check that refuses the
+// registration comes after it and is not the gateway's.
+func stepOnboardANewCustomerP3S1(t *testing.T, h *scenariohost.Host, subject merchantgateway.MerchantGatewayAccess, in inputOnboardANewCustomerP3S1) (any, error) {
+	t.Helper()
+	return stepOnboardANewCustomerP2S1(t, h, subject, inputOnboardANewCustomerP2S1(in))
+}
+
+// stepRetryADeclinedServiceInvoiceP1S1— Retry a Declined Service Invoice — [yes: retry] · [yes], step 1: ChargeCustomer
 // Projected stimulus (JSON): {"seq":1,"node":"recharge","input":{"kind":"call","from":"billing-manager","to":"merchantgatewayaccess","op":"ChargeCustomer","call":"retry-a-declined-service-invoice/recharge/0"},"expectedOutputs":[{"node":"recharge","kind":"inferred","to":"","label":"Retry the charge under the next attempt's settlement idempotency key"}],"expectedStates":null,"hints":["Each charge attempt carries its attempt number in the settlement idempotency key settle:{customerId}:{cycleId}:{attempt}: the gateway replays a key's recorded outcome, a decline included, so a retry under the same key could never succeed. A replay of one attempt reuses that attempt's key, so the binding asserts at most one charge per (customer, cycle, attempt)."]}
 // Binding (JSON): {"seq":1,"operation":"ChargeCustomer","inputs":[{"name":"customerID","value":"d3310000-0000-4000-8000-000000000001"},{"name":"amount","value":"{\"MinorUnits\":4200,\"Currency\":\"USD\"}"},{"name":"idempotencyKey","value":"settle:d3310000-0000-4000-8000-000000000001:2026-09:2"}],"expect":{"errorExpected":false},"probes":[],"unobservable":["recharge"],"hook":true}
 // Arranges, through the contract's own ops, the state in which guards retry-budget=[yes: retry], charge-ok=[yes] hold; then calls the operation exactly as billingManager does, and replays the attempt under its key.

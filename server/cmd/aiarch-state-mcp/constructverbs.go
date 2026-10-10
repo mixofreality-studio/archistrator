@@ -99,7 +99,10 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 }
 
 // recordServiceContract writes the typed ServiceContract for the AMBIENT component into
-// .serviceContracts, lazy-allocating the map — the detailed-design phase's artifact.
+// .serviceContracts, lazy-allocating the map — the detailed-design phase's artifact. The
+// ambient component is the architecture component's id (AIARCH_COMPONENT_ID, kebab-case);
+// the contract is keyed by the component's own contractKey, the one key every reader of
+// .serviceContracts uses, so a component the System gives no contract key is refused.
 func (s *Session) recordServiceContract(contract map[string]any) error {
 	if s.ComponentID == "" {
 		return fmt.Errorf("recordServiceContract needs the ambient component (AIARCH_COMPONENT_ID); this construct job has none — it is not a component activity")
@@ -114,12 +117,36 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 			" — fix the field and call recordServiceContract again", err)
 	}
 	return s.applyConstructionMutation("service contract", func(p *projectstate.Project) error {
+		key, err := contractKeyOf(*p, s.ComponentID)
+		if err != nil {
+			return err
+		}
 		if p.ServiceContracts == nil {
 			p.ServiceContracts = make(map[string]projectstate.ServiceContract)
 		}
-		p.ServiceContracts[s.ComponentID] = sc
+		p.ServiceContracts[key] = sc
 		return nil
 	})
+}
+
+// contractKeyOf is the .serviceContracts key of the System component componentID: its
+// contractKey. A project with no System model, a component the System does not name, or
+// one it gives no contract key has no contract to record.
+func contractKeyOf(p projectstate.Project, componentID string) (string, error) {
+	sys, ok := p.SystemDesign.Model.(*projectstate.System)
+	if !ok || sys == nil {
+		return "", fmt.Errorf("recordServiceContract: the project has no System model, so component %q has no contract key to record under", componentID)
+	}
+	for _, c := range sys.Components {
+		if c.ID != componentID {
+			continue
+		}
+		if c.ContractKey == nil || *c.ContractKey == "" {
+			return "", fmt.Errorf("recordServiceContract: the System gives component %q no contractKey — it has no service contract to record", componentID)
+		}
+		return *c.ContractKey, nil
+	}
+	return "", fmt.Errorf("recordServiceContract: the System names no component %q", componentID)
 }
 
 // recordPhaseArtifact routes a phase-artifact payload into .phaseArtifacts under mapKey,

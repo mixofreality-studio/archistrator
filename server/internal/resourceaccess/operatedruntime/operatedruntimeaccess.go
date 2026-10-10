@@ -492,7 +492,7 @@ func (r realOperatedRuntime) ReadWorkloadTelemetry(rc fwra.Context, appID uuid.U
 //     ever seen together, so it stamps an archistrator.dev/app-id annotation (holding
 //     appID) directly onto the Application object it commits (withAppIDAnnotation) —
 //     no sidecar file. The annotation is added by string-splicing the ALREADY-RENDERED
-//     Application YAML, not by render() itself: render stays pure and golden-tested
+//     Application YAML, not by render() itself: render stays pure
 //     (Task 4-6), and this bookkeeping belongs to the commit path alone. Withdraw scans
 //     gitOpsApplicationsPath for the Application carrying a matching annotation and
 //     recovers AppName from THAT FILE's own name (gitOpsApplicationFile's convention,
@@ -1344,13 +1344,13 @@ type workloadData struct {
 	ReadinessPath         string
 	ProbeInitialDelay     int
 	ProbePeriod           int
-	ProbeTimeout          int // 0 omits timeoutSeconds (matches the webapp golden, which relies on the k8s default)
+	ProbeTimeout          int // 0 omits timeoutSeconds (the production chart's webapp relies on the k8s default)
 	ProbeFailureThreshold int // 0 omits failureThreshold, same reasoning
 }
 
-// deploymentTmpl renders one Deployment. Field order and structure mirror
-// testdata/golden/production/archistrator-server.yaml and
-// archistrator-webapp.yaml; the conditionals are exactly the two workloads'
+// deploymentTmpl renders one Deployment. Field order and structure mirror the
+// production chart's archistrator-server and archistrator-webapp Deployments;
+// the conditionals are exactly the two workloads'
 // differences (env block, security contexts, probe timeout/failureThreshold).
 var deploymentTmpl = template.Must(template.New("deployment").Parse(`apiVersion: apps/v1
 kind: Deployment
@@ -1459,7 +1459,7 @@ spec:
 `))
 
 // serviceTmpl renders one ClusterIP Service fronting a workload Deployment.
-// Mirrors the golden's service.yaml shape (port/targetPort/selector); the
+// Mirrors the production chart's Service shape (port/targetPort/selector); the
 // label set trades the Helm-specific labels (helm.sh/chart,
 // app.kubernetes.io/version) for a fixed managed-by, since this renderer is
 // not Helm-templated and has no chart version to report.
@@ -1495,12 +1495,11 @@ func renderTemplate(tmpl *template.Template, data any) (string, error) {
 	return b.String(), nil
 }
 
-// serverEnv builds the server container's env block, reproducing
-// testdata/golden/production/archistrator-server.yaml's env: entries
-// variable-for-variable (Task 4 brief requirement) — see the file-level doc
-// comment for which values come from RuntimeDesiredState versus the
-// archistrator-only platform constants above. Order matches the golden file
-// so a human diffing the two can read them side by side.
+// serverEnv builds the server container's env block, reproducing the production
+// chart's archistrator-server env: entries variable-for-variable (Task 4 brief
+// requirement) — see the file-level doc comment for which values come from
+// RuntimeDesiredState versus the archistrator-only platform constants above. Order
+// matches the chart so a human diffing the two can read them side by side.
 func serverEnv(d RuntimeDesiredState, serverName string) []envVar {
 	env := []envVar{
 		{Name: "ARCHISTRATOR_LISTEN_ADDR", Value: fmt.Sprintf(":%d", serverContainerPort)},
@@ -1586,9 +1585,9 @@ func renderServerWorkload(d RuntimeDesiredState) ([]manifest, error) {
 
 // renderWebAppWorkload builds the webapp's Deployment + Service manifests.
 // The webapp serves static assets via nginx: no env block, no hardened
-// security contexts, matching testdata/golden/production/archistrator-webapp.yaml
-// exactly on those points. Its container name is "webapp", not the Deployment
-// name — the golden chart names it that way and downstream tooling (e.g.
+// security contexts, matching the production chart's archistrator-webapp exactly
+// on those points. Its container name is "webapp", not the Deployment
+// name — the production chart names it that way and downstream tooling (e.g.
 // `kubectl logs deploy/archistrator-webapp -c webapp`) depends on it.
 func renderWebAppWorkload(d RuntimeDesiredState) ([]manifest, error) {
 	name := d.AppName + "-webapp"
@@ -1633,8 +1632,8 @@ func renderWorkloadManifests(wd workloadData, modelKeys []string) ([]manifest, e
 // CNPG Postgres cluster.
 // ---------------------------------------------------------------------------
 
-// clusterData is the CNPG Cluster template input. Mirrors
-// testdata/golden/production/archistrator-postgres.yaml field for field.
+// clusterData is the CNPG Cluster template input. Mirrors the production chart's
+// archistrator-postgres Cluster field for field.
 type clusterData struct {
 	Name      string
 	Namespace string
@@ -1659,8 +1658,8 @@ type clusterData struct {
 
 // quotedResourceQuantities returns the [memory, cpu] pair the CNPG Cluster
 // template expects, in that order and quoted, as the production chart writes
-// them. The quantities carry their own quotes because CNPG's chart quotes them
-// and the golden diff is byte-level.
+// them. The quantities carry their own quotes because CNPG's chart quotes them,
+// and the rendered manifest keeps the chart's text byte for byte.
 func quotedResourceQuantities(mem, cpu string) []resourceQuantity {
 	return []resourceQuantity{
 		{Name: "memory", Value: `"` + mem + `"`},
@@ -2516,9 +2515,9 @@ func mapArgoHealth(status string) RuntimeStatus {
 }
 
 // parseResourceHealth extracts status.resources[] from a raw Argo Application JSON
-// document (testdata/argo/*.json fixtures are exactly this shape). Used both by this
-// file's own tests and, per spec §6, by the later deployment-diagram health-overlay task
-// that joins the result against the re-derived model-key map.
+// document (an argoproj.io/v1alpha1 Application as the cluster API returns it). The
+// deployment-diagram health overlay (spec §6) joins the result against the re-derived
+// model-key map.
 func parseResourceHealth(raw []byte) ([]resourceHealth, error) {
 	var app argoApplication
 	if err := json.Unmarshal(raw, &app); err != nil {

@@ -97,6 +97,7 @@ export function BillingOnboarding({
       </Box>
       <StepResult
         doneCopy="Onboarding opened for customer"
+        refusedTestId={UI_IDENTIFIERS.Billing.ONBOARD_REFUSED}
         result={onboard}
         testId={UI_IDENTIFIERS.Billing.ONBOARD_RESULT}
       />
@@ -149,6 +150,7 @@ export function BillingOnboarding({
       </Box>
       <StepResult
         doneCopy="Customer registered"
+        refusedTestId={UI_IDENTIFIERS.Billing.REGISTER_REFUSED}
         result={register}
         testId={UI_IDENTIFIERS.Billing.REGISTER_RESULT}
       />
@@ -156,20 +158,25 @@ export function BillingOnboarding({
   );
 }
 
+// StepResult shows what one onboarding step returned. A refusal carries its own test id,
+// so a refused registration is observable apart from an accepted one (use case
+// onboard-a-new-customer, project-committed [no]).
 function StepResult({
   result,
   testId,
+  refusedTestId,
   doneCopy,
 }: {
   result: OnboardingStepResult | undefined;
   testId: string;
+  refusedTestId: string;
   doneCopy: string;
 }): ReactNode {
   const t = useTokens();
   if (result === undefined) return null;
   return (
     <Typography
-      data-testid={testId}
+      data-testid={result.kind === 'failed' ? refusedTestId : testId}
       role={result.kind === 'failed' ? 'alert' : 'status'}
       sx={{ fontSize: 13, color: result.kind === 'failed' ? t.dangerFg : t.ink }}
     >

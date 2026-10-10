@@ -43,7 +43,7 @@ func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		pout1_1, perr1_1 = probeBillTheUserForUsageP1S1N1(t, h, subject)
-		expect(t, "bill-the-user-for-usage-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}","errorExpected":false}`)
+		expect(t, "bill-the-user-for-usage-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
 		// probe 1.2: billingManager.GetBillingCycle for invoice-paid
 		var pout1_2 any
 		var perr1_2 error
@@ -122,7 +122,7 @@ func TestScenario_bill_the_user_for_usage_P3(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		pout1_1, perr1_1 = probeBillTheUserForUsageP3S1N1(t, h, subject)
-		expect(t, "bill-the-user-for-usage-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}","errorExpected":false}`)
+		expect(t, "bill-the-user-for-usage-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
 		// probe 1.2: billingManager.GetBillingCycle for invoice-paid
 		var pout1_2 any
 		var perr1_2 error
@@ -173,19 +173,19 @@ type inputOnboardANewCustomerP2S2 struct {
 	ProjectID  string    `json:"projectID"`
 }
 
-// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+// TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] · [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "onboard-a-new-customer-P2", func(t *testing.T) {
 		var subject billing.BillingManager = newSubject(t, h)
-		// step 1: OnboardPaymentIntegration (node resolve-app; guards registered=[no])
+		// step 1: OnboardPaymentIntegration (node resolve-app; guards registered=[no], project-committed=[yes])
 		var in1 inputOnboardANewCustomerP2S1
 		mustUnmarshal(t, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000202"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepOnboardANewCustomerP2S1(t, h, subject, in1)
 		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000202\"}","errorExpected":false}`)
-		// step 2: RegisterCustomer (node validate-instrument; guards registered=[no])
+		// step 2: RegisterCustomer (node validate-instrument; guards registered=[no], project-committed=[yes])
 		var in2 inputOnboardANewCustomerP2S2
 		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000202","projectID":"stp-billing-onboard-P2-project"}`, &in2)
 		var out2 any
@@ -203,6 +203,45 @@ func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 		var perr2_2 error
 		pout2_2, perr2_2 = probeOnboardANewCustomerP2S2N2(t, h, subject)
 		expect(t, "onboard-a-new-customer-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000202\",\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+	})
+}
+
+// inputOnboardANewCustomerP3S1 is step 1's parameters of OnboardPaymentIntegration, decoded from the binding's inputs.
+type inputOnboardANewCustomerP3S1 struct {
+	DeployedAppID uuid.UUID `json:"deployedAppID"`
+}
+
+// inputOnboardANewCustomerP3S2 is step 2's parameters of RegisterCustomer, decoded from the binding's inputs.
+type inputOnboardANewCustomerP3S2 struct {
+	CustomerID uuid.UUID `json:"customerID"`
+	ProjectID  string    `json:"projectID"`
+}
+
+// TestScenario_onboard_a_new_customer_P3 — Onboard a New Customer — [no] · [no: no committed option] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → send-registration-refused → end).
+func TestScenario_onboard_a_new_customer_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "billingManager", "onboard-a-new-customer-P3", func(t *testing.T) {
+		var subject billing.BillingManager = newSubject(t, h)
+		// step 1: OnboardPaymentIntegration (node resolve-app; guards registered=[no], project-committed=[no: no committed option])
+		var in1 inputOnboardANewCustomerP3S1
+		mustUnmarshal(t, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000203"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepOnboardANewCustomerP3S1(t, h, subject, in1)
+		expect(t, "onboard-a-new-customer-P3", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000203\"}","errorExpected":false}`)
+		// step 2: RegisterCustomer (node validate-instrument; guards registered=[no], project-committed=[no: no committed option])
+		var in2 inputOnboardANewCustomerP3S2
+		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000203","projectID":"stp-billing-onboard-P3-project"}`, &in2)
+		var out2 any
+		var err2 error
+		out2, err2 = stepOnboardANewCustomerP3S2(t, h, subject, in2)
+		expect(t, "onboard-a-new-customer-P3", 2, out2, err2, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
+		// unobservable: obj-instrument-validated
+		// probe 2.1: billingStateAccess.ReadBilling for send-registration-refused
+		var pout2_1 any
+		var perr2_1 error
+		pout2_1, perr2_1 = probeOnboardANewCustomerP3S2N1(t, h, subject)
+		expect(t, "onboard-a-new-customer-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000203\",\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
 	})
 }
 
@@ -228,7 +267,7 @@ func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP1S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
 		// probe 1.2: billingManager.GetBillingCycle for cycle-settled
 		var pout1_2 any
 		var perr1_2 error
@@ -263,7 +302,7 @@ func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP2S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":true}}","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false}}","errorExpected":false}`)
 		// probe 1.2: billingManager.GetBillingCycle for cycle-awaiting-sweep
 		var pout1_2 any
 		var perr1_2 error
@@ -273,7 +312,7 @@ func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 		}
 		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000302","cycleID":"2026-08"}`, &probe1_2)
 		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
-		expect(t, "retry-a-declined-service-invoice-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":true}","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":false}","errorExpected":false}`)
 	})
 }
 
@@ -335,7 +374,7 @@ func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP4S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
 		// probe 1.2: billingManager.GetBillingCycle for cycle-settled
 		var pout1_2 any
 		var perr1_2 error
@@ -397,7 +436,7 @@ func TestScenario_view_a_billing_cycle_P2(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		pout1_1, perr1_1 = probeViewABillingCycleP2S1N1(t, h, subject)
-		expect(t, "view-a-billing-cycle-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Escalated\":false}}","errorExpected":false}`)
+		expect(t, "view-a-billing-cycle-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
 	})
 }
 

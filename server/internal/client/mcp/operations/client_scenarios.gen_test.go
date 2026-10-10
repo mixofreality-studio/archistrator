@@ -24,7 +24,7 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P1(t *testing
 		subject := serveTools(t, h, newSubject(t, h))
 		// step 1: OperationsApplyDelinquencyPolicy → tool operationsApplyDelinquencyPolicy (node delinquency-arrives; guards directive-named=[no: unsaid])
 		out1, err1 := stepEnforceCustomerDelinquencyOnOperatedSystemsP1S1(t, h, subject, `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{"action":0}}`)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P1", 1, out1, err1, `{"errorExpected":false}`)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P1", 1, out1, err1, `{"errorExpected":true,"errorCode":"ContractMisuse"}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for directive-named
 		pout1_1, perr1_1 := probeEnforceCustomerDelinquencyOnOperatedSystemsP1S1N1(t, h, subject)
 		expect(t, "enforce-customer-delinquency-on-operated-systems-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Status\":2,\"InFlight\":true}","errorExpected":false}`)
@@ -162,16 +162,16 @@ func TestScenario_view_live_deployment_health_P1(t *testing.T) {
 		subject := serveTools(t, h, newSubject(t, h))
 		// step 1: OperationsQueryDeploymentHealth → tool operationsQueryDeploymentHealth (node open-deployment-diagram; guards anything-deployed=[yes])
 		out1, err1 := stepViewLiveDeploymentHealthP1S1(t, h, subject, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`)
-		expect(t, "view-live-deployment-health-P1", 1, out1, err1, `{"result":"{\"result\":{\"Nodes\":[{\"ModelKey\":\"stp-operated-app\",\"Health\":1},{\"ModelKey\":\"stp-architect-laptop\",\"Health\":0}]}}","errorExpected":false}`)
+		expect(t, "view-live-deployment-health-P1", 1, out1, err1, `{"result":"{\"result\":{\"Nodes\":[{\"ModelKey\":\"stp-ns-stp-mcpops-project\",\"Health\":0},{\"ModelKey\":\"stp-infra-gateway\",\"Health\":1},{\"ModelKey\":\"stp-infra-idp\",\"Health\":0},{\"ModelKey\":\"stp-infra-db\",\"Health\":1},{\"ModelKey\":\"stp-operated-app\",\"Health\":1},{\"ModelKey\":\"stp-architect-laptop\",\"Health\":0}]}}","errorExpected":false}`)
 	})
 }
 
-// TestScenario_view_live_deployment_health_P2 — View Live Deployment Health — [no: no deployable bundle] (use case view-live-deployment-health; path start → open-deployment-diagram → request-health → anything-deployed → send-nothing-deployed → end).
+// TestScenario_view_live_deployment_health_P2 — View Live Deployment Health — [no: nothing deployed yet] (use case view-live-deployment-health; path start → open-deployment-diagram → request-health → anything-deployed → send-nothing-deployed → end).
 func TestScenario_view_live_deployment_health_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "view-live-deployment-health-P2", func(t *testing.T) {
 		subject := serveTools(t, h, newSubject(t, h))
-		// step 1: OperationsQueryDeploymentHealth → tool operationsQueryDeploymentHealth (node open-deployment-diagram; guards anything-deployed=[no: no deployable bundle])
+		// step 1: OperationsQueryDeploymentHealth → tool operationsQueryDeploymentHealth (node open-deployment-diagram; guards anything-deployed=[no: nothing deployed yet])
 		out1, err1 := stepViewLiveDeploymentHealthP2S1(t, h, subject, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a3"}`)
 		expect(t, "view-live-deployment-health-P2", 1, out1, err1, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for anything-deployed

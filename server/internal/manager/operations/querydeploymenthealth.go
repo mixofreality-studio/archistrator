@@ -65,9 +65,12 @@ func (wf *workflows) QueryDeploymentHealthWorkflow(ctx workflow.Context, in quer
 		}
 		return DeploymentHealth{}, err
 	}
-	if op.DeployableBundleRef == "" {
+	// anything-deployed: a deploy is what publishes a desired state, and every publish
+	// records the scale it published (ScaledAt is its time). A registered system carries
+	// its deployable bundle from registration on, so the bundle alone cannot answer it.
+	if op.DeployableBundleRef == "" || op.Scale.ScaledAt.IsZero() {
 		return DeploymentHealth{}, temporal.NewNonRetryableApplicationError(
-			"operated system has no deployableBundleRef (nothing has been deployed yet, so there is no live deployment to read health for)",
+			"operated app "+in.OperatedAppID.String()+" has never had a desired state published (nothing has been deployed yet, so there is no live deployment to read health for)",
 			fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
 	}
 
