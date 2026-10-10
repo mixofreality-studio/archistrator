@@ -17,9 +17,8 @@ import (
 // (deliveryManager) wires it: through the generated public constructor. The
 // design-health engine is a pure Engine with no downstream dependencies, so
 // nothing on the host needs arranging.
-func newSubject(t *testing.T, h *scenariohost.Host) designhealth.DesignHealthEngine {
+func newSubject(t *testing.T, _ *scenariohost.Host) designhealth.DesignHealthEngine {
 	t.Helper()
-	_ = h
 	return designhealth.NewDesignHealthEngine()
 }
 
