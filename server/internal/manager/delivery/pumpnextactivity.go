@@ -49,11 +49,13 @@ import (
 // which spec §10 forbids. Widening the lease past a chain would mean durable admission
 // state outside the pump — a different design, not a fix to this one.
 //
-// AND "THE LEASE FAILS OPEN" IS THE NORMAL STATE AFTER ANY PUMP RESTART, not a rare fault
-// path. A lease request from a child that predates the restart names an id the new chain
-// never started, so pumpGrantLease drops it — correctly, because Temporal does not
-// authenticate a signaler — and requestMainWriteLease's bounded wait expires into an
-// UNLEASED merge tail, held by the row-level mechanism alone.
+// A LEASE REQUEST FROM A CHILD THIS CHAIN NEVER STARTED — one that predates a restart, or
+// one DispatchActivityTask's reopen arm started directly — is ADOPTED when this wake-up's
+// own read backs it (the id is in the committed plan and its row is in flight; see
+// pumpGrantLease), because Temporal does not authenticate a signaler and the row is the
+// fact the pump can establish for itself. A request nothing backs is dropped, and
+// requestMainWriteLease's bounded wait then expires into an UNLEASED merge tail, held by the
+// row-level mechanism alone.
 //
 // WHAT THE PUMP DOES NOT DO: the merge. The child's merge tail is three things — a
 // variance loop with a HUMAN hold (runWalkMerge), a credential re-mint with merge
@@ -653,7 +655,7 @@ func (wf *csWorkflows) pumpLoop(
 			return pumpDispatchedResult(frontier), nil
 		}
 
-		if err := wf.pumpGrantLease(ctx, in, st); err != nil {
+		if err := wf.pumpGrantLease(ctx, in, st, proj); err != nil {
 			return PumpResult{}, err
 		}
 
@@ -919,17 +921,24 @@ func (wf *csWorkflows) pumpRecordBlocked(
 // per ROW. Row-level and main-level are TWO mechanisms.
 //
 // VALIDATION, because Temporal does not authenticate a signaler: an id is granted only if
-// it is in this pump's Started set AND in the committed plan this run already read. An id
-// in neither is LOGGED AND DROPPED, never granted.
+// it is in this pump's Started set, or this pump ADOPTS it (below). Any other id is LOGGED
+// AND DROPPED, never granted.
 //
-// WHICH MAKES "THE LEASE FAILS OPEN" THE NORMAL STATE AFTER ANY PUMP RESTART, not a rare
-// fault path — the one consequence of that validation worth stating at the site it happens.
-// A child that predates the restart is an id THIS chain never started, so its request is
-// dropped here, its bounded wait in requestMainWriteLease expires, and its merge tail runs
-// UNLEASED with the per-row CAS and the branch-file version guard as its only serialisation.
-// That is the pre-wave state, deliberately, and it is strictly better than failing an
-// activity that did all of its work because the admission queue restarted underneath it.
-func (wf *csWorkflows) pumpGrantLease(ctx workflow.Context, in pumpInput, st *pumpState) error {
+// ADOPTION OF A LIVE CHILD THIS PUMP DID NOT START (dct plan 5, r3-carry). An activity's
+// execution can be started outside this chain while it runs: DispatchActivityTask's reopen
+// arm (reopenForTask — an amendment to a committed design artifact) starts the child
+// directly, and a child that predates a pump restart is one too. Dropping such a request
+// left the child waiting out requestMainWriteLease's two-hour budget before an UNLEASED
+// merge — measured: a requirements amendment made while project design held its M0 gate
+// never reached main within a reviewer's session. The request is adopted instead when the
+// fact the pump can establish for itself backs the claim: the id is an activity of the
+// committed plan this wake-up read AND its row is in flight (not terminal). The adopted id
+// joins Started with no future, on exactly the footing of a child that predates a
+// ContinueAsNew — reconciled off its row and its finish signal — and the grant itself is
+// the liveness check: a delivery that answers NotFound grants nothing (pumpDeliverGrant).
+// Every request the plan or the row does not back is still dropped, and its merge tail still
+// fails open after the bounded wait.
+func (wf *csWorkflows) pumpGrantLease(ctx workflow.Context, in pumpInput, st *pumpState, proj projectstate.Project) error {
 	// THE TICK'S TWO LIVENESS QUESTIONS, adjacent, so "at most two deliverSignal Activities
 	// per tick" is one readable fact rather than two facts a reader has to add up. Neither is
 	// about granting; both are about whether an execution is still there, and the answer to
@@ -944,16 +953,51 @@ func (wf *csWorkflows) pumpGrantLease(ctx workflow.Context, in pumpInput, st *pu
 		id := st.requests[0]
 		st.requests = st.requests[1:]
 		if !st.isStarted(id) {
-			workflow.GetLogger(ctx).Error("pump: dropping a main-write lease request for an activity this pump never started",
-				"projectId", string(in.ProjectID), "activityId", string(id),
-				"consequence", "the request is not granted; Temporal does not authenticate a signaler, so an unknown id is a claim and not a fact")
-			continue
+			if !pumpAdoptsRequester(ctx, proj, id) {
+				workflow.GetLogger(ctx).Error("pump: dropping a main-write lease request for an activity this pump never started",
+					"projectId", string(in.ProjectID), "activityId", string(id),
+					"consequence", "the request is not granted; Temporal does not authenticate a signaler, so an unknown id is a claim and not a fact")
+				continue
+			}
+			workflow.GetLogger(ctx).Info("pump: adopting a live activity child this pump did not start — its row is in flight in the committed plan",
+				"projectId", string(in.ProjectID), "activityId", string(id))
+			st.markStarted(id)
 		}
 		if err := wf.pumpDeliverGrant(ctx, in, st, id); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// changePumpAdoptLiveRequester fences pumpAdoptsRequester. Its DefaultVersion arm is the
+// pre-adoption drop: a pump history that dropped an unknown requester replays the drop,
+// while a new execution records v1 and adopts a requester its own read backs.
+const changePumpAdoptLiveRequester = "delivery-pump-adopt-live-requester"
+
+// pumpAdoptsRequester reports whether a lease request from id, an activity this pump never
+// started, is backed by what this wake-up read: id is an activity of the committed plan and
+// its row is in flight — present and not terminal, the shape an execution started outside
+// this chain (a reopen, a child predating a restart) leaves.
+func pumpAdoptsRequester(ctx workflow.Context, proj projectstate.Project, id ActivityID) bool {
+	if workflow.GetVersion(ctx, changePumpAdoptLiveRequester, workflow.DefaultVersion, 1) < 1 {
+		return false
+	}
+	if _, ok := committedActivityItem(proj, string(id)); !ok {
+		return false
+	}
+	row, held := proj.ActivityExecution[string(id)]
+	if !held || row.CompletedAt != nil {
+		return false
+	}
+	switch projectstate.CoarsePhaseFor(row, nil) {
+	case projectstate.ActivityConstructionRunning:
+		return true
+	case projectstate.ActivityConstructionNotStarted, projectstate.ActivityConstructionDone,
+		projectstate.ActivityConstructionFailed, projectstate.ActivityConstructionCompletedNotLanded:
+		return false
+	}
+	return false
 }
 
 // pumpDeliverGrant bumps the epoch and hands the lease over. A grant whose delivery
