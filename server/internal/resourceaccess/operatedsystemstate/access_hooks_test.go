@@ -238,8 +238,9 @@ func stepOperateADeliveredSystemP5S1(t *testing.T, h *scenariohost.Host, subject
 // stepViewLiveDeploymentHealthP1S1 — View Live Deployment Health — [yes], step 1: ReadOperatedSystem
 // Projected stimulus (JSON): {"seq":1,"node":"request-health","input":{"kind":"call","from":"operations-manager","to":"operatedsystemstateaccess","op":"ReadOperatedSystem","call":"view-live-deployment-health/request-health/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"0c5a0000-0000-4000-8000-000000000009"}],"expect":{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000009\",\"InFlight\":true,\"ProjectRef\":\"proj-osa-0009\",\"DeployableBundleRef\":\"bundle-osa-0009\"}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
-// Guard anything-deployed=[yes]: the system has a deployable bundle and is
-// operated. Arranged: registered with its project and bundle, then deployed.
+// Guard anything-deployed=[yes]: a desired state was published (every publish
+// records Scale.ScaledAt). Arranged: registered with its project and bundle, then
+// deployed by its first publish.
 func stepViewLiveDeploymentHealthP1S1(t *testing.T, h *scenariohost.Host, subject operatedsystemstate.OperatedSystemStateAccess, in inputViewLiveDeploymentHealthP1S1) (any, error) {
 	t.Helper()
 	app := in.OperatedAppID.String()
@@ -247,11 +248,13 @@ func stepViewLiveDeploymentHealthP1S1(t *testing.T, h *scenariohost.Host, subjec
 	return subject.ReadOperatedSystem(callContext(t, h, "1"), in.OperatedAppID)
 }
 
-// stepViewLiveDeploymentHealthP2S1 — View Live Deployment Health — [no: no deployable bundle], step 1: ReadOperatedSystem
+// stepViewLiveDeploymentHealthP2S1 — View Live Deployment Health — [no: nothing deployed yet], step 1: ReadOperatedSystem
 // Projected stimulus (JSON): {"seq":1,"node":"request-health","input":{"kind":"call","from":"operations-manager","to":"operatedsystemstateaccess","op":"ReadOperatedSystem","call":"view-live-deployment-health/request-health/2"},"expectedOutputs":[{"node":"send-nothing-deployed","kind":"sendSignal","to":"operator","label":"Report to the Operator that nothing has been deployed yet, so there is no live health (FailedPrecondition)"}],"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadOperatedSystem","inputs":[{"name":"operatedAppID","value":"0c5a0000-0000-4000-8000-00000000000a"}],"expect":{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-00000000000a\",\"ProjectRef\":\"proj-osa-000a\",\"DeployableBundleRef\":\"\"}","errorExpected":false},"probes":[],"unobservable":["send-nothing-deployed"],"hook":true}
-// Guard anything-deployed=[no: no deployable bundle]: the system is registered
-// with its project but no deployable bundle yet. Arranged: exactly that.
+// Guard anything-deployed=[no: nothing deployed yet]: no desired state was ever
+// published, so the head state carries no Scale.ScaledAt. Arranged: the system
+// registered with its project and no deployable bundle (the binding expects an
+// empty DeployableBundleRef), never published.
 func stepViewLiveDeploymentHealthP2S1(t *testing.T, h *scenariohost.Host, subject operatedsystemstate.OperatedSystemStateAccess, in inputViewLiveDeploymentHealthP2S1) (any, error) {
 	t.Helper()
 	app := in.OperatedAppID.String()
