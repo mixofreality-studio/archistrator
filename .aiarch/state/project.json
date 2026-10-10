@@ -83494,6 +83494,276 @@
             "traceRef": ""
           }
         ]
+      },
+      {
+        "id": "local-2026-10-04T12-42-r3-deliveryManager",
+        "activity": "C-delivery-manager",
+        "component": "deliveryManager",
+        "revision": "C-delivery-manager:integration:1",
+        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "startedAt": "2026-10-10T22:14:55.893264848Z",
+        "endedAt": "2026-10-10T22:14:55.893264848Z",
+        "scenarios": [
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P1",
+            "status": "pass",
+            "durationMs": 49700,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P2",
+            "status": "pass",
+            "durationMs": 48012,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P3",
+            "status": "pass",
+            "durationMs": 48395,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "add-a-use-case-to-an-in-flight-project-P4",
+            "status": "pass",
+            "durationMs": 48316,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P1",
+            "status": "pass",
+            "durationMs": 41314,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P2",
+            "status": "pass",
+            "durationMs": 35886,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P3",
+            "status": "pass",
+            "durationMs": 28688,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "ask-a-clarifying-question-during-review-P4",
+            "status": "pass",
+            "durationMs": 16282,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P1",
+            "status": "pass",
+            "durationMs": 14850,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P2",
+            "status": "pass",
+            "durationMs": 33686,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "commit-to-a-project-option-P3",
+            "status": "pass",
+            "durationMs": 14213,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "download-generated-source-code-P1",
+            "status": "pass",
+            "durationMs": 82359,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "download-generated-source-code-P2",
+            "status": "pass",
+            "durationMs": 82394,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P1",
+            "status": "pass",
+            "durationMs": 79790,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P2",
+            "status": "pass",
+            "durationMs": 222828,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P3",
+            "status": "pass",
+            "durationMs": 78734,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P4",
+            "status": "pass",
+            "durationMs": 81426,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P5",
+            "status": "pass",
+            "durationMs": 95088,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P6",
+            "status": "pass",
+            "durationMs": 368492,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "execute-a-project-activity-P7",
+            "status": "pass",
+            "durationMs": 79058,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "manage-projects-P1",
+            "status": "pass",
+            "durationMs": 1142,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "manage-projects-P2",
+            "status": "pass",
+            "durationMs": 1151,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "pause-construction-P1",
+            "status": "pass",
+            "durationMs": 13751,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P1",
+            "status": "pass",
+            "durationMs": 13682,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P2",
+            "status": "pass",
+            "durationMs": 17729,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "replan-under-scope-change-P3",
+            "status": "pass",
+            "durationMs": 18045,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "requeue-a-failed-construction-activity-P1",
+            "status": "pass",
+            "durationMs": 205306,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "resume-paused-construction-P1",
+            "status": "pass",
+            "durationMs": 13589,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "resume-paused-construction-P2",
+            "status": "pass",
+            "durationMs": 4603,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P1",
+            "status": "pass",
+            "durationMs": 68623,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "send-back-change-requests-for-a-redraft-P2",
+            "status": "pass",
+            "durationMs": 100495,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "track-weekly-project-progress-P1",
+            "status": "pass",
+            "durationMs": 12924,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "track-weekly-project-progress-P2",
+            "status": "pass",
+            "durationMs": 12795,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "track-weekly-project-progress-P3",
+            "status": "pass",
+            "durationMs": 12911,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "track-weekly-project-progress-P4",
+            "status": "pass",
+            "durationMs": 12841,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-the-project-state-log-P1",
+            "status": "pass",
+            "durationMs": 13509,
+            "videoRef": "",
+            "traceRef": ""
+          },
+          {
+            "scenario": "view-the-project-state-log-P2",
+            "status": "pass",
+            "durationMs": 648,
+            "videoRef": "",
+            "traceRef": ""
+          }
+        ]
       }
     ]
   },
