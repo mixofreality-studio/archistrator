@@ -10872,6 +10872,10 @@ const (
 	modelSourceCharter         = "charter"         // the charter's model: line
 )
 
+// anyPath is the edit-scope glob that admits every repo path: the explicit scope of a
+// task whose edit set cannot be derived.
+const anyPath = "**"
+
 // Check timeouts, in seconds. A scenario's cap is 900 because a delivery scenario in the
 // baseline takes 405s.
 const (
@@ -11128,7 +11132,9 @@ func specModel(p *Project, ms methodassets.MethodSpec, lc methodassets.Lifecycle
 }
 
 // taskShare is the task's share of its activity's effort: its phase's weight split evenly
-// over the phase's dispatch tasks. Zero when the phase has no weight or no dispatch task.
+// over the phase's agent-run tasks (every task with a command — dispatches and agentic
+// critiques alike), so the commanded tasks' estimates sum to the activity's cost. Zero
+// when the phase has no weight or no commanded task.
 func taskShare(lc methodassets.Lifecycle, phase string) float64 {
 	weight := 0
 	for _, ph := range lc.Phases {
@@ -11136,16 +11142,16 @@ func taskShare(lc methodassets.Lifecycle, phase string) float64 {
 			weight = ph.Weight
 		}
 	}
-	dispatches := 0
+	commanded := 0
 	for _, t := range lc.Tasks {
-		if t.Phase == phase && t.Kind == methodassets.LifecycleTaskDispatch {
-			dispatches++
+		if t.Phase == phase && t.Command != "" {
+			commanded++
 		}
 	}
-	if weight <= 0 || dispatches == 0 {
+	if weight <= 0 || commanded == 0 {
 		return 0
 	}
-	return float64(weight) / 100 / float64(dispatches)
+	return float64(weight) / 100 / float64(commanded)
 }
 
 // taskEstimate prices days×share agent-days at the rate's throughput. Any missing input
@@ -11183,17 +11189,17 @@ func scopeAndChecks(p *Project, ms methodassets.MethodSpec, item ActivityItem) (
 	case "service-construction", "service-integration":
 		pkgs := goPackagesOf(p, contracts)
 		if len(pkgs) == 0 {
-			break // no Go package to scope or check: the other-variant posture below
+			break // no Go package to scope or check: the underivable posture below
 		}
 		return serviceScopeAndChecks(p, ms.Command == "service-integration", item.ComponentID, pkgs, contracts)
 	case "frontend-construction", "frontend-integration":
 		return frontendScopeAndChecks(p, ms.Command == "frontend-integration", item.ComponentID, contracts)
 	}
-	scope := stateOnly
-	if pkgs := goPackagesOf(p, contracts); len(pkgs) > 0 {
-		scope = SpecEditScope{Components: []SpecScopeComponent{{ID: item.ComponentID, Paths: packageGlobs(p, pkgs)}}}
-	}
-	return scope, []SpecCheck{projectRuleCheck()}, nil
+	// A construct-mode task whose scope cannot be derived (deployment, documentation, the
+	// testing variants, a service with no Go package) changes repo files no rule names, so
+	// its scope is an explicit "any path" rather than a stateOnly that would reject its
+	// legitimate output.
+	return SpecEditScope{Extra: []string{anyPath}}, []SpecCheck{projectRuleCheck()}, nil
 }
 
 // slotRuleCheck is a design task's rule check: the rule families attributed to the slot
@@ -11318,20 +11324,27 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 	return scope, checks, nil
 }
 
-// frontendScopeAndChecks is the web client's construction (integration adds the generated
-// UI-test hooks, the package manifests, the generated-tests drift check and the scenario
-// checks).
+// frontendScopeAndChecks is the web client's construction (integration adds the UI tests
+// — the purge step deletes hand-written specs, so all of uitests/ — the Go packages of any
+// of the component's contracts that has one (the MCP client), the generated-tests drift
+// check and the scenario checks).
 func frontendScopeAndChecks(p *Project, integration bool, componentID string, contracts []string) (SpecEditScope, []SpecCheck, error) {
-	scope := SpecEditScope{Components: []SpecScopeComponent{{ID: componentID, Paths: []string{"webApp/src/**"}}}}
+	scope := SpecEditScope{
+		Components: []SpecScopeComponent{{ID: componentID, Paths: []string{"webApp/src/**"}}},
+		Extra:      []string{"webApp/package.json", "webApp/package-lock.json"},
+	}
 	checks := []SpecCheck{
 		commandCheck("typecheck", "TypeScript typecheck", []string{"npm", "run", "typecheck"}, "webApp", commandCheckTimeoutSec),
 		commandCheck("lint", "ESLint", []string{"npx", "eslint", "src"}, "webApp", commandCheckTimeoutSec),
 	}
 	if integration {
+		paths := append([]string{"webApp/src/**"}, packageGlobs(p, goPackagesOf(p, contracts))...)
+		slices.Sort(paths)
+		scope.Components[0].Paths = paths
 		for _, c := range contracts {
-			scope.Extra = append(scope.Extra, "uitests/generated/"+c+"/hooks.ts")
+			scope.Extra = append(scope.Extra, "uitests/generated/"+c+"/**")
 		}
-		scope.Extra = append(scope.Extra, "webApp/package.json", "webApp/package-lock.json")
+		scope.Extra = append(scope.Extra, "uitests/**")
 		checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, p.ModuleDir, commandCheckTimeoutSec))
 		scen, err := scenarioChecks(p, contracts)
 		if err != nil {

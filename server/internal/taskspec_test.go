@@ -2,6 +2,7 @@ package internal_test
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -150,7 +151,7 @@ func TestTaskSpecForFrontendIntegration(t *testing.T) {
 		!slices.Equal(s.EditScope.Components[0].Paths, []string{"webApp/src/**"}) {
 		t.Fatalf("frontend scope: %+v", s.EditScope)
 	}
-	for _, want := range []string{"webApp/package.json", "webApp/package-lock.json", "uitests/generated/webClient/hooks.ts"} {
+	for _, want := range []string{"webApp/package.json", "webApp/package-lock.json", "uitests/generated/webClient/**", "uitests/**"} {
 		if !slices.Contains(s.EditScope.Extra, want) {
 			t.Errorf("frontend integration extras %v lack %s", s.EditScope.Extra, want)
 		}
@@ -160,6 +161,99 @@ func TestTaskSpecForFrontendIntegration(t *testing.T) {
 			t.Errorf("frontend integration lacks %s: %v", id, checkIDs(s))
 		}
 	}
+}
+
+// R19: a frontend contract with a Go package (the MCP-client case) puts that package in
+// the integration scope; construction may touch the package manifests.
+func TestTaskSpecFrontendScopeCarriesContractPackagesAndManifests(t *testing.T) {
+	p := ownProject(t)
+	cons, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", "construction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(cons.EditScope.Extra, "webApp/package.json") || !slices.Contains(cons.EditScope.Extra, "webApp/package-lock.json") {
+		t.Fatalf("frontend construction extras %v", cons.EditScope.Extra)
+	}
+	contracts := make(map[string]projectstate.ServiceContract, len(p.ServiceContracts)+1)
+	for k, v := range p.ServiceContracts {
+		contracts[k] = v
+	}
+	contracts["webClientMcp"] = projectstate.ServiceContract{Component: "webClient", GoPackage: "internal/client/mcp/webclient"}
+	p.ServiceContracts = contracts
+	integ, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", "integration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(integ.EditScope.Components[0].Paths, "server/internal/client/mcp/webclient/**") ||
+		!slices.Contains(integ.EditScope.Components[0].Paths, "webApp/src/**") {
+		t.Fatalf("frontend integration paths %v", integ.EditScope.Components[0].Paths)
+	}
+	if !slices.Contains(integ.EditScope.Extra, "uitests/generated/webClientMcp/**") {
+		t.Fatalf("frontend integration extras %v", integ.EditScope.Extra)
+	}
+}
+
+// R18: a construct-mode task whose scope cannot be derived gets an explicit "any path",
+// never a stateOnly scope that would reject its legitimate output.
+func TestTaskSpecUnderivableScopeIsAnyPath(t *testing.T) {
+	s, err := projectstate.TaskSpecFor(ownProject(t), "R-github", "construction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.EditScope.StateOnly || !slices.Equal(s.EditScope.Extra, []string{"**"}) {
+		t.Fatalf("R-github construction scope %+v", s.EditScope)
+	}
+}
+
+// R20: every commanded task (dispatches and agentic critiques) shares its phase's weight,
+// so for a lifecycle whose every phase has a commanded task the task estimates add up to
+// the whole activity: Σ tokensIn / (class throughput) = effort days.
+func TestTaskSpecCommandedSharesSumToTheActivity(t *testing.T) {
+	p := ownProject(t)
+	pa := p.PlanningAssumptions.Model.(*projectstate.PlanningAssumptions)
+	list := p.ActivityList.Model.(*projectstate.ActivityList)
+	days := map[string]float64{}
+	for _, it := range list.Activities {
+		days[it.Name] = it.EffortDays
+	}
+	checked := 0
+	for _, a := range allActivities(t, p) {
+		l, _ := methodassets.LifecycleFor(projectstate.LifecycleKeyFor(a.typ, a.variant))
+		if !everyPhaseCommanded(l) {
+			continue
+		}
+		var agentDays float64
+		for _, task := range l.Tasks {
+			if task.Command == "" {
+				continue
+			}
+			s, err := projectstate.TaskSpecFor(p, a.id, task.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rate, ok := pa.RateCard[s.Identity.WorkerClass]
+			if !ok {
+				rate = projectstate.DefaultRateSpec(s.Identity.WorkerClass)
+			}
+			agentDays += float64(s.Model.Estimate.TokensIn) / (rate.MegatokensInPerDay * 1e6)
+		}
+		if math.Abs(agentDays-days[a.id]) > 1e-3 {
+			t.Errorf("%s: commanded tasks estimate %.4f agent-days, activity is %.4f", a.id, agentDays, days[a.id])
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no activity whose every phase has a commanded task")
+	}
+}
+
+func everyPhaseCommanded(l methodassets.Lifecycle) bool {
+	for _, ph := range l.Phases {
+		if !slices.ContainsFunc(l.Tasks, func(t methodassets.LifecycleTask) bool { return t.Phase == ph.ID && t.Command != "" }) {
+			return false
+		}
+	}
+	return true
 }
 
 func TestTaskSpecForHumanReviewHasNoPromptOrChecks(t *testing.T) {
@@ -341,7 +435,9 @@ func allActivities(t *testing.T, p *projectstate.Project) []committedActivity {
 	}
 	var out []committedActivity
 	for _, it := range list.Activities {
-		typ, variant, _, classified := projectstate.ResolveConstructionRow(projectstate.ActivityExecution{ActivityID: it.Name}, it)
+		row := p.ActivityExecution[it.Name]
+		row.ActivityID = it.Name
+		typ, variant, _, classified := projectstate.ResolveConstructionRow(row, it)
 		if !classified {
 			t.Fatalf("activity %s does not classify", it.Name)
 		}
