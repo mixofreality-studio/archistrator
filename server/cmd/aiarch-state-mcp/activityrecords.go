@@ -36,8 +36,8 @@ package main
 // codeReview pass the server writes there, so judging the session's working tree as a
 // whole document would refuse the venue's own record-test-run mid-integration.
 //
-// Attribution: REC-* is construction-owned state (attribActivityExecution in
-// staleness.go). A design session (`validate --slot`) cannot write an activity row, so
+// Attribution: REC-* is construction-owned state (projectstate.AttribActivityExecution in
+// projectstate's rule attribution table). A design session (`validate --slot`) cannot write an activity row, so
 // for it a REC-* Error is pre-existing other-owner data and downgrades; the
 // whole-document gate keeps it at Error.
 

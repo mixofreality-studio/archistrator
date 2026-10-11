@@ -347,37 +347,37 @@ func TestAttributeRule_Table(t *testing.T) {
 	cases := []struct {
 		rule  methodcheck.RuleID
 		kind  projectstate.ArtifactKind
-		class ruleAttribution
+		class projectstate.RuleAttribution
 	}{
-		{"GLOSS-FOURQ", projectstate.KindGlossary, attribSlot},
-		{"SR-ID-UNIQUE", projectstate.KindScrubbedRequirements, attribSlot},
-		{"VOL-GLOSS", projectstate.KindVolatilities, attribSlot},
-		{"CUC-CARD", projectstate.KindCoreUseCases, attribSlot},
-		{"UC-VARIATION-REF", projectstate.KindCoreUseCases, attribSlot},
-		{"USECASE-DYNAMIC-MISSING", projectstate.KindSystem, attribSlot},
-		{"SYSTEM-LAYER-DEGENERATE", projectstate.KindSystem, attribSlot},
-		{"SYS-NAME-UNIQUE", projectstate.KindSystem, attribSlot},
-		{"DV-STATIC-COVERAGE", projectstate.KindSystem, attribSlot},
-		{"ARCH-CHAINCOV", projectstate.KindSystem, attribSlot},
-		{"APPC-CARD-SUB-MGR", projectstate.KindSystem, attribSlot},
-		{"OPC-OBJREF", projectstate.KindOperationalConcepts, attribSlot},
-		{"DEP-COVERAGE", projectstate.KindOperationalConcepts, attribSlot},
-		{"STD-WAIVE", projectstate.KindStandardCheck, attribSlot},
-		{"STP-OP-EXISTS", 0, attribTesting},
+		{"GLOSS-FOURQ", projectstate.KindGlossary, projectstate.AttribSlot},
+		{"SR-ID-UNIQUE", projectstate.KindScrubbedRequirements, projectstate.AttribSlot},
+		{"VOL-GLOSS", projectstate.KindVolatilities, projectstate.AttribSlot},
+		{"CUC-CARD", projectstate.KindCoreUseCases, projectstate.AttribSlot},
+		{"UC-VARIATION-REF", projectstate.KindCoreUseCases, projectstate.AttribSlot},
+		{"USECASE-DYNAMIC-MISSING", projectstate.KindSystem, projectstate.AttribSlot},
+		{"SYSTEM-LAYER-DEGENERATE", projectstate.KindSystem, projectstate.AttribSlot},
+		{"SYS-NAME-UNIQUE", projectstate.KindSystem, projectstate.AttribSlot},
+		{"DV-STATIC-COVERAGE", projectstate.KindSystem, projectstate.AttribSlot},
+		{"ARCH-CHAINCOV", projectstate.KindSystem, projectstate.AttribSlot},
+		{"APPC-CARD-SUB-MGR", projectstate.KindSystem, projectstate.AttribSlot},
+		{"OPC-OBJREF", projectstate.KindOperationalConcepts, projectstate.AttribSlot},
+		{"DEP-COVERAGE", projectstate.KindOperationalConcepts, projectstate.AttribSlot},
+		{"STD-WAIVE", projectstate.KindStandardCheck, projectstate.AttribSlot},
+		{"STP-OP-EXISTS", 0, projectstate.AttribTesting},
 		// The DH-* live tier is System-attributed as one family — including the
 		// slot3↔slot5 volatility-join rules, so a Volatilities amendment is never
 		// deadlocked by them while the System amendment that fixes them keeps full
 		// severity. DH-COMP-VOL-DANGLING (typed encapsulatesVolatilities dangling
 		// reference) must participate exactly like DH-VOL-ENCAP-MISSING / DH-VOL-TRACE.
-		{"DH-VOL-ENCAP-MISSING", projectstate.KindSystem, attribSlot},
-		{"DH-VOL-TRACE", projectstate.KindSystem, attribSlot},
-		{"DH-COMP-VOL-DANGLING", projectstate.KindSystem, attribSlot},
-		{"TOTALLY-UNKNOWN", 0, attribNone},
+		{"DH-VOL-ENCAP-MISSING", projectstate.KindSystem, projectstate.AttribSlot},
+		{"DH-VOL-TRACE", projectstate.KindSystem, projectstate.AttribSlot},
+		{"DH-COMP-VOL-DANGLING", projectstate.KindSystem, projectstate.AttribSlot},
+		{"TOTALLY-UNKNOWN", 0, projectstate.AttribNone},
 	}
 	for _, c := range cases {
-		kind, class := attributeRule(c.rule)
-		if class != c.class || (class == attribSlot && kind != c.kind) {
-			t.Errorf("attributeRule(%s) = (%v, %v), want (%v, %v)", c.rule, kind, class, c.kind, c.class)
+		kind, class := projectstate.AttributeRule(string(c.rule))
+		if class != c.class || (class == projectstate.AttribSlot && kind != c.kind) {
+			t.Errorf("AttributeRule(%s) = (%v, %v), want (%v, %v)", c.rule, kind, class, c.kind, c.class)
 		}
 	}
 }

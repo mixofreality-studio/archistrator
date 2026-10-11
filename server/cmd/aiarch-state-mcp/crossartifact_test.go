@@ -191,9 +191,9 @@ func TestAttributeRule_AppSideRules(t *testing.T) {
 		{"PA-RATECARD-DEFAULTED", projectstate.KindPlanningAssumptions},
 	}
 	for _, c := range cases {
-		kind, class := attributeRule(c.rule)
-		if class != attribSlot || kind != c.kind {
-			t.Errorf("attributeRule(%s) = (%v, %v), want (%v, attribSlot)", c.rule, kind, class, c.kind)
+		kind, class := projectstate.AttributeRule(string(c.rule))
+		if class != projectstate.AttribSlot || kind != c.kind {
+			t.Errorf("AttributeRule(%s) = (%v, %v), want (%v, AttribSlot)", c.rule, kind, class, c.kind)
 		}
 	}
 }

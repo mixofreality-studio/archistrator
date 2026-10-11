@@ -325,8 +325,8 @@ func TestRECTestingUnqualified_LifecycleWithoutATestPlan(t *testing.T) {
 
 func TestAttributeRule_ActivityRecordRules(t *testing.T) {
 	for _, rule := range []methodcheck.RuleID{ruleBuiltUnrecorded, ruleTestingUnqualified} {
-		if _, class := attributeRule(rule); class != attribActivityExecution {
-			t.Errorf("attributeRule(%s) class = %v, want attribActivityExecution", rule, class)
+		if _, class := projectstate.AttributeRule(string(rule)); class != projectstate.AttribActivityExecution {
+			t.Errorf("AttributeRule(%s) class = %v, want AttribActivityExecution", rule, class)
 		}
 	}
 }

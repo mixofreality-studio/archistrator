@@ -81,7 +81,7 @@ import (
 // ==========================================================================
 
 // Rule identifiers. All live-tier rules share the DH- namespace so the gate's
-// slot-scoped severity policy (staleness.go ruleSlotAttributionPrefixes) can
+// slot-scoped severity policy (projectstate's rule attribution table) can
 // attribute the whole family in one entry, and so a reader can tell a live-tier
 // finding from a framework one at a glance.
 const (

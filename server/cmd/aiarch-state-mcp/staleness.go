@@ -55,8 +55,6 @@ package main
 // whole-document) — so the in-loop and CI verdicts can never disagree.
 
 import (
-	"strings"
-
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -137,93 +135,9 @@ func applyStaleBasisDowngrades(proj projectstate.Project, findings []methodcheck
 // SLOT-SCOPED severity (policy 2) — the general fallback beneath the staleness case.
 // ---------------------------------------------------------------------------------
 
-// ruleAttribution classifies where a methodcheck rule's findings are FIXED.
-type ruleAttribution int
-
-const (
-	// attribNone — structural / whole-document / unknown rule id. NEVER downgraded:
-	// a rule this table does not know is treated at full severity by construction.
-	attribNone ruleAttribution = iota
-	// attribSlot — the finding is owned by one Phase-1/2 artifact slot (the kind
-	// returned alongside): only that slot's own amendment can fix it.
-	attribSlot
-	// attribTesting — the finding is owned by .testingState (the STP-* System-Test-Plan
-	// family), written by Phase-3 construction jobs, never by a design-slot session. For
-	// any design ambient slot it is therefore always an OTHER-slot finding.
-	attribTesting
-	// attribActivityExecution — the finding is owned by .activityExecution (the REC-*
-	// activity-record family, activityrecords.go): the ledger the delivery Manager and
-	// the construction venue write, never a design-slot session. For any design ambient
-	// slot it is therefore always an OTHER-owner finding.
-	attribActivityExecution
-)
-
-// ruleSlotAttributionPrefixes maps a RuleID prefix to the artifact slot whose own
-// amendment fixes the finding. Attribution follows the rule's SUBJECT (the slot whose
-// content must change), which is also the slot the emitting validator is registered
-// for — so a rule that READS other slots still attributes to the referencing slot
-// (VOL-GLOSS→Volatilities, USECASE-DYNAMIC-MISSING/DV-*→System, DEP-*→
-// OperationalConcepts). Prefixes are disjoint (each ends in a dash; SYSTEM-/USECASE-
-// cannot collide with SYS-/UC- because the dash position differs). Rule families with
-// no entry (ALIGN-*, CODE-/MODEL-EDGE — the code-walk rules ValidateProjectJSON never
-// emits) fall through to attribNone and keep full severity.
-var ruleSlotAttributionPrefixes = []struct {
-	prefix string
-	kind   projectstate.ArtifactKind
-	class  ruleAttribution
-}{
-	{"GLOSS-", projectstate.KindGlossary, attribSlot},
-	{"SR-", projectstate.KindScrubbedRequirements, attribSlot},
-	{"VOL-", projectstate.KindVolatilities, attribSlot},
-	{"CUC-", projectstate.KindCoreUseCases, attribSlot},
-	{"UC-", projectstate.KindCoreUseCases, attribSlot},
-	{"USECASE-", projectstate.KindSystem, attribSlot},
-	{"SYSTEM-", projectstate.KindSystem, attribSlot},
-	{"SYS-", projectstate.KindSystem, attribSlot},
-	{"DV-", projectstate.KindSystem, attribSlot},
-	{"CC-", projectstate.KindSystem, attribSlot},
-	{"ARCH-", projectstate.KindSystem, attribSlot},
-	{"APPC-", projectstate.KindSystem, attribSlot},
-	{"OPC-", projectstate.KindOperationalConcepts, attribSlot},
-	{"DEP-", projectstate.KindOperationalConcepts, attribSlot},
-	{"STD-", projectstate.KindStandardCheck, attribSlot},
-	{"STP-", 0, attribTesting},
-	// App-side activity-record rules (activityrecords.go): the activity execution ledger
-	// against the checkout and the recorded runs. Construction-owned, like STP-*.
-	{"REC-", 0, attribActivityExecution},
-	// App-side cross-artifact rules (crossartifact.go). Attribution follows the subject
-	// slot exactly like DEP-*: the PA-RATECARD-* consistency is fixed by a
-	// PlanningAssumptions amendment. The ACT-* System×ActivityList join rules this
-	// entry used to sit beside are retired 2026-08-09 (coverage moved from validation
-	// to derivation).
-	{"PA-", projectstate.KindPlanningAssumptions, attribSlot},
-	// Live design-health tier (internal/engine/designhealth). The DH-* rules are the
-	// mechanical systemDesign directives + joins; their subject is the architecture,
-	// so a DH-* Error is fixed by a systemDesign amendment. Attributing the whole
-	// family to the System slot keeps a DH-* Error from deadlocking a session amending
-	// a different slot (the same posture as the DV-*/USECASE-* System-attributed rules
-	// that also read sibling slots). This one prefix is ALSO how the
-	// Volatilities↔System (slot3↔slot5) join rules — DH-VOL-ENCAP-MISSING, DH-VOL-TRACE,
-	// and DH-COMP-VOL-DANGLING (the component-side typed encapsulatesVolatilities
-	// dangling-reference direction of the same join) — avoid the amendment deadlock: a
-	// Volatilities amendment that renames/removes a volatility sees them downgrade as
-	// other-slot findings, while the System amendment that CAN fix the typed lists
-	// keeps them at full severity. Finer sub-attribution (DH-OBJ-* →
-	// businessAlignment) is a later refinement; System is the dominant owner and the
-	// authoring-gate slot these run under.
-	{"DH-", projectstate.KindSystem, attribSlot},
-}
-
-// attributeRule resolves a rule id to its owning slot (attribSlot + kind), the testing
-// state (attribTesting), or no attribution (attribNone — full severity always).
-func attributeRule(id methodcheck.RuleID) (projectstate.ArtifactKind, ruleAttribution) {
-	for _, e := range ruleSlotAttributionPrefixes {
-		if strings.HasPrefix(string(id), e.prefix) {
-			return e.kind, e.class
-		}
-	}
-	return 0, attribNone
-}
+// The rule→slot attribution table (which slot owns fixing a rule family's findings)
+// lives in projectstate (RuleAttribution / AttributeRule), where the agent task spec's
+// slot rule checks read the same registry.
 
 // applySlotScopeDowngrades applies the slot-scoped severity policy for a session whose
 // AMBIENT slot is ambient: an Error finding attributed to a DIFFERENT artifact slot (or
@@ -238,20 +152,20 @@ func applySlotScopeDowngrades(ambient projectstate.ArtifactKind, findings []meth
 		if f.Severity != methodcheck.SeverityError {
 			continue
 		}
-		kind, class := attributeRule(f.RuleID)
+		kind, class := projectstate.AttributeRule(string(f.RuleID))
 		switch class {
-		case attribSlot:
+		case projectstate.AttribSlot:
 			if kind != ambient {
 				out[i].Severity = methodcheck.SeverityWarning
 				out[i].Message += slotScopeDowngradeNote(kind.WireName())
 			}
-		case attribTesting:
+		case projectstate.AttribTesting:
 			out[i].Severity = methodcheck.SeverityWarning
 			out[i].Message += slotScopeDowngradeNote("testingState")
-		case attribActivityExecution:
+		case projectstate.AttribActivityExecution:
 			out[i].Severity = methodcheck.SeverityWarning
 			out[i].Message += slotScopeDowngradeNote("activityExecution")
-		case attribNone:
+		case projectstate.AttribNone:
 			// structural / unknown — full severity.
 		}
 	}

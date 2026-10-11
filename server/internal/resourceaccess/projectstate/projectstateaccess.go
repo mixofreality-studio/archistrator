@@ -28,12 +28,16 @@ package projectstate
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base32"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
+	"path"
 	"regexp"
 	"slices"
 	"sort"
@@ -10614,4 +10618,760 @@ func derefString(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// =====================================================================================
+// RULE ATTRIBUTION — which artifact slot owns fixing a methodcheck rule's findings.
+// =====================================================================================
+//
+// Moved here from cmd/aiarch-state-mcp/staleness.go (agent task spec, Task B2) so the
+// slot-scoped severity policy and the task spec's rule checks read ONE registry: the
+// draft/critique rule check of a slot's task (TaskSpecFor) runs exactly the families
+// this table attributes to that slot.
+
+// RuleAttribution classifies where a methodcheck rule's findings are FIXED.
+type RuleAttribution int
+
+const (
+	// AttribNone — structural / whole-document / unknown rule id. NEVER downgraded:
+	// a rule this table does not know is treated at full severity by construction.
+	AttribNone RuleAttribution = iota
+	// AttribSlot — the finding is owned by one Phase-1/2 artifact slot (the kind
+	// returned alongside): only that slot's own amendment can fix it.
+	AttribSlot
+	// AttribTesting — the finding is owned by .testingState (the STP-* System-Test-Plan
+	// family), written by Phase-3 construction jobs, never by a design-slot session. For
+	// any design ambient slot it is therefore always an OTHER-slot finding.
+	AttribTesting
+	// AttribActivityExecution — the finding is owned by .activityExecution (the REC-*
+	// activity-record family, activityrecords.go): the ledger the delivery Manager and
+	// the construction venue write, never a design-slot session. For any design ambient
+	// slot it is therefore always an OTHER-owner finding.
+	AttribActivityExecution
+)
+
+// ruleSlotAttributionPrefixes maps a RuleID prefix to the artifact slot whose own
+// amendment fixes the finding. Attribution follows the rule's SUBJECT (the slot whose
+// content must change), which is also the slot the emitting validator is registered
+// for — so a rule that READS other slots still attributes to the referencing slot
+// (VOL-GLOSS→Volatilities, USECASE-DYNAMIC-MISSING/DV-*→System, DEP-*→
+// OperationalConcepts). Prefixes are disjoint (each ends in a dash; SYSTEM-/USECASE-
+// cannot collide with SYS-/UC- because the dash position differs). Rule families with
+// no entry (ALIGN-*, CODE-/MODEL-EDGE — the code-walk rules ValidateProjectJSON never
+// emits) fall through to AttribNone and keep full severity.
+var ruleSlotAttributionPrefixes = []struct {
+	prefix string
+	kind   ArtifactKind
+	class  RuleAttribution
+}{
+	{"GLOSS-", KindGlossary, AttribSlot},
+	{"SR-", KindScrubbedRequirements, AttribSlot},
+	{"VOL-", KindVolatilities, AttribSlot},
+	{"CUC-", KindCoreUseCases, AttribSlot},
+	{"UC-", KindCoreUseCases, AttribSlot},
+	{"USECASE-", KindSystem, AttribSlot},
+	{"SYSTEM-", KindSystem, AttribSlot},
+	{"SYS-", KindSystem, AttribSlot},
+	{"DV-", KindSystem, AttribSlot},
+	{"CC-", KindSystem, AttribSlot},
+	{"ARCH-", KindSystem, AttribSlot},
+	{"APPC-", KindSystem, AttribSlot},
+	{"OPC-", KindOperationalConcepts, AttribSlot},
+	{"DEP-", KindOperationalConcepts, AttribSlot},
+	{"STD-", KindStandardCheck, AttribSlot},
+	{"STP-", 0, AttribTesting},
+	// App-side activity-record rules (cmd/aiarch-state-mcp activityrecords.go): the
+	// activity execution ledger against the checkout and the recorded runs.
+	// Construction-owned, like STP-*.
+	{"REC-", 0, AttribActivityExecution},
+	// App-side cross-artifact rules (cmd/aiarch-state-mcp crossartifact.go). Attribution
+	// follows the subject slot exactly like DEP-*: the PA-RATECARD-* consistency is fixed
+	// by a PlanningAssumptions amendment. The ACT-* System×ActivityList join rules this
+	// entry used to sit beside are retired 2026-08-09 (coverage moved from validation
+	// to derivation).
+	{"PA-", KindPlanningAssumptions, AttribSlot},
+	// Live design-health tier (internal/engine/designhealth). The DH-* rules are the
+	// mechanical systemDesign directives + joins; their subject is the architecture,
+	// so a DH-* Error is fixed by a systemDesign amendment. Attributing the whole
+	// family to the System slot keeps a DH-* Error from deadlocking a session amending
+	// a different slot (the same posture as the DV-*/USECASE-* System-attributed rules
+	// that also read sibling slots). This one prefix is ALSO how the
+	// Volatilities↔System (slot3↔slot5) join rules — DH-VOL-ENCAP-MISSING, DH-VOL-TRACE,
+	// and DH-COMP-VOL-DANGLING (the component-side typed encapsulatesVolatilities
+	// dangling-reference direction of the same join) — avoid the amendment deadlock: a
+	// Volatilities amendment that renames/removes a volatility sees them downgrade as
+	// other-slot findings, while the System amendment that CAN fix the typed lists
+	// keeps them at full severity. Finer sub-attribution (DH-OBJ-* →
+	// businessAlignment) is a later refinement; System is the dominant owner and the
+	// authoring-gate slot these run under.
+	{"DH-", KindSystem, AttribSlot},
+}
+
+// AttributeRule resolves a rule id to its owning slot (AttribSlot + kind), the testing
+// state (AttribTesting), the activity ledger (AttribActivityExecution), or no
+// attribution (AttribNone — full severity always).
+func AttributeRule(ruleID string) (ArtifactKind, RuleAttribution) {
+	for _, e := range ruleSlotAttributionPrefixes {
+		if strings.HasPrefix(ruleID, e.prefix) {
+			return e.kind, e.class
+		}
+	}
+	return 0, AttribNone
+}
+
+// RulePrefixesFor is the sorted set of rule-id prefixes AttributeRule attributes to the
+// slot kind: the rule families a slot's own amendment owns. Empty for a slot no family
+// is attributed to (mission: ALIGN-* is unattributed).
+func RulePrefixesFor(kind ArtifactKind) []string {
+	var out []string
+	for _, e := range ruleSlotAttributionPrefixes {
+		if e.class == AttribSlot && e.kind == kind {
+			out = append(out, e.prefix)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// =====================================================================================
+// AI-AGENT PRICING — the Claude API price list and the per-class default rate spec.
+// =====================================================================================
+//
+// Moved here from the delivery Manager (agent task spec, Task B2) so the SDP's per-class
+// build-cost rates and the task spec's per-task cost estimate price tokens the same way.
+//
+//	rate($/day) = MegatokensInPerDay × price_in + MegatokensOutPerDay × price_out
+//
+// The class→model default is the charter's model: line (methodassets.ModelForAgent), the
+// same alias the jobs pass to --model. Pure + deterministic (no clock, no RNG, no I/O) so
+// the SDP assembly stays replay-safe.
+
+// modelPrice is the Claude API price for one model, in USD MINOR UNITS (cents) per
+// megatoken (MTok). Source: Anthropic price list (F11b) — fable $10/$50, opus $5/$25,
+// sonnet $3/$15, haiku $1/$5 per MTok in/out.
+type modelPrice struct {
+	inCentsPerMTok  float64
+	outCentsPerMTok float64
+}
+
+// apiPricing is the per-model Claude API price list, keyed by model family alias.
+var apiPricing = map[string]modelPrice{
+	"fable":  {inCentsPerMTok: 1000, outCentsPerMTok: 5000}, // $10 in / $50 out
+	"opus":   {inCentsPerMTok: 500, outCentsPerMTok: 2500},  // $5 in / $25 out
+	"sonnet": {inCentsPerMTok: 300, outCentsPerMTok: 1500},  // $3 in / $15 out
+	"haiku":  {inCentsPerMTok: 100, outCentsPerMTok: 500},   // $1 in / $5 out
+}
+
+// priceFamily normalizes a model id to its apiPricing family key. The rate card's
+// modelId may be authored as a FULL API id ("claude-opus-4-8", "claude-haiku-4-5-20251001")
+// while apiPricing is keyed by short family names — the exact-key lookup silently
+// priced EVERY full id as sonnet (found live on gtdapp 2026-07-11: the opus architect
+// class costed at sonnet rates). Substring match on the lowercased id; unknown ids
+// keep the documented sonnet fallback via priceOf.
+func priceFamily(modelID string) string {
+	id := strings.ToLower(modelID)
+	for _, fam := range [...]string{"fable", "opus", "sonnet", "haiku"} {
+		if strings.Contains(id, fam) {
+			return fam
+		}
+	}
+	return id
+}
+
+// priceOf is the model's price, sonnet's for an unknown model id (never panics).
+func priceOf(modelID string) modelPrice {
+	if price, ok := apiPricing[priceFamily(modelID)]; ok {
+		return price
+	}
+	return apiPricing["sonnet"]
+}
+
+// Default token throughput per agent-day (F11a). Kept uniform across classes so the cost
+// SPREAD between classes comes purely from the model tier. Tunable per-class via
+// PlanningAssumptions.RateCard.
+const (
+	defaultMTokInPerDay  = 2.0 // ~2M input tokens / agent-day (context + tool results)
+	defaultMTokOutPerDay = 0.5 // ~0.5M output tokens / agent-day (generated code + notes)
+)
+
+// defaultModelForClass returns the model a class's charter declares, defaulting an
+// UNKNOWN class (one no charter backs, e.g. a stale "architect" fixture) to sonnet so
+// rate derivation never fails a valid option.
+func defaultModelForClass(class string) string {
+	if m, ok := methodassets.ModelForAgent(class); ok && m != "" {
+		return m
+	}
+	return "sonnet"
+}
+
+// DefaultRateSpec returns the default AI rate spec for a worker class: uniform
+// throughput on the model the class's charter declares.
+func DefaultRateSpec(class string) WorkerRateSpec {
+	return WorkerRateSpec{
+		ModelID:             defaultModelForClass(class),
+		MegatokensInPerDay:  defaultMTokInPerDay,
+		MegatokensOutPerDay: defaultMTokOutPerDay,
+	}
+}
+
+// RateForSpec turns a rate spec into a USD/day Money via the Claude API price list. An
+// unknown model id falls back to sonnet pricing (never panics). Deterministic integer
+// truncation (no rounding-mode ambiguity) matches the estimationEngine's cost math.
+func RateForSpec(spec WorkerRateSpec) Money {
+	price := priceOf(spec.ModelID)
+	cents := spec.MegatokensInPerDay*price.inCentsPerMTok + spec.MegatokensOutPerDay*price.outCentsPerMTok
+	return Money{MinorUnits: int64(cents), Currency: "USD"}
+}
+
+// ContractKeyOf is the .serviceContracts key of the committed System's component
+// componentID — its contractKey — and false when the System is not committed, does not
+// name the component, or gives it no key.
+func ContractKeyOf(p *Project, componentID string) (string, bool) {
+	sys, ok := scenarioCommittedModel[*System](p, KindSystem)
+	if !ok {
+		return "", false
+	}
+	for i := range sys.Components {
+		c := sys.Components[i]
+		if c.ID != componentID {
+			continue
+		}
+		if c.ContractKey == nil || *c.ContractKey == "" {
+			return "", false
+		}
+		return *c.ContractKey, true
+	}
+	return "", false
+}
+
+// =====================================================================================
+// AGENT TASK SPEC — the deterministic per-task spec (spec 2026-10-11 §4).
+// =====================================================================================
+//
+// TaskSpecFor is the ONE resolver of what an agent task is configured to do: who runs it
+// (identity), on which model at what estimated cost, with which prompt and tools, which
+// files it may change (edit scope), and which typed checks decide it. The web panel, the
+// MCP run_checks verb and the GitHub/local jobs all read it, and the Hash proves they
+// read the same thing. method-assets owns the method half (MethodSpecFor: identity,
+// model, prompt, tools); this owns the project half (edit scope, checks, estimate, hash).
+//
+// It is a pure function of the embedded method assets and the given *Project: no clock,
+// no I/O, no map-order dependence, so the server and the job compute byte-identical
+// hashes from the same project.json.
+
+// The three kinds of typed check.
+const (
+	CheckKindRule     = "rule"     // methodcheck rule families over the project state
+	CheckKindCommand  = "command"  // a shell command run in the checkout
+	CheckKindScenario = "scenario" // one generated scenario test
+)
+
+// Model sources: where a task's model came from.
+const (
+	modelSourceProjectOverride = "projectOverride" // PlanningAssumptions.RateCard[class].ModelID
+	modelSourceCharter         = "charter"         // the charter's model: line
+)
+
+// Check timeouts, in seconds. A scenario's cap is 900 because a delivery scenario in the
+// baseline takes 405s.
+const (
+	ruleCheckTimeoutSec     = 120
+	commandCheckTimeoutSec  = 300
+	lintCheckTimeoutSec     = 600
+	scenarioCheckTimeoutSec = 900
+)
+
+// TaskSpec is one lifecycle task's full agent configuration.
+type TaskSpec struct {
+	Activity  string        `json:"activity"`
+	Task      string        `json:"task"`
+	Identity  SpecIdentity  `json:"identity"`
+	Model     SpecModel     `json:"model"`
+	Prompt    SpecPrompt    `json:"prompt"`
+	Tools     SpecTools     `json:"tools"`
+	EditScope SpecEditScope `json:"editScope"`
+	Checks    []SpecCheck   `json:"checks"`
+	Hash      string        `json:"hash"`
+}
+
+// SpecIdentity is what the method assets say the task is.
+type SpecIdentity struct {
+	Kind          string `json:"kind"` // dispatch | review
+	Title         string `json:"title"`
+	Phase         string `json:"phase"`
+	Command       string `json:"command"` // "" for a review task with no command
+	Agent         string `json:"agent"`
+	WorkerClass   string `json:"workerClass"`
+	ArtifactKind  string `json:"artifactKind"`
+	ExitCriterion string `json:"exitCriterion"`
+	Mode          string `json:"mode"` // draft | critique | answer | construct; "" with no command
+}
+
+// SpecModel is the model the task runs on and what it is estimated to cost.
+type SpecModel struct {
+	ID       string       `json:"id"`
+	Source   string       `json:"source"` // projectOverride | charter; "" with no command
+	Estimate SpecEstimate `json:"estimate"`
+}
+
+// SpecEstimate is the task's estimated token use and API cost: its share of the
+// activity's effort days at its class's daily throughput.
+type SpecEstimate struct {
+	TokensIn  int64   `json:"tokensIn"`
+	TokensOut int64   `json:"tokensOut"`
+	USD       float64 `json:"usd"`
+}
+
+// SpecPrompt is what the session is told: the command body as Claude Code expands
+// "/<command> <args>", the charter it adopts, and the skills it may load.
+type SpecPrompt struct {
+	Text    string   `json:"text"`
+	Tokens  int      `json:"tokens"` // len(text)/4, a display estimate
+	Charter string   `json:"charter"`
+	Skills  []string `json:"skills"`
+}
+
+// SpecTools is the session's tool allowlist.
+type SpecTools struct {
+	MCP     []string `json:"mcp"`
+	Builtin []string `json:"builtin"`
+}
+
+// SpecEditScope is the set of repo paths the task may change. .aiarch/state/** is always
+// permitted (written through the state tools) and is not listed.
+type SpecEditScope struct {
+	Components []SpecScopeComponent `json:"components"`
+	Extra      []string             `json:"extra"`     // repo-relative globs outside any component (go.mod, hooks.go …)
+	StateOnly  bool                 `json:"stateOnly"` // only .aiarch/state/** may change
+}
+
+// SpecScopeComponent is one component's editable paths (repo-relative globs).
+type SpecScopeComponent struct {
+	ID    string   `json:"id"`
+	Paths []string `json:"paths"`
+}
+
+// SpecCheck is one typed check the task's output must pass.
+type SpecCheck struct {
+	ID         string          `json:"id"`
+	Kind       string          `json:"kind"` // rule | command | scenario
+	Title      string          `json:"title"`
+	Source     SpecCheckSource `json:"source"`
+	TimeoutSec int             `json:"timeoutSec"`
+}
+
+// SpecCheckSource says what a check runs.
+type SpecCheckSource struct {
+	RulePrefixes []string `json:"rulePrefixes,omitempty"` // empty = every rule in the ambient slot's policy
+	RuleSlot     string   `json:"ruleSlot,omitempty"`     // ambient slot wire name for the severity policy; "" = whole document
+	Argv         []string `json:"argv,omitempty"`
+	Dir          string   `json:"dir,omitempty"` // repo-relative working directory; "" = repo root
+	Scenario     string   `json:"scenario,omitempty"`
+	Contract     string   `json:"contract,omitempty"`
+	UseCase      string   `json:"useCase,omitempty"`
+}
+
+// TaskSpecFor resolves the agent task spec of one lifecycle task of one committed
+// activity. The activity is looked up in the committed activity list and classified the
+// way QueryActivityView classifies it; an activity or task that does not resolve is an
+// error.
+func TaskSpecFor(p *Project, activityID, taskID string) (TaskSpec, error) {
+	if p == nil {
+		return TaskSpec{}, errors.New("projectstate.TaskSpecFor: nil project")
+	}
+	item, ok := committedActivityItemOf(p, activityID)
+	if !ok {
+		return TaskSpec{}, fmt.Errorf("projectstate.TaskSpecFor: no activity %q in the committed activity list", activityID)
+	}
+	row := p.ActivityExecution[activityID]
+	row.ActivityID = activityID
+	typ, variant, _, classified := ResolveConstructionRow(row, item)
+	if !classified {
+		return TaskSpec{}, fmt.Errorf("projectstate.TaskSpecFor: activity %q (workerClass %q, coding=%v) matches no activity-classification rule", activityID, item.WorkerClass, item.Coding)
+	}
+	key := LifecycleKeyFor(typ, variant)
+	lc, ok := methodassets.LifecycleFor(key)
+	if !ok {
+		return TaskSpec{}, fmt.Errorf("projectstate.TaskSpecFor: the method assets carry no lifecycle %q", key)
+	}
+	ms, err := methodassets.MethodSpecFor(key, taskID, commandArgs(lc, taskID, item.ComponentID, activityID))
+	if err != nil {
+		return TaskSpec{}, fmt.Errorf("projectstate.TaskSpecFor: %w", err)
+	}
+	s := TaskSpec{
+		Activity: activityID,
+		Task:     taskID,
+		Identity: SpecIdentity{
+			Kind: ms.Kind, Title: ms.Title, Phase: ms.Phase, Command: ms.Command, Agent: ms.Agent,
+			WorkerClass: ms.WorkerClass, ArtifactKind: ms.ArtifactKind, ExitCriterion: ms.ExitCriterion, Mode: ms.Mode,
+		},
+		Prompt: SpecPrompt{Text: ms.Prompt, Tokens: len(ms.Prompt) / 4, Charter: ms.Charter, Skills: slices.Clone(ms.Skills)},
+		Tools:  SpecTools{MCP: slices.Clone(ms.MCPTools), Builtin: builtinTools(ms)},
+	}
+	s.Model = specModel(p, ms, lc, item)
+	s.EditScope, s.Checks, err = scopeAndChecks(p, ms, item)
+	if err != nil {
+		return TaskSpec{}, err
+	}
+	s = s.normalized()
+	s.Hash = s.ComputeHash()
+	return s, nil
+}
+
+// ComputeHash is the sha256 (hex) of the spec's canonical JSON with Hash cleared. Field
+// order is struct order, every slice is pre-sorted, and nil slices encode as [], so the
+// hash is a function of the spec's content alone and survives a JSON round trip.
+func (s TaskSpec) ComputeHash() string {
+	c := s.normalized()
+	c.Hash = ""
+	raw, err := json.Marshal(c)
+	if err != nil {
+		// Unreachable: every field is a string, bool, integer, finite float or slice of them.
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+// normalized returns a copy whose non-omitempty slices are non-nil, so a spec built here
+// and the same spec decoded from JSON encode identically.
+func (s TaskSpec) normalized() TaskSpec {
+	s.Prompt.Skills = nonNil(s.Prompt.Skills)
+	s.Tools.MCP = nonNil(s.Tools.MCP)
+	s.Tools.Builtin = nonNil(s.Tools.Builtin)
+	s.EditScope.Extra = nonNil(s.EditScope.Extra)
+	comps := make([]SpecScopeComponent, len(s.EditScope.Components))
+	for i, c := range s.EditScope.Components {
+		c.Paths = nonNil(c.Paths)
+		comps[i] = c
+	}
+	s.EditScope.Components = comps
+	if s.Checks == nil {
+		s.Checks = []SpecCheck{}
+	}
+	return s
+}
+
+func nonNil(xs []string) []string {
+	if xs == nil {
+		return []string{}
+	}
+	return xs
+}
+
+// committedActivityItemOf is the committed activity list's item named activityID.
+func committedActivityItemOf(p *Project, activityID string) (ActivityItem, bool) {
+	list, ok := scenarioCommittedModel[*ActivityList](p, KindActivityList)
+	if !ok {
+		return ActivityItem{}, false
+	}
+	for _, it := range list.Activities {
+		if it.Name == activityID {
+			return it, true
+		}
+	}
+	return ActivityItem{}, false
+}
+
+// isDesignMode reports whether a manifest mode is a design-slot job mode.
+func isDesignMode(mode string) bool {
+	return mode == "draft" || mode == "critique" || mode == "answer"
+}
+
+// commandArgs is the task command's $ARGUMENTS, exactly as the jobs pass them: design
+// commands take none, construction-style commands take <component_id> <activity_id>.
+func commandArgs(lc methodassets.Lifecycle, taskID, componentID, activityID string) []string {
+	for _, t := range lc.Tasks {
+		if t.ID != taskID || t.Command == "" {
+			continue
+		}
+		if m, ok := methodassets.ManifestFor(t.Command); ok && isDesignMode(m.Mode) {
+			return nil
+		}
+		return []string{componentID, activityID}
+	}
+	return nil
+}
+
+// builtinTools is the manifest's built-in allowlist plus Skill whenever the step seats
+// skills: the --tools allowlist would otherwise block loading them. Sorted, unique.
+func builtinTools(ms methodassets.MethodSpec) []string {
+	out := slices.Clone(ms.BuiltinTools)
+	if len(ms.Skills) > 0 {
+		out = append(out, "Skill")
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// specModel resolves the task's model (the project's rate-card override for its class,
+// else the charter's) and its cost estimate. A task with no command runs no agent and
+// has no model.
+func specModel(p *Project, ms methodassets.MethodSpec, lc methodassets.Lifecycle, item ActivityItem) SpecModel {
+	if ms.Command == "" {
+		return SpecModel{}
+	}
+	pa, paOK := scenarioCommittedModel[*PlanningAssumptions](p, KindPlanningAssumptions)
+	out := SpecModel{ID: ms.Model, Source: modelSourceCharter}
+	rate := DefaultRateSpec(ms.WorkerClass)
+	if paOK {
+		if card, ok := pa.RateCard[ms.WorkerClass]; ok {
+			rate = card
+			if card.ModelID != "" {
+				out.ID, out.Source = card.ModelID, modelSourceProjectOverride
+			}
+		}
+	}
+	rate.ModelID = out.ID
+	out.Estimate = taskEstimate(item.EffortDays, taskShare(lc, ms.Phase), rate)
+	return out
+}
+
+// taskShare is the task's share of its activity's effort: its phase's weight split evenly
+// over the phase's dispatch tasks. Zero when the phase has no weight or no dispatch task.
+func taskShare(lc methodassets.Lifecycle, phase string) float64 {
+	weight := 0
+	for _, ph := range lc.Phases {
+		if ph.ID == phase {
+			weight = ph.Weight
+		}
+	}
+	dispatches := 0
+	for _, t := range lc.Tasks {
+		if t.Phase == phase && t.Kind == methodassets.LifecycleTaskDispatch {
+			dispatches++
+		}
+	}
+	if weight <= 0 || dispatches == 0 {
+		return 0
+	}
+	return float64(weight) / 100 / float64(dispatches)
+}
+
+// taskEstimate prices days×share agent-days at the rate's throughput. Any missing input
+// (no effort, no share, no model) is a zero estimate, not a guess.
+func taskEstimate(days, share float64, rate WorkerRateSpec) SpecEstimate {
+	if days <= 0 || share <= 0 || rate.ModelID == "" {
+		return SpecEstimate{}
+	}
+	in := int64(days * share * rate.MegatokensInPerDay * 1e6)
+	out := int64(days * share * rate.MegatokensOutPerDay * 1e6)
+	price := priceOf(rate.ModelID)
+	cents := float64(in)/1e6*price.inCentsPerMTok + float64(out)/1e6*price.outCentsPerMTok
+	return SpecEstimate{TokensIn: in, TokensOut: out, USD: math.Round(cents) / 100}
+}
+
+// scopeAndChecks derives the task's edit scope and checks from its identity.
+func scopeAndChecks(p *Project, ms methodassets.MethodSpec, item ActivityItem) (SpecEditScope, []SpecCheck, error) {
+	stateOnly := SpecEditScope{StateOnly: true}
+	switch {
+	case ms.Command == "":
+		// A review a human decides: nothing to run, nothing to edit.
+		return stateOnly, nil, nil
+	case isDesignMode(ms.Mode):
+		return stateOnly, []SpecCheck{slotRuleCheck(ms.ArtifactKind)}, nil
+	case ms.Phase == "test_plan":
+		return stateOnly, []SpecCheck{{
+			ID: "rule:tp", Kind: CheckKindRule, Title: "Test plan rules (TP-*)",
+			Source: SpecCheckSource{RulePrefixes: []string{"TP-"}}, TimeoutSec: ruleCheckTimeoutSec,
+		}}, nil
+	case ms.Phase == "requirements" || ms.Phase == "detailed_design" || ms.Kind == methodassets.LifecycleTaskReview:
+		return stateOnly, []SpecCheck{projectRuleCheck()}, nil
+	}
+	contracts := componentContracts(p, item.ComponentID)
+	switch ms.Command {
+	case "service-construction", "service-integration":
+		pkgs := goPackagesOf(p, contracts)
+		if len(pkgs) == 0 {
+			break // no Go package to scope or check: the other-variant posture below
+		}
+		return serviceScopeAndChecks(p, ms.Command == "service-integration", item.ComponentID, pkgs, contracts)
+	case "frontend-construction", "frontend-integration":
+		return frontendScopeAndChecks(p, ms.Command == "frontend-integration", item.ComponentID, contracts)
+	}
+	scope := stateOnly
+	if pkgs := goPackagesOf(p, contracts); len(pkgs) > 0 {
+		scope = SpecEditScope{Components: []SpecScopeComponent{{ID: item.ComponentID, Paths: packageGlobs(p, pkgs)}}}
+	}
+	return scope, []SpecCheck{projectRuleCheck()}, nil
+}
+
+// slotRuleCheck is a design task's rule check: the rule families attributed to the slot
+// it writes, under that slot's severity policy. A kind that names no slot falls back to
+// the whole-project check.
+func slotRuleCheck(artifactKind string) SpecCheck {
+	if artifactKind == "" {
+		return projectRuleCheck()
+	}
+	kind, ok := ArtifactKindFromWireName(strings.ToLower(artifactKind[:1]) + artifactKind[1:])
+	if !ok {
+		return projectRuleCheck()
+	}
+	prefixes := RulePrefixesFor(kind)
+	scope := "whole project"
+	if len(prefixes) > 0 {
+		globs := make([]string, len(prefixes))
+		for i, pre := range prefixes {
+			globs[i] = pre + "*"
+		}
+		scope = strings.Join(globs, ", ")
+	}
+	return SpecCheck{
+		ID: CheckKindRule + ":" + kind.WireName(), Kind: CheckKindRule,
+		Title:      artifactKind + " rules (" + scope + ")",
+		Source:     SpecCheckSource{RulePrefixes: prefixes, RuleSlot: kind.WireName()},
+		TimeoutSec: ruleCheckTimeoutSec,
+	}
+}
+
+// projectRuleCheck is the whole-document rule check.
+func projectRuleCheck() SpecCheck {
+	return SpecCheck{ID: "rule:project", Kind: CheckKindRule, Title: "Method rules (whole project)", TimeoutSec: ruleCheckTimeoutSec}
+}
+
+// componentContracts names the contracts a component owns, in name order: the System's
+// contractKey for it plus every facet whose Component names that key (the gate's
+// gateContracts rule). A key with no recorded contract is still named, so its (empty)
+// scenario projection is what the checks show. None when the System gives no key.
+func componentContracts(p *Project, componentID string) []string {
+	key, ok := ContractKeyOf(p, componentID)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for name, sc := range p.ServiceContracts {
+		if name == key || sc.Component == key {
+			out = append(out, name)
+		}
+	}
+	if len(out) == 0 {
+		return []string{key}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// goPackagesOf is the contracts' Go packages (module-relative), sorted and unique.
+func goPackagesOf(p *Project, contracts []string) []string {
+	var out []string
+	for _, c := range contracts {
+		if pkg := p.ServiceContracts[c].GoPackage; pkg != "" {
+			out = append(out, pkg)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// inModule is a module-relative path as a repo-relative one.
+func inModule(p *Project, rel string) string {
+	if p.ModuleDir == "" {
+		return rel
+	}
+	return path.Join(p.ModuleDir, rel)
+}
+
+func packageGlobs(p *Project, pkgs []string) []string {
+	out := make([]string, len(pkgs))
+	for i, pkg := range pkgs {
+		out[i] = inModule(p, pkg) + "/**"
+	}
+	return out
+}
+
+func commandCheck(id, title string, argv []string, dir string, timeout int) SpecCheck {
+	return SpecCheck{ID: CheckKindCommand + ":" + id, Kind: CheckKindCommand, Title: title,
+		Source: SpecCheckSource{Argv: argv, Dir: dir}, TimeoutSec: timeout}
+}
+
+// serviceScopeAndChecks is a Go component's construction (integration adds the
+// composition root, the generated-tests drift check and the scenario checks).
+func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkgs, contracts []string) (SpecEditScope, []SpecCheck, error) {
+	scope := SpecEditScope{
+		Components: []SpecScopeComponent{{ID: componentID, Paths: packageGlobs(p, pkgs)}},
+		Extra:      []string{inModule(p, "go.mod"), inModule(p, "go.sum")},
+	}
+	dir := p.ModuleDir
+	trees := make([]string, len(pkgs))
+	for i, pkg := range pkgs {
+		trees[i] = "./" + pkg + "/..."
+	}
+	checks := []SpecCheck{
+		commandCheck("gofmt", "gofmt", []string{"sh", "-c", `test -z "$(gofmt -l ` + strings.Join(pkgs, " ") + `)"`}, dir, commandCheckTimeoutSec),
+		commandCheck("build", "go build", append([]string{"go", "build"}, trees...), dir, commandCheckTimeoutSec),
+		commandCheck("vet", "go vet", append([]string{"go", "vet"}, trees...), dir, commandCheckTimeoutSec),
+		commandCheck("lint", "golangci-lint", append([]string{"golangci-lint", "run"}, trees...), dir, lintCheckTimeoutSec),
+		commandCheck("arch", "Architecture gates (file layout, generated-only public surface)",
+			[]string{"go", "test", "-count=1", "-run", "^(TestFileLayout|TestGeneratedOnlyPublic)$", "./internal/"}, dir, commandCheckTimeoutSec),
+	}
+	if integration {
+		scope.Extra = append(scope.Extra, inModule(p, "cmd/server/hooks.go"))
+		checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec))
+		scen, err := scenarioChecks(p, contracts)
+		if err != nil {
+			return SpecEditScope{}, nil, err
+		}
+		checks = append(checks, scen...)
+	}
+	slices.Sort(scope.Extra)
+	sortChecks(checks)
+	return scope, checks, nil
+}
+
+// frontendScopeAndChecks is the web client's construction (integration adds the generated
+// UI-test hooks, the package manifests, the generated-tests drift check and the scenario
+// checks).
+func frontendScopeAndChecks(p *Project, integration bool, componentID string, contracts []string) (SpecEditScope, []SpecCheck, error) {
+	scope := SpecEditScope{Components: []SpecScopeComponent{{ID: componentID, Paths: []string{"webApp/src/**"}}}}
+	checks := []SpecCheck{
+		commandCheck("typecheck", "TypeScript typecheck", []string{"npm", "run", "typecheck"}, "webApp", commandCheckTimeoutSec),
+		commandCheck("lint", "ESLint", []string{"npx", "eslint", "src"}, "webApp", commandCheckTimeoutSec),
+	}
+	if integration {
+		for _, c := range contracts {
+			scope.Extra = append(scope.Extra, "uitests/generated/"+c+"/hooks.ts")
+		}
+		scope.Extra = append(scope.Extra, "webApp/package.json", "webApp/package-lock.json")
+		checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, p.ModuleDir, commandCheckTimeoutSec))
+		scen, err := scenarioChecks(p, contracts)
+		if err != nil {
+			return SpecEditScope{}, nil, err
+		}
+		checks = append(checks, scen...)
+	}
+	slices.Sort(scope.Extra)
+	sortChecks(checks)
+	return scope, checks, nil
+}
+
+// scenarioChecks is one check per scenario projected onto each contract.
+func scenarioChecks(p *Project, contracts []string) ([]SpecCheck, error) {
+	var out []SpecCheck
+	for _, contract := range contracts {
+		scs, err := ComponentScenarios(p, contract)
+		if err != nil {
+			return nil, fmt.Errorf("projectstate.TaskSpecFor: scenarios of %s: %w", contract, err)
+		}
+		for _, sc := range scs {
+			out = append(out, SpecCheck{
+				ID: CheckKindScenario + ":" + contract + ":" + sc.ID, Kind: CheckKindScenario, Title: sc.Title,
+				Source:     SpecCheckSource{Scenario: sc.ID, Contract: contract, UseCase: sc.UseCase},
+				TimeoutSec: scenarioCheckTimeoutSec,
+			})
+		}
+	}
+	return out, nil
+}
+
+// checkKindOrder ranks the check kinds: rule, command, scenario.
+var checkKindOrder = map[string]int{CheckKindRule: 0, CheckKindCommand: 1, CheckKindScenario: 2}
+
+// sortChecks orders checks by kind (rule, command, scenario), then id.
+func sortChecks(checks []SpecCheck) {
+	slices.SortStableFunc(checks, func(a, b SpecCheck) int {
+		if d := checkKindOrder[a.Kind] - checkKindOrder[b.Kind]; d != 0 {
+			return d
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
 }

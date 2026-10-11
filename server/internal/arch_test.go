@@ -975,6 +975,50 @@ var encapsulationAllowlistData = map[string][]string{
 		// side-effect-free function the MCP binary shares with the server read path).
 		"ScenarioInputOf",
 		"ComponentScenarios",
+		// AGENT TASK SPEC (2026-10-11 spec §4, Task B2). TaskSpecFor is the ONE resolver of
+		// a lifecycle task's agent configuration (identity, model + estimate, prompt, tools,
+		// edit scope, typed checks, hash) — a total, side-effect-free function of the
+		// embedded method assets and the given *Project, the same category as
+		// ComponentScenarios above. The delivery Manager (taskSpec view, B5) and
+		// cmd/aiarch-state-mcp (task-spec / run_checks, B4) both call it, so the panel and
+		// the job hash the identical spec. The Spec* value types and CheckKind* consts are
+		// its result shape.
+		"TaskSpecFor",
+		"TaskSpec",
+		"TaskSpec.ComputeHash",
+		"SpecIdentity",
+		"SpecModel",
+		"SpecEstimate",
+		"SpecPrompt",
+		"SpecTools",
+		"SpecEditScope",
+		"SpecScopeComponent",
+		"SpecCheck",
+		"SpecCheckSource",
+		"CheckKindRule",
+		"CheckKindCommand",
+		"CheckKindScenario",
+		// RULE ATTRIBUTION REGISTRY (moved from cmd/aiarch-state-mcp/staleness.go, Task B2):
+		// the rule-id-prefix → owning-slot table. cmd/aiarch-state-mcp's slot-scoped severity
+		// policy reads AttributeRule; TaskSpecFor's slot rule checks read RulePrefixesFor —
+		// one registry, two consumers. Pure lookups over projectstate's own ArtifactKind.
+		"RuleAttribution",
+		"AttribNone",
+		"AttribSlot",
+		"AttribTesting",
+		"AttribActivityExecution",
+		"AttributeRule",
+		"RulePrefixesFor",
+		// AI-AGENT PRICING (moved from the delivery Manager's airates block, Task B2): the
+		// class's charter-model default rate spec and the Claude API rate math. The delivery
+		// Manager's SDP cost derivation and TaskSpecFor's per-task estimate price tokens
+		// through the same two functions. Pure + deterministic over WorkerRateSpec/Money.
+		"DefaultRateSpec",
+		"RateForSpec",
+		// ContractKeyOf: the committed System's contractKey for a component id — the lookup
+		// the delivery Manager's testing gate and review-floor read (and TaskSpecFor's edit
+		// scope) share. Same category as ComponentScenarios.
+		"ContractKeyOf",
 		// INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
 		// ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
 		// needs an explicit entry like the System model types) + its hand-written accessors.

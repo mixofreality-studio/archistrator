@@ -5358,12 +5358,12 @@ func (wf *csWorkflows) loadReviewSnapshot(
 	//
 	// The activity names its component by the System's id ("review-engine") while
 	// .serviceContracts is keyed by the component's contractKey ("reviewEngine"), so the
-	// contract is found through the System (componentContractKey). An execution that
+	// contract is found through the System (projectstate.ContractKeyOf). An execution that
 	// recorded no changeFloorByContractKey marker looked the contract up under the id —
 	// which found none, so its floor read untouched — and replays that read.
 	floorKey := in.Activity.ComponentID
 	if workflow.GetVersion(ctx, changeFloorByContractKey, workflow.DefaultVersion, 1) >= 1 {
-		floorKey, _ = componentContractKey(snap, in.Activity.ComponentID)
+		floorKey, _ = projectstate.ContractKeyOf(&snap, in.Activity.ComponentID)
 	}
 	state.floorTouched = projectstate.ContractTouchesReviewFloor(snap.ServiceContracts[floorKey])
 	return reviewPolicy, snap, nil

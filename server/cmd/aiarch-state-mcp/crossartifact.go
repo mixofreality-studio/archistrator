@@ -26,7 +26,7 @@ package main
 //	                                 documented default rate spec — listed so the
 //	                                 silent default is at least visible.
 //
-// Slot-scoped attribution: PA-* → planningAssumptions (ruleSlotAttributionPrefixes), so
+// Slot-scoped attribution: PA-* → planningAssumptions (projectstate's rule attribution table), so
 // a session amending a DIFFERENT slot is never deadlocked by them.
 
 import (
@@ -51,7 +51,7 @@ import (
 // proj yields the same bytes methodcheck.ValidateProjectJSON validated at this seam,
 // so the live tier sees exactly the drafted state. DH-* findings then flow through
 // the same staleness / slot-scope severity policies below (DH-* is attributed to the
-// systemDesign slot in ruleSlotAttributionPrefixes), so the in-loop authoring gate,
+// systemDesign slot in projectstate's rule attribution table), so the in-loop authoring gate,
 // the construct gate, and the CI `validate` subcommand share one design-health verdict.
 func appendAppSideCrossArtifactFindings(proj projectstate.Project, findings []methodcheck.Finding) []methodcheck.Finding {
 	findings = append(findings, rateCardFindings(proj)...)

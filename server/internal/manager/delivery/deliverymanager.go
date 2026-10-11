@@ -5278,7 +5278,7 @@ const (
 //	                     constant) — the overhead that accrues per calendar day
 //	                     regardless of which agents are active, and what makes a
 //	                     subcritical option demonstrably costlier.
-//	RateCard             defaultRateSpec per class — the SAME helper deriveClassRates
+//	RateCard             projectstate.DefaultRateSpec per class — the SAME helper deriveClassRates
 //	                     already falls back to for a class the authored card omitted. So
 //	                     the whole-slot default is the per-class rule applied to every
 //	                     class, not a second rule that can drift from it.
@@ -5318,7 +5318,7 @@ func defaultPlanningAssumptions(al projectstate.ActivityList) (projectstate.Plan
 	roles := workerClassesOf(al)
 	card := make(map[string]projectstate.WorkerRateSpec, len(roles))
 	for _, c := range roles {
-		card[c] = defaultRateSpec(c)
+		card[c] = projectstate.DefaultRateSpec(c)
 	}
 	pa := projectstate.PlanningAssumptions{
 		Resources:           roles,
@@ -5429,7 +5429,7 @@ func resolvePlanningAssumptions(
 //
 // THE RATE CARD, THE INDIRECT RATE AND THE RESOURCES were missed by the first pass, and each
 // silently priced the plan wrong rather than refusing: an EMPTY rate card makes
-// deriveClassRates fall back to defaultRateSpec per class WITHOUT the fill being recorded, so
+// deriveClassRates fall back to projectstate.DefaultRateSpec per class WITHOUT the fill being recorded, so
 // the M0 screen claims the founder's own rates; a ZERO IndirectDailyRate makes indirectDailyRateOf
 // substitute its own default, again unrecorded; and an empty Resources list is the roster every
 // option's staffing is read against. The rule is the same one the four families above follow —
@@ -5445,7 +5445,7 @@ func resolveCostFamilies(
 	if len(pa.RateCard) == 0 {
 		card := make(map[string]projectstate.WorkerRateSpec, len(roles))
 		for _, c := range roles {
-			card[c] = defaultRateSpec(c)
+			card[c] = projectstate.DefaultRateSpec(c)
 		}
 		pa.RateCard = card
 		defaulted = append(defaulted, assumedRates)
@@ -12227,81 +12227,9 @@ func wrongModelType(want projectstate.ArtifactKind, got projectstate.ArtifactMod
 //
 // Pure + deterministic (no clock, no RNG, no I/O) so the SDP assembly stays replay-safe.
 
-// modelPrice is the Claude API price for one model, in USD MINOR UNITS (cents) per
-// megatoken (MTok). Source: Anthropic price list (F11b) — fable $10/$50, opus $5/$25,
-// sonnet $3/$15, haiku $1/$5 per MTok in/out.
-type modelPrice struct {
-	inCentsPerMTok  float64
-	outCentsPerMTok float64
-}
-
-// apiPricing is the per-model Claude API price list, keyed by the frontmatter model id.
-var apiPricing = map[string]modelPrice{
-	"fable":  {inCentsPerMTok: 1000, outCentsPerMTok: 5000}, // $10 in / $50 out
-	"opus":   {inCentsPerMTok: 500, outCentsPerMTok: 2500},  // $5 in / $25 out
-	"sonnet": {inCentsPerMTok: 300, outCentsPerMTok: 1500},  // $3 in / $15 out
-	"haiku":  {inCentsPerMTok: 100, outCentsPerMTok: 500},   // $1 in / $5 out
-}
-
-// priceFamily normalizes a model id to its apiPricing family key. The rate card's
-// modelId is authored as a FULL API id ("claude-opus-4-8", "claude-haiku-4-5-20251001")
-// while apiPricing is keyed by short family names — the exact-key lookup silently
-// priced EVERY full id as sonnet (found live on gtdapp 2026-07-11: the opus architect
-// class costed at sonnet rates). Substring match on the lowercased id; unknown ids
-// keep the documented sonnet fallback via the caller's miss branch.
-func priceFamily(modelID string) string {
-	id := strings.ToLower(modelID)
-	for _, fam := range [...]string{"fable", "opus", "sonnet", "haiku"} {
-		if strings.Contains(id, fam) {
-			return fam
-		}
-	}
-	return id
-}
-
-// roleModel maps each worker CLASS (agent role) to the model it runs (F11c), taken
-// verbatim from .claude/agents/*.md frontmatter. The phantom classes (architect,
-// devops-agent, web-engineer-agent) are deliberately NOT here.
-var roleModel = map[string]string{
-	"system-architect": "fable",
-	"project-manager":  "fable",
-	"senior-developer": "opus",
-	"product-manager":  "opus",
-	"ui-designer":      "opus",
-	"junior-developer": "sonnet",
-	"qa-engineer":      "sonnet",
-	"test-engineer":    "sonnet",
-	"software-tester":  "sonnet",
-	"ux-reviewer":      "sonnet",
-}
-
-// Default token throughput per agent-day (F11a). Kept uniform across classes so the cost
-// SPREAD between classes comes purely from the model tier (fable roles are the most
-// expensive per day, sonnet roles the cheapest). Tunable per-class via
-// PlanningAssumptions.RateCard once the state pass authors it.
-const (
-	defaultMTokInPerDay  = 2.0 // ~2M input tokens / agent-day (context + tool results)
-	defaultMTokOutPerDay = 0.5 // ~0.5M output tokens / agent-day (generated code + notes)
-)
-
-// defaultModelForClass returns the model a class runs, defaulting an UNKNOWN class (e.g.
-// a stale "architect" fixture) to sonnet so rate derivation never fails a valid option.
-func defaultModelForClass(class string) string {
-	if m, ok := roleModel[class]; ok {
-		return m
-	}
-	return "sonnet"
-}
-
-// defaultRateSpec returns the default AI rate spec for a class (uniform throughput on the
-// class's mapped model).
-func defaultRateSpec(class string) projectstate.WorkerRateSpec {
-	return projectstate.WorkerRateSpec{
-		ModelID:             defaultModelForClass(class),
-		MegatokensInPerDay:  defaultMTokInPerDay,
-		MegatokensOutPerDay: defaultMTokOutPerDay,
-	}
-}
+// The price list, the class→model default (the charter's model: line) and the rate math
+// live in projectstate (DefaultRateSpec / RateForSpec), where the agent task spec's
+// per-task cost estimate prices tokens the same way.
 
 // deriveClassRates computes the per-day build-cost rate for every worker class used by
 // the option (F11b). It prefers the authored PlanningAssumptions.RateCard entry, falling
@@ -12313,23 +12241,11 @@ func deriveClassRates(pa projectstate.PlanningAssumptions, classes []string) map
 	for _, class := range classes {
 		spec, ok := pa.RateCard[class]
 		if !ok || spec.ModelID == "" {
-			spec = defaultRateSpec(class)
+			spec = projectstate.DefaultRateSpec(class)
 		}
-		rates[class] = rateForSpec(spec)
+		rates[class] = projectstate.RateForSpec(spec)
 	}
 	return rates
-}
-
-// rateForSpec turns a rate spec into a USD/day Money via the Claude API price list. An
-// unknown model id falls back to sonnet pricing (never panics). Deterministic integer
-// truncation (no rounding-mode ambiguity) matches the estimationEngine's cost math.
-func rateForSpec(spec projectstate.WorkerRateSpec) projectstate.Money {
-	price, ok := apiPricing[priceFamily(spec.ModelID)]
-	if !ok {
-		price = apiPricing["sonnet"]
-	}
-	cents := spec.MegatokensInPerDay*price.inCentsPerMTok + spec.MegatokensOutPerDay*price.outCentsPerMTok
-	return projectstate.Money{MinorUnits: int64(cents), Currency: "USD"}
 }
 
 // defaultIndirectDailyRate is the overhead burn per calendar day used when
@@ -14346,14 +14262,14 @@ func selectTestRun(proj *projectstate.Project, activityID, runID string) (projec
 
 // gateContracts names the contracts the activity's component owns, in name order. The
 // activity names its component by the System's id ("review-engine"); the System resolves it
-// to its contractKey (componentContractKey), and the component owns the contract under that
+// to its contractKey (projectstate.ContractKeyOf), and the component owns the contract under that
 // key plus every facet whose Component names it (projectStateAccess's four). Every name is
 // matched exactly — the key every reader of .serviceContracts and every recorded TestRun uses
 // (record-test-run records a run per contract, under the contract's own name), so there is
 // no spelling to fold. ok is false when the System does not resolve the component to a key:
 // there is then no contract the gate could judge, and the gate holds saying so.
 func gateContracts(proj *projectstate.Project, componentID string) (contracts []string, ok bool) {
-	key, ok := componentContractKey(*proj, componentID)
+	key, ok := projectstate.ContractKeyOf(proj, componentID)
 	if !ok {
 		return nil, false
 	}
@@ -14369,17 +14285,6 @@ func gateContracts(proj *projectstate.Project, componentID string) (contracts []
 	}
 	slices.Sort(contracts)
 	return contracts, true
-}
-
-// componentContractKey is the .serviceContracts key of the committed System's component
-// componentID — its contractKey — and false when the System is not committed, does not name
-// the component, or gives it no key.
-func componentContractKey(proj projectstate.Project, componentID string) (string, bool) {
-	c := lookupComponent(proj, componentID)
-	if c == nil || c.ContractKey == nil || *c.ContractKey == "" {
-		return "", false
-	}
-	return *c.ContractKey, true
 }
 
 // selectContractRun is the LATEST run the activity recorded for contract (selectTestRun's
