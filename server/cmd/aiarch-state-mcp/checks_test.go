@@ -245,11 +245,15 @@ func TestScenarioCheckWebContract(t *testing.T) {
 }
 
 func TestFailedOnlySelectsFailuresAndTimeouts(t *testing.T) {
-	all := []projectstate.SpecCheck{{ID: "a"}, {ID: "b"}, {ID: "c"}}
-	prev := []CheckResult{{CheckId: "a", Status: "pass"}, {CheckId: "b", Status: "fail"}, {CheckId: "c", Status: "timeout"}}
-	got := failedOnly(prev, all)
-	if len(got) != 2 || got[0].ID != "b" || got[1].ID != "c" {
-		t.Fatalf("%v", got)
+	all := []projectstate.SpecCheck{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}}
+	prev := []CheckResult{{CheckId: "a", Status: "pass"}, {CheckId: "b", Status: "fail"}, {CheckId: "c", Status: "timeout"}, {CheckId: "d", Status: "skip"}}
+	var ids []string
+	for _, c := range failedOnly(prev, all) {
+		ids = append(ids, c.ID)
+	}
+	// R24: a skip is not a pass, so it re-runs; a check with no result runs too.
+	if !slices.Equal(ids, []string{"b", "c", "d", "e"}) {
+		t.Fatalf("%v", ids)
 	}
 }
 

@@ -113,14 +113,15 @@ func (r checkRunner) Run(ctx context.Context, checks []projectstate.SpecCheck) [
 				results[idx[k]] = res
 			}
 		default:
-			results[i] = r.finish(c, checkFail, 0, []byte(fmt.Sprintf("unknown check kind %q", c.Kind)))
+			results[i] = r.finish(c, checkFail, 0, fmt.Appendf(nil, "unknown check kind %q", c.Kind))
 		}
 	}
 	return results
 }
 
 // failedOnly is the checks of all whose previous result was not a pass (fail, timeout,
-// or no result at all), in all's order. A skip is not re-run: nothing about it changed.
+// skip, or no result at all), in all's order. A skip is not a pass anywhere (R24), so it
+// re-runs like any other red check.
 func failedOnly(prev []CheckResult, all []projectstate.SpecCheck) []projectstate.SpecCheck {
 	status := make(map[string]string, len(prev))
 	for _, p := range prev {
@@ -128,7 +129,7 @@ func failedOnly(prev []CheckResult, all []projectstate.SpecCheck) []projectstate
 	}
 	var out []projectstate.SpecCheck
 	for _, c := range all {
-		if s := status[c.ID]; s != checkPass && s != checkSkip {
+		if status[c.ID] != checkPass {
 			out = append(out, c)
 		}
 	}
@@ -214,7 +215,7 @@ func (r checkRunner) runCommand(ctx context.Context, c projectstate.SpecCheck) C
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		status = checkTimeout
-		out = append(out, []byte(fmt.Sprintf("\n[timed out after %ds]\n", int(timeoutOf(c, defaultCheckTimeoutSec)/time.Second)))...)
+		out = append(out, fmt.Appendf(nil, "\n[timed out after %ds]\n", int(timeoutOf(c, defaultCheckTimeoutSec)/time.Second))...)
 	case err != nil:
 		status = checkFail
 		out = append(out, []byte("\n["+err.Error()+"]\n")...)
@@ -455,7 +456,7 @@ func webScenarioGrep(ids []string) string {
 // `go test -json` stream (the scenario host runs a scenario body under t.Run).
 func goTestOutputFor(stream []byte, names []string) string {
 	var out strings.Builder
-	for _, line := range bytes.Split(stream, []byte("\n")) {
+	for line := range bytes.SplitSeq(stream, []byte("\n")) {
 		var ev struct {
 			Action, Test, Output string
 		}

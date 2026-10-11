@@ -45,6 +45,10 @@ server/cmd/server/webappdist/
 # check logs and results.json from the agent's own pre-flight runs, never committed.
 /.aiarch/tmp/
 
+# The check runner's frontend-integration copy of the Playwright results
+# (server/cmd/aiarch-state-mcp/checks.go): the gate artifact uploads it, nothing commits it.
+/test-results/
+
 # Git worktrees created by the harness (EnterWorktree) and by hand. Scratch
 # checkouts of this same repo — committing one would nest the entire tree.
 /.claude/worktrees/

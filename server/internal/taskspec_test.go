@@ -503,3 +503,33 @@ func checkSortKey(c projectstate.SpecCheck) string {
 	order := map[string]string{projectstate.CheckKindRule: "0", projectstate.CheckKindCommand: "1", projectstate.CheckKindScenario: "2"}
 	return order[c.Kind] + c.ID
 }
+
+// TestEditScopeGlobGrammar pins the one glob grammar TaskSpecFor emits and the
+// edit-scope gate matches (R25): "**", "<dir>/**", or a literal repo-relative path.
+func TestEditScopeGlobGrammar(t *testing.T) {
+	for _, g := range []string{"**", "webApp/src/**", "server/go.mod", "server/cmd/server/hooks.go"} {
+		if !projectstate.ValidEditScopeGlob(g) {
+			t.Errorf("%q must be in the grammar", g)
+		}
+	}
+	for _, g := range []string{"", "server/*.go", "server/**/x.go", "a?/**", "a[b]/**", "/abs/**", "dir/", "../x/**", "**/x"} {
+		if projectstate.ValidEditScopeGlob(g) {
+			t.Errorf("%q must be outside the grammar", g)
+		}
+	}
+}
+
+// TestTaskSpecForRefusesAGlobOutsideTheGrammar: a derived scope glob the gate could not
+// match exactly (here, a contract's goPackage carrying a wildcard) fails the resolve.
+func TestTaskSpecForRefusesAGlobOutsideTheGrammar(t *testing.T) {
+	p := ownProject(t)
+	sc := p.ServiceContracts["agenticJobAccess"]
+	if sc.GoPackage == "" {
+		t.Fatal("fixture: agenticJobAccess has no goPackage")
+	}
+	sc.GoPackage = "internal/resourceaccess/agentic*"
+	p.ServiceContracts["agenticJobAccess"] = sc
+	if _, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "construction"); err == nil || !strings.Contains(err.Error(), "edit-scope glob") {
+		t.Fatalf("want an edit-scope glob error, got %v", err)
+	}
+}

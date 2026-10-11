@@ -11017,9 +11017,40 @@ func TaskSpecFor(p *Project, activityID, taskID string) (TaskSpec, error) {
 	if err != nil {
 		return TaskSpec{}, err
 	}
+	if err := validateEditScope(s.EditScope); err != nil {
+		return TaskSpec{}, fmt.Errorf("projectstate.TaskSpecFor: %s/%s: %w", activityID, taskID, err)
+	}
 	s = s.normalized()
 	s.Hash = s.ComputeHash()
 	return s, nil
+}
+
+// ValidEditScopeGlob reports whether g is in the edit-scope glob grammar, the one the
+// edit-scope gate matches: exactly "**" (every path), "<dir>/**" (every path under a
+// literal dir), or a literal repo-relative path. No other wildcard is admitted, so the
+// gate never has to guess what a glob means.
+func ValidEditScopeGlob(g string) bool {
+	if g == anyPath {
+		return true
+	}
+	lit, _ := strings.CutSuffix(g, "/**")
+	return lit != "" && !strings.ContainsAny(lit, "*?[\\") && !strings.HasPrefix(lit, "/") &&
+		!strings.HasSuffix(lit, "/") && !slices.Contains(strings.Split(lit, "/"), "..")
+}
+
+// validateEditScope refuses a scope holding a glob outside the edit-scope grammar.
+func validateEditScope(scope SpecEditScope) error {
+	var globs []string
+	for _, c := range scope.Components {
+		globs = append(globs, c.Paths...)
+	}
+	globs = append(globs, scope.Extra...)
+	for _, g := range globs {
+		if !ValidEditScopeGlob(g) {
+			return fmt.Errorf("edit-scope glob %q is not \"**\", \"<dir>/**\" or a literal path", g)
+		}
+	}
+	return nil
 }
 
 // ComputeHash is the sha256 (hex) of the spec's canonical JSON with Hash cleared. Field
