@@ -30,6 +30,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
@@ -58,8 +59,10 @@ const (
 	// batchSlackSec is added to a batch's summed caps for the process context: build,
 	// browser start and the index flush happen outside any one scenario.
 	batchSlackSec = 120
+	// maxFallbackLog caps how much of a batch's output a scenario log falls back to.
+	maxFallbackLog = 64 << 10
 	// waitDelay bounds how long a cancelled process may keep its output pipes open
-	// (go test's test binary outlives a killed `go`).
+	// (a straggler that left the killed process group).
 	waitDelay = 10 * time.Second
 	// noVerdict is the log of a selected scenario its run recorded nothing for.
 	noVerdict = "no verdict recorded: the run left no results.json entry for this scenario"
@@ -278,7 +281,7 @@ func newScenarioBatch(r checkRunner, proj projectstate.Project, contract string,
 		b.indexDir = filepath.Join(b.dir, "test-results", contract)
 		b.refBase = filepath.ToSlash(filepath.Join(proj.ModuleDir, "test-results", contract))
 		b.argv = []string{"go", "test", "-p", "1", "-count=1", "-timeout", strconv.Itoa(sumSec+goTestSlackSec) + "s",
-			"./" + sc.GoPackage + "/", "-run", goScenarioRunRegex(ids), "-json"}
+			"./" + sc.GoPackage + "/", "-run", goScenarioRunRegex(b.iface, ids), "-json"}
 		b.env = commandEnv("go", "AIARCH_SCENARIO_TIMEOUT="+strconv.Itoa(maxSec)+"s")
 		return b
 	}
@@ -351,7 +354,7 @@ func (r checkRunner) scenarioResult(b scenarioBatch, c projectstate.SpecCheck, i
 		if runErr != nil {
 			msg += "[" + runErr.Error() + "]\n"
 		}
-		return r.finish(c, checkFail, 0, append([]byte(msg+"\n"), out...))
+		return r.finish(c, checkFail, 0, append([]byte(msg+"\n"), logTail(out)...))
 	}
 	var log string
 	if b.goTest {
@@ -361,7 +364,7 @@ func (r checkRunner) scenarioResult(b scenarioBatch, c projectstate.SpecCheck, i
 		log = v.Stdout + v.Stderr
 	}
 	if log == "" {
-		log = string(out)
+		log = string(logTail(out))
 	}
 	res := r.finish(c, scenarioStatus(v.Status), v.DurationMs, []byte(log))
 	if v.VideoRef != "" {
@@ -422,23 +425,30 @@ func goScenarioTestNames(iface, id string) []string {
 	return []string{"TestScenario_" + testIdent(id), "TestScenario_" + testIdent(iface) + "_" + testIdent(id)}
 }
 
-// goScenarioRunRegex selects the scenarios' tests under either spelling.
-func goScenarioRunRegex(ids []string) string {
+// goScenarioRunRegex selects exactly the scenarios' tests under either spelling of
+// their names (plain, or with the contract's interface infix), so an id never selects
+// another id it is a suffix of.
+func goScenarioRunRegex(iface string, ids []string) string {
 	idents := make([]string, len(ids))
 	for i, id := range ids {
 		idents[i] = testIdent(id)
 	}
-	return "^TestScenario(_[A-Za-z0-9]+)?_(" + strings.Join(idents, "|") + ")$"
+	alts := strings.Join(idents, "|")
+	return "^(TestScenario_(" + alts + ")|TestScenario_" + testIdent(iface) + "_(" + alts + "))$"
 }
 
-// webScenarioGrep selects the scenarios' Playwright tests, whose titles are
-// "<id> — <title>"; the separator keeps id P1 from selecting P10.
+// webScenarioGrep selects the scenarios' Playwright tests. Playwright matches --grep
+// against the test's title path joined with spaces ("<project> <file> <title> <tags>",
+// an empty project leaving a bare separator), and a generated title is
+// "<id> — <title>": the id is anchored on the left by the space before the title (or
+// the subject's start) and on the right by the " — " separator, so x-P1 selects neither
+// y-x-P1 nor x-P10.
 func webScenarioGrep(ids []string) string {
 	q := make([]string, len(ids))
 	for i, id := range ids {
 		q[i] = regexp.QuoteMeta(id)
 	}
-	return "(" + strings.Join(q, "|") + ") — "
+	return "(?:^|\\s)(" + strings.Join(q, "|") + ") — "
 }
 
 // goTestOutputFor is the output of the named tests and their subtests out of a
@@ -602,13 +612,24 @@ func timeoutOf(c projectstate.SpecCheck, def int) time.Duration {
 
 func ptr[T any](v T) *T { return &v }
 
-// execCommand runs argv in dir with env and returns its combined output. A cancelled
-// context kills the process; WaitDelay stops a surviving child (the test binary under
-// `go test`) from holding the output pipes open past it.
+// logTail is at most the last maxFallbackLog bytes of out.
+func logTail(out []byte) []byte {
+	if len(out) <= maxFallbackLog {
+		return out
+	}
+	return append([]byte("[… output truncated to its last 64 KB]\n"), out[len(out)-maxFallbackLog:]...)
+}
+
+// execCommand runs argv in dir with env and returns its combined output. The process
+// leads its own process group and a cancelled context kills the whole group, so the
+// test binary under `go test`, make's children and Playwright's workers and browsers
+// die with it; WaitDelay still bounds how long a straggler can hold the output pipes.
 func execCommand(ctx context.Context, dir string, env []string, argv ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = env
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = waitDelay
 	return cmd.CombinedOutput()
 }

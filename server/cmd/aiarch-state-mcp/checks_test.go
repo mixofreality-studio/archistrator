@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -145,7 +147,7 @@ func TestScenarioCheckMissingVerdictFails(t *testing.T) {
 		t.Fatalf("missing verdict must say so, got %q", logB)
 	}
 	want := []string{"go", "test", "-p", "1", "-count=1", "-timeout", "120s", "./internal/resourceaccess/billingstate/",
-		"-run", "^TestScenario(_[A-Za-z0-9]+)?_(bill_P1|bill_P2)$", "-json"}
+		"-run", "^(TestScenario_(bill_P1|bill_P2)|TestScenario_BillingStateAccess_(bill_P1|bill_P2))$", "-json"}
 	if !slices.Equal(argvSeen, want) {
 		t.Fatalf("argv\n got %q\nwant %q", argvSeen, want)
 	}
@@ -222,7 +224,7 @@ func TestScenarioCheckWebContract(t *testing.T) {
 	res := r.Run(context.Background(), []projectstate.SpecCheck{
 		{ID: "scenario:webClient:s-P1", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "webClient", Scenario: "s-P1"}, TimeoutSec: 60},
 	})
-	want := []string{"npx", "playwright", "test", "-c", "generated/webClient/playwright.config.gen.ts", "--grep", `(s-P1) — `}
+	want := []string{"npx", "playwright", "test", "-c", "generated/webClient/playwright.config.gen.ts", "--grep", `(?:^|\s)(s-P1) — `}
 	if !slices.Equal(argvSeen, want) || dirSeen != filepath.Join(root, "uitests") {
 		t.Fatalf("argv %q in %s", argvSeen, dirSeen)
 	}
@@ -273,10 +275,96 @@ func TestScenarioIdentMatchesTestgen(t *testing.T) {
 		if !found {
 			t.Fatalf("no generated test in %s is named any of %v", c.file, goScenarioTestNames(c.iface, c.id))
 		}
-		re := regexp.MustCompile(goScenarioRunRegex([]string{c.id}))
+		re := regexp.MustCompile(goScenarioRunRegex(c.iface, []string{c.id}))
 		if !re.MatchString(goScenarioTestNames(c.iface, c.id)[0]) || !re.MatchString(goScenarioTestNames(c.iface, c.id)[1]) {
 			t.Fatalf("-run regex %s must select both spellings", re)
 		}
+	}
+}
+
+// TestGoScenarioRunRegexExact: an id never selects a test whose id it is a suffix or
+// prefix of, under either spelling.
+func TestGoScenarioRunRegexExact(t *testing.T) {
+	re := regexp.MustCompile(goScenarioRunRegex("BillingStateAccess", []string{"P1"}))
+	for _, name := range []string{"TestScenario_P1", "TestScenario_BillingStateAccess_P1"} {
+		if !re.MatchString(name) {
+			t.Fatalf("%s must select %s", re, name)
+		}
+	}
+	for _, name := range []string{"TestScenario_x_P1", "TestScenario_P10", "TestScenario_Other_P1", "TestScenario_BillingStateAccess_x_P1"} {
+		if re.MatchString(name) {
+			t.Fatalf("%s must not select %s", re, name)
+		}
+	}
+}
+
+// TestWebScenarioGrepAnchored runs the grep the way Playwright does: against the title
+// path joined with spaces (an empty project name, the spec file, the "<id> — <title>"
+// title). Go's regexp agrees with JS on this pattern's syntax.
+func TestWebScenarioGrepAnchored(t *testing.T) {
+	subject := func(id string) string { return "  " + id + ".spec.gen.ts " + id + " — Bill the user" }
+	re := regexp.MustCompile("(?i)" + webScenarioGrep([]string{"x-P1"}))
+	if !re.MatchString(subject("x-P1")) {
+		t.Fatalf("%s must select x-P1", re)
+	}
+	for _, other := range []string{"y-x-P1", "x-P10"} {
+		if re.MatchString(subject(other)) {
+			t.Fatalf("%s must not select %s", re, other)
+		}
+	}
+}
+
+// TestScenarioFallbackLogCapped: a scenario log that falls back to the batch output
+// keeps only its last 64 KB.
+func TestScenarioFallbackLogCapped(t *testing.T) {
+	root := repoWithProject(t, goContractProject())
+	big := strings.Repeat("x", 200<<10) + "THE-END"
+	r := checkRunner{root: root, outDir: t.TempDir(), now: time.Now,
+		exec: func(context.Context, string, []string, ...string) ([]byte, error) {
+			return []byte(big), errors.New("exit status 2")
+		}}
+	r.Run(context.Background(), []projectstate.SpecCheck{
+		{ID: "scenario:billingStateAccess:a", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "a"}, TimeoutSec: 5},
+	})
+	b, err := os.ReadFile(filepath.Join(r.outDir, "checks", "scenario_billingStateAccess_a.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) > 65<<10 || !strings.HasSuffix(string(b), "THE-END") || !strings.Contains(string(b), "no verdict recorded") {
+		t.Fatalf("log of %d bytes must be capped near 64 KB, keep the tail and the reason", len(b))
+	}
+}
+
+// TestRunCommandCheckKillsProcessGroup: a timed-out command's grandchildren die with it.
+func TestRunCommandCheckKillsProcessGroup(t *testing.T) {
+	dir := t.TempDir()
+	pidfile := filepath.Join(dir, "pid")
+	r := checkRunner{root: dir, outDir: t.TempDir()}
+	res := r.Run(context.Background(), []projectstate.SpecCheck{
+		{ID: "command:tree", Kind: "command", Source: projectstate.SpecCheckSource{Argv: []string{"sh", "-c", "sleep 30 & echo $! > " + pidfile + "; wait"}}, TimeoutSec: 1},
+	})
+	if res[0].Status != "timeout" {
+		t.Fatalf("status %s", res[0].Status)
+	}
+	raw, err := os.ReadFile(pidfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := syscall.Kill(pid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			t.Fatalf("grandchild %d survived the timeout (kill -0: %v)", pid, err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
