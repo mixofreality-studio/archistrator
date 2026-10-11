@@ -284,3 +284,43 @@ Committed `.activityList` / `.network` / solution slots contain N-STP and N-IT t
 - Boundary-value generation from param schemas (`minimum`/`maxLength`) as additional deterministic cases.
 - Other-language emitters beyond Go and TypeScript.
 - Retention: GitHub artifacts expire (default 90 days); a run whose artifact is gone renders as "expired" and cannot re-pass the gate without a re-run.
+
+## 11. Amendment A (2026-10-03): per-component IOAD, op resolution, entries, alts
+
+Measured on the first migration run (report `docs/bugs/2026-10-02-dct-migration-report.md` on the branch): 60 scenarios, 150 unreached ops, Engines/RA received zero stimuli. The data was complete; §2.2–§2.4 under-specified the projection. Rulings (founder, 2026-10-03):
+
+| # | Ruling |
+|---|---|
+| A1 | **Each component's callers are its actors.** For every node on a path, every `TraceCall` of that node's `CallStep` whose `To` is a component yields a stimulus into `To`, in call order — whether `From` is an actor or another component. `InputEv.Kind` is the node kind for actor-originated calls and `"call"` for component-originated ones; `InputEv.From` is the caller. A decision node's guard is carried on the stimuli of that node. Layers are therefore tested directly (Engines and RA included), not only through Managers. |
+| A2 | **Op resolution reads the label's leading identifiers.** Split the label on ` — `, `→`, then on `/`, `·`, `;`; for each piece take the identifier before `(` or whitespace; a piece that normalizes to an op name resolves; several resolved pieces yield several stimuli (same `Call` provenance, index suffix). Unresolved stays `""` and the binding's `Operation` is required (TP-STEP-OP). |
+| A3 | **Entries:** when a diagram has both a `start` node and event entries, path families from `start` that contain zero stimuli are dropped and design health reports `UC-START-REDUNDANT` (Warning). A `start`-family path with stimuli is kept. |
+| A4 | **`alt` groups:** calls sharing an `Alt` tag inside one step are alternatives. For a callee that is a component, alternatives collapse to one stimulus carrying `Via []string` (the alternative callers); client components in the group each keep their own stimulus. |
+| A5 | **Every API has a use case.** After A1–A2, each op still reported by TP-OP-REACHED is a design defect: the system architect adds or extends a use case and its dynamic view, or the op is **deleted** (model edit). Breaking/backwards-incompatible changes are allowed; there is no production usage. `constructionTransitionAccess` is deleted, not deprecated. |
+| A6 | Purges stand (R-A): a package whose in-package tests were removed stays removed; coverage is restored by scenarios, never by restoring hand-written tests. |
+| A7 | Unbindable scenarios are design changes, not skips: add the missing read-only op / move the op onto the right interface / give `design-health-engine` a contract. |
+
+Expected states, outputs and hints still attach to the **last stimulus before them on the path** (now usually an RA or Engine stimulus); TP-STATE applies to whichever component owns that stimulus, and a probe may name any component's read-only op.
+
+## 12. Amendment B (2026-10-04): rulings from the Plan 4 run
+
+| # | Ruling |
+|---|---|
+| B1 (R-D) | Client surfaces are contracts with ops: `webClient` has one op per user action the use cases name (param `action` = `{kind, target data-testid, value?}`); `mcpClient` has one op per generated MCP tool. TP-OP-REACHED therefore covers clients. testgen emits Playwright for webClient and in-process MCP tool calls for mcpClient. |
+| B2 (P-4) | Hooks may import the app's own component packages through their public constructors (real collaborators, real stack — T2). They may not import a package's internals or unexported test helpers. |
+| B3 (P-5) | testgen names hooks lint-clean; no `//nolint` and no lint-config exemption. |
+| B4 (P-3) | Workflow determinism stays gated, black-box: scenariohost records the Temporal history of every workflow a scenario runs and replays it against the current worker code in the same test run; a non-determinism error fails the scenario. |
+| B5 (B-1) | `billingStateAccess` and `merchantGatewayAccess` are un-stubbed (Postgres; the local profile uses the same Postgres). The `billingstate` merge on the branch is fixed forward. |
+| B6 (A7) | Apply the report's A7-1..5 op changes; a retried charge uses `settle:{customer}:{cycle}:{attempt}`. |
+| B7 (SPA) | Screens the use cases describe but the SPA lacks are built (Revoke on M0, reject-all, amend composer, research input panel, …); the use cases stand. |
+| B8 (P-1) | Estimation durations and costs are **calendar days** (founder, 2026-10-04). |
+| B9 (P-2) | `RegisterOperatedSystem` production behaviour is reverted; the binding changes. |
+| B10 (D-1) | Every "deprecated in place" note, deprecated field and alias is deleted. |
+| B11 | Every schema change also conforms archistrator's own committed `project.json` in the same change. |
+| B12 | **Test plan and construction run in parallel (founder, 2026-10-04); supersedes §8's serialization.** service/frontend lifecycles: `stp` dependsOn `designReview`; `construction` dependsOn `designReview` (not `stpReview`); `integration` dependsOn `codeReview`; `testing` dependsOn `integration` + `stpReview` — the join. Construction builds the component only; the **integration** task generates the black-box tests from the reviewed test plan (`make gen-tests`), fills the hooks, runs them against the integrated component and records the TestRun; the testing task reviews that run. |
+| B13 | **BillingTerms** at customer registration: `billingManager` reads the committed SDP option's compute-cost regime through `projectStateAccess` (no Manager-to-Manager call) (founder, 2026-10-09). |
+| B14 | `OperatedSystemView.RecentEvents` and `Autoscaler.Decisions` are **deleted**, with the SPA recent-events panel (founder, 2026-10-09). |
+| B15 | The M0 grace window for revoking a committed option stays **1 day** (founder, 2026-10-09). |
+| B16 | The **local profile serves the operations console** in dry-run, so webClient operations scenarios run on the local test stack (founder, 2026-10-09). |
+| B17 | **Purge authorized** (founder, 2026-10-10): the white-box delivery `manager_test.go` + replay testdata, every `webApp/src/**/*.test.ts`, and `engine/estimation/testdata/system_view.json` are deleted (done on the branch: a692d917, 4e9274cc). Any remaining non-generated test in archistrator-built code is deleted the same way, no further escalation. |
+| B18 | **Billing retry** (founder, 2026-10-10): a declined charge is **not** retried inside the same cycle close. Retries happen in the **delinquency sweep**, after the customer changes their payment instrument; each sweep attempt uses `settle:{customer}:{cycle}:{attempt}`. billingManager bill/retry scenarios are rebound to this: a close that declines records the decline and ends; the retry path is a sweep after an instrument update. |
+| B19 | **Lifecycle pins** (founder, 2026-10-10): no migration code and no embedded past lifecycles. Pins stay write-once in code. archistrator's own `project.json` is conformed **retroactively by a data edit** to the current method-assets lifecycle (pins, task/phase ids, removed `N-STP` row), the same as B11. Pre-prod, so the general cross-release story is deferred (earmark). |
