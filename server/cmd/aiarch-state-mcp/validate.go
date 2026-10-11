@@ -70,50 +70,17 @@ func runValidate(args []string, out io.Writer) error {
 		ambient, hasAmbient = k, true
 	}
 
-	path := filepath.Join(*root, statePathPrefix, projectFile)
-	raw, err := os.ReadFile(path) //nolint:gosec // path is the caller's checkout root joined to a constant
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Mirror methodcheck.Check's posture: a repo with no committed .aiarch state
-			// has nothing to validate — a clean pass, never a red gate.
-			logf(out, "aiarch-state validate: no %s under %s — nothing to validate (clean pass)\n",
-				filepath.Join(statePathPrefix, projectFile), *root)
-			return nil
-		}
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-
-	// STRICT server-codec decode (read-back parity — the same decode the server and
-	// putDraftModel run). A committed document that does not decode is malformed
-	// committed state: a hard failure, exactly as the server read-back would treat it.
-	// The zero ProjectID is fine: the rules read the typed slot models, never the id.
-	proj, ok, err := projectstate.DecodeProjectJSON(raw, "")
-	if err != nil {
-		return fmt.Errorf("the committed project state does not decode (the server would reject it on read-back): %w", err)
-	}
-	if !ok {
-		logf(out, "aiarch-state validate: %s is empty — nothing to validate (clean pass)\n",
-			filepath.Join(statePathPrefix, projectFile))
+	if _, statErr := os.Stat(filepath.Join(*root, statePathPrefix, projectFile)); os.IsNotExist(statErr) {
+		// Mirror methodcheck.Check's posture: a repo with no committed .aiarch state
+		// has nothing to validate — a clean pass, never a red gate.
+		logf(out, "aiarch-state validate: no %s under %s — nothing to validate (clean pass)\n",
+			filepath.Join(statePathPrefix, projectFile), *root)
 		return nil
 	}
-
-	// The identical Method-invariant rule set the seated go-test gate ran
-	// (methodcheck.ValidateProjectJSON), then the gate severity policies (staleness.go):
-	// the staleness-aware cross-artifact downgrade always; the slot-scoped downgrade
-	// when --slot supplied the session's ambient artifact.
-	findings, ferr := methodcheck.ValidateProjectJSON(raw)
-	if ferr != nil {
-		return fmt.Errorf("the committed state is not a coherent artifact set: %w", ferr)
+	findings, err := validateFindings(*root, ambient, hasAmbient)
+	if err != nil {
+		return err
 	}
-	// The activity-record rules (activityrecords.go) read the checkout itself — which
-	// components are built here — so they run at this seam, where the root is a
-	// parameter, and go through the same severity policies as every other finding.
-	records, rerr := activityRecordFindings(proj, newCheckout(os.DirFS(*root)), projectstate.ComponentScenarios)
-	if rerr != nil {
-		return fmt.Errorf("the activity records cannot be checked against the checkout: %w", rerr)
-	}
-	findings = applyGateSeverityPolicies(proj, ambient, hasAmbient, append(findings, records...))
-
 	errCount := 0
 	for _, f := range findings {
 		logf(out, "%s\n", formatGateFinding(f))
@@ -126,6 +93,49 @@ func runValidate(args []string, out io.Writer) error {
 	}
 	logf(out, "aiarch-state validate: PASS (%d advisory finding(s), 0 errors)\n", len(findings))
 	return nil
+}
+
+// validateFindings runs the policy-aware Method gate over the checkout at root and
+// returns its findings: the committed .aiarch/state/project.json decoded through the
+// STRICT server codec (read-back parity), the identical methodcheck design rules
+// putDraftModel enforces, the activity-record rules over the checkout, then the gate
+// severity policies (staleness.go) — the slot-scoped downgrade only when hasAmbient. A
+// checkout with no (or an empty) state document has nothing to validate: no findings,
+// no error, mirroring methodcheck.Check. Only surviving SeverityError findings fail a
+// gate; the callers (runValidate, the rule checks of the check runner) decide that.
+func validateFindings(root string, ambient projectstate.ArtifactKind, hasAmbient bool) ([]methodcheck.Finding, error) {
+	path := filepath.Join(root, statePathPrefix, projectFile)
+	raw, err := os.ReadFile(path) //nolint:gosec // path is the caller's checkout root joined to a constant
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	// The zero ProjectID is fine: the rules read the typed slot models, never the id. A
+	// committed document that does not decode is malformed committed state: a hard
+	// failure, exactly as the server read-back would treat it.
+	proj, ok, err := projectstate.DecodeProjectJSON(raw, "")
+	if err != nil {
+		return nil, fmt.Errorf("the committed project state does not decode (the server would reject it on read-back): %w", err)
+	}
+	if !ok {
+		return nil, nil
+	}
+
+	findings, ferr := methodcheck.ValidateProjectJSON(raw)
+	if ferr != nil {
+		return nil, fmt.Errorf("the committed state is not a coherent artifact set: %w", ferr)
+	}
+	// The activity-record rules (activityrecords.go) read the checkout itself — which
+	// components are built here — so they run at this seam, where the root is a
+	// parameter, and go through the same severity policies as every other finding.
+	records, rerr := activityRecordFindings(proj, newCheckout(os.DirFS(root)), projectstate.ComponentScenarios)
+	if rerr != nil {
+		return nil, fmt.Errorf("the activity records cannot be checked against the checkout: %w", rerr)
+	}
+	return applyGateSeverityPolicies(proj, ambient, hasAmbient, append(findings, records...)), nil
 }
 
 // logf writes one gate-log line, deliberately discarding the writer error: the log is
