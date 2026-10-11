@@ -651,6 +651,31 @@ components:
                 - status
                 - justification
             type: object
+        DeliveryCheckResultView:
+            additionalProperties: false
+            description: One check's verdict in a CheckRun, as the task spec panel renders it.
+            properties:
+                checkId:
+                    type: string
+                durationMs:
+                    type: integer
+                    x-go-type: int
+                kind:
+                    type: string
+                outputRef:
+                    type: string
+                status:
+                    type: string
+                traceRef:
+                    type: string
+                videoRef:
+                    type: string
+            required:
+                - checkId
+                - kind
+                - status
+                - durationMs
+            type: object
         DeliveryConstructionProgress:
             additionalProperties: false
             properties:
@@ -829,6 +854,96 @@ components:
                 - title
                 - severity
                 - note
+            type: object
+        DeliveryDeliveryCheckRunView:
+            additionalProperties: false
+            description: A recorded CheckRun, as the task spec panel renders it.
+            properties:
+                activity:
+                    type: string
+                artifact:
+                    type: string
+                endedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+                id:
+                    type: string
+                    x-go-name: ID
+                results:
+                    items:
+                        $ref: '#/components/schemas/DeliveryCheckResultView'
+                    type:
+                        - "null"
+                        - array
+                revision:
+                    type: string
+                specHash:
+                    type: string
+                startedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+                task:
+                    type: string
+            required:
+                - id
+                - activity
+                - task
+                - revision
+                - specHash
+                - artifact
+                - results
+            type: object
+        DeliveryDeliveryTaskSpecView:
+            additionalProperties: false
+            description: 'The computed spec of one task: identity, model, prompt, tools, edit scope and checks, with the hash of all of it, the latest CheckRun for the task (absent when never run) and whether the spec changed since that run.'
+            properties:
+                activity:
+                    type: string
+                checkRun:
+                    $ref: '#/components/schemas/DeliveryDeliveryCheckRunView'
+                    type:
+                        - "null"
+                checks:
+                    items:
+                        $ref: '#/components/schemas/DeliveryTaskSpecCheckView'
+                    type:
+                        - "null"
+                        - array
+                editScope:
+                    $ref: '#/components/schemas/DeliveryTaskSpecEditScopeView'
+                hash:
+                    type: string
+                identity:
+                    $ref: '#/components/schemas/DeliveryTaskSpecIdentityView'
+                model:
+                    $ref: '#/components/schemas/DeliveryTaskSpecModelView'
+                prompt:
+                    $ref: '#/components/schemas/DeliveryTaskSpecPromptView'
+                specChanged:
+                    type: boolean
+                task:
+                    type: string
+                tools:
+                    $ref: '#/components/schemas/DeliveryTaskSpecToolsView'
+            required:
+                - activity
+                - task
+                - identity
+                - model
+                - prompt
+                - tools
+                - editScope
+                - checks
+                - hash
+                - specChanged
             type: object
         DeliveryDeliveryTestRunView:
             additionalProperties: false
@@ -1660,6 +1775,10 @@ components:
                     $ref: '#/components/schemas/DeliveryProjectState'
                     type:
                         - "null"
+                taskSpec:
+                    $ref: '#/components/schemas/DeliveryDeliveryTaskSpecView'
+                    type:
+                        - "null"
                 testRun:
                     $ref: '#/components/schemas/DeliveryDeliveryTestRunView'
                     type:
@@ -1682,6 +1801,7 @@ components:
                 - timeline
                 - testRun
                 - scenarios
+                - taskSpec
             type: string
             x-enum-varnames:
                 - ProjectViewSummary
@@ -1693,6 +1813,7 @@ components:
                 - ProjectViewTimeline
                 - ProjectViewTestRun
                 - ProjectViewScenarios
+                - ProjectViewTaskSpec
             x-go-base: string
         DeliveryProjectViewQuery:
             additionalProperties: false
@@ -1727,11 +1848,21 @@ components:
                         - "null"
                         - string
                     x-go-name: ProjectID
+                revision:
+                    type:
+                        - "null"
+                        - integer
+                    x-go-type: int
                 runId:
                     type:
                         - "null"
                         - string
                     x-go-name: RunID
+                taskId:
+                    type:
+                        - "null"
+                        - string
+                    x-go-name: TaskID
             required:
                 - kind
             type: object
@@ -2650,6 +2781,207 @@ components:
                 - commentCount
                 - comments
                 - provenance
+            type: object
+        DeliveryTaskSpecCheckSourceView:
+            additionalProperties: false
+            description: 'What a check runs: rule prefixes and slot for a rule check, argv and dir for a command check, scenario/contract/useCase for a scenario check. Unused members are omitted.'
+            properties:
+                argv:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                contract:
+                    type: string
+                dir:
+                    type: string
+                rulePrefixes:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                ruleSlot:
+                    type: string
+                scenario:
+                    type: string
+                useCase:
+                    type: string
+            required: []
+            type: object
+        DeliveryTaskSpecCheckView:
+            additionalProperties: false
+            description: One check the task must pass. id is scenario:<contractKey>:<scenarioId>, rule:<scope> or command:<name>; kind is rule | command | scenario.
+            properties:
+                id:
+                    type: string
+                    x-go-name: ID
+                kind:
+                    type: string
+                source:
+                    $ref: '#/components/schemas/DeliveryTaskSpecCheckSourceView'
+                timeoutSec:
+                    type: integer
+                    x-go-type: int
+                title:
+                    type: string
+            required:
+                - id
+                - kind
+                - title
+                - source
+                - timeoutSec
+            type: object
+        DeliveryTaskSpecEditScopeView:
+            additionalProperties: false
+            description: 'Where the task may write: per-component paths, extra repo-relative globs outside any component, and stateOnly when only .aiarch/state/** may change.'
+            properties:
+                components:
+                    items:
+                        $ref: '#/components/schemas/DeliveryTaskSpecScopeComponentView'
+                    type:
+                        - "null"
+                        - array
+                extra:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                stateOnly:
+                    type: boolean
+            required:
+                - components
+                - extra
+                - stateOnly
+            type: object
+        DeliveryTaskSpecEstimateView:
+            additionalProperties: false
+            description: The planned token and dollar spend for the task, zero when an input is missing.
+            properties:
+                tokensIn:
+                    type: integer
+                    x-go-type: int64
+                tokensOut:
+                    type: integer
+                    x-go-type: int64
+                usd:
+                    type: number
+                    x-go-type: float64
+            required:
+                - tokensIn
+                - tokensOut
+                - usd
+            type: object
+        DeliveryTaskSpecIdentityView:
+            additionalProperties: false
+            description: 'Who and what the task is: the lifecycle kind and title, the phase, the slash command and agent, the worker class, the artifact kind it produces, its exit criterion and its mode (draft | critique | answer | construction | review).'
+            properties:
+                agent:
+                    type: string
+                artifactKind:
+                    type: string
+                command:
+                    type: string
+                exitCriterion:
+                    type: string
+                kind:
+                    type: string
+                mode:
+                    type: string
+                phase:
+                    type: string
+                title:
+                    type: string
+                workerClass:
+                    type: string
+            required:
+                - kind
+                - title
+                - phase
+                - command
+                - agent
+                - workerClass
+                - artifactKind
+                - exitCriterion
+                - mode
+            type: object
+        DeliveryTaskSpecModelView:
+            additionalProperties: false
+            description: The model the task runs on, where the choice came from (projectOverride | charter) and its estimated spend.
+            properties:
+                estimate:
+                    $ref: '#/components/schemas/DeliveryTaskSpecEstimateView'
+                id:
+                    type: string
+                    x-go-name: ID
+                source:
+                    type: string
+            required:
+                - id
+                - source
+                - estimate
+            type: object
+        DeliveryTaskSpecPromptView:
+            additionalProperties: false
+            description: 'The prompt the task is seated with: the command body with arguments substituted, its estimated token count, the charter body and the names of the skills loaded on demand.'
+            properties:
+                charter:
+                    type: string
+                skills:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                text:
+                    type: string
+                tokens:
+                    type: integer
+                    x-go-type: int
+            required:
+                - text
+                - tokens
+                - charter
+                - skills
+            type: object
+        DeliveryTaskSpecScopeComponentView:
+            additionalProperties: false
+            description: One component the task may edit and the repo-relative globs that make up its paths.
+            properties:
+                id:
+                    type: string
+                    x-go-name: ID
+                paths:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - id
+                - paths
+            type: object
+        DeliveryTaskSpecToolsView:
+            additionalProperties: false
+            description: 'The tools the task may call: MCP tool names and built-in tool names.'
+            properties:
+                builtin:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                mcp:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - mcp
+                - builtin
             type: object
         DeliveryTestArgView:
             additionalProperties: false

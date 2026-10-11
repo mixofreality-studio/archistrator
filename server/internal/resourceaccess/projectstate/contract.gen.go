@@ -199,6 +199,28 @@ type CheckItem struct {
 	Justification string      `json:"justification"`
 }
 
+type CheckResult struct {
+	CheckId    string  `json:"checkId"`
+	Kind       string  `json:"kind"`
+	Status     string  `json:"status"`
+	DurationMs int     `json:"durationMs"`
+	OutputRef  *string `json:"outputRef,omitempty"`
+	TraceRef   *string `json:"traceRef,omitempty"`
+	VideoRef   *string `json:"videoRef,omitempty"`
+}
+
+type CheckRun struct {
+	ID        string        `json:"id"`
+	Activity  string        `json:"activity"`
+	Task      string        `json:"task"`
+	Revision  string        `json:"revision"`
+	SpecHash  string        `json:"specHash"`
+	StartedAt *time.Time    `json:"startedAt,omitempty"`
+	EndedAt   *time.Time    `json:"endedAt,omitempty"`
+	Artifact  string        `json:"artifact"`
+	Results   []CheckResult `json:"results"`
+}
+
 type CheckStatus int
 
 const (
@@ -843,14 +865,6 @@ type ScenarioBinding struct {
 
 type ScenarioKind string
 
-type ScenarioResult struct {
-	Scenario   string `json:"scenario"`
-	Status     string `json:"status"`
-	DurationMs int    `json:"durationMs"`
-	VideoRef   string `json:"videoRef"`
-	TraceRef   string `json:"traceRef"`
-}
-
 type ScheduleKind int
 
 const (
@@ -979,17 +993,6 @@ type TestPlanRecord struct {
 	Component  string            `json:"component"`
 	Bindings   []ScenarioBinding `json:"bindings"`
 	AuthoredAt *time.Time        `json:"authoredAt,omitempty"`
-}
-
-type TestRun struct {
-	ID        string           `json:"id"`
-	Activity  string           `json:"activity"`
-	Component string           `json:"component"`
-	Revision  string           `json:"revision"`
-	Artifact  string           `json:"artifact"`
-	StartedAt *time.Time       `json:"startedAt,omitempty"`
-	EndedAt   *time.Time       `json:"endedAt,omitempty"`
-	Scenarios []ScenarioResult `json:"scenarios"`
 }
 
 type TestingVariant int

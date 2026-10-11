@@ -254,6 +254,16 @@ type CheckItem struct {
 	Justification string `json:"justification"`
 }
 
+type CheckResultView struct {
+	CheckId    string  `json:"checkId"`
+	Kind       string  `json:"kind"`
+	Status     string  `json:"status"`
+	DurationMs int     `json:"durationMs"`
+	OutputRef  *string `json:"outputRef,omitempty"`
+	TraceRef   *string `json:"traceRef,omitempty"`
+	VideoRef   *string `json:"videoRef,omitempty"`
+}
+
 type ConstructionProgress struct {
 	Week           int64     `json:"Week"`
 	TotalWeeks     int64     `json:"TotalWeeks"`
@@ -319,6 +329,32 @@ type DefectView struct {
 	Title    string `json:"title"`
 	Severity string `json:"severity"`
 	Note     string `json:"note"`
+}
+
+type DeliveryCheckRunView struct {
+	ID        string            `json:"id"`
+	Activity  string            `json:"activity"`
+	Task      string            `json:"task"`
+	Revision  string            `json:"revision"`
+	SpecHash  string            `json:"specHash"`
+	StartedAt *time.Time        `json:"startedAt,omitempty"`
+	EndedAt   *time.Time        `json:"endedAt,omitempty"`
+	Artifact  string            `json:"artifact"`
+	Results   []CheckResultView `json:"results"`
+}
+
+type DeliveryTaskSpecView struct {
+	Activity    string                `json:"activity"`
+	Task        string                `json:"task"`
+	Identity    TaskSpecIdentityView  `json:"identity"`
+	Model       TaskSpecModelView     `json:"model"`
+	Prompt      TaskSpecPromptView    `json:"prompt"`
+	Tools       TaskSpecToolsView     `json:"tools"`
+	EditScope   TaskSpecEditScopeView `json:"editScope"`
+	Checks      []TaskSpecCheckView   `json:"checks"`
+	Hash        string                `json:"hash"`
+	CheckRun    *DeliveryCheckRunView `json:"checkRun,omitempty"`
+	SpecChanged bool                  `json:"specChanged"`
 }
 
 type DeliveryTestRunView struct {
@@ -638,6 +674,7 @@ type ProjectView struct {
 	Timeline            *EpisodeTimeline           `json:"timeline,omitempty"`
 	TestRun             *DeliveryTestRunView       `json:"testRun,omitempty"`
 	Scenarios           []ScenarioView             `json:"scenarios,omitempty"`
+	TaskSpec            *DeliveryTaskSpecView      `json:"taskSpec,omitempty"`
 }
 
 type ProjectViewKind string
@@ -652,6 +689,7 @@ const (
 	ProjectViewTimeline     ProjectViewKind = "timeline"
 	ProjectViewTestRun      ProjectViewKind = "testRun"
 	ProjectViewScenarios    ProjectViewKind = "scenarios"
+	ProjectViewTaskSpec     ProjectViewKind = "taskSpec"
 )
 
 type ProjectViewQuery struct {
@@ -663,6 +701,8 @@ type ProjectViewQuery struct {
 	EpisodeID    *string         `json:"episodeId,omitempty"`
 	ComponentID  *string         `json:"componentId,omitempty"`
 	RunID        *string         `json:"runId,omitempty"`
+	TaskID       *string         `json:"taskId,omitempty"`
+	Revision     *int            `json:"revision,omitempty"`
 }
 
 type PumpResult struct {
@@ -987,6 +1027,71 @@ type TaskRevisionView struct {
 	DecidedBy    *string                `json:"decidedBy,omitempty"`
 	DecidedAt    *string                `json:"decidedAt,omitempty"`
 	Provenance   TaskRevisionProvenance `json:"provenance"`
+}
+
+type TaskSpecCheckSourceView struct {
+	RulePrefixes []string `json:"rulePrefixes,omitempty"`
+	RuleSlot     *string  `json:"ruleSlot,omitempty"`
+	Argv         []string `json:"argv,omitempty"`
+	Dir          *string  `json:"dir,omitempty"`
+	Scenario     *string  `json:"scenario,omitempty"`
+	Contract     *string  `json:"contract,omitempty"`
+	UseCase      *string  `json:"useCase,omitempty"`
+}
+
+type TaskSpecCheckView struct {
+	ID         string                  `json:"id"`
+	Kind       string                  `json:"kind"`
+	Title      string                  `json:"title"`
+	Source     TaskSpecCheckSourceView `json:"source"`
+	TimeoutSec int                     `json:"timeoutSec"`
+}
+
+type TaskSpecEditScopeView struct {
+	Components []TaskSpecScopeComponentView `json:"components"`
+	Extra      []string                     `json:"extra"`
+	StateOnly  bool                         `json:"stateOnly"`
+}
+
+type TaskSpecEstimateView struct {
+	TokensIn  int64   `json:"tokensIn"`
+	TokensOut int64   `json:"tokensOut"`
+	Usd       float64 `json:"usd"`
+}
+
+type TaskSpecIdentityView struct {
+	Kind          string `json:"kind"`
+	Title         string `json:"title"`
+	Phase         string `json:"phase"`
+	Command       string `json:"command"`
+	Agent         string `json:"agent"`
+	WorkerClass   string `json:"workerClass"`
+	ArtifactKind  string `json:"artifactKind"`
+	ExitCriterion string `json:"exitCriterion"`
+	Mode          string `json:"mode"`
+}
+
+type TaskSpecModelView struct {
+	ID       string               `json:"id"`
+	Source   string               `json:"source"`
+	Estimate TaskSpecEstimateView `json:"estimate"`
+}
+
+type TaskSpecPromptView struct {
+	Text    string   `json:"text"`
+	Tokens  int      `json:"tokens"`
+	Charter string   `json:"charter"`
+	Skills  []string `json:"skills"`
+}
+
+type TaskSpecScopeComponentView struct {
+	ID    string   `json:"id"`
+	Paths []string `json:"paths"`
+}
+
+type TaskSpecToolsView struct {
+	Mcp     []string `json:"mcp"`
+	Builtin []string `json:"builtin"`
 }
 
 type TestArgView struct {

@@ -1228,6 +1228,9 @@ type projectDoc struct {
 	// human approval. Omitted when empty so existing project.json documents decode as
 	// the zero value (inert — no phases gated).
 	ReviewPolicy ReviewPolicy `json:"reviewPolicy"`
+	// ModuleDir is the repo-relative directory holding the project's Go module
+	// (server/go.mod). Empty means the repo root, the scaffold default.
+	ModuleDir string `json:"moduleDir,omitempty"`
 	// UpdatedAt is the server-resolved timestamp of the last committed state
 	// mutation (set by buildStateFiles on every write). omitempty so existing
 	// project.json documents that pre-date this field decode cleanly as the zero
@@ -1305,6 +1308,7 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		OperatorPaused:       doc.OperatorPaused,
 		PauseReason:          doc.PauseReason,
 		ReviewPolicy:         doc.ReviewPolicy,
+		ModuleDir:            doc.ModuleDir,
 		UpdatedAt:            doc.UpdatedAt,
 	}
 	if err := checkActivityExecutionKeys(p.ActivityExecution); err != nil {
@@ -1490,6 +1494,7 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 		OperatorPaused:       p.OperatorPaused,
 		PauseReason:          p.PauseReason,
 		ReviewPolicy:         p.ReviewPolicy,
+		ModuleDir:            p.ModuleDir,
 		UpdatedAt:            updatedAt,
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")
@@ -2003,13 +2008,13 @@ type PhaseArtifactPayload struct {
 	DeployNote       *DeployNoteRecord
 	DocOutline       *DocOutlineRecord
 	DocNote          *DocNoteRecord
-	// TestingState fields (project-level singletons / slices). TestRun REPLACES a
+	// TestingState fields (project-level singletons / slices). CheckRun REPLACES a
 	// recorded run with the same ID (the venue re-records a run it re-ran) and appends
 	// otherwise.
 	HarnessModule *HarnessModule
 	PerfHarness   *PerfHarness
 	QualityGate   *QualityGate
-	TestRun       *TestRun
+	CheckRun      *CheckRun
 	Defect        *DefectRecord
 	// QualityAuditReport replaces the string in TestingState when non-empty.
 	QualityAuditReport string
@@ -2245,17 +2250,17 @@ func applyTestingStatePayload(p *Project, payload PhaseArtifactPayload) {
 		ts := ensureTestingState()
 		ts.QualityGates = append(ts.QualityGates, *payload.QualityGate)
 	}
-	if payload.TestRun != nil {
+	if payload.CheckRun != nil {
 		ts := ensureTestingState()
 		replaced := false
-		for i := range ts.TestRuns {
-			if ts.TestRuns[i].ID == payload.TestRun.ID {
-				ts.TestRuns[i] = *payload.TestRun
+		for i := range ts.CheckRuns {
+			if ts.CheckRuns[i].ID == payload.CheckRun.ID {
+				ts.CheckRuns[i] = *payload.CheckRun
 				replaced = true
 			}
 		}
 		if !replaced {
-			ts.TestRuns = append(ts.TestRuns, *payload.TestRun)
+			ts.CheckRuns = append(ts.CheckRuns, *payload.CheckRun)
 		}
 	}
 	if payload.Defect != nil {
@@ -4852,10 +4857,10 @@ type DefectRecord struct {
 	Note       string     `json:"note,omitempty"`
 }
 
-// TestRun, ScenarioResult, TestArg, TestExpect, Probe, StepBinding, SkipReason and
-// ScenarioBinding are GENERATED from $defs (contract.gen.go) since the deterministic
-// component testing wave (spec §3, §6.1): a TestRun is one venue run of a component's
-// generated scenario tests, recorded by the venue through record-test-run; a
+// CheckRun, CheckResult, TestArg, TestExpect, Probe, StepBinding, SkipReason and
+// ScenarioBinding are GENERATED from $defs (contract.gen.go): a CheckRun is one venue
+// run of a task's computed checks (agent task spec; it replaces the deterministic
+// component testing wave's TestRun), recorded by the venue; a
 // TestPlanRecord is the typed set of bindings, one per projected scenario. The former
 // hand-written TestStep/TestCase/TestScenario/SystemTestPlan (the N-STP system test
 // plan) are retired with the activity that authored them (spec §7).
@@ -4876,14 +4881,14 @@ type PerfHarness struct {
 
 // TestingState holds the project-level testing artifacts produced by N-* activities
 // and, since the deterministic component testing wave, the per-component test runs
-// the venue records on the testing task (TestRuns, spec §6.1). Additive: nil until the
+// the venue records on a task (CheckRuns). Additive: nil until the
 // first testing activity produces output.
 type TestingState struct {
 	HarnessModule      *HarnessModule `json:"harnessModule,omitempty"`
 	PerfHarness        *PerfHarness   `json:"perfHarness,omitempty"`
 	QualityGates       []QualityGate  `json:"qualityGates,omitempty"`
 	QualityAuditReport string         `json:"qualityAuditReport,omitempty"`
-	TestRuns           []TestRun      `json:"testRuns,omitempty"`
+	CheckRuns          []CheckRun     `json:"checkRuns,omitempty"`
 	Defects            []DefectRecord `json:"defects,omitempty"`
 }
 
@@ -5142,6 +5147,9 @@ type Project struct {
 	// phase) pairs require human approval during construction. The zero value gates
 	// nothing — the construction loop behaves as before this feature was introduced.
 	ReviewPolicy ReviewPolicy `json:"reviewPolicy"`
+	// ModuleDir is the repo-relative directory holding the project's Go module
+	// (server/go.mod). Empty means the repo root, the scaffold default.
+	ModuleDir string `json:"moduleDir,omitempty"`
 
 	// UpdatedAt is the document's updatedAt as committed: the server-resolved time of
 	// the last state mutation. The git store stamps a fresh one on every write; a
