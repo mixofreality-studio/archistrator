@@ -168,8 +168,16 @@ gen-lifecycles-check: gen-lifecycles
 # any scenario runs, so packages must run one at a time. Measured 2026-10-04 with
 # 16 scenario packages: parallel = 88 of 158 scenarios red, -p 1 = all green, the
 # whole -short suite in ~2.5 min.
+# GO_TEST_TIMEOUT: go test's per-binary default (10m) is shorter than one scenario
+# package takes. Measured 2026-10-11 on the integrated head: deliveryManager's 37
+# scenarios and mcpClient's 37 (internal/client/mcp/delivery, 51m alone) each panic
+# with "test timed out after 10m0s" mid-suite, so `make test-scenarios` went red
+# with no scenario failing. The bound covers the slowest package with headroom; it
+# relaxes no assertion.
+GO_TEST_TIMEOUT ?= 90m
+
 test: claude-assets
-	GOWORK=off go test -p 1 ./...
+	GOWORK=off go test -p 1 -timeout $(GO_TEST_TIMEOUT) ./...
 
 # CI quality gate. `-short` makes the model-gated integration tests' TestMain
 # skip (they require a live Ollama worker); everything else — including the
@@ -177,7 +185,7 @@ test: claude-assets
 # `test`): the prompt-surface tests need the materialized .claude tree.
 # -p 1: see `test`.
 test-short: claude-assets
-	GOWORK=off go test -short -p 1 ./...
+	GOWORK=off go test -short -p 1 -timeout $(GO_TEST_TIMEOUT) ./...
 
 fmt:
 	gofmt -w .

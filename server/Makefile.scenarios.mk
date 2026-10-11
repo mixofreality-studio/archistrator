@@ -26,7 +26,8 @@
 #                      every package's scenario host opens the one fixed
 #                      Temporal SQLite file (.temporal/aiarch-test.db), so two
 #                      packages at once fail with SQLITE_BUSY (see `test` in
-#                      Makefile)
+#                      Makefile). -timeout $(GO_TEST_TIMEOUT) (Makefile): one
+#                      scenario package outlasts go test's 10m default
 .PHONY: gen-tests gen-tests-check test-scenarios
 
 TESTGEN := github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen
@@ -39,4 +40,4 @@ gen-tests-check:
 
 test-scenarios:
 	mkdir -p test-results
-	GOWORK=off go test -p 1 ./internal/... -run 'TestScenario_' -json > test-results/go-test.jsonl 2>&1; rc=$$?; cat test-results/go-test.jsonl; exit $$rc
+	GOWORK=off go test -p 1 -timeout $(GO_TEST_TIMEOUT) ./internal/... -run 'TestScenario_' -json > test-results/go-test.jsonl 2>&1; rc=$$?; cat test-results/go-test.jsonl; exit $$rc

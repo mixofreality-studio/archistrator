@@ -97,6 +97,11 @@ func (f *fakeRegistry) RegisterActivityWithOptions(_ any, options activity.Regis
 // gained readWorkloadTelemetry (the autoscaler's utilization signal). Additions: nothing
 // to drain for the names — but the reconcile, deploy and register workflows' command
 // sequences changed, so drain in-flight operations and billing executions before deploy.
+//
+// Plan 5 delivery r3 ADDS one: deliveryAnswerJob (AnswerJobWorkflow, answerjob.go), the
+// durable execution behind one AskQuestions round, which used to be a goroutine. The
+// delivery unit's own commit (91c2ff01) named this golden update and left it to the
+// integration. An addition: nothing to drain for the name.
 var registeredTemporalNamesGolden = []string{
 	"activityExecutionAccess.appendReviewVerdict",
 	"activityExecutionAccess.decideReviewRound",
@@ -134,6 +139,7 @@ var registeredTemporalNamesGolden = []string{
 	"constructionPumpNextActivity",
 	"constructionPumpSweep",
 	"deliveryActivity",
+	"deliveryAnswerJob",
 	"deliveryRoundSweep",
 	"designSessionAccess.commitArtifactWithProvenance",
 	"designSessionAccess.readProjectOnBranch",
