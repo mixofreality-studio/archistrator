@@ -124,23 +124,23 @@ func TestRecordTestingState_Writes(t *testing.T) {
 	}
 }
 
-// TestRecordTestingState_RefusesTheRunHalf pins spec §6.1: record-test-run REPLACES the run
-// half of recordTestingState. The testing gate judges "the venue's evidence, not an agent's
-// claim", and an agent-facing verb that still accepted a TestRun payload could record a
+// TestRecordTestingState_RefusesTheRunHalf: a CheckRun is the venue's evidence, written
+// by record-check-run. The testing gate judges "the venue's evidence, not an agent's
+// claim", and an agent-facing verb that accepted a CheckRun payload could record a
 // fabricated all-pass run stamped with the judged attempt id and pass the gate with it.
 // The refusal names the venue's subcommand, and NOTHING is written.
 func TestRecordTestingState_RefusesTheRunHalf(t *testing.T) {
 	s, _ := seedProject(t, minimalProject(), jobModeConstruct, 0)
 	s.ActivityID = "C-BE"
-	err := s.recordTestingState(map[string]any{"TestRun": map[string]any{
-		"id": "fab-1", "activity": "C-BE", "component": "billing-engine", "revision": "C-BE:integration:1",
-		"artifact": "test-results-C-BE-fab-1", "scenarios": []any{map[string]any{"scenario": "s1", "status": "pass"}},
+	err := s.recordTestingState(map[string]any{"CheckRun": map[string]any{
+		"id": "fab-1", "activity": "C-BE", "task": "integration", "revision": "C-BE:integration:1", "specHash": "",
+		"artifact": "check-results-C-BE-fab-1", "results": []any{map[string]any{"checkId": "scenario:billingEngine:s1", "kind": "scenario", "status": "pass", "durationMs": 1}},
 	}})
-	if err == nil || !strings.Contains(err.Error(), "record-test-run") {
-		t.Fatalf("the run half must be refused naming the venue's record-test-run, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "record-check-run") {
+		t.Fatalf("the run half must be refused naming the venue's record-check-run, got: %v", err)
 	}
 	proj, _, _ := s.readProject()
-	if proj.TestingState != nil && len(proj.TestingState.TestRuns) != 0 {
+	if proj.TestingState != nil && len(proj.TestingState.CheckRuns) != 0 {
 		t.Fatalf("a refused run must not be written: %+v", proj.TestingState)
 	}
 	if s.wroteState {

@@ -59,6 +59,10 @@ const (
 	// inputs. The agent supplies neither.
 	envComponentID = "AIARCH_COMPONENT_ID"
 	envActivityID  = "AIARCH_ACTIVITY_ID"
+	// envTaskID is the lifecycle task the dispatch runs (the task-spec envelope, every
+	// job mode): with the activity it resolves the task's spec, whose checks the
+	// run_checks verb runs. The agent never supplies it.
+	envTaskID = "AIARCH_TASK_ID"
 	// envCommand is the dispatchable command slug the executor is running (the
 	// same slug it interpolates into the agent's prompt). It selects this
 	// session's STEP MANIFEST, which fixes the registered tool surface. The
@@ -100,6 +104,10 @@ type Session struct {
 	ComponentID string
 	ActivityID  string
 
+	// TaskID is the lifecycle task this session runs (AIARCH_TASK_ID), in every mode:
+	// with ActivityID it resolves the task spec run_checks runs (runchecks.go).
+	TaskID string
+
 	// Command is the dispatchable slash-command slug this session serves (e.g.
 	// "mission-draft") — the STEP MANIFEST KEY. When set, buildServer registers
 	// ONLY the MCP tools methodassets' step manifest grants that step, instead
@@ -124,6 +132,12 @@ type Session struct {
 
 	// git is the git runner (injected in tests). Defaults to runGit over the real binary.
 	git func(root string, args ...string) (string, error)
+
+	// checks is run_checks' runtime state: the previous call's results, which a
+	// failedOnly call re-runs the red of (runchecks.go).
+	checks checkSessionState
+	// checkExec runs a check's process (injected in tests); nil is the real exec.
+	checkExec checkExecFunc
 }
 
 // newSessionFromEnv resolves the ambient session context from process env. artifact
@@ -167,6 +181,7 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 		TargetBranch: strings.TrimSpace(getenv(envTargetBranch)),
 		ComponentID:  strings.TrimSpace(getenv(envComponentID)),
 		ActivityID:   strings.TrimSpace(getenv(envActivityID)),
+		TaskID:       strings.TrimSpace(getenv(envTaskID)),
 		Command:      strings.TrimSpace(getenv(envCommand)),
 		OperatorNote: getenv(envOperatorNote),
 		git:          runGit,

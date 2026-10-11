@@ -14,14 +14,15 @@ package main
 //	                                 pump would dispatch the activity again and earned value
 //	                                 under-reads.
 //	REC-TESTING-UNQUALIFIED  (Error) an activity whose lifecycle binds a test plan, whose
-//	                                 latest `testing` attempt PASSED, without the TestRun
+//	                                 latest `testing` attempt PASSED, without the CheckRun
 //	                                 that pass must stand on (spec 2026-10-02 §1 T4, §6.5):
 //	                                 the pass cites no run, or cites a run
-//	                                 .testingState.testRuns does not hold, or the run is
+//	                                 .testingState.checkRuns does not hold, or the run is
 //	                                 another activity's, was recorded at a revision other
-//	                                 than the integration attempt the round judged, misses
-//	                                 or adds scenarios against ForComponent(c), or holds a
-//	                                 status that is not `pass`. Rule 4 of §6.5 (the
+//	                                 than the integration attempt the round judged, its
+//	                                 scenario results miss or add scenarios against
+//	                                 ForComponent(c), or one holds a status that is not
+//	                                 `pass`. Rule 4 of §6.5 (the
 //	                                 artifact still renders) is a venue fact no checkout
 //	                                 holds; the gate that wrote the citation checked it.
 //
@@ -34,7 +35,7 @@ package main
 // construct-mutation gates (applyGateSeverityPolicies): a construct session's own
 // activity branch legitimately holds the built component before main's row records the
 // codeReview pass the server writes there, so judging the session's working tree as a
-// whole document would refuse the venue's own record-test-run mid-integration.
+// whole document would refuse the venue's own record-check-run mid-integration.
 //
 // Attribution: REC-* is construction-owned state (projectstate.AttribActivityExecution in
 // projectstate's rule attribution table). A design session (`validate --slot`) cannot write an activity row, so
@@ -220,7 +221,7 @@ func testingUnqualified(
 	if len(reasons) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("activity %s: testing attempt %s passed without a qualifying TestRun — %s (T4: the testing task passes only on a full green run at the judged revision)",
+	return fmt.Sprintf("activity %s: testing attempt %s passed without a qualifying CheckRun — %s (T4: the testing task passes only on a full green run at the judged revision)",
 		item.Name, pass.AttemptID, strings.Join(reasons, "; "))
 }
 
@@ -257,54 +258,77 @@ func judgedIntegration(before []projectstate.TaskAttempt) string {
 // with the projection, and every status `pass`.
 func runReasons(proj *projectstate.Project, item projectstate.ActivityItem, pass projectstate.TaskAttempt, judged string, project componentScenarioProjector) []string {
 	if pass.Evidence.Kind != projectstate.EvidenceTestRun || pass.Evidence.Ref == "" {
-		return []string{fmt.Sprintf("it cites no TestRun (evidence %q %q)", pass.Evidence.Kind, pass.Evidence.Ref)}
+		return []string{fmt.Sprintf("it cites no CheckRun (evidence %q %q)", pass.Evidence.Kind, pass.Evidence.Ref)}
 	}
 	run, ok := recordedRun(proj, pass.Evidence.Ref)
 	if !ok {
-		return []string{fmt.Sprintf("it cites TestRun %q, which .testingState.testRuns does not hold", pass.Evidence.Ref)}
+		return []string{fmt.Sprintf("it cites CheckRun %q, which .testingState.checkRuns does not hold", pass.Evidence.Ref)}
 	}
 	var reasons []string
 	if run.Activity != item.Name {
-		reasons = append(reasons, fmt.Sprintf("TestRun %s belongs to activity %q", run.ID, run.Activity))
+		reasons = append(reasons, fmt.Sprintf("CheckRun %s belongs to activity %q", run.ID, run.Activity))
 	}
 	switch {
 	case judged == "":
 		reasons = append(reasons, "the ledger holds no integration attempt for the round to have judged")
 	case run.Revision != judged:
-		reasons = append(reasons, fmt.Sprintf("TestRun %s was recorded at revision %q, not at the judged integration attempt %q", run.ID, run.Revision, judged))
+		reasons = append(reasons, fmt.Sprintf("CheckRun %s was recorded at revision %q, not at the judged integration attempt %q", run.ID, run.Revision, judged))
 	}
 	projected, err := project(proj, item.ComponentID)
 	if err != nil {
 		return append(reasons, fmt.Sprintf("the scenarios of component %q cannot be projected: %v", item.ComponentID, err))
 	}
-	missing, unknown := scenarioSetDiff(projected, run.Scenarios)
+	scenarios := scenarioResultsOf(run)
+	missing, unknown := scenarioSetDiff(projected, scenarios)
 	if len(missing) > 0 {
-		reasons = append(reasons, fmt.Sprintf("TestRun %s never ran projected scenario(s) %s", run.ID, strings.Join(missing, ", ")))
+		reasons = append(reasons, fmt.Sprintf("CheckRun %s never ran projected scenario(s) %s", run.ID, strings.Join(missing, ", ")))
 	}
 	if len(unknown) > 0 {
-		reasons = append(reasons, fmt.Sprintf("TestRun %s reports scenario(s) no projection holds: %s", run.ID, strings.Join(unknown, ", ")))
+		reasons = append(reasons, fmt.Sprintf("CheckRun %s reports scenario(s) no projection holds: %s", run.ID, strings.Join(unknown, ", ")))
 	}
-	if bad := notPassed(run.Scenarios); len(bad) > 0 {
-		reasons = append(reasons, fmt.Sprintf("TestRun %s did not pass: %s", run.ID, strings.Join(bad, ", ")))
+	if bad := notPassed(scenarios); len(bad) > 0 {
+		reasons = append(reasons, fmt.Sprintf("CheckRun %s did not pass: %s", run.ID, strings.Join(bad, ", ")))
 	}
 	return reasons
 }
 
-// recordedRun returns the run .testingState.testRuns holds under id.
-func recordedRun(proj *projectstate.Project, id string) (projectstate.TestRun, bool) {
+// recordedRun returns the run .testingState.checkRuns holds under id.
+func recordedRun(proj *projectstate.Project, id string) (projectstate.CheckRun, bool) {
 	if proj.TestingState == nil {
-		return projectstate.TestRun{}, false
+		return projectstate.CheckRun{}, false
 	}
-	i := slices.IndexFunc(proj.TestingState.TestRuns, func(r projectstate.TestRun) bool { return r.ID == id })
+	i := slices.IndexFunc(proj.TestingState.CheckRuns, func(r projectstate.CheckRun) bool { return r.ID == id })
 	if i < 0 {
-		return projectstate.TestRun{}, false
+		return projectstate.CheckRun{}, false
 	}
-	return proj.TestingState.TestRuns[i], true
+	return proj.TestingState.CheckRuns[i], true
+}
+
+// scenarioResult is one scenario's verdict out of a CheckRun.
+type scenarioResult struct {
+	Scenario, Status string
+}
+
+// scenarioResultsOf is the run's scenario verdicts: its scenario-kind results, each
+// check id "scenario:<contract>:<scenario id>" reduced to the scenario id.
+func scenarioResultsOf(run projectstate.CheckRun) []scenarioResult {
+	var out []scenarioResult
+	for _, r := range run.Results {
+		if r.Kind != projectstate.CheckKindScenario {
+			continue
+		}
+		id := strings.TrimPrefix(r.CheckId, projectstate.CheckKindScenario+":")
+		if _, rest, ok := strings.Cut(id, ":"); ok {
+			id = rest
+		}
+		out = append(out, scenarioResult{Scenario: id, Status: r.Status})
+	}
+	return out
 }
 
 // scenarioSetDiff returns the projected scenario ids the run lacks and the run's ids no
 // projection holds, each sorted.
-func scenarioSetDiff(projected []scenario.Scenario, results []projectstate.ScenarioResult) (missing, unknown []string) {
+func scenarioSetDiff(projected []scenario.Scenario, results []scenarioResult) (missing, unknown []string) {
 	ran := make(map[string]bool, len(results))
 	for _, r := range results {
 		ran[r.Scenario] = true
@@ -327,7 +351,7 @@ func scenarioSetDiff(projected []scenario.Scenario, results []projectstate.Scena
 }
 
 // notPassed lists every result whose status is not `pass`, as "<id>=<status>".
-func notPassed(results []projectstate.ScenarioResult) []string {
+func notPassed(results []scenarioResult) []string {
 	var bad []string
 	for _, r := range results {
 		if r.Status != scenarioProjectionStatusPass {

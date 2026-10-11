@@ -41,6 +41,10 @@ server/cmd/server/webappdist/
 # entry is only needed here, in archistrator's own repo.
 /.aiarch/traces/
 
+# The run_checks verb's scratch results (server/cmd/aiarch-state-mcp/runchecks.go):
+# check logs and results.json from the agent's own pre-flight runs, never committed.
+/.aiarch/tmp/
+
 # Git worktrees created by the harness (EnterWorktree) and by hand. Scratch
 # checkouts of this same repo — committing one would nest the entire tree.
 /.claude/worktrees/

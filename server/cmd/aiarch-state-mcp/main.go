@@ -13,6 +13,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -51,13 +52,19 @@ func runOneShotCommand(argv []string) (handled bool, err error) {
 	// the SAME method-assets manifest, so the two rails cannot diverge.
 	case "step-tools":
 		return true, wrapOneShot("step-tools", runStepTools(argv[1:], os.Stdout))
-	// `record-test-run` is the construction VENUE's write of a deterministic test run
-	// (recordtestrun.go): after the scenario tests, the workflow step turns
-	// test-results/<component>/results.json into a TestRun on .testingState.testRuns
-	// through the same validated construction-mutation path the construct verbs use.
-	// The agent never records a run; the venue measures it.
-	case "record-test-run":
-		return true, wrapOneShot("record-test-run", runRecordTestRun(argv[1:], nil))
+	// The task-spec venue subcommands the construct and design workflows run around
+	// the agent (agent task spec, §4–§6): `task-spec` resolves the spec the dispatch
+	// hashed, `edit-scope` gates the agent's commits against its edit scope,
+	// `run-checks` is the check gate (the runner the run_checks verb uses), and
+	// `record-check-run` records the gate's results as the task's CheckRun.
+	case "task-spec":
+		return true, wrapOneShot("task-spec", runTaskSpec(argv[1:], os.Stdout))
+	case "edit-scope":
+		return true, wrapOneShot("edit-scope", runEditScope(argv[1:]))
+	case "run-checks":
+		return true, wrapOneShot("run-checks", runRunChecks(argv[1:], os.Stdout))
+	case "record-check-run":
+		return true, wrapOneShot("record-check-run", runRecordCheckRun(argv[1:]))
 	// `record-test-plan` is the single writer for one component's test plan while the
 	// plans are bound one at a time (recordtestplan.go): a byte splice gated on that
 	// component's TP-* rules plus no new errors.
@@ -76,10 +83,31 @@ func wrapOneShot(name string, err error) error {
 	return fmt.Errorf("%s: %w", name, err)
 }
 
+// exitError is a one-shot failure that names its process exit code. A failure that is
+// not one exits 1. run-checks distinguishes a red check (1) from the runner's own
+// failure (2), which the workflows branch on.
+type exitError struct {
+	code int
+	err  error
+}
+
+func (e exitError) Error() string { return e.err.Error() }
+func (e exitError) Unwrap() error { return e.err }
+
+// exitCodeOf is the process exit code of a one-shot failure.
+func exitCodeOf(err error) int {
+	var ee exitError
+	if errors.As(err, &ee) {
+		return ee.code
+	}
+	return 1
+}
+
 func main() {
 	if handled, err := runOneShotCommand(os.Args[1:]); handled {
 		if err != nil {
-			fatalf("%v", err)
+			fmt.Fprintf(os.Stderr, "aiarch-state-mcp: %v\n", err)
+			os.Exit(exitCodeOf(err))
 		}
 		return
 	}

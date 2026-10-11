@@ -308,7 +308,7 @@ func composedVerbs(s *Session) []composedVerb {
 		{name: "recordTestingState", modes: construct, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "recordTestingState",
-				Description: "Record a project-level testing artifact (system test plan, harness module, perf harness, quality gate, test run, defect, or quality-audit report) into the project state's testing state. " +
+				Description: "Record a project-level testing artifact (harness module, perf harness, quality gate, defect, or quality-audit report) into the project state's testing state. Check runs are not recorded here: the job's gate records them. " +
 					"Set EXACTLY ONE field of the payload. Validated through the server codec + the Method CI rules before it is accepted; on failure it writes nothing and returns the errors. Finish with publishDraft.",
 			}, textHandler(func(_ context.Context, in recordTestingStateInput) (string, error) {
 				if err := s.recordTestingState(in.Payload); err != nil {
@@ -325,6 +325,8 @@ func composedVerbs(s *Session) []composedVerb {
 				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 			}, textHandler(func(context.Context, emptyInput) (string, error) { return s.operatorNotesText(), nil }))
 		}},
+		// --- the step's own gate, in every mode: run this task's checks (runchecks.go). ---
+		{name: runChecksTool, modes: shared, register: func(srv *mcp.Server) { registerRunChecks(srv, s) }},
 	}
 }
 

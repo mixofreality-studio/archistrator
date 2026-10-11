@@ -99,12 +99,23 @@ func citedPass(n int, run string) projectstate.TaskAttempt {
 
 // qualifyingRun is the run a testing pass of recActivity stands on: its activity, at the
 // judged integration attempt, every projected scenario green.
-func qualifyingRun() projectstate.TestRun {
-	return projectstate.TestRun{
-		ID: "run-1", Activity: recActivity, Component: recContract,
-		Revision: projectstate.AttemptID(recActivity, projectstate.TaskIntegration, 1), Artifact: "test-results-run-1",
-		Scenarios: []projectstate.ScenarioResult{{Scenario: "uc1.P1", Status: "pass"}, {Scenario: "uc1.P2", Status: "pass"}},
+func qualifyingRun() projectstate.CheckRun {
+	return projectstate.CheckRun{
+		ID: "run-1", Activity: recActivity, Task: string(projectstate.TaskIntegration),
+		Revision: projectstate.AttemptID(recActivity, projectstate.TaskIntegration, 1), Artifact: "check-results-run-1",
+		Results: append([]projectstate.CheckResult{{CheckId: "command:build", Kind: projectstate.CheckKindCommand, Status: "pass"}},
+			scenarioResults("uc1.P1=pass", "uc1.P2=pass")...),
 	}
+}
+
+// scenarioResults builds recContract's scenario check results from "<id>=<status>" pairs.
+func scenarioResults(pairs ...string) []projectstate.CheckResult {
+	out := make([]projectstate.CheckResult, len(pairs))
+	for i, p := range pairs {
+		id, status, _ := strings.Cut(p, "=")
+		out[i] = projectstate.CheckResult{CheckId: projectstate.CheckKindScenario + ":" + recContract + ":" + id, Kind: projectstate.CheckKindScenario, Status: status}
+	}
+	return out
 }
 
 // twoScenarios projects uc1.P1 and uc1.P2 onto recComponent and nothing elsewhere.
@@ -229,11 +240,11 @@ func TestRECBuiltUnrecorded_OutOfReach(t *testing.T) {
 // ---- REC-TESTING-UNQUALIFIED ----------------------------------------------------------
 
 // testedProject is recProject with recActivity's row holding ledger and the given runs.
-func testedProject(ledger []projectstate.TaskAttempt, runs ...projectstate.TestRun) projectstate.Project {
+func testedProject(ledger []projectstate.TaskAttempt, runs ...projectstate.CheckRun) projectstate.Project {
 	p := recProject()
 	p.ActivityExecution = map[string]projectstate.ActivityExecution{recActivity: {ActivityID: recActivity, Attempts: ledger}}
 	if len(runs) > 0 {
-		p.TestingState = &projectstate.TestingState{TestRuns: runs}
+		p.TestingState = &projectstate.TestingState{CheckRuns: runs}
 	}
 	return p
 }
@@ -247,12 +258,12 @@ func TestRECTestingUnqualified_AQualifyingRunSatisfiesIt(t *testing.T) {
 func TestRECTestingUnqualified_UncitedPass(t *testing.T) {
 	uncited := attempt(projectstate.TaskTesting, 1, projectstate.OutcomePassed, projectstate.EvidenceRef{Kind: projectstate.EvidenceGit, Ref: "abc123"})
 	p := testedProject(append(throughIntegration(), uncited), qualifyingRun())
-	onlyFinding(t, p, recCheckout(), ruleTestingUnqualified, recActivity+":testing:1", "cites no TestRun", `"git"`)
+	onlyFinding(t, p, recCheckout(), ruleTestingUnqualified, recActivity+":testing:1", "cites no CheckRun", `"git"`)
 }
 
 func TestRECTestingUnqualified_CitedRunNotRecorded(t *testing.T) {
 	p := testedProject(append(throughIntegration(), citedPass(1, "run-gone")))
-	onlyFinding(t, p, recCheckout(), ruleTestingUnqualified, `"run-gone"`, ".testingState.testRuns does not hold")
+	onlyFinding(t, p, recCheckout(), ruleTestingUnqualified, `"run-gone"`, ".testingState.checkRuns does not hold")
 }
 
 func TestRECTestingUnqualified_RunOfAnotherActivity(t *testing.T) {
@@ -275,14 +286,14 @@ func TestRECTestingUnqualified_RunAtAnotherRevision(t *testing.T) {
 
 func TestRECTestingUnqualified_ScenarioSetDiffers(t *testing.T) {
 	run := qualifyingRun()
-	run.Scenarios = []projectstate.ScenarioResult{{Scenario: "uc1.P1", Status: "pass"}, {Scenario: "uc9.P1", Status: "pass"}}
+	run.Results = scenarioResults("uc1.P1=pass", "uc9.P1=pass")
 	p := testedProject(append(throughIntegration(), citedPass(1, "run-1")), run)
 	onlyFinding(t, p, recCheckout(), ruleTestingUnqualified, "never ran projected scenario(s) uc1.P2", "no projection holds: uc9.P1")
 }
 
 func TestRECTestingUnqualified_RunNotGreen(t *testing.T) {
 	run := qualifyingRun()
-	run.Scenarios = []projectstate.ScenarioResult{{Scenario: "uc1.P1", Status: "fail"}, {Scenario: "uc1.P2", Status: "skip"}}
+	run.Results = scenarioResults("uc1.P1=fail", "uc1.P2=skip")
 	p := testedProject(append(throughIntegration(), citedPass(1, "run-1")), run)
 	onlyFinding(t, p, recCheckout(), ruleTestingUnqualified, "did not pass: uc1.P1=fail, uc1.P2=skip")
 }

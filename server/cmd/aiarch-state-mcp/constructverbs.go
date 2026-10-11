@@ -49,10 +49,10 @@ type recordPhaseArtifactInput struct {
 
 // recordTestingStateInput carries a testing-state payload (a PhaseArtifactPayload with
 // exactly one project-level testing field set). mapKey is unused for testing-state
-// singletons, so it is not an input. TestRun is NOT among the admitted fields: the run is
-// the venue's record (record-test-run), never the agent's claim.
+// singletons, so it is not an input. CheckRun is NOT among the admitted fields: the run
+// is the venue's record (record-check-run), never the agent's claim.
 type recordTestingStateInput struct {
-	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE testing-state field set (HarnessModule, PerfHarness, QualityGate, Defect, or QualityAuditReport); a TestRun is refused — the venue's record-test-run step records runs"`
+	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE testing-state field set (HarnessModule, PerfHarness, QualityGate, Defect, or QualityAuditReport); a CheckRun is refused — the venue's record-check-run step records runs"`
 }
 
 // applyConstructionMutation is the shared validate-then-write core for the construction
@@ -90,6 +90,33 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 	if errs := filterErrorFindings(findings); len(errs) > 0 {
 		return fmt.Errorf("the %s change violates %d Method rule(s) that the required CI check enforces — fix them and record again:\n%s",
 			what, len(errs), formatFindings(errs))
+	}
+	if err := s.writeProjectBytes(newBytes); err != nil {
+		return fmt.Errorf("write project state: %w", err)
+	}
+	s.wroteState = true
+	return nil
+}
+
+// applyEvidenceMutation writes venue EVIDENCE (a CheckRun) red or green (deviation 5):
+// it reads the checkout, applies the mutation, and holds the re-encoded aggregate to the
+// strict server codec's read-back alone. It deliberately skips methodcheck: a red rule
+// check means the document carries Error findings, and the validated path
+// (applyConstructionMutation) would refuse to record the very run that shows them.
+func (s *Session) applyEvidenceMutation(what string, mutate func(*projectstate.Project) error) error {
+	proj, _, err := s.readProject()
+	if err != nil {
+		return err
+	}
+	if err := mutate(&proj); err != nil {
+		return err
+	}
+	newBytes, err := projectstate.EncodeProjectJSON(proj)
+	if err != nil {
+		return fmt.Errorf("encode project state: %w", err)
+	}
+	if _, _, derr := projectstate.DecodeProjectJSON(newBytes, s.ProjectID); derr != nil {
+		return fmt.Errorf("the %s would be rejected by the server on read-back: %w", what, derr)
 	}
 	if err := s.writeProjectBytes(newBytes); err != nil {
 		return fmt.Errorf("write project state: %w", err)
@@ -168,11 +195,11 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 // recordTestingState routes a testing-state payload into .testingState (project-level
 // singletons/slices; mapKey unused), via the same server routing.
 //
-// THE RUN HALF IS REFUSED (deterministic component testing, §6.1: record-test-run
-// "replaces the run half of recordTestingState"). The testing gate judges the venue's
-// evidence, not an agent's claim, and a verb the agent can call that appended a TestRun
-// would let a fabricated all-pass run, stamped with the judged attempt id, pass that gate.
-// The routing (ApplyPhaseArtifactPayload) still carries TestRun because the venue's
+// THE RUN HALF IS REFUSED. A CheckRun is the venue's measured evidence (record-check-run
+// writes it from the check gate's results); the testing gate judges that evidence, not
+// an agent's claim, and a verb the agent can call that recorded a CheckRun would let a
+// fabricated all-pass run, stamped with the judged attempt id, pass the gate. The
+// routing (ApplyPhaseArtifactPayload) still carries CheckRun because the venue's
 // subcommand goes through it; only this agent-facing entry closes the door.
 func (s *Session) recordTestingState(payload map[string]any) error {
 	if s.ActivityID == "" {
@@ -182,10 +209,10 @@ func (s *Session) recordTestingState(payload map[string]any) error {
 	if err != nil {
 		return err
 	}
-	if pl.TestRun != nil {
-		return fmt.Errorf("recordTestingState does not record test runs: a run is the venue's measured evidence, " +
-			"recorded by the workflow's `record-test-run` step from the test-results the scenario host flushed — " +
-			"an agent cannot claim one")
+	if pl.CheckRun != nil {
+		return fmt.Errorf("recordTestingState does not record check runs: a run is the venue's measured evidence, " +
+			"recorded by the workflow's `record-check-run` step from the check gate's results — " +
+			"an agent cannot claim one (run_checks runs the checks without recording)")
 	}
 	return s.applyConstructionMutation("testing state", func(p *projectstate.Project) error {
 		projectstate.ApplyPhaseArtifactPayload(p, "", pl)

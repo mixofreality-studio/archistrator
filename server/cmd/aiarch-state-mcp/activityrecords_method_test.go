@@ -15,7 +15,7 @@ import (
 // archistrator's OWN checkout and committed .aiarch/state/project.json — the dogfood
 // half of `make method-check` for the rules methodcheck cannot run because they read the
 // checkout: every component built here has its completion record, and every passed
-// testing task stands on a qualifying TestRun. Any REC-* Error fails it.
+// testing task stands on a qualifying CheckRun. Any REC-* Error fails it.
 func TestMethodActivityRecords(t *testing.T) {
 	root := committedStateRoot(t)
 	raw, err := os.ReadFile(filepath.Join(root, statePathPrefix, projectFile))
