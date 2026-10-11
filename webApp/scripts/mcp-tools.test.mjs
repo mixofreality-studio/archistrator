@@ -32,11 +32,17 @@ const tools = loadMcpTools();
 test('the server registers tools, and every bound tool is one of them', () => {
   // Stage 4a: three design/construction managers became one delivery manager, so
   // the floor moved from 40 to 20 — 12 delivery tools + 8 operations tools. Stage 4b2
-  // took deliveryManager to eleven ops (ReplanProject left the contract), so 19. The
-  // EXACT count, because a blind read that returns nothing must fail here (the last
-  // test in this file pins that loadMcpTools throws rather than answering an empty
-  // table).
-  assert.equal(tools.size, 19, `read ${String(tools.size)} tools`);
+  // took deliveryManager to eleven ops (ReplanProject left the contract), so 19. dct
+  // Plan 4 exposed billingManager's read-only GetBillingCycle, so 20; dct Plan 5 its two
+  // onboarding entries (spec §12 B7), so 22. The EXACT count, because a blind read that
+  // returns nothing must fail here (the last test in this file pins that loadMcpTools
+  // throws rather than answering an empty table).
+  assert.equal(tools.size, 22, `read ${String(tools.size)} tools`);
+  assert.deepEqual(
+    [...tools].filter((t) => t.startsWith('billing')).sort(),
+    ['billingGetBillingCycle', 'billingOnboardPaymentIntegration', 'billingRegisterCustomer'],
+    'billingManager registers the tools a use case draws from a client, and no other'
+  );
   for (const [opId, binding] of Object.entries(opBindings(doc))) {
     if (binding.tool !== null) assert.ok(tools.has(binding.tool), `${opId} → ${binding.tool}`);
   }

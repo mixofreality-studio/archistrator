@@ -71,7 +71,7 @@ func TestStepManifestNarrowsTheToolSurface(t *testing.T) {
 	// estimation surface, nor the operations/billing surface.
 	for _, forbidden := range []string{
 		"estimationDerivePlan", "estimationComputeNetwork", "estimationEstimateForOption",
-		"billingComputeNet", "revenueLedgerReadRange", "autoscalerProposeDesiredState",
+		"billingComputeNet", "usageReadRange", "autoscalerProposeDesiredState",
 		"operatedRuntimeGetSloStatus", "sourceControlGetInstallationToken",
 	} {
 		if got[forbidden] {

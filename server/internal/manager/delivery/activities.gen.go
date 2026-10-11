@@ -25,16 +25,15 @@ import (
 // contract) — the manager's architecture-approved call surface. Fields are the
 // contract interfaces, threaded by RegisterWorker.
 type genActivities struct {
-	ProjectState           projectstate.ProjectStateAccess
-	Artifact               artifact.ArtifactAccess
-	Pipeline               agenticjob.AgenticJobAccess
-	Rail                   sourcecontrol.SourceControlAccess
-	ConstructionTransition projectstate.ConstructionTransitionAccess
-	GitStatus              projectstate.GitActivityStatusAccess
-	DesignSession          projectstate.DesignSessionAccess
-	ActivityExecution      projectstate.ActivityExecutionAccess
-	MessageBus             messagebus.MessageBus
-	Episodes               episode.EpisodeAccess
+	ProjectState      projectstate.ProjectStateAccess
+	Artifact          artifact.ArtifactAccess
+	Pipeline          agenticjob.AgenticJobAccess
+	Rail              sourcecontrol.SourceControlAccess
+	GitStatus         projectstate.GitActivityStatusAccess
+	DesignSession     projectstate.DesignSessionAccess
+	ActivityExecution projectstate.ActivityExecutionAccess
+	MessageBus        messagebus.MessageBus
+	Episodes          episode.EpisodeAccess
 }
 
 // genActivityIdempotencyKey derives the run-scoped 3-part key
@@ -57,13 +56,6 @@ func (a *genActivities) ProjectStateAcknowledgeStaleBasis(ctx context.Context, p
 // Registered as "projectStateAccess.advancePhase".
 func (a *genActivities) ProjectStateAdvancePhase(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
 	v, err := a.ProjectState.AdvancePhase(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion)
-	return v, fwmanager.MapError(err)
-}
-
-// ProjectStateCommitArtifact wraps projectStateAccess.commitArtifact.
-// Registered as "projectStateAccess.commitArtifact".
-func (a *genActivities) ProjectStateCommitArtifact(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
-	v, err := a.ProjectState.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, kind)
 	return v, fwmanager.MapError(err)
 }
 
@@ -95,6 +87,41 @@ func (a *genActivities) ProjectStateReadProjectVersion(ctx context.Context, proj
 	return v, fwmanager.MapError(err)
 }
 
+// ProjectStateRecordOperatorPaused wraps projectStateAccess.recordOperatorPaused.
+// Registered as "projectStateAccess.recordOperatorPaused".
+func (a *genActivities) ProjectStateRecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordOperatorPaused(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, reason, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordOperatorResumed wraps projectStateAccess.recordOperatorResumed.
+// Registered as "projectStateAccess.recordOperatorResumed".
+func (a *genActivities) ProjectStateRecordOperatorResumed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordOperatorResumed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordReviewPolicy wraps projectStateAccess.recordReviewPolicy.
+// Registered as "projectStateAccess.recordReviewPolicy".
+func (a *genActivities) ProjectStateRecordReviewPolicy(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordReviewPolicy(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, policy, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordSdpReviewOutcome wraps projectStateAccess.recordSdpReviewOutcome.
+// Registered as "projectStateAccess.recordSdpReviewOutcome".
+func (a *genActivities) ProjectStateRecordSdpReviewOutcome(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, outcome projectstate.ArtifactReviewStatus, feedback string) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordSdpReviewOutcome(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, outcome, feedback, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ProjectStateRecordTrackingPoint wraps projectStateAccess.recordTrackingPoint.
+// Registered as "projectStateAccess.recordTrackingPoint".
+func (a *genActivities) ProjectStateRecordTrackingPoint(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, point projectstate.EvPoint) (projectstate.Version, error) {
+	v, err := a.ProjectState.RecordTrackingPoint(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, point, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
 // ProjectStateSetOperatingModel wraps projectStateAccess.setOperatingModel.
 // Registered as "projectStateAccess.setOperatingModel".
 func (a *genActivities) ProjectStateSetOperatingModel(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
@@ -109,17 +136,24 @@ func (a *genActivities) ProjectStateSetResearchInput(ctx context.Context, projec
 	return v, fwmanager.MapError(err)
 }
 
+// ArtifactGetTestRunIndex wraps artifactAccess.getTestRunIndex.
+// Registered as "artifactAccess.getTestRunIndex".
+func (a *genActivities) ArtifactGetTestRunIndex(ctx context.Context, run artifact.TestRunRef) (artifact.TestRunIndex, error) {
+	v, err := a.Artifact.GetTestRunIndex(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, run)
+	return v, fwmanager.MapError(err)
+}
+
+// ArtifactReadTestRunFile wraps artifactAccess.readTestRunFile.
+// Registered as "artifactAccess.readTestRunFile".
+func (a *genActivities) ArtifactReadTestRunFile(ctx context.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
+	v, err := a.Artifact.ReadTestRunFile(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, run, path)
+	return v, fwmanager.MapError(err)
+}
+
 // ArtifactRetrieveConstructionOutput wraps artifactAccess.retrieveConstructionOutput.
 // Registered as "artifactAccess.retrieveConstructionOutput".
 func (a *genActivities) ArtifactRetrieveConstructionOutput(ctx context.Context, contentAddress string) (artifact.ConstructionOutput, error) {
 	v, err := a.Artifact.RetrieveConstructionOutput(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, contentAddress)
-	return v, fwmanager.MapError(err)
-}
-
-// ArtifactRetrieveOutputTree wraps artifactAccess.retrieveOutputTree.
-// Registered as "artifactAccess.retrieveOutputTree".
-func (a *genActivities) ArtifactRetrieveOutputTree(ctx context.Context, contentAddress string) (artifact.OutputTree, error) {
-	v, err := a.Artifact.RetrieveOutputTree(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, contentAddress)
 	return v, fwmanager.MapError(err)
 }
 
@@ -128,13 +162,6 @@ func (a *genActivities) ArtifactRetrieveOutputTree(ctx context.Context, contentA
 func (a *genActivities) ArtifactStoreConstructionOutput(ctx context.Context, content artifact.ConstructionOutput) (string, error) {
 	v, err := a.Artifact.StoreConstructionOutput(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, content)
 	return v, fwmanager.MapError(err)
-}
-
-// PipelineCancelAgenticJob wraps agenticJobAccess.cancelAgenticJob.
-// Registered as "agenticJobAccess.cancelAgenticJob".
-func (a *genActivities) PipelineCancelAgenticJob(ctx context.Context, handle agenticjob.PipelineHandle) error {
-	err := a.Pipeline.CancelAgenticJob(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, handle)
-	return fwmanager.MapError(err)
 }
 
 // PipelineObserveAgenticJob wraps agenticJobAccess.observeAgenticJob.
@@ -165,13 +192,6 @@ func (a *genActivities) RailCommitManagedFiles(ctx context.Context, repo sourcec
 	return v, fwmanager.MapError(err)
 }
 
-// RailConfigureBranchProtection wraps sourceControlAccess.configureBranchProtection.
-// Registered as "sourceControlAccess.configureBranchProtection".
-func (a *genActivities) RailConfigureBranchProtection(ctx context.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) error {
-	err := a.Rail.ConfigureBranchProtection(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, repo, cred)
-	return fwmanager.MapError(err)
-}
-
 // RailGetInstallationToken wraps sourceControlAccess.getInstallationToken.
 // Registered as "sourceControlAccess.getInstallationToken".
 func (a *genActivities) RailGetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
@@ -183,13 +203,6 @@ func (a *genActivities) RailGetInstallationToken(ctx context.Context, repo sourc
 // Registered as "sourceControlAccess.getPullRequestStatus".
 func (a *genActivities) RailGetPullRequestStatus(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
 	v, err := a.Rail.GetPullRequestStatus(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, repo, pr, cred)
-	return v, fwmanager.MapError(err)
-}
-
-// RailInstallAuthorizeApp wraps sourceControlAccess.installAuthorizeApp.
-// Registered as "sourceControlAccess.installAuthorizeApp".
-func (a *genActivities) RailInstallAuthorizeApp(ctx context.Context, account sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
-	v, err := a.Rail.InstallAuthorizeApp(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, account)
 	return v, fwmanager.MapError(err)
 }
 
@@ -221,101 +234,17 @@ func (a *genActivities) RailPostReview(ctx context.Context, repo sourcecontrol.R
 	return fwmanager.MapError(err)
 }
 
+// RailReadManagedFile wraps sourceControlAccess.readManagedFile.
+// Registered as "sourceControlAccess.readManagedFile".
+func (a *genActivities) RailReadManagedFile(ctx context.Context, repo sourcecontrol.RepoRef, path string, cred sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	v, err := a.Rail.ReadManagedFile(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, repo, path, cred)
+	return v, fwmanager.MapError(err)
+}
+
 // RailSyncManagedScaffold wraps sourceControlAccess.syncManagedScaffold.
 // Registered as "sourceControlAccess.syncManagedScaffold".
 func (a *genActivities) RailSyncManagedScaffold(ctx context.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
 	v, err := a.Rail.SyncManagedScaffold(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, repo, cred)
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordActivityExited wraps constructionTransitionAccess.recordActivityExited.
-// Registered as "constructionTransitionAccess.recordActivityExited".
-func (a *genActivities) ConstructionTransitionRecordActivityExited(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordActivityExited(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, outcome, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordActivityFailed wraps constructionTransitionAccess.recordActivityFailed.
-// Registered as "constructionTransitionAccess.recordActivityFailed".
-func (a *genActivities) ConstructionTransitionRecordActivityFailed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordActivityFailed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, reason, detail, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordChangeReviewed wraps constructionTransitionAccess.recordChangeReviewed.
-// Registered as "constructionTransitionAccess.recordChangeReviewed".
-func (a *genActivities) ConstructionTransitionRecordChangeReviewed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordChangeReviewed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordOperatorNote wraps constructionTransitionAccess.recordOperatorNote.
-// Registered as "constructionTransitionAccess.recordOperatorNote".
-func (a *genActivities) ConstructionTransitionRecordOperatorNote(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordOperatorNote(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, note, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordOperatorNoteDelivered wraps constructionTransitionAccess.recordOperatorNoteDelivered.
-// Registered as "constructionTransitionAccess.recordOperatorNoteDelivered".
-func (a *genActivities) ConstructionTransitionRecordOperatorNoteDelivered(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, noteID string, attemptID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordOperatorNoteDelivered(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, noteID, attemptID, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordOperatorPaused wraps constructionTransitionAccess.recordOperatorPaused.
-// Registered as "constructionTransitionAccess.recordOperatorPaused".
-func (a *genActivities) ConstructionTransitionRecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordOperatorPaused(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, reason, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordOperatorResumed wraps constructionTransitionAccess.recordOperatorResumed.
-// Registered as "constructionTransitionAccess.recordOperatorResumed".
-func (a *genActivities) ConstructionTransitionRecordOperatorResumed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordOperatorResumed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordPhaseArtifactProduced wraps constructionTransitionAccess.recordPhaseArtifactProduced.
-// Registered as "constructionTransitionAccess.recordPhaseArtifactProduced".
-func (a *genActivities) ConstructionTransitionRecordPhaseArtifactProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordPhaseArtifactProduced(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, mapKey, payload, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordPhaseCompleted wraps constructionTransitionAccess.recordPhaseCompleted.
-// Registered as "constructionTransitionAccess.recordPhaseCompleted".
-func (a *genActivities) ConstructionTransitionRecordPhaseCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordPhaseCompleted(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, phase, artifactRef, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordPhaseStarted wraps constructionTransitionAccess.recordPhaseStarted.
-// Registered as "constructionTransitionAccess.recordPhaseStarted".
-func (a *genActivities) ConstructionTransitionRecordPhaseStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordPhaseStarted(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, phase, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordReviewPolicy wraps constructionTransitionAccess.recordReviewPolicy.
-// Registered as "constructionTransitionAccess.recordReviewPolicy".
-func (a *genActivities) ConstructionTransitionRecordReviewPolicy(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordReviewPolicy(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, policy, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ConstructionTransitionRecordServiceContractProduced wraps constructionTransitionAccess.recordServiceContractProduced.
-// Registered as "constructionTransitionAccess.recordServiceContractProduced".
-func (a *genActivities) ConstructionTransitionRecordServiceContractProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ConstructionTransition.RecordServiceContractProduced(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, component, contract, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// GitStatusRecordActivityArchApproved wraps gitActivityStatusAccess.recordActivityArchApproved.
-// Registered as "gitActivityStatusAccess.recordActivityArchApproved".
-func (a *genActivities) GitStatusRecordActivityArchApproved(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.GitStatus.RecordActivityArchApproved(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
@@ -330,27 +259,6 @@ func (a *genActivities) GitStatusRecordActivityBranchOpened(ctx context.Context,
 // Registered as "gitActivityStatusAccess.recordActivityCIObserved".
 func (a *genActivities) GitStatusRecordActivityCIObserved(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential) (projectstate.Version, error) {
 	v, err := a.GitStatus.RecordActivityCIObserved(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, ci, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// GitStatusRecordActivityCompleted wraps gitActivityStatusAccess.recordActivityCompleted.
-// Registered as "gitActivityStatusAccess.recordActivityCompleted".
-func (a *genActivities) GitStatusRecordActivityCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.GitStatus.RecordActivityCompleted(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// GitStatusRecordActivityMerged wraps gitActivityStatusAccess.recordActivityMerged.
-// Registered as "gitActivityStatusAccess.recordActivityMerged".
-func (a *genActivities) GitStatusRecordActivityMerged(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.GitStatus.RecordActivityMerged(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// GitStatusRecordActivityStarted wraps gitActivityStatusAccess.recordActivityStarted.
-// Registered as "gitActivityStatusAccess.recordActivityStarted".
-func (a *genActivities) GitStatusRecordActivityStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.GitStatus.RecordActivityStarted(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, typ, variant, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
@@ -375,24 +283,10 @@ func (a *genActivities) DesignSessionReconcileBranchFromMain(ctx context.Context
 	return v, fwmanager.MapError(err)
 }
 
-// DesignSessionRejectArtifactOnBranchWithComments wraps designSessionAccess.rejectArtifactOnBranchWithComments.
-// Registered as "designSessionAccess.rejectArtifactOnBranchWithComments".
-func (a *genActivities) DesignSessionRejectArtifactOnBranchWithComments(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply) (projectstate.Version, error) {
-	v, err := a.DesignSession.RejectArtifactOnBranchWithComments(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, round, comments, replies, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
 // DesignSessionSeedReviewCommentsOnBranch wraps designSessionAccess.seedReviewCommentsOnBranch.
 // Registered as "designSessionAccess.seedReviewCommentsOnBranch".
 func (a *genActivities) DesignSessionSeedReviewCommentsOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply) (projectstate.Version, error) {
 	v, err := a.DesignSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, round, comments, replies, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// DesignSessionSetReviewCommentStatusOnBranch wraps designSessionAccess.setReviewCommentStatusOnBranch.
-// Registered as "designSessionAccess.setReviewCommentStatusOnBranch".
-func (a *genActivities) DesignSessionSetReviewCommentStatusOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string) (projectstate.Version, error) {
-	v, err := a.DesignSession.SetReviewCommentStatusOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, commentID, status, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
@@ -403,31 +297,10 @@ func (a *genActivities) DesignSessionStageArtifactForReviewOnBranch(ctx context.
 	return v, fwmanager.MapError(err)
 }
 
-// DesignSessionWithdrawArtifactOnBranch wraps designSessionAccess.withdrawArtifactOnBranch.
-// Registered as "designSessionAccess.withdrawArtifactOnBranch".
-func (a *genActivities) DesignSessionWithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
-	v, err := a.DesignSession.WithdrawArtifactOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ActivityExecutionAcknowledgeStaleBasis wraps activityExecutionAccess.acknowledgeStaleBasis.
-// Registered as "activityExecutionAccess.acknowledgeStaleBasis".
-func (a *genActivities) ActivityExecutionAcknowledgeStaleBasis(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, kind projectstate.ArtifactKind, note string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.AcknowledgeStaleBasis(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, kind, note, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
 // ActivityExecutionAppendReviewVerdict wraps activityExecutionAccess.appendReviewVerdict.
 // Registered as "activityExecutionAccess.appendReviewVerdict".
 func (a *genActivities) ActivityExecutionAppendReviewVerdict(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, cred projectstate.RepoCredential) (projectstate.Version, error) {
 	v, err := a.ActivityExecution.AppendReviewVerdict(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, roundID, verdict, comments, replies, cred, genActivityIdempotencyKey(ctx))
-	return v, fwmanager.MapError(err)
-}
-
-// ActivityExecutionCommitActivityArtifacts wraps activityExecutionAccess.commitActivityArtifacts.
-// Registered as "activityExecutionAccess.commitActivityArtifacts".
-func (a *genActivities) ActivityExecutionCommitActivityArtifacts(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, artifacts projectstate.CommitArtifactsInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.CommitActivityArtifacts(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, artifacts, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
@@ -496,9 +369,16 @@ func (a *genActivities) ActivityExecutionStageTaskOutput(ctx context.Context, pr
 
 // MessageBusDeliverSignal wraps messageBus.deliverSignal.
 // Registered as "messageBus.deliverSignal".
-func (a *genActivities) MessageBusDeliverSignal(ctx context.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
-	err := a.MessageBus.DeliverSignal(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, targetExecutionID, signalName, payload)
+func (a *genActivities) MessageBusDeliverSignal(ctx context.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload, start *messagebus.ExecutionStart) error {
+	err := a.MessageBus.DeliverSignal(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, targetExecutionID, signalName, payload, start)
 	return fwmanager.MapError(err)
+}
+
+// MessageBusDescribeSchedule wraps messageBus.describeSchedule.
+// Registered as "messageBus.describeSchedule".
+func (a *genActivities) MessageBusDescribeSchedule(ctx context.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	v, err := a.MessageBus.DescribeSchedule(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, scheduleID)
+	return v, fwmanager.MapError(err)
 }
 
 // MessageBusRegisterSchedule wraps messageBus.registerSchedule.

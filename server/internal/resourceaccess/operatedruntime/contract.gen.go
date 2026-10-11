@@ -24,10 +24,6 @@ type ComputeUnits struct {
 	Unit   string  `json:"Unit"`
 }
 
-type GatewayBinding struct {
-	ConnectedAccountID string `json:"ConnectedAccountID"`
-}
-
 type ModelKeyHealth struct {
 	ModelKey string        `json:"ModelKey"`
 	Status   RuntimeStatus `json:"Status"`
@@ -81,6 +77,11 @@ type Workload struct {
 	Replicas int64  `json:"Replicas"`
 }
 
+type WorkloadTelemetry struct {
+	Measured       bool    `json:"Measured"`
+	CPUUtilization float64 `json:"CPUUtilization"`
+}
+
 // OperatedRuntimeAccess is the generated service-contract interface for this component.
 type OperatedRuntimeAccess interface {
 	GetApplicationHealth(rc fwra.Context, appID uuid.UUID) (RuntimeStatus, error)
@@ -88,7 +89,7 @@ type OperatedRuntimeAccess interface {
 	GetSloStatus(rc fwra.Context, appID uuid.UUID) (SloStatus, error)
 	PublishDesiredState(rc fwra.Context, appID uuid.UUID, desired RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error
 	ReadComputeAttribution(rc fwra.Context, appID uuid.UUID, window AttributionWindow) (ComputeAttribution, error)
-	WirePaymentConfig(rc fwra.Context, deployedAppID uuid.UUID, binding GatewayBinding, idempotencyKey fwra.IdempotencyKey) error
+	ReadWorkloadTelemetry(rc fwra.Context, appID uuid.UUID) (WorkloadTelemetry, error)
 	Withdraw(rc fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error
 }
 

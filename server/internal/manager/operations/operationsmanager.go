@@ -139,10 +139,18 @@ type operationsManager struct {
 	// this straight through into wfDeps.AutoscalerPolicy; autoscalerPolicyToEngine
 	// (adapters.go) converts it to the Engine's own shape at the one call site that
 	// needs it (workflow.go, ProposeDesiredState).
+	//
+	// The policy's Kind is the infrastructure the policy is FOR, so it is built from
+	// infrastructureKind (newOperationsManager): the autoscalerEngine refuses a policy
+	// whose Kind differs from the infrastructureKind it is asked about (ContractMisuse),
+	// and a zero Kind made every reconcile tick of every in-flight app fail.
+	//
+	// There is deliberately no customer or billing-cycle config here: a usage event is
+	// attributed to the operated app's OWN customer (its head-state row) and to the
+	// cycle its observation falls in (usageCycleID, reconcile.go) — a construction-time
+	// zero customer was refused by usageAccess on every write and every read.
 	autoscalerPolicy   autoscalerPolicy
 	infrastructureKind autoscaler.InfrastructureKind
-	currentCycleID     string
-	customerID         customerID
 }
 
 // newOperationsManager is the hand-written, unexported builder the generated
@@ -172,6 +180,7 @@ func newOperationsManager(
 		autoscaler:          autoscalerEng,
 		operationEstimation: operationEstimation,
 		projectState:        projectState,
+		autoscalerPolicy:    autoscalerPolicy{Kind: autoscaler.InfrastructureKindGoTemporalPostgres},
 		infrastructureKind:  autoscaler.InfrastructureKindGoTemporalPostgres,
 	}
 }
@@ -255,7 +264,7 @@ func (m *operationsManager) DeployAfterConstruction(rc fwmgr.Context, operatedAp
 	}
 	var result DeployResult
 	if err := we.Get(ctx, &result); err != nil {
-		return DeployResult{}, newError(fwmgr.Infrastructure, err.Error())
+		return DeployResult{}, mapResultError(err)
 	}
 	return result, nil
 }
@@ -287,7 +296,7 @@ func (m *operationsManager) ReconcileOperatedState(rc fwmgr.Context, tickID stri
 	}
 	var result ReconcileResult
 	if err := we.Get(ctx, &result); err != nil {
-		return ReconcileResult{}, newError(fwmgr.Infrastructure, err.Error())
+		return ReconcileResult{}, mapResultError(err)
 	}
 	return result, nil
 }
@@ -323,7 +332,7 @@ func (m *operationsManager) WithdrawSystem(rc fwmgr.Context, operatedAppID opera
 	}
 	var result WithdrawResult
 	if err := we.Get(ctx, &result); err != nil {
-		return WithdrawResult{}, newError(fwmgr.Infrastructure, err.Error())
+		return WithdrawResult{}, mapResultError(err)
 	}
 	return result, nil
 }
@@ -372,7 +381,7 @@ func (m *operationsManager) RegisterOperatedApp(rc fwmgr.Context, operatedAppID 
 	}
 	var result Version
 	if err := we.Get(ctx, &result); err != nil {
-		return 0, newError(fwmgr.Infrastructure, err.Error())
+		return 0, mapResultError(err)
 	}
 	return result, nil
 }
@@ -406,7 +415,7 @@ func (m *operationsManager) QueryCostProjection(rc fwmgr.Context, operatedAppID 
 	}
 	var result costProjection
 	if err := we.Get(ctx, &result); err != nil {
-		return costProjection{}, newError(fwmgr.Infrastructure, err.Error())
+		return costProjection{}, mapResultError(err)
 	}
 	return result, nil
 }
@@ -441,7 +450,7 @@ func (m *operationsManager) QueryOperatedSystemView(rc fwmgr.Context, operatedAp
 	}
 	var result OperatedSystemView
 	if err := we.Get(ctx, &result); err != nil {
-		return OperatedSystemView{}, newError(fwmgr.Infrastructure, err.Error())
+		return OperatedSystemView{}, mapResultError(err)
 	}
 	return result, nil
 }
@@ -475,7 +484,7 @@ func (m *operationsManager) QueryDeploymentHealth(rc fwmgr.Context, operatedAppI
 	}
 	var result DeploymentHealth
 	if err := we.Get(ctx, &result); err != nil {
-		return DeploymentHealth{}, newError(fwmgr.Infrastructure, err.Error())
+		return DeploymentHealth{}, mapResultError(err)
 	}
 	return result, nil
 }
@@ -493,16 +502,26 @@ func (m *operationsManager) ApplyDelinquencyPolicy(rc fwmgr.Context, customerID 
 		return newError(fwmgr.ContractMisuse, "empty customerId")
 	}
 
+	// A DIRECTIVE THAT NAMES NO ACTION IS REFUSED HERE, TO THE CALLER. Until stage 4b3
+	// DelinquencyContext carried a non-pointer pauseNotWithdraw bool whose Go zero meant
+	// WITHDRAW, so a body that omitted the field asked, silently, for the one irreversible
+	// arm. The $defs swap made the zero value DelinquencyActionUnknown. The façade used to
+	// carry that zero through and leave the refusal to the enforcement branch — but this op
+	// is queued, so the refusal then happened in a workflow nobody waits on while the caller
+	// was told "accepted". The use case (enforce-customer-delinquency-on-operated-systems,
+	// [no: unsaid]) refuses the directive as a non-retryable error to the caller, with no
+	// runtime change and no head-state write: nothing is enqueued. The branch keeps its own
+	// refusal (runDelinquencyBranch) for a signal the messageBus delivers straight to the
+	// workflow, which never passes this façade.
+	switch delinquencyContext.Action {
+	case DelinquencyActionPause, DelinquencyActionWithdraw:
+	case DelinquencyActionUnknown:
+		return newError(fwmgr.ContractMisuse, "delinquencyContext.action names no action; pause and withdraw are the two this op enforces and neither may be assumed")
+	default:
+		return newError(fwmgr.ContractMisuse, fmt.Sprintf("unknown delinquencyContext.action %d", int(delinquencyContext.Action)))
+	}
+
 	wfID := delinquencyWorkflowID(customerID)
-	// THE CALLER'S DIRECTIVE TRAVELS UNTOUCHED, INCLUDING "NOBODY SAID". Until stage 4b3 this
-	// was a bool→enum mapping with an earmark on it: DelinquencyContext.pauseNotWithdraw was a
-	// non-pointer bool on the generated REST and MCP surfaces, the generated handler does a
-	// plain decodeJSON with no required-presence validation, and the Go zero of that bool meant
-	// WITHDRAW — so a body that omitted the field asked, silently, for the one irreversible arm.
-	// The $defs swap discharged it: the zero value is now DelinquencyActionUnknown, and the
-	// enforcement branch REFUSES it by name rather than acting on it. The façade's job is
-	// therefore to carry it, not to interpret it — validating here as well would put a second
-	// answer in front of the one the branch is written to give.
 	sig := applyDelinquencySignal{CustomerID: customerID, Action: delinquencyContext.Action}
 	opts := client.StartWorkflowOptions{
 		ID:                       wfID,
@@ -574,6 +593,44 @@ func mapStartError(err error) error {
 	// A "workflow already started" race under UseExisting policy is benign; any other
 	// error is treated as an infrastructure fault at the transport layer.
 	return newError(fwmgr.Infrastructure, err.Error())
+}
+
+// mapResultError translates a workflow's terminal failure, as we.Get reports it, into
+// the façade's error model (operationsManager.md §3.4). A workflow fails with a typed
+// application error — a Manager_<Kind> it raised itself (a refused patch kind, an app
+// with nothing deployed, an app that is not operated) or a ResourceAccess_<Kind> it
+// carried up from an activity — and that kind is the caller's answer: a
+// FailedPrecondition is a gate the caller can act on, a NotFound names a missing
+// entity. Only a failure that carries no such kind (a timeout, a cancellation, a lost
+// worker) is an Infrastructure fault. Mapping every failure to Infrastructure, as the
+// façade once did, told callers to retry requests that can never succeed.
+func mapResultError(err error) error {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		if kind, ok := resultErrorKind(appErr.Type()); ok {
+			return fwmgr.Wrap(kind, err, "operations workflow failed")
+		}
+	}
+	return newError(fwmgr.Infrastructure, err.Error())
+}
+
+// resultErrorKind maps a workflow failure's application error type to the façade kind
+// it reports to the caller; ok is false for a type with no façade meaning.
+func resultErrorKind(errType string) (fwmgr.Kind, bool) {
+	for _, k := range fwmgr.Kinds() {
+		if errType == fwmgr.ErrType(k) {
+			return k, true
+		}
+	}
+	switch errType {
+	case fwmgr.RAErrType(fwra.NotFound):
+		return fwmgr.NotFound, true
+	case fwmgr.RAErrType(fwra.Auth):
+		return fwmgr.Unauthorized, true
+	case fwmgr.RAErrType(fwra.Conflict):
+		return fwmgr.FailedPrecondition, true
+	}
+	return fwmgr.Unknown, false
 }
 
 func mapSignalError(err error) error {
@@ -835,27 +892,6 @@ func patchKindName(k PatchKind) string {
 	return "unknown"
 }
 
-// autoscaleActionName returns the canonical name for an autoscale action. Kept as a
-// FREE FUNCTION (not an AutoscaleAction method) so the generated enum is pure data.
-func autoscaleActionName(a AutoscaleAction) string {
-	switch a {
-	case AutoscaleNoChange:
-		return "NoChange"
-	case AutoscaleScaleUp:
-		return "ScaleUp"
-	case AutoscaleScaleDown:
-		return "ScaleDown"
-	case AutoscalePause:
-		return "Pause"
-	case AutoscaleResume:
-		return "Resume"
-	}
-	// Unreachable for the five defined AutoscaleAction values above (the
-	// exhaustive linter enforces that every real variant has its own case); kept
-	// as a defensive fallback for an out-of-range ordinal.
-	return "Unknown"
-}
-
 // adapters.go holds the FOLDED composition-root adapters that bridge the published
 // ResourceAccess interfaces (the dependencies the GENERATED constructor
 // NewOperationsManager receives) to the Manager's unexported downstream seams
@@ -907,44 +943,6 @@ func desiredStateReasonToState(r DesiredStateReason) operatedsystemstate.Desired
 		return operatedsystemstate.ReasonDelinquency
 	default:
 		return operatedsystemstate.ReasonUnknown
-	}
-}
-
-// autoscaleActionToState bridges the autoscaler Engine's own DecisionKind straight to
-// operatedsystemstate's persisted AutoscaleAction — two independently generated enums
-// that happen to share order/values today (an explicit switch, not a raw cast, so a
-// future re-order on either side stays safe). Task 5 collapsed the former two-hop path
-// (autoscaler.DecisionKind -> this package's own façade AutoscaleAction ->
-// operatedsystemstate.AutoscaleAction) into this one direct converter, now that the
-// Engine is reached through its published contract and no longer folds its decision
-// into the façade's own enum along the way.
-func autoscaleActionToState(k autoscaler.DecisionKind) operatedsystemstate.AutoscaleAction {
-	switch k {
-	case autoscaler.DecisionNoChange:
-		// no-op decision, nothing to do — explicit mapping to the state package's own
-		// no-op constant.
-		return operatedsystemstate.AutoscaleNoChange
-	case autoscaler.DecisionScaleUp:
-		return operatedsystemstate.AutoscaleScaleUp
-	case autoscaler.DecisionScaleDown:
-		return operatedsystemstate.AutoscaleScaleDown
-	case autoscaler.DecisionPause:
-		return operatedsystemstate.AutoscalePause
-	case autoscaler.DecisionResume:
-		return operatedsystemstate.AutoscaleResume
-	default:
-		return operatedsystemstate.AutoscaleNoChange
-	}
-}
-
-func autoscaleDecisionToState(d *autoscaler.Decision) *operatedsystemstate.AutoscaleDecision {
-	if d == nil {
-		return nil
-	}
-	return &operatedsystemstate.AutoscaleDecision{
-		Action:     autoscaleActionToState(d.Kind),
-		Delta:      d.Delta,
-		ToBaseline: d.ToBaseline,
 	}
 }
 
@@ -1098,12 +1096,6 @@ type wfDeps struct {
 	// (adapters.go) bridges it onto the estimation Engine's own, independently
 	// generated InfrastructureKind at that one remaining boundary.
 	InfrastructureKind autoscaler.InfrastructureKind
-
-	// CurrentCycleID is the billing cycle the Manager attributes observed usage to
-	// (carried onto the usage events). Held here as the construction-time seam value;
-	// in production the Manager derives it from the operated app's billing context.
-	CurrentCycleID string
-	CustomerID     customerID
 }
 
 // autoscalerPolicy is the Manager's OWN façade-shaped autoscaler policy config
@@ -1139,8 +1131,6 @@ type workflows struct {
 	InterventionPolicy intervention.InterventionPolicy
 	AutoscalerPolicy   autoscalerPolicy
 	InfrastructureKind autoscaler.InfrastructureKind
-	CurrentCycleID     string
-	CustomerID         customerID
 }
 
 // newWorkflows builds the Workflows receiver from the injected wfDeps.
@@ -1153,8 +1143,6 @@ func newWorkflows(d wfDeps) *workflows {
 		InterventionPolicy: d.InterventionPolicy,
 		AutoscalerPolicy:   d.AutoscalerPolicy,
 		InfrastructureKind: d.InfrastructureKind,
-		CurrentCycleID:     d.CurrentCycleID,
-		CustomerID:         d.CustomerID,
 	}
 }
 
@@ -1232,6 +1220,9 @@ const (
 
 	// reconcileInterval is the reconcile-tick cadence (30s; the single tunable knob).
 	reconcileInterval = 30 * time.Second
+	// scaleDownGrace is how long a scale must stand before CPU below half the scaling
+	// policy's target may shrink it again (the autoscaler's anti-flap window).
+	scaleDownGrace = 10 * time.Minute
 )
 
 // ---------------------------------------------------------------------------
@@ -1303,7 +1294,6 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"operatedRuntimeAccess.readComputeAttribution":        runtimeReadOpts,
 		"artifactAccess.retrieveConstructionOutput":           artifactReadOpts,
 		"usageAccess.recordComputeUsage":                      usageOpts,
-		"usageAccess.recordFinalUsage":                        usageOpts,
 		"usageAccess.readRange":                               usageOpts,
 	}
 	return func(name string) (workflow.ActivityOptions, bool) {
@@ -1334,14 +1324,19 @@ func (m *operationsManager) WorkerManifest() genWorkerManifest {
 		// (interventionRetryBudget / interventionSLATier, operationsmanager.go) via
 		// slaTierFromString (adapters.go) — the SAME fixed value every DecideOnHealth
 		// call would have received under the retired per-call adapter conversion.
+		//
+		// Mode is the operated-system regime: Tiered (a degraded app inside its SLO budget
+		// is re-observed; an unhealthy or out-of-budget one is escalated). The
+		// interventionEngine refuses an unset mode ("unknown policy mode", InvalidInput) —
+		// never a silent default — and with no mode every observed health transition
+		// failed the reconcile tick it was observed in.
 		InterventionPolicy: intervention.InterventionPolicy{
+			Mode:        intervention.Tiered,
 			RetryBudget: m.interventionRetryBudget,
 			SLATier:     slaTierFromString(m.interventionSLATier),
 		},
 		AutoscalerPolicy:   m.autoscalerPolicy,
 		InfrastructureKind: m.infrastructureKind,
-		CurrentCycleID:     m.currentCycleID,
-		CustomerID:         m.customerID,
 	})
 
 	return genWorkerManifest{

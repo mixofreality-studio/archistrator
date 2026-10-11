@@ -99,7 +99,9 @@ git commit -m "dct: pin platform v0.12/v0.11/v0.2/v0.10 + scenariohost; TestFile
 
 ```go
 // ActivityNodeKind: existing 0..14 + NodeSendSignal = 15, NodeObjectNode = 16
-// TestingVariant: TestVariantHarness = 1, TestVariantPerf = 2, TestVariantQAProcess = 4 (0 and 3 retired)
+// TestingVariant: TestVariantNone = 0 ("none"), TestVariantHarness = 1, TestVariantPerf = 2,
+//                 TestVariantQAProcess = 4 (3 retired; "plan" is a DECODE-ONLY alias of 0 — see the
+//                 ratified deviation under Step 3)
 type TestPlanRecord struct {
 	Component  string            `json:"component"`
 	Bindings   []ScenarioBinding `json:"bindings"`
@@ -147,6 +149,7 @@ func TestDeriveVariantNoLongerKnowsPlanOrSystemTest(t *testing.T) {
 
 - `ActivityNodeKind.enum` → `[0..16]`; `x-enum-varnames` + `"NodeSendSignal","NodeObjectNode"`.
 - `TestingVariant`: `"enum":[1,2,4]`, `"x-enum-varnames":["TestVariantHarness","TestVariantPerf","TestVariantQAProcess"]`.
+  **Ratified deviation (Task 1 review, 2026-10-03):** as written this is unimplementable — ordinal 0 is what every NON-testing activity carries and it crosses the wire positionally (`RecordActivityStarted`/`OpenActivity` Temporal args, no `omitempty`), and the F81 wire-map gate (`TestEnumWireMap_BidirectionalCompletenessVsContract`) forbids a marshalled ordinal the contract does not declare. So ordinal 0 is **re-labelled, not retired**: `TestVariantNone = 0`, wire name `"none"`, enum `[0,1,2,4]` in `projectStateAccess`/`activityExecutionAccess`/`gitActivityStatusAccess`; `deliveryManager` keeps `[1,2,4]` with its view's `Variant` a nullable pointer (absent on a non-testing row). Only ordinal 3 (`systemTest`) is retired outright. And because every in-flight `DeliveryActivityWorkflow` holds a start payload that marshalled `Variant` without `omitempty` (so reads `"Variant":"plan"`), `"plan"` is a **decode-only alias** of `TestVariantNone` in `UnmarshalJSON` — kept out of `testingVariantNames` so it never marshals and the F81 gate still holds (`TestTestingVariant_LegacyPlanDecodesToNone`, `Test_LegacyDeliveryActivityInput_PlanVariantDecodes`). Spec §7's "TestingVariant Plan / SystemTest" row is amended to match; §9.4's drain scope stays "removed activity types" because the alias keeps every other live workflow replaying.
 - New defs `TestArg`, `TestExpect`, `Probe`, `StepBinding`, `SkipReason`, `ScenarioBinding`, `ScenarioResult`, `TestRun` as above (`additionalProperties:false`, `required` on every non-pointer field; `time.Time` via `x-go-type` like `TestPlanRecord.authoredAt` today).
 - `TestPlanRecord.properties`: drop `content`; add `bindings: {"type":"array","items":{"$ref":"#/$defs/ScenarioBinding"}}`; `required: ["component","bindings"]`.
 - `ActivityNode` is hand-written (not in `$defs`): add `InState string \`json:"inState,omitempty"\`` and `Anchor string \`json:"anchor,omitempty"\``.
@@ -163,6 +166,8 @@ Run `make gen-models` → `contract.gen.go` regenerates. Then in `projectstateac
 - [ ] **Step 4: Full regen + build**
 
 Run: `cd server && make gen && GOWORK=off go build ./... && GOWORK=off go vet ./...` → clean. `make gen-models-check gen-client-check gen-internal-tools-check` → clean. Then the two tests → PASS.
+
+**As executed (2026-10-03), beyond the file list above:** `go build ./...`/`make gen` clean required bringing forward two Task 8 edits (delete `server/cmd/gen-systemtests`; retire the N-STP founder sign-off in `cmd/backfill-attempts`, fixture re-targeted so the topological-order test keeps its force), the Task 4b `access_test.go` table edits, and the gen outputs `webApp/src/components/activity/lifecycles.gen.ts` + `systemtests/internal/sdk/types_delivery.gen.go`. The artifactAccess file op is `ReadTestRunFile` (the plan's earlier `Open…` spelling generated it as a state-changing internal tool). **Interim reds this branch carries until the named task lands** — beyond `TestFileLayout` (Plan 3): `systemtests/Makefile gen`/`gen-check` and `.github/workflows/systemtests.yml` point at the deleted generator until Task 8 removes the module; `webApp` typecheck is red (`schema.ts`/`enums.gen.ts` still carry `TestVariantPlan`/`SystemTest`, `Variant` became optional) until Task 9 regenerates. `TestEveryProfilePhaseHasCommandFile` needs the materialized `.claude/commands` tree (`make claude-assets`); from such a tree its only failure was the matrix count (30 → 24, the two retired profiles × three phases), which is this task's change and is pinned at 24 here — not a Task 4b item.
 
 - [ ] **Step 5: Commit**
 
@@ -331,7 +336,7 @@ Spec §8 (method-assets v0.10.0) serialized `stp` after `designReview` and `cons
 
 ```go
 GetTestRunIndex(rc fwra.Context, run TestRunRef) (TestRunIndex, error)
-OpenTestRunFile(rc fwra.Context, run TestRunRef, path string) (ConstructionOutput, error)
+ReadTestRunFile(rc fwra.Context, run TestRunRef, path string) (ConstructionOutput, error)
 
 type TestRunRef struct { RunID string; Artifact string }   // cloud: Artifact = GH artifact name, RunID = GH run id; local: Artifact = directory
 type TestRunIndex struct { Results []byte /* results.json */; Files []string; Expired bool }
@@ -341,11 +346,11 @@ type TestRunIndex struct { Results []byte /* results.json */; Files []string; Ex
 
 ```go
 func TestGetTestRunIndex_Local(t *testing.T) { dir := writeResultsDir(t); a := NewGitLocalArtifactAccess("file://x"); idx, err := a.GetTestRunIndex(ctx, TestRunRef{Artifact: dir}); /* Files contains "billingManager/results.json"; Results non-empty */ }
-func TestGetTestRunIndex_Cloud_FetchesZipOnce(t *testing.T) { fa := ghtestinfra.StartActions(); fa.AddArtifact(42, "test-results-C-BG-9", zipOf(t, map[string][]byte{"billingManager/results.json": []byte("[]")})); a := newCloudForTest(fa.BaseURL); _, _ = a.GetTestRunIndex(ctx, TestRunRef{RunID: "9", Artifact: "test-results-C-BG-9"}); _, _ = a.OpenTestRunFile(ctx, ref, "billingManager/results.json"); if fa.DownloadCount(42) != 1 { t.Fatal("zip must be cached per run") } }
+func TestGetTestRunIndex_Cloud_FetchesZipOnce(t *testing.T) { fa := ghtestinfra.StartActions(); fa.AddArtifact(42, "test-results-C-BG-9", zipOf(t, map[string][]byte{"billingManager/results.json": []byte("[]")})); a := newCloudForTest(fa.BaseURL); _, _ = a.GetTestRunIndex(ctx, TestRunRef{RunID: "9", Artifact: "test-results-C-BG-9"}); _, _ = a.ReadTestRunFile(ctx, ref, "billingManager/results.json"); if fa.DownloadCount(42) != 1 { t.Fatal("zip must be cached per run") } }
 func TestGetTestRunIndex_Expired(t *testing.T) { fa.AddExpiredArtifact(43, "x"); idx, err := a.GetTestRunIndex(ctx, ref43); if err != nil || !idx.Expired { t.Fatal() } }
 ```
 
-- [ ] **Step 2: Run** → FAIL. **Step 3: Implement**: cloud variant lists artifacts for `RunID`, finds by name, `Expired` → return `{Expired:true}`; else `DownloadArtifact` → write zip to `os.UserCacheDir()/archistrator/testruns/<runid>.zip` (once), index with `archive/zip`; `OpenTestRunFile` reads one entry (reject `..`). Local variant walks the directory. `FakeActions` gets `AddExpiredArtifact` + `DownloadCount` (platform patch → requires `infrastructure-github v0.2.1`; if you'd rather not re-release, implement the count via `fa.Requests` filtering, which exists). **Step 4:** PASS. **Step 5: Commit** `dct: artifactAccess test-run index/file ops (GitHub zip cached per run; local dir)`.
+- [ ] **Step 2: Run** → FAIL. **Step 3: Implement**: cloud variant lists artifacts for `RunID`, finds by name, `Expired` → return `{Expired:true}`; else `DownloadArtifact` → write zip to `os.UserCacheDir()/archistrator/testruns/<runid>.zip` (once), index with `archive/zip`; `ReadTestRunFile` reads one entry (reject `..`). Local variant walks the directory. `FakeActions` gets `AddExpiredArtifact` + `DownloadCount` (platform patch → requires `infrastructure-github v0.2.1`; if you'd rather not re-release, implement the count via `fa.Requests` filtering, which exists). **Step 4:** PASS. **Step 5: Commit** `dct: artifactAccess test-run index/file ops (GitHub zip cached per run; local dir)`.
 
 ---
 
@@ -371,7 +376,7 @@ type DeliveryTestRunView struct {
 ```
 
 - [ ] **Step 1: Failing test**: a fixture project with one `TestRun` for `C-BG` whose results omit one projected scenario → `queryTestRunView` returns `Missing` = that id and `Scenarios[i].Status == "pass"` for the rest.
-- [ ] **Step 2: Run** → FAIL. **Step 3: Implement**: latest run for `activityId` (or by `runId`), `ComponentScenarios(p, run.Component)`, join by id, `artifact.GetTestRunIndex` for `Expired`. File endpoint: authorize with the same PDP action as `query-project-view`, `OpenTestRunFile`, set `Content-Type` by extension (`video/webm`, `application/zip`, `application/json`, `text/plain`), stream. **Step 4:** PASS; `make gen-client` already done in Task 1 so `openapi.yaml` has the view. **Step 5: Commit** `dct: testRun project view + test-run file endpoint`.
+- [ ] **Step 2: Run** → FAIL. **Step 3: Implement**: latest run for `activityId` (or by `runId`), `ComponentScenarios(p, run.Component)`, join by id, `artifact.GetTestRunIndex` for `Expired`. File endpoint: authorize with the same PDP action as `query-project-view`, `ReadTestRunFile`, set `Content-Type` by extension (`video/webm`, `application/zip`, `application/json`, `text/plain`), stream. **Step 4:** PASS; `make gen-client` already done in Task 1 so `openapi.yaml` has the view. **Step 5: Commit** `dct: testRun project view + test-run file endpoint`.
 
 ---
 

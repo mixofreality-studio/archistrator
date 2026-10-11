@@ -4,6 +4,54 @@
  */
 
 export interface paths {
+  '/api/v1/billing/get-billing-cycle/{customerID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetBillingCycle'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/billing/onboard-payment-integration/{deployedAppID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['OnboardPaymentIntegration'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/billing/register-customer/{customerID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['RegisterCustomer'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/delivery/acknowledge-stale-basis/{projectID}/{activityID}': {
     parameters: {
       query?: never;
@@ -312,6 +360,29 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    BillingBillingCycleView: {
+      /** @description The period has been closed and its outcome recorded. */
+      closed: boolean;
+      /** Format: uuid */
+      customerId: string;
+      cycleId: string;
+      /** @description The charge failed and was escalated: the customer is persistently delinquent and the cycle's invoice unpaid. */
+      escalated: boolean;
+      routed: components['schemas']['BillingRoutingDirective'];
+    };
+    BillingBillingRef: {
+      /** Format: uuid */
+      customerId: string;
+    };
+    BillingErrorResponse: {
+      code: string;
+      error: string;
+    };
+    /**
+     * @description Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned — never reuse.
+     * @enum {integer}
+     */
+    BillingRoutingDirective: 0 | 2;
     /** @enum {integer} */
     DeliveryActivityBuildStatus: 0 | 1 | 2 | 3;
     /**
@@ -330,9 +401,9 @@ export interface components {
       /** @description The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum's zero, not a reported phase. Read it only when both flags are true. */
       Phase: components['schemas']['DeliveryActivityConstructionPhase'];
       Phases: null | components['schemas']['DeliveryPhaseCompletion'][];
-      Produced: null | components['schemas']['DeliveryProducedArtifact'][];
       Type: components['schemas']['DeliveryActivityType'];
-      Variant: components['schemas']['DeliveryTestingVariant'];
+      /** @description The testing variant of a testing activity; absent on every other row (the zero value is no variant, and ordinals 0 and 3 are retired). */
+      Variant?: components['schemas']['DeliveryTestingVariant'];
       attempts?: components['schemas']['DeliveryTaskAttempt'][];
       classified: boolean;
       /** Format: date-time */
@@ -353,13 +424,11 @@ export interface components {
     };
     DeliveryActivityGitStatus: {
       ActivityID: string;
-      ArchApproved: boolean;
       BranchName: string;
       BranchRef: string;
       CICheck: components['schemas']['DeliveryCICheckState'];
       CRLabel: string;
       IsRevert: boolean;
-      Merged: boolean;
       PrNumber: number;
       PrURL: string;
       PullRequestRef: string;
@@ -576,6 +645,15 @@ export interface components {
       severity: string;
       title: string;
     };
+    /** @description The testing task's run as the results panel renders it: the recorded run, every projected scenario joined with its result, the projected ids with no result (missing), the results with no projected scenario (unknown), and whether the venue artifact has expired. */
+    DeliveryDeliveryTestRunView: {
+      artifact: string;
+      expired: boolean;
+      missing: null | string[];
+      run: components['schemas']['DeliveryTestRunView'];
+      scenarios: null | components['schemas']['DeliveryTestRunScenarioView'][];
+      unknown: null | string[];
+    };
     /**
      * @description The stages the DERIVED design-artifact session view can report, and all of them. This is a REPLACEMENT of the eight-member SessionStage, not a renumbering of it: the door is committedSessionView, a projection of one durable ArtifactSlot, so a committed slot reads committed, a withdrawn one withdrawn, and every other terminal-but-uncommitted status reads an honest draftFailed. Drafting, awaitingReview, redrafting and refused had no producer left once stage 4b1 retired the live design rail, and StageDrafting in particular is the value an SPA wedges a spinner on. SessionStageUnknown stays at 0 deliberately: a three-member enum would make the ZERO VALUE mean committed, and a zero-valued view reading as a committed artifact is the same defect class as ArtifactKind's KindMission == 0.
      * @enum {integer}
@@ -776,12 +854,12 @@ export interface components {
     DeliveryPhaseDecision: 0 | 1 | 2;
     /** @enum {integer} */
     DeliveryPipelinePhase: 0 | 1 | 2 | 3 | 4 | 5;
-    DeliveryProducedArtifact: {
-      Kind: string;
-      Note: string;
-      Produced: boolean;
-      Source: string;
-      Title: string;
+    DeliveryProbeView: {
+      component: string;
+      expect: components['schemas']['DeliveryTestExpectView'];
+      for: string;
+      inputs: null | components['schemas']['DeliveryTestArgView'][];
+      operation: string;
     };
     DeliveryProjectID: string;
     /** @enum {string} */
@@ -837,8 +915,10 @@ export interface components {
       kind: components['schemas']['DeliveryProjectViewKind'];
       projects?: null | components['schemas']['DeliveryProjectSummary'][];
       pump?: components['schemas']['DeliveryPumpStatus'];
+      scenarios?: null | components['schemas']['DeliveryScenarioView'][];
       session?: components['schemas']['DeliveryDesignArtifactSessionView'];
       summary?: components['schemas']['DeliveryProjectState'];
+      testRun?: components['schemas']['DeliveryDeliveryTestRunView'];
       timeline?: components['schemas']['DeliveryEpisodeTimeline'];
     };
     /** @enum {string} */
@@ -849,18 +929,20 @@ export interface components {
       | 'pump'
       | 'designHealth'
       | 'episodes'
-      | 'timeline';
+      | 'timeline'
+      | 'testRun'
+      | 'scenarios';
     DeliveryProjectViewQuery: {
       activityId?: null | string;
       artifactKind?: components['schemas']['DeliveryArtifactKind'];
+      componentId?: null | string;
       episodeId?: null | string;
       kind: components['schemas']['DeliveryProjectViewKind'];
       owner?: components['schemas']['DeliveryOwnerScope'];
       projectId?: null | string;
+      runId?: null | string;
     };
     DeliveryPumpResult: {
-      /** @description DEPRECATED, and populated with the FIRST element of activityIds. A parallel pump dispatches a whole frontier in one tick, so one id is a lie about N; read activityIds. Kept because a reader written against the singular field still gets a true answer about one of the activities that started. */
-      activityId?: components['schemas']['DeliveryActivityID'];
       /** @description Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight). */
       activityIds?: components['schemas']['DeliveryActivityID'][];
       dispatched: boolean;
@@ -897,7 +979,6 @@ export interface components {
       id: string;
       reopened: boolean;
       replies: components['schemas']['DeliveryReviewCommentReply'][];
-      response?: string;
       round: number;
       status: string;
       text: string;
@@ -1005,6 +1086,65 @@ export interface components {
     DeliveryRuleID: string;
     /** @enum {integer} */
     DeliverySDPDecision: 0 | 1 | 2;
+    DeliveryScenarioBindingView: {
+      scenario: string;
+      skip?: components['schemas']['DeliverySkipReasonView'];
+      steps: null | components['schemas']['DeliveryStepBindingView'][];
+    };
+    DeliveryScenarioGuardView: {
+      at: string;
+      guard: string;
+    };
+    DeliveryScenarioInputView: {
+      call: string;
+      from: string;
+      guard: string;
+      kind: string;
+      op: string;
+      to: string;
+      /** @description The alternative callers when an alt group's calls into the component collapse to this one stimulus (Amendment A4); empty when the stimulus has a single caller. */
+      via: null | string[];
+    };
+    DeliveryScenarioOutcomeView: {
+      expectedOutputs: null | components['schemas']['DeliveryScenarioOutputView'][];
+      expectedStates: null | components['schemas']['DeliveryScenarioStateView'][];
+      hints: null | string[];
+    };
+    DeliveryScenarioOutputView: {
+      kind: string;
+      label: string;
+      node: string;
+      to: string;
+    };
+    DeliveryScenarioResultView: {
+      durationMs: number;
+      scenario: string;
+      status: string;
+      traceRef: string;
+      videoRef: string;
+    };
+    DeliveryScenarioStateView: {
+      inState: string;
+      node: string;
+      object: string;
+    };
+    DeliveryScenarioStimulusView: {
+      input: components['schemas']['DeliveryScenarioInputView'];
+      node: string;
+      outcome: components['schemas']['DeliveryScenarioOutcomeView'];
+      seq: number;
+    };
+    /** @description One deterministic scenario projected onto a component (framework-go/scenario.ForComponent): the stimuli into it, what is observed after each, and the committed binding for it when the test plan has one. */
+    DeliveryScenarioView: {
+      binding?: components['schemas']['DeliveryScenarioBindingView'];
+      guards: null | components['schemas']['DeliveryScenarioGuardView'][];
+      id: string;
+      path: null | string[];
+      preconditions: components['schemas']['DeliveryScenarioOutcomeView'];
+      stimuli: null | components['schemas']['DeliveryScenarioStimulusView'][];
+      title: string;
+      useCase: string;
+    };
     DeliveryServiceContract: {
       Component: string;
       DataContracts: null | string[];
@@ -1022,10 +1162,23 @@ export interface components {
     DeliverySessionRef: string;
     /** @enum {string} */
     DeliverySeverity: 'info' | 'warning' | 'error';
+    DeliverySkipReasonView: {
+      reason: string;
+      until: string;
+    };
     DeliveryStartProjectResult: {
       projectId: components['schemas']['DeliveryProjectID'];
       session?: components['schemas']['DeliverySessionRef'];
       version: components['schemas']['DeliveryVersion'];
+    };
+    DeliveryStepBindingView: {
+      expect: components['schemas']['DeliveryTestExpectView'];
+      hook: boolean;
+      inputs: null | components['schemas']['DeliveryTestArgView'][];
+      operation: string;
+      probes: null | components['schemas']['DeliveryProbeView'][];
+      seq: number;
+      unobservable: null | string[];
     };
     DeliverySubagentSpan: {
       /** Format: date-time */
@@ -1033,9 +1186,6 @@ export interface components {
       /** Format: date-time */
       startedAt?: string;
       toolUseId: string;
-    };
-    DeliverySystemTestPlanView: {
-      scenarios: null | components['schemas']['DeliveryTestScenarioView'][];
     };
     DeliveryTaskAttempt: {
       actor?: string;
@@ -1117,48 +1267,40 @@ export interface components {
       schemaRef: string;
       value: string;
     };
-    DeliveryTestCaseView: {
-      expectedOutcome: string;
-      id: string;
-      kind: string;
-      proves: string;
-      steps: null | components['schemas']['DeliveryTestStepView'][];
-      title: string;
-    };
     DeliveryTestExpectView: {
       errorCode: string;
       errorExpected: boolean;
       result: string;
     };
-    DeliveryTestRunView: {
-      failed: number;
+    /** @description One projected scenario joined with its result in a test run: the title and guards from the projection, the status/duration/refs from results.json, and the artifact path of the go test -json stream (outputRef) its output is filtered from. */
+    DeliveryTestRunScenarioView: {
+      durationMs: number;
+      guards: null | components['schemas']['DeliveryScenarioGuardView'][];
       id: string;
-      note: string;
-      passed: number;
-    };
-    DeliveryTestScenarioView: {
-      cases: null | components['schemas']['DeliveryTestCaseView'][];
-      description: string;
-      id: string;
-      title: string;
-      useCase: string;
-    };
-    DeliveryTestStepView: {
-      assertion: string;
-      component: string;
-      expect: components['schemas']['DeliveryTestExpectView'];
-      inputs: null | components['schemas']['DeliveryTestArgView'][];
-      operation: string;
-      seq: number;
+      outputRef: string;
       status: string;
+      title: string;
+      traceRef: string;
+      videoRef: string;
+    };
+    DeliveryTestRunView: {
+      activity: string;
+      artifact: string;
+      component: string;
+      /** Format: date-time */
+      endedAt?: null | string;
+      id: string;
+      revision: string;
+      scenarios: null | components['schemas']['DeliveryScenarioResultView'][];
+      /** Format: date-time */
+      startedAt?: null | string;
     };
     DeliveryTestingStateView: {
       defects: null | components['schemas']['DeliveryDefectView'][];
-      systemTestPlan?: components['schemas']['DeliverySystemTestPlanView'];
       testRuns: null | components['schemas']['DeliveryTestRunView'][];
     };
     /** @enum {integer} */
-    DeliveryTestingVariant: 0 | 1 | 2 | 3 | 4;
+    DeliveryTestingVariant: 1 | 2 | 4;
     DeliveryTimelineEvent: {
       eventType: string;
       raw?: null;
@@ -1189,8 +1331,10 @@ export interface components {
       activities: null | components['schemas']['ModelActivityItem'][];
     };
     ModelActivityNode: {
+      anchor?: string;
       decidedBy?: null | string;
       id: string;
+      inState?: string;
       /** @enum {string} */
       kind:
         | 'start'
@@ -1207,7 +1351,9 @@ export interface components {
         | 'goto'
         | 'interruptEdge'
         | 'timeEvent'
-        | 'acceptEvent';
+        | 'acceptEvent'
+        | 'sendSignal'
+        | 'objectNode';
       label: string;
       linkedActorId: null | string;
       roleName: string;
@@ -1547,6 +1693,7 @@ export interface components {
         | 'sdpReview';
     };
     ModelSdpReview: {
+      chosenOption?: null | string;
       options: null | components['schemas']['ModelSdpOptionRow'][];
       rationale: string;
       recommendation: string;
@@ -1654,18 +1801,8 @@ export interface components {
       modelId: string;
     };
     /** @enum {integer} */
-    OperationsAutoscaleAction: 0 | 1 | 2 | 3 | 4;
-    OperationsAutoscaleDecisionView: {
-      Action: components['schemas']['OperationsAutoscaleAction'];
-      /** Format: date-time */
-      At: string;
-      Published: boolean;
-      Reason: string;
-    };
-    /** @enum {integer} */
     OperationsAutoscalerMode: 0 | 1 | 2;
     OperationsAutoscalerView: {
-      Decisions: null | components['schemas']['OperationsAutoscaleDecisionView'][];
       Mode: components['schemas']['OperationsAutoscalerMode'];
     };
     OperationsCostProjectionSeam: {
@@ -1722,7 +1859,6 @@ export interface components {
       /** Format: uuid */
       OperatedAppID: string;
       Phase: components['schemas']['OperationsRuntimeStatusSeam'];
-      RecentEvents: null | components['schemas']['OperationsRuntimeStatusEventView'][];
       Slos: null | components['schemas']['OperationsSloRowView'][];
     };
     /** @enum {integer} */
@@ -1734,13 +1870,6 @@ export interface components {
     };
     OperationsReconcileScope: {
       appIds?: null | string[];
-    };
-    OperationsRuntimeStatusEventView: {
-      /** Format: date-time */
-      At: string;
-      From: components['schemas']['OperationsRuntimeStatusSeam'];
-      Note: string;
-      To: components['schemas']['OperationsRuntimeStatusSeam'];
     };
     /** @enum {integer} */
     OperationsRuntimeStatusSeam: 0 | 1 | 2 | 3 | 4;
@@ -1779,6 +1908,269 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  GetBillingCycle: {
+    parameters: {
+      query: {
+        cycleID: string;
+      };
+      header?: never;
+      path: {
+        customerID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingBillingCycleView'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+    };
+  };
+  OnboardPaymentIntegration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        deployedAppID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingBillingRef'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+    };
+  };
+  RegisterCustomer: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        customerID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          projectID: string;
+        };
+      };
+    };
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingBillingRef'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BillingErrorResponse'];
+        };
+      };
+    };
+  };
   AcknowledgeStaleBasis: {
     parameters: {
       query?: never;

@@ -2,11 +2,14 @@
  * The body of an AGENTIC DISPATCH task: what was asked of which agent, then the
  * ONE episode that produced the revision on screen.
  *
- * There is no episode LIST here, and that is the point. Which revision you are
- * reading is the header's revision select; the episode below it is that
+ * There is no episode LIST in this body, and that is the point. Which revision you
+ * are reading is the header's revision select; the episode below it is that
  * revision's, and only that revision's. The old construction console offered a
  * list of episodes and left the reader to work out which one made the artifact
- * they were looking at — the coupling this body makes structural.
+ * they were looking at — the coupling this body makes structural. The activity's
+ * whole attempt record (every episode, failed ones included) is the episode list
+ * the screen mounts under the body, for diagnosing a failure; its timeline and
+ * this one carry different test ids because both can be open at once.
  *
  * ── Attempts are not revisions ──────────────────────────────────────────────
  * A revision may have taken several ATTEMPTS (a failure, then a retry) before it
@@ -171,6 +174,7 @@ export function DispatchBody({
             <EpisodeTimelineView
               error={timelineError?.message}
               loading={timelineLoading}
+              testId={UI_IDENTIFIERS.Activity.REVISION_TIMELINE}
               timeline={timeline}
             />
           </Box>

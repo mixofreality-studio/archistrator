@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"time"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -67,12 +68,22 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 	if aerr != nil {
 		return false, false, aerr
 	}
+	workload, werr := wf.readWorkloadTelemetry(ctx, app.ID)
+	if werr != nil {
+		return false, false, werr
+	}
 
 	version := app.Version
 
-	// Record observed compute as a Usage Log event (append-only; dedup-id idempotent).
+	// Record observed compute as a Usage Log event (append-only; dedup-id idempotent),
+	// attributed to the app's OWN customer: the in-flight summary carries no customer, so
+	// the head-state row is read for it — only when there is compute to attribute.
 	if attribution.RuntimeEventID != "" {
-		if uerr := wf.recordComputeUsage(ctx, app.ID, attribution); uerr != nil {
+		op, oerr := wf.readOperatedSystem(ctx, app.ID)
+		if oerr != nil {
+			return false, false, oerr
+		}
+		if uerr := wf.recordComputeUsage(ctx, app.ID, op.CustomerID, attribution); uerr != nil {
 			return false, false, uerr
 		}
 	}
@@ -131,52 +142,164 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 	}
 
 	// --- Path C (autoscale) ---
-	republished, err = wf.autoscaleOne(ctx, app, version)
+	republished, err = wf.autoscaleOne(ctx, app, version, observation{health: health, sloMet: slo.SloMet, workload: workload})
 	if err != nil {
 		return transitioned, false, err
 	}
 	return transitioned, republished, nil
 }
 
-// autoscaleOne runs Path C (autoscale) for one in-flight app: propose a desired state
-// and, on a non-NoChange decision, publish + record the republish. version is the
-// head-state version as advanced by Path B's status transition (if any). Extracted from
-// reconcileOne to satisfy the gocyclo gate — the workflow-command order is identical to
-// the pre-extraction inline body.
-func (wf *workflows) autoscaleOne(ctx workflow.Context, app operatedsystemstate.OperatedSystemSummary, version operatedsystemstate.Version) (republished bool, err error) {
-	// autoscalerPolicyToEngine bridges the Manager's own façade AutoscalerPolicy onto
-	// the Engine's published AutoscalerPolicy (adapters.go) — the one call site that
-	// needs the Engine's own Mode shape.
-	decision, aerr2 := wf.Autoscaler.ProposeDesiredState(
+// observation is what one tick observed of an app: its health, whether its SLO holds,
+// and its workload telemetry — the autoscaler's inputs beside the head-state scale.
+type observation struct {
+	health   operatedsystemstate.RuntimeStatus
+	sloMet   bool
+	workload operatedruntime.WorkloadTelemetry
+}
+
+// autoscaleOne runs Path C (autoscale) for one in-flight app: the autoscalerEngine weighs
+// the tick's observation against the head-state desired scale (the replicas last
+// published and the scaling policy they were published under) and, on a decision that
+// changes the replicas, the app's desired state is re-rendered at the new replica count
+// (render-manifests-c: the same bundle and deployment model a deploy renders from),
+// published to the runtime and recorded with reason=autoscale. version is the head-state
+// version as advanced by Path B's status transition (if any). An app whose head state
+// records no scale (never deployed with one) is never autoscaled.
+func (wf *workflows) autoscaleOne(ctx workflow.Context, app operatedsystemstate.OperatedSystemSummary, version operatedsystemstate.Version, obs observation) (republished bool, err error) {
+	if app.Scale.MaxReplicas == 0 {
+		return false, nil
+	}
+	decision, derr := wf.Autoscaler.ProposeDesiredState(
 		fweng.Context{Context: context.Background()},
-		autoscaler.Telemetry{CurrentReplicas: 0},
-		autoscaler.DesiredState{InfrastructureKind: wf.InfrastructureKind},
-		autoscalerPolicyToEngine(wf.AutoscalerPolicy),
+		autoscalerTelemetry(app, obs, workflow.Now(ctx)),
+		autoscaler.DesiredState{
+			OperatedAppID:      app.ID,
+			InfrastructureKind: wf.InfrastructureKind,
+			Replicas:           app.Scale.Replicas,
+			LastDecisionAt:     app.Scale.ScaledAt,
+		},
+		autoscalerPolicyFor(wf.AutoscalerPolicy, app.Scale, obs.workload.Measured),
 		wf.InfrastructureKind,
 	)
-	if aerr2 != nil {
-		return false, fwmgr.MapError(aerr2)
+	if derr != nil {
+		return false, fwmgr.MapError(derr)
 	}
-	if decision.Kind == autoscaler.DecisionNoChange {
+	replicas := scaledReplicas(app.Scale, decision)
+	if decision.Kind == autoscaler.DecisionNoChange || replicas == app.Scale.Replicas {
 		return false, nil
 	}
 
-	// Non-NoChange ⇒ record the autoscale decision in head-state. Deliberately does
-	// NOT call the runtime publish (review finding 2, same reasoning as the
-	// HealthRetry comment above): assembleDesiredState has no replica-override
-	// input yet, so the only state this path COULD publish is either the static
-	// model-declared replica count (silently WRONG for a scale decision — it
-	// would not actually reflect ScaleUp/ScaleDown/Pause) or the empty struct
-	// (the exact half-rendered-deployment hazard the fail-loud fold exists to
-	// prevent). Recording the decision in head-state without a matching runtime
-	// publish is honest about what this task actually wires; real autoscale
-	// republish needs a replica-override extension to assembleDesiredState,
-	// earmarked as a follow-up.
-	dec := decision
-	if _, rerr := wf.recordPublishDesiredState(ctx, app.ID, version, ReasonAutoscale, &dec); rerr != nil {
-		return false, rerr
+	// render-manifests-c: the revision basis is the app's own head state, bundle and
+	// deployment model, re-rendered with the decision's replica count.
+	op, err := wf.readOperatedSystem(ctx, app.ID)
+	if err != nil {
+		return false, err
+	}
+	bundle, err := wf.retrieveBundle(ctx, op.DeployableBundleRef)
+	if err != nil {
+		return false, err
+	}
+	proj, err := wf.readProject(ctx, op.ProjectRef)
+	if err != nil {
+		return false, err
+	}
+	desired, err := assembleDesiredState(proj, bundle, op)
+	if err != nil {
+		return false, temporal.NewNonRetryableApplicationError(
+			"failed to assemble the desired state from the project's deployment model",
+			fwmgr.ErrType(fwmgr.FailedPrecondition), err)
+	}
+	desired.Server.Replicas = replicas
+	if err := wf.publishDesiredState(ctx, app.ID, desired); err != nil {
+		return false, err
+	}
+	scale := app.Scale
+	scale.Replicas = replicas
+	scale.ScaledAt = workflow.Now(ctx)
+	if _, err := wf.recordPublishDesiredState(ctx, app.ID, version, ReasonAutoscale, scale); err != nil {
+		return false, err
 	}
 	return true, nil
+}
+
+// readWorkloadTelemetry invokes operatedRuntimeAccess.readWorkloadTelemetry (pure read):
+// the workload's measured CPU utilization, the autoscaler's utilization signal.
+func (wf *workflows) readWorkloadTelemetry(ctx workflow.Context, appID operatedAppID) (operatedruntime.WorkloadTelemetry, error) {
+	return wf.Acts.OperatedRuntimeReadWorkloadTelemetry(ctx, appID)
+}
+
+// autoscalerTelemetry is the autoscalerEngine's telemetry snapshot for one tick: the
+// workload's CPU utilization, the observed health, and the SLO posture (an SLO that does
+// not hold is budget being burned), observed at the workflow clock.
+func autoscalerTelemetry(app operatedsystemstate.OperatedSystemSummary, obs observation, at time.Time) autoscaler.Telemetry {
+	slo := autoscaler.SLOWithinBudget
+	if !obs.sloMet {
+		slo = autoscaler.SLOBurningBudget
+	}
+	return autoscaler.Telemetry{
+		OperatedAppID:   app.ID,
+		ObservedAt:      at,
+		CurrentReplicas: app.Scale.Replicas,
+		CPUUtilization:  obs.workload.CPUUtilization,
+		Health:          autoscalerHealth(obs.health),
+		SLOStatus:       slo,
+	}
+}
+
+// autoscalerPolicyFor is the autoscalerEngine's policy for an app, from the scaling
+// policy its head state recorded at deploy. The floor is never below one replica: a
+// scale to zero is an idle pause, which needs a traffic signal no runtime read reports,
+// so idle-pause stays disabled (zero IdleThreshold). The CPU rules weigh the workload's
+// utilization against the policy's target — up at the target, down below half of it
+// once the last scale has stood for scaleDownGrace — and only when the runtime measured
+// the workload: an unmeasured workload is never read as idle.
+func autoscalerPolicyFor(configured autoscalerPolicy, scale operatedsystemstate.DesiredScale, measured bool) autoscaler.AutoscalerPolicy {
+	p := autoscalerPolicyToEngine(configured)
+	floor := max(scale.MinReplicas, 1)
+	p.MinReplicas = floor
+	p.MaxReplicas = scale.MaxReplicas
+	p.BaselineReplicas = floor
+	p.MaxStepDelta = 1
+	if measured && scale.TargetUtilizationPct > 0 {
+		p.ScaleUpCPU = float64(scale.TargetUtilizationPct) / 100
+		p.ScaleDownCPU = p.ScaleUpCPU / 2
+		p.ScaleDownGrace = scaleDownGrace
+	}
+	return p
+}
+
+// scaledReplicas is the replica count a decision leaves the server at, within the
+// recorded policy's bounds and never below one.
+func scaledReplicas(scale operatedsystemstate.DesiredScale, d autoscaler.Decision) int64 {
+	n := scale.Replicas
+	switch d.Kind {
+	case autoscaler.DecisionScaleUp:
+		n += d.Delta
+	case autoscaler.DecisionScaleDown:
+		n -= d.Delta
+	case autoscaler.DecisionResume:
+		n = d.ToBaseline
+	case autoscaler.DecisionPause, autoscaler.DecisionNoChange:
+		return scale.Replicas
+	}
+	return min(max(n, scale.MinReplicas, 1), scale.MaxReplicas)
+}
+
+// autoscalerHealth bridges the observed head-state status onto the autoscalerEngine's
+// own HealthStatus enum (two generated enums; an explicit switch).
+func autoscalerHealth(s operatedsystemstate.RuntimeStatus) autoscaler.HealthStatus {
+	switch s {
+	case operatedsystemstate.RuntimeStatusHealthy:
+		return autoscaler.HealthHealthy
+	case operatedsystemstate.RuntimeStatusDegraded:
+		return autoscaler.HealthDegraded
+	case operatedsystemstate.RuntimeStatusWithdrawn:
+		return autoscaler.HealthUnhealthy
+	case operatedsystemstate.RuntimeStatusUnknown, operatedsystemstate.RuntimeStatusPending:
+		return autoscaler.HealthUnknown
+	default:
+		return autoscaler.HealthUnknown
+	}
 }
 
 // readInFlightOperatedApps invokes operatedSystemStateAccess.readInFlightOperatedApps.
@@ -208,34 +331,57 @@ func (wf *workflows) getSloStatus(ctx workflow.Context, appID operatedAppID) (op
 }
 
 // readComputeAttribution invokes operatedRuntimeAccess.readComputeAttribution (pure
-// read). The Manager pins the window to a default (open) window here; the RA attributes
-// since last observation. Task 4: the former Manager-local computeAttribution mirror is
-// retired.
+// read) over computeAttributionWindow. Task 4: the former Manager-local
+// computeAttribution mirror is retired.
 // Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
 func (wf *workflows) readComputeAttribution(ctx workflow.Context, appID operatedAppID) (operatedruntime.ComputeAttribution, error) {
-	return wf.Acts.OperatedRuntimeReadComputeAttribution(ctx, appID, operatedruntime.AttributionWindow{})
+	return wf.Acts.OperatedRuntimeReadComputeAttribution(ctx, appID, computeAttributionWindow(workflow.Now(ctx)))
+}
+
+// computeAttributionWindow is the window one observation attributes compute over: the
+// reconcile interval ending at now, in whole seconds. The Manager names the window — the
+// ResourceAccess measures it and refuses one shorter than a second (ContractMisuse) — and
+// the window used to be the zero value, so the real runtime refused every reconcile tick
+// and every withdraw's final capture. now is the workflow clock, so a replayed tick asks
+// for the same window, and the RuntimeEventID the RA derives from it keeps the usage
+// append idempotent.
+func computeAttributionWindow(now time.Time) operatedruntime.AttributionWindow {
+	to := now.UTC().Truncate(time.Second)
+	return operatedruntime.AttributionWindow{From: to.Add(-reconcileInterval), To: to}
 }
 
 // recordComputeUsage invokes usageAccess.recordComputeUsage (append; dedup-id
 // idempotent). The single-event slice-wrap lives here now (was in the retired activity).
-func (wf *workflows) recordComputeUsage(ctx workflow.Context, appID operatedAppID, attribution operatedruntime.ComputeAttribution) error {
-	_, err := wf.Acts.UsageRecordComputeUsage(ctx, []usage.UsageEvent{wf.usageEvent(ctx, appID, attribution)})
+func (wf *workflows) recordComputeUsage(ctx workflow.Context, appID operatedAppID, customer customerID, attribution operatedruntime.ComputeAttribution) error {
+	_, err := wf.Acts.UsageRecordComputeUsage(ctx, []usage.UsageEvent{usageEvent(ctx, appID, customer, attribution)})
 	return err
 }
 
-// usageEvent assembles one contract UsageEvent from an observed attribution. The
-// RuntimeEventID is the append-only ledger's dedup token (usageAccess.md §2/§3).
-// OccurredAt is read from the deterministic workflow clock (replay-safe).
+// usageEvent assembles one contract UsageEvent from an observed attribution, attributed
+// to the operated app's own customer (its head-state row's CustomerID) and to the
+// billing cycle the observation falls in. The RuntimeEventID is the append-only
+// ledger's dedup token (usageAccess.md §2/§3). OccurredAt — and so the cycle — is read
+// from the deterministic workflow clock (replay-safe).
 // Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
-func (wf *workflows) usageEvent(ctx workflow.Context, appID operatedAppID, attribution operatedruntime.ComputeAttribution) usage.UsageEvent {
+func usageEvent(ctx workflow.Context, appID operatedAppID, customer customerID, attribution operatedruntime.ComputeAttribution) usage.UsageEvent {
+	now := workflow.Now(ctx)
 	return usage.UsageEvent{
 		OperatedAppID:  appID,
-		CustomerID:     wf.CustomerID,
-		CycleID:        usage.CycleID(wf.CurrentCycleID),
+		CustomerID:     customer,
+		CycleID:        usageCycleID(now),
 		Units:          usage.ComputeUnits{Amount: attribution.Units.Amount, Unit: attribution.Units.Unit},
 		RuntimeEventID: usage.RuntimeEventID(attribution.RuntimeEventID),
-		OccurredAt:     workflow.Now(ctx),
+		OccurredAt:     now,
 	}
+}
+
+// usageCycleID is the billing cycle an instant falls in: its calendar month in UTC,
+// "YYYY-MM". Usage is written to, and read back from, the cycle of the workflow clock
+// — the same clock on both sides, so an observation and the read that follows it in
+// the same month meet in the same cycle.
+// Shared workflow-context helper (used by 4 workflows); lives in its first caller's file per the file-layout standard.
+func usageCycleID(at time.Time) usage.CycleID {
+	return usage.CycleID(at.UTC().Format("2006-01"))
 }
 
 // recordRuntimeStatusChange applies the observed-status head-state transition. Task 4:

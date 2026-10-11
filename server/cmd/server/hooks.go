@@ -39,35 +39,28 @@ package main
 //     there. Cloud (DRYRUN=false) is identity.
 //
 //  2. SEPARATE GIT-SUBSTRATE INSTANCES PER SECONDARY CONTRACT (B6). Once
-//     constructionTransitionAccess/gitActivityStatusAccess/designSessionAccess
-//     became their OWN deployment bindings (sharing projectstate's goPackage +
-//     git substrate with projectStateAccess, but composegen has no notion of a
+//     gitActivityStatusAccess/designSessionAccess/activityExecutionAccess became
+//     their OWN deployment bindings (sharing projectstate's goPackage + git
+//     substrate with projectStateAccess, but composegen has no notion of a
 //     binding "providing" a second contract), the generated body constructs
 //     THREE separate *GitStore-backed instances alongside projectStateAccess's
-//     own (NewGitLocal/GitHubConstructionTransitionAccess etc., gitadapter.go /
-//     designsession.go) — four total instead of the pre-B6 hand-wired two (one
-//     shared psa's GitConstructionPorts served both ports). All four address the
-//     SAME repo and GitStore holds no connection state, so this is an
-//     instance-count residual, not a correctness one.
+//     own (NewGitLocal/GitHubGitActivityStatusAccess etc., gitadapter.go /
+//     designsession.go) — four total. All four address the SAME repo and
+//     GitStore holds no connection state, so this is an instance-count residual,
+//     not a correctness one. (constructionTransitionAccess was a fifth until dct
+//     Plan 4 Task 3 deleted it.)
 //
-//  4. POSTGRES POOL DIAL — PROFILE-GATED (local-first-init-funnel Task 2).
-//     main.gen.go's Postgres pool (postgresinfra.NewPool(ctx, cfg.PostgresURL),
-//     which PINGS — a real dial, not a lazy handle) is built ONLY when
-//     `profile == "cloud"`, so a local boot no longer dials it. The gate comes
-//     from composegen's writePostgres (framework-go-app-generator, RELEASED as
-//     v0.8.1 — platform commit e3ce3da0, tagged and pinned in server/go.mod):
-//     pool construction is no longer decided purely by consumesPostgres() ("does
-//     ANY declared binding, in ANY profile, use the postgres substrate", a
-//     GENERATION-TIME decision) but by the postgres infra key's declared
-//     `profiles` list evaluated against the RUNTIME-resolved `profile` value,
-//     mirroring how each RA's own per-profile switch arm already works. With the
-//     release pinned, a plain `GOWORK=off go run ./cmd/appgen` regen reproduces
-//     the gated main.gen.go byte-for-byte — the old regen-reverts-gating hazard
-//     (regenerating against the un-patched v0.8.0 silently reintroduced the
-//     unconditional dial) is closed. Confirmed via a real local boot with
-//     Temporal reachable and Postgres NOT reachable: the process reaches
-//     "http server listening" cleanly, with zero "postgres"/"5432" mentions in
-//     the boot log. NEVER hand-edit main.gen.go — regenerate via cmd/appgen.
+//  4. POSTGRES POOL DIAL — PROFILE-GATED. main.gen.go's Postgres pool
+//     (postgresinfra.NewPool(ctx, cfg.PostgresURL), which PINGS — a real dial, not
+//     a lazy handle) is built only for the profiles the postgres infra key lists:
+//     composegen's writePostgres (framework-go-app-generator) evaluates that
+//     `profiles` list against the RUNTIME-resolved `profile`, mirroring how each
+//     RA's own per-profile switch arm works. Since deterministic component
+//     testing ruling B5 (billingStateAccess and merchantGatewayAccess un-stubbed,
+//     the local profile on the same Postgres) the list is cloud AND local, so a
+//     local boot needs ARCHISTRATOR_POSTGRES_URL (config.gen.go's
+//     requiredEnvByProfile says so). NEVER hand-edit main.gen.go — regenerate via
+//     cmd/appgen.
 //
 //  5. WORKER PROVIDER SELECTION (resolveWorkerProvider below) — claude-local
 //     provider (local-first-init-funnel Task 3): framework-go-infrastructure-llm
@@ -99,6 +92,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -107,6 +101,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -162,7 +157,7 @@ type appHooks struct {
 	// are cloud-arm-only in the deployment model, but their real presence is gated on
 	// the GitHub App creds — ORTHOGONAL to the projectstate substrate profile). The
 	// Finalize hooks select them in the local profile so a local-projectstate boot
-	// WITH github creds (the agentic systemtests) still drives the design-dispatch +
+	// WITH github creds (a local agentic boot) still drives the design-dispatch +
 	// PR rail, exactly as the hand run() did. nil when repo-less (rail dormant).
 	scAccess     sourcecontrol.SourceControlAccess
 	realPipeline agenticjob.AgenticJobAccess
@@ -191,6 +186,13 @@ type appHooks struct {
 	// `claude --version` preflight land with this task per its brief; the eventual
 	// consumer plugs in without touching this file's selection policy.
 	workerProvider workerGenerateProvider
+
+	// testRunFiles is the delivery Manager's one non-contract read: the streaming
+	// test-run file read behind GET /api/v1/delivery/test-run/{runID}/file (spec
+	// §6.3). Captured in WrapManagers from the RAW manager (the auth/logging wraps
+	// carry only the contract surface) and mounted in mountRoutes; nil (tests, or a
+	// manager that does not implement it) answers 503 rather than panicking.
+	testRunFiles delivery.TestRunFileReader
 }
 
 // workerGenerateProvider is the common surface both llm Worker Provider clients
@@ -479,7 +481,7 @@ func (h *appHooks) projectStateCloudPorts(cfg *Config) (webHost, account string,
 
 // resolveProfile maps the loaded config to the active deployment profile. Only two
 // profiles boot: LOCAL (ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true — on-disk git,
-// dev/systemtests) and CLOUD (the GitHub-App-backed production stack). "test" is a
+// dev/dogfood) and CLOUD (the GitHub-App-backed production stack). "test" is a
 // C4-doc-only profile, NOT bootable (usage/opsystemstate/projectstate error on its
 // default arm). A free function so newAppHooks and the ResolveProfile hook agree.
 func resolveProfile(cfg *Config) string {
@@ -505,7 +507,7 @@ func (h *appHooks) PolicyDecisionPoint() security.PolicyDecisionPoint {
 }
 
 // TokenValidator constructs the keycloak access-token validator (authN). nil in dev
-// mode or with no IdP (systemtests) — the auth middleware then injects a dev
+// mode or with no IdP (a local dev boot) — the auth middleware then injects a dev
 // principal or denies.
 func (h *appHooks) TokenValidator(ctx context.Context, cfg *Config) (security.Validator, error) {
 	if cfg.AuthDevMode || cfg.KeycloakJWKSURL == "" {
@@ -527,14 +529,23 @@ func (h *appHooks) DevConfig(cfg *Config) web.DevConfig {
 	return web.DevConfig{Enabled: cfg.AuthDevMode, Principal: devPrincipal()}
 }
 
-// WrapManagers decorates the two web/MCP-exposed managers with the composition-root
+// WrapManagers decorates the three web/MCP-exposed managers with the composition-root
 // logging seam (managerlog.go): every Infrastructure-kind error surfaced to a client
 // — through either transport — is logged once server-side with op/projectID/cause.
-// Each manager then takes its project-scoped authorization guard on top
+// Delivery and operations then take their project-scoped authorization guard on top
 // (projectScopedDeliveryManager / projectScopedOperationsManager), so a denial is
-// answered before any inner work, on either transport.
+// answered before any inner work, on either transport. Billing's exposed ops
+// (GetBillingCycle, OnboardPaymentIntegration, RegisterCustomer) are customer- or
+// deployed-app-scoped and take no guard here: under the interim
+// authenticated-only PDP (authz.go) authentication is its gate on both transports, and
+// the REST handler's Authorize pre-step names the customer resource for when the Cedar
+// PDP lands.
 func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
+	if reader, ok := managers.DeliveryManager.(delivery.TestRunFileReader); ok {
+		h.testRunFiles = reader
+	}
 	return WebManagers{
+		BillingManager: loggingBillingManager{BillingManager: managers.BillingManager, log: h.logger},
 		DeliveryManager: projectScopedDeliveryManager{
 			DeliveryManager: loggingDeliveryManager{inner: managers.DeliveryManager, log: h.logger},
 			security:        security.New(security.WithPolicyDecisionPoint(h.PolicyDecisionPoint())),
@@ -546,19 +557,17 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 }
 
 // ExtraMounts adds the composition-root-only routes behind the same auth boundary:
-// GET /api/userinfo (the SPA session probe — not a manager op), GET /api/v1/capabilities
-// (the operations-argocd-deployment D9 seam — see below), and /mcp (the MCP
-// transport over the SAME four wrapped managers the REST handlers use, plus the
+// GET /api/userinfo (the SPA session probe — not a manager op) and /mcp (the MCP
+// transport over the SAME three wrapped managers the REST handlers use, plus the
 // ui://archistrator/shell.html MCP-Apps resource). On the local profile, also
 // mounts the embedded SPA at "/" (local-first-init-funnel Task 4, spa_handler.go)
 // — the single-binary `archistrator init` boot serves design (UC1+UC2) AND
 // construction from the same process that answers /api + /mcp. Gated on BOTH the
 // `localdist` build tag (spaFS, spa_embed.go/spa_stub.go — cloud images never
 // carry the tag) AND the runtime profile, so a hypothetical localdist-tagged
-// binary run with cloud config never mounts the SPA either. The local profile
-// also UNMOUNTS the generated operations routes entirely (D9: local holds no
-// deployment credential and must not appear to operate — not a disabled
-// console, not a simulated one; see the doc comment on that block below).
+// binary run with cloud config never mounts the SPA either. Every profile serves
+// the operations console (DCT §12 B16: the local profile operates in dry-run), so
+// there is no capability for the SPA to read and no route to unmount.
 //
 // WEBAPP_ORIGIN/WEBAPP_ASSET_VERSION are NOT configgen-owned (configgen emits
 // config.gen.go from project.json's deployment model, which does not yet declare
@@ -598,29 +607,28 @@ func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConf
 	webAppOrigin := getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173")
 	assetVersion := getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev")
 	root.Handle("/mcp", newMCPHandler(dev, validator,
-		managers.DeliveryManager, managers.OperationsManager,
+		managers.BillingManager, managers.DeliveryManager, managers.OperationsManager,
 		webAppOrigin, assetVersion))
-
-	// GET /api/v1/capabilities — the ONE thing that tells the webApp which
-	// deployment profile it is talking to (operations-argocd-deployment Task 11,
-	// spec D9). Behind the same auth boundary as /api/userinfo: by the time any
-	// route component mounts, UserProvider has already confirmed a session, so
-	// the read rides the same cookie/token. The response's zero value
-	// ({"operations":false}) is the SAFE direction — an unreachable/erroring read
-	// on the client leaves useCapabilities() returning undefined, and
-	// webApp/src/utilities/capabilities.ts's operationsEnabled treats undefined
-	// (and false) as HIDDEN, never shown-by-default.
-	root.Handle("GET /api/v1/capabilities",
-		web.AuthMiddleware(dev, validator)(http.HandlerFunc(h.handleCapabilities(cfg))))
 
 	// GET /api/v1/projects/{projectID}/operated-app-id — the D13 derivation, answered
 	// server-side so the browser never reimplements it (see OperatedAppIDForProject).
-	// Same auth boundary and same composition-root-only status as /api/v1/capabilities;
-	// mounted in BOTH profiles because it is a pure derivation that surfaces nothing
-	// operational — the local profile's overlay stays dormant on the capability gate
-	// (D9), not on this route's absence.
+	// Same auth boundary and same composition-root-only status as /api/userinfo;
+	// mounted in BOTH profiles, like every operations route.
 	root.Handle("GET /api/v1/projects/{projectID}/operated-app-id",
 		web.AuthMiddleware(dev, validator)(h.handleOperatedAppID()))
+
+	// GET /api/v1/delivery/test-run/{runID}/file?projectId=&path= — the streaming
+	// test-run file read (deterministic component testing, spec §6.3): Playwright
+	// videos and trace zips, results.json and the go test stream, served as BYTES
+	// under a Content-Type the Manager decides. It is the delivery Manager's one
+	// read that is not a contract op, because the generated JSON op surface cannot
+	// carry a video. Same auth boundary as every /api/v1 route, the SAME PDP action
+	// and resource as query-project-view (the view that hands out these paths), and
+	// the same 5xx logging the generated surface gets. projectId rides the query
+	// because the PDP decision is project-scoped and the run's artifact name lives
+	// in that project's run record.
+	root.Handle("GET /api/v1/delivery/test-run/{runID}/file",
+		log5xxResponses(h.logger, web.AuthMiddleware(dev, validator)(h.handleTestRunFile())))
 
 	if resolveProfile(cfg) == "local" {
 		spaSource := spaFS
@@ -628,42 +636,6 @@ func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConf
 			spaSource = h.embeddedSPA
 		}
 		mountSPA(root, h.logger, spaSource)
-
-		// D9: the local profile holds no deployment credential and must not
-		// APPEAR to operate — not a disabled console, not a simulated one. Hiding
-		// the webApp nav entry is not enough on its own (a curious user could
-		// still hit the URL directly): the generated operations routes
-		// (internal/client/web/operations/operations_handlers.gen.go, all under
-		// /api/v1/operations/) are UNMOUNTED here rather than left live-but-hidden.
-		// This pattern mirrors the /api/v1/ 5xx-logging shadow above: a MORE
-		// SPECIFIC literal pattern registered directly on root wins over both the
-		// broader "/api/v1/" pattern and (on a localdist build) the SPA's
-		// "/{first}/{rest...}" wildcard (spa_handler.go), so every
-		// /api/v1/operations/... request 404s exactly as if the routes were never
-		// registered at all — never falls through to genServer's real handlers.
-		root.Handle("/api/v1/operations/", http.NotFoundHandler())
-	}
-}
-
-// capabilitiesResponse is the wire shape GET /api/v1/capabilities answers —
-// mirrored by hand on the webApp side (webApp/src/utilities/capabilities.ts's
-// Capabilities type) since this composition-root-only route is not generated
-// from a .serviceContracts entry.
-type capabilitiesResponse struct {
-	Operations bool `json:"operations"`
-}
-
-// handleCapabilities reports operations:true ONLY on the cloud profile — the
-// profile whose operatedRuntimeAccess binding actually holds a real deployment
-// credential (operatedRuntimeAccess binds local -> Local (dry-run), cloud ->
-// Real). This is the single source of truth resolveProfile already computes;
-// no separate config flag to drift from it.
-func (h *appHooks) handleCapabilities(cfg *Config) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(capabilitiesResponse{Operations: resolveProfile(cfg) == "cloud"}); err != nil {
-			h.logger.Warn("capabilities: failed writing response", "err", err)
-		}
 	}
 }
 
@@ -715,9 +687,8 @@ func OperatedAppIDForProject(projectRef string) uuid.UUID {
 }
 
 // operatedAppIDResponse is the wire shape GET /api/v1/projects/{projectID}/operated-app-id
-// answers — mirrored by hand on the webApp side (webApp/src/api/client.ts), like
-// capabilitiesResponse above, since this composition-root-only route has no
-// .serviceContracts entry.
+// answers — mirrored by hand on the webApp side (webApp/src/api/client.ts), since this
+// composition-root-only route has no .serviceContracts entry.
 type operatedAppIDResponse struct {
 	OperatedAppID string `json:"operatedAppId"`
 }
@@ -742,6 +713,88 @@ func (h *appHooks) handleOperatedAppID() http.HandlerFunc {
 		if err := json.NewEncoder(w).Encode(operatedAppIDResponse{OperatedAppID: OperatedAppIDForProject(projectID).String()}); err != nil {
 			h.logger.Warn("operated-app-id: failed writing response", "err", err)
 		}
+	}
+}
+
+// handleTestRunFile answers GET /api/v1/delivery/test-run/{runID}/file?projectId=&path=
+// (mounted in mountRoutes). The auth middleware has already placed the principal; the
+// handler asks the PDP the SAME question projectScopedDeliveryManager.QueryProjectView
+// asks — query-project-view on {project, projectId} — so a principal who may read the
+// run's view may read its files and nobody else may. Refusals from the Manager map to
+// HTTP by kind exactly as the generated handlers map them (statusForTestRunFileError).
+func (h *appHooks) handleTestRunFile() http.HandlerFunc {
+	sec := security.New(security.WithPolicyDecisionPoint(h.PolicyDecisionPoint()))
+	return func(w http.ResponseWriter, r *http.Request) {
+		runID := r.PathValue("runID")
+		projectID := r.URL.Query().Get("projectId")
+		filePath := r.URL.Query().Get("path")
+		switch {
+		case runID == "":
+			http.Error(w, "missing runID", http.StatusBadRequest)
+			return
+		case projectID == "":
+			http.Error(w, "missing projectId", http.StatusBadRequest)
+			return
+		case filePath == "":
+			http.Error(w, "missing path", http.StatusBadRequest)
+			return
+		}
+		principal, ok := security.PrincipalFrom(r.Context())
+		if !ok {
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		decision, err := sec.Authorize(r.Context(), principal,
+			security.Action{Verb: "query-project-view"},
+			security.ResourceRef{Kind: "project", ID: projectID})
+		if err != nil || !decision.Permit {
+			http.Error(w, "not permitted", http.StatusForbidden)
+			return
+		}
+		if h.testRunFiles == nil {
+			http.Error(w, "test-run files are not served by this composition", http.StatusServiceUnavailable)
+			return
+		}
+		rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+		file, err := h.testRunFiles.ReadTestRunFile(rc, delivery.ProjectID(projectID), runID, filePath)
+		if err != nil {
+			status, detail := statusForTestRunFileError(err)
+			http.Error(w, detail, status)
+			return
+		}
+		w.Header().Set("Content-Type", file.MIMEType)
+		w.Header().Set("Content-Length", strconv.Itoa(len(file.Bytes)))
+		w.Header().Set("Cache-Control", "private, max-age=3600")
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write(file.Bytes); err != nil {
+			h.logger.Warn("test-run file: failed writing response", "runID", runID, "path", filePath, "err", err)
+		}
+	}
+}
+
+// statusForTestRunFileError is the generated handlers' kind→status table (internal/
+// client/web/delivery writeManagerError) applied to the one hand route: a Manager
+// refusal keeps its Detail, anything else is an opaque 500.
+func statusForTestRunFileError(err error) (int, string) {
+	var me *fwmanager.Error
+	if !errors.As(err, &me) {
+		return http.StatusInternalServerError, "internal error"
+	}
+	switch me.Kind {
+	case fwmanager.ContractMisuse:
+		return http.StatusBadRequest, me.Detail
+	case fwmanager.NotFound:
+		return http.StatusNotFound, me.Detail
+	case fwmanager.Unauthorized:
+		return http.StatusForbidden, me.Detail
+	case fwmanager.FailedPrecondition:
+		return http.StatusConflict, me.Detail
+	case fwmanager.Infrastructure:
+		return http.StatusServiceUnavailable, me.Detail
+	case fwmanager.Unknown:
+		return http.StatusInternalServerError, me.Detail
+	default:
+		return http.StatusInternalServerError, me.Detail
 	}
 }
 
@@ -863,9 +916,12 @@ func (m projectScopedDeliveryManager) QueryProjectView(rc fwmanager.Context, que
 }
 
 // ArtifactAccessGitHubCloudArgs supplies the CLOUD artifactAccess ctor args: the
-// construction-output repo + the GitHub-App identity (installationID coerced to int64).
-func (h *appHooks) ArtifactAccessGitHubCloudArgs(cfg *Config) (string, string, string, string, string, int64) {
-	return cfg.ArtifactRepoURL, cfg.ArtifactRepoOwner, cfg.GithubAppAppID, cfg.GithubAppPrivateKeyPEM, cfg.GithubAppAPIBaseURL, parseInt64(cfg.GithubAppInstallationID)
+// shared GitHub-App client (the same one sourcecontrol + agenticjob spread; nil
+// when the App identity is unconfigured, which the ctor refuses as ContractMisuse)
+// + the construction-output repo (installationID coerced to int64). The test-run
+// store reads Actions run artifacts through that client.
+func (h *appHooks) ArtifactAccessGitHubCloudArgs(cfg *Config) (*github.AppClient, string, string, int64) {
+	return h.appClient, cfg.ArtifactRepoURL, cfg.ArtifactRepoOwner, parseInt64(cfg.GithubAppInstallationID)
 }
 
 // AgenticJobAccessGitHubActionsArgs supplies the shared AppClient + the
@@ -881,15 +937,10 @@ func (h *appHooks) ProjectStateAccessGitHubArgs(cfg *Config) (string, string, pr
 	return h.projectStateCloudPorts(cfg)
 }
 
-// ConstructionTransitionAccessGitHubArgs / GitActivityStatusAccessGitHubArgs /
-// DesignSessionAccessGitHubArgs (B6) supply the SAME CLOUD ports as
-// ProjectStateAccessGitHubArgs above — these three secondary contracts build
-// their own git substrate over the identical sourcecontrol-backed catalog +
+// GitActivityStatusAccessGitHubArgs / DesignSessionAccessGitHubArgs (B6) supply the
+// SAME CLOUD ports as ProjectStateAccessGitHubArgs above — these secondary contracts
+// build their own git substrate over the identical sourcecontrol-backed catalog +
 // credential minter, never raw github-app credentials directly.
-func (h *appHooks) ConstructionTransitionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
-	return h.projectStateCloudPorts(cfg)
-}
-
 func (h *appHooks) GitActivityStatusAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
 	return h.projectStateCloudPorts(cfg)
 }
@@ -898,22 +949,18 @@ func (h *appHooks) DesignSessionAccessGitHubArgs(cfg *Config) (string, string, p
 	return h.projectStateCloudPorts(cfg)
 }
 
-// ActivityExecutionAccessGitHubArgs supplies the FIFTH facet (stage 3) the same CLOUD
-// ports as its four siblings: it is one more contract over the one git substrate, not a
-// second store, so it must never be handed raw github-app credentials of its own.
+// ActivityExecutionAccessGitHubArgs supplies the activityExecutionAccess facet (stage 3)
+// the same CLOUD ports as its siblings: it is one more contract over the one git
+// substrate, not a second store, so it must never be handed raw github-app credentials
+// of its own.
 func (h *appHooks) ActivityExecutionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
 	return h.projectStateCloudPorts(cfg)
 }
 
-// ConstructionTransitionAccessGitLocalArgs / GitActivityStatusAccessGitLocalArgs /
-// DesignSessionAccessGitLocalArgs (B6) supply the SAME LOCAL repoURL setting
-// projectStateAccess's own GitLocal arm reads (cfg.ProjectStateGitRepoURL) — a hook
-// purely to REUSE that existing binding-scoped setting rather than declare a
-// duplicate one for the same env var.
-func (h *appHooks) ConstructionTransitionAccessGitLocalArgs(cfg *Config) string {
-	return cfg.ProjectStateGitRepoURL
-}
-
+// GitActivityStatusAccessGitLocalArgs / DesignSessionAccessGitLocalArgs (B6) supply the
+// SAME LOCAL repoURL setting projectStateAccess's own GitLocal arm reads
+// (cfg.ProjectStateGitRepoURL) — a hook purely to REUSE that existing binding-scoped
+// setting rather than declare a duplicate one for the same env var.
 func (h *appHooks) GitActivityStatusAccessGitLocalArgs(cfg *Config) string {
 	return cfg.ProjectStateGitRepoURL
 }
@@ -922,8 +969,8 @@ func (h *appHooks) DesignSessionAccessGitLocalArgs(cfg *Config) string {
 	return cfg.ProjectStateGitRepoURL
 }
 
-// ActivityExecutionAccessGitLocalArgs reads the SAME binding-scoped setting its four
-// siblings read — one on-disk repo, five facets over it.
+// ActivityExecutionAccessGitLocalArgs reads the SAME binding-scoped setting its
+// siblings read — one on-disk repo, four facets over it.
 func (h *appHooks) ActivityExecutionAccessGitLocalArgs(cfg *Config) string {
 	return cfg.ProjectStateGitRepoURL
 }
@@ -985,8 +1032,8 @@ func (h *appHooks) FinalizeAgenticJobAccess(cfg *Config, v agenticjob.AgenticJob
 }
 
 // FinalizeSourceControlAccess resolves sourceControlAccess CREDS-WIN: the
-// github-creds-gated real RA when present (local profile WITH creds — the agentic
-// systemtests boot — keeps the REAL GitHub rail, pairing with realPipeline exactly as
+// github-creds-gated real RA when present (local profile WITH creds — a local
+// agentic boot — keeps the REAL GitHub rail, pairing with realPipeline exactly as
 // FinalizeAgenticJobAccess pairs), else the profile arm's build (cloud
 // GitHub, or the local GitLocal PR rail), else nil (rail dormant — a creds-less cloud
 // boot). No dry-run stub — the PR rail simply goes dormant when the RA is nil.
@@ -1020,31 +1067,20 @@ func (h *appHooks) FinalizeOperatedRuntimeAccess(cfg *Config, v operatedruntime.
 
 // The remaining Finalize<Component> hooks (A2/B3: composegen v0.5.1 emits one for
 // EVERY constructed binding, required bindings included) have no composition-root
-// policy to apply — identity. Each is a required, single-arm stub/profile binding
+// policy to apply — identity. Each is a required, profile-switched binding
 // with no orthogonal toggle of its own (unlike operatedRuntimeAccess above).
 
-// FinalizeBillingStateAccess is identity — billingStateAccess is the required,
-// arm-less stub binding; no composition-root policy applies.
+// FinalizeBillingStateAccess is identity — billingStateAccess binds its one
+// Postgres variant on every profile; no composition-root policy applies.
 func (h *appHooks) FinalizeBillingStateAccess(_ *Config, v billingstate.BillingStateAccess) billingstate.BillingStateAccess {
 	return v
 }
 
-// FinalizeMerchantGatewayAccess swaps the generated stub (fwra.Unknown,
-// "not implemented" on every op) for the package's own not-configured
-// implementation. manager/billing and engine/billing are real, wired components;
-// resourceaccess/billingstate is NOT — it's still the generated stub (every op
-// returns fwra.Unknown, "not implemented"), earmarked as retry-waste debt in
-// docs/bugs/2026-08-09-construction-open-items.md; real state access returns with
-// the settlement re-plan (docs/billing-setup.md). This hook only fixes
-// merchantGatewayAccess: its generated stub's Unknown kind isn't in
-// gatewayActivityOptions' TerminalRA set (manager/billing/billingmanager.go), so
-// callers burned a full retry budget before failing anyway with a message that gave
-// no path forward. The not-configured implementation fails terminally (fwra.Auth)
-// with a message pointing at docs/billing-setup.md. Unconditional — Stripe is not
-// configured in ANY profile yet, so there is no cloud/local or dry-run split here
-// (unlike FinalizeOperatedRuntimeAccess above).
-func (h *appHooks) FinalizeMerchantGatewayAccess(_ *Config, _ merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess {
-	return merchantgateway.NewNotConfiguredMerchantGatewayAccess()
+// FinalizeMerchantGatewayAccess is identity — merchantGatewayAccess binds its one
+// Postgres variant (the platform's own gateway ledger) on every profile; no
+// composition-root policy applies.
+func (h *appHooks) FinalizeMerchantGatewayAccess(_ *Config, v merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess {
+	return v
 }
 
 // FinalizeOperatedSystemStateAccess is identity — operatedSystemStateAccess is
@@ -1068,14 +1104,9 @@ func (h *appHooks) FinalizeUsageAccess(_ *Config, v usage.UsageAccess) usage.Usa
 	return v
 }
 
-// FinalizeConstructionTransitionAccess / FinalizeGitActivityStatusAccess /
-// FinalizeDesignSessionAccess (B6) are identity — the three secondary git-substrate
-// contracts are profile-switched exactly like projectStateAccess, with no
-// orthogonal toggle of their own.
-func (h *appHooks) FinalizeConstructionTransitionAccess(_ *Config, v projectstate.ConstructionTransitionAccess) projectstate.ConstructionTransitionAccess {
-	return v
-}
-
+// FinalizeGitActivityStatusAccess / FinalizeDesignSessionAccess (B6) are identity — the
+// secondary git-substrate contracts are profile-switched exactly like
+// projectStateAccess, with no orthogonal toggle of their own.
 func (h *appHooks) FinalizeGitActivityStatusAccess(_ *Config, v projectstate.GitActivityStatusAccess) projectstate.GitActivityStatusAccess {
 	return v
 }
@@ -1084,7 +1115,7 @@ func (h *appHooks) FinalizeDesignSessionAccess(_ *Config, v projectstate.DesignS
 	return v
 }
 
-// FinalizeActivityExecutionAccess is identity for the same reason the other three are:
+// FinalizeActivityExecutionAccess is identity for the same reason the other two are:
 // the facet is profile-switched exactly like projectStateAccess, with no orthogonal
 // toggle of its own.
 func (h *appHooks) FinalizeActivityExecutionAccess(_ *Config, v projectstate.ActivityExecutionAccess) projectstate.ActivityExecutionAccess {
@@ -1097,13 +1128,6 @@ func (h *appHooks) FinalizeActivityExecutionAccess(_ *Config, v projectstate.Act
 // binding for the LocalFS/NoOp variants is composition-root work that does not live here
 // (see main.gen.go's per-profile switch).
 func (h *appHooks) FinalizeEpisodeAccess(_ *Config, v episode.EpisodeAccess) episode.EpisodeAccess {
-	return v
-}
-
-// FinalizeRevenueLedgerAccess is identity — revenueLedgerAccess is the required,
-// arm-less stub binding (billingstate.NewRevenueLedgerAccess, a permanent no-op per
-// the charge-only R-013 rationale); no composition-root policy applies.
-func (h *appHooks) FinalizeRevenueLedgerAccess(_ *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess {
 	return v
 }
 
@@ -1134,6 +1158,9 @@ func (h *appHooks) MessageBusTemporalArgs(_ *Config) map[messagebus.ExecutionKin
 		// operations: the startup operatedStateReconcile Schedule
 		// (operationsmanager.go's executionKindReconcile).
 		"operationsReconcile": {WorkflowType: "operationsReconcile", TaskQueue: operations.TaskQueue},
+		// operations: the per-customer delinquency enforcement workflow, started by
+		// billing's applyDelinquencyPolicy signal-with-start ({customerId}:delinquency).
+		"operationsDelinquencyEnforcement": {WorkflowType: "operationsDelinquencyEnforcement", TaskQueue: operations.TaskQueue},
 		// delivery: the two startup Schedules (Task 7c + stage 4b1 Task 6;
 		// deliverymanager.go's executionKindPumpSweep / executionKindRoundSweep). The pump
 		// sweep's WORKFLOW TYPE name is unchanged at stage 4a (R2 — nineteen replay fixtures
@@ -1193,8 +1220,9 @@ func (h *appHooks) constructionExecutionKinds(cfg *Config) map[messagebus.Execut
 
 // dryRunConstructionScheduleGate wraps messageBus so a RegisterSchedule call
 // naming one of construction's own ExecutionKinds is skipped (logged, not
-// forwarded) while every other call — billing/operations RegisterSchedule, and
-// DeliverSignal for any Manager — passes straight through to inner. Built only
+// forwarded) while every other call — billing/operations RegisterSchedule,
+// DescribeSchedule, and DeliverSignal for any Manager — passes straight through
+// to inner. Built only
 // by FinalizeMessageBus above, only when CONSTRUCTION_DRYRUN=true.
 type dryRunConstructionScheduleGate struct {
 	inner  messagebus.MessageBus
@@ -1206,8 +1234,8 @@ var _ messagebus.MessageBus = dryRunConstructionScheduleGate{}
 
 // DeliverSignal always passes through — the gate only intercepts Schedule
 // registration.
-func (g dryRunConstructionScheduleGate) DeliverSignal(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
-	return g.inner.DeliverSignal(rc, targetExecutionID, signalName, payload)
+func (g dryRunConstructionScheduleGate) DeliverSignal(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload, start *messagebus.ExecutionStart) error {
+	return g.inner.DeliverSignal(rc, targetExecutionID, signalName, payload, start)
 }
 
 // RegisterSchedule skips (returns nil, no runtime call) when spec.ExecutionKind
@@ -1219,6 +1247,13 @@ func (g dryRunConstructionScheduleGate) RegisterSchedule(rc fwra.Context, schedu
 		return nil
 	}
 	return g.inner.RegisterSchedule(rc, scheduleID, spec)
+}
+
+// DescribeSchedule always passes through — a read never creates a Schedule, so the
+// gate has nothing to intercept (a skipped construction Schedule reads back as
+// Registered=false, which is the truth on a dry-run boot).
+func (g dryRunConstructionScheduleGate) DescribeSchedule(rc fwra.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	return g.inner.DescribeSchedule(rc, scheduleID)
 }
 
 // registerConstruction is the construction Worker gate (run()'s selectConstructionDeps):

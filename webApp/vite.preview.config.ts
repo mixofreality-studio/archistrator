@@ -20,9 +20,8 @@ import {
 //   - Fixtures are bundled at build time (import.meta.glob through the
 //     `@preview-fixtures` alias), so a preview needs no fetch. The root is
 //     ARCHISTRATOR_PREVIEW_FIXTURES (relative to webApp/), defaulting to
-//     preview/fixtures, where the U-SPA-web-client Design phase will record the
-//     designed fixtures (§2′.5 item 4). The uitests build it over their own
-//     test-local fixtures: ARCHISTRATOR_PREVIEW_FIXTURES=../uitests/preview-fixtures.
+//     preview/fixtures, where the U-SPA-web-client Design phase records the
+//     designed fixtures (§2′.5 item 4).
 //   - Every fixture is validated against the OAS-generated schema when the build
 //     starts; one invalid fixture fails the build. The schema ships beside the
 //     bundle as fixtures.schema.json.

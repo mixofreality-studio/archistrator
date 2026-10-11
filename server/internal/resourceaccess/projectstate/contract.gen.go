@@ -45,8 +45,6 @@ type ActivityGitStatus struct {
 	BranchRef      string       `json:"BranchRef"`
 	PullRequestRef string       `json:"PullRequestRef"`
 	CICheck        CICheckState `json:"CICheck"`
-	ArchApproved   bool         `json:"ArchApproved"`
-	Merged         bool         `json:"Merged"`
 	CRLabel        string       `json:"CRLabel"`
 	IsRevert       bool         `json:"IsRevert"`
 	UpdatedAt      time.Time    `json:"UpdatedAt"`
@@ -88,6 +86,8 @@ const (
 	NodeInterruptEdge ActivityNodeKind = 12
 	NodeTimeEvent     ActivityNodeKind = 13
 	NodeAcceptEvent   ActivityNodeKind = 14
+	NodeSendSignal    ActivityNodeKind = 15
+	NodeObjectNode    ActivityNodeKind = 16
 )
 
 type ActivityOutcome int
@@ -213,14 +213,6 @@ const (
 	ClassCore    Classification = 0
 	ClassNonCore Classification = 1
 )
-
-type CommitArtifactsInput struct {
-	TaskID     MethodTask         `json:"taskId"`
-	Commit     string             `json:"commit"`
-	Artifacts  []ProducedArtifact `json:"artifacts,omitempty"`
-	ApprovedBy string             `json:"approvedBy"`
-	DraftedBy  string             `json:"draftedBy"`
-}
 
 type Component struct {
 	ID                       string        `json:"id"`
@@ -618,12 +610,12 @@ type PlanningAssumptions struct {
 	RateCard            map[string]WorkerRateSpec `json:"rateCard,omitempty"`
 }
 
-type ProducedArtifact struct {
-	Kind     string `json:"Kind"`
-	Title    string `json:"Title"`
-	Source   string `json:"Source"`
-	Produced bool   `json:"Produced"`
-	Note     string `json:"Note"`
+type Probe struct {
+	For       string     `json:"for"`
+	Component string     `json:"component"`
+	Operation string     `json:"operation"`
+	Inputs    []TestArg  `json:"inputs"`
+	Expect    TestExpect `json:"expect"`
 }
 
 type Profile struct {
@@ -735,7 +727,6 @@ type ReviewComment struct {
 	AuthorRole string               `json:"authorRole"`
 	Round      int64                `json:"round"`
 	Status     string               `json:"status"`
-	Response   *string              `json:"response,omitempty"`
 	Replies    []ReviewCommentReply `json:"replies"`
 	Reopened   bool                 `json:"reopened"`
 	Type       string               `json:"type"`
@@ -844,7 +835,21 @@ type ScalingPolicy struct {
 	TargetUtilizationPct int64 `json:"targetUtilizationPct"`
 }
 
+type ScenarioBinding struct {
+	Scenario string        `json:"scenario"`
+	Steps    []StepBinding `json:"steps"`
+	Skip     *SkipReason   `json:"skip,omitempty"`
+}
+
 type ScenarioKind string
+
+type ScenarioResult struct {
+	Scenario   string `json:"scenario"`
+	Status     string `json:"status"`
+	DurationMs int    `json:"durationMs"`
+	VideoRef   string `json:"videoRef"`
+	TraceRef   string `json:"traceRef"`
+}
 
 type ScheduleKind int
 
@@ -873,12 +878,18 @@ type SdpReview struct {
 	Options        []SdpOptionRow `json:"options"`
 	Recommendation OptionID       `json:"recommendation"`
 	Rationale      string         `json:"rationale"`
+	ChosenOption   *OptionID      `json:"chosenOption,omitempty"`
 }
 
 type SettlementTerms struct {
 	ComputeCost          ComputeCostKind `json:"computeCost"`
 	ComputeMarkupPercent float64         `json:"computeMarkupPercent"`
 	Schedule             ScheduleKind    `json:"schedule"`
+}
+
+type SkipReason struct {
+	Reason string `json:"reason"`
+	Until  string `json:"until"`
 }
 
 type SoftwareSystemInstance struct {
@@ -908,6 +919,16 @@ type StagedRef struct {
 
 type StandardCheck struct {
 	Items []CheckItem `json:"items"`
+}
+
+type StepBinding struct {
+	Seq          int        `json:"seq"`
+	Operation    string     `json:"operation"`
+	Inputs       []TestArg  `json:"inputs"`
+	Expect       TestExpect `json:"expect"`
+	Probes       []Probe    `json:"probes"`
+	Unobservable []string   `json:"unobservable"`
+	Hook         bool       `json:"hook"`
 }
 
 type SubjectKind string
@@ -942,20 +963,42 @@ type TaskAttemptInput struct {
 	Detail       string       `json:"detail"`
 }
 
+type TestArg struct {
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	SchemaRef string `json:"schemaRef"`
+}
+
+type TestExpect struct {
+	Result        string `json:"result"`
+	ErrorExpected bool   `json:"errorExpected"`
+	ErrorCode     string `json:"errorCode"`
+}
+
 type TestPlanRecord struct {
-	Component  string     `json:"component"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+	Component  string            `json:"component"`
+	Bindings   []ScenarioBinding `json:"bindings"`
+	AuthoredAt *time.Time        `json:"authoredAt,omitempty"`
+}
+
+type TestRun struct {
+	ID        string           `json:"id"`
+	Activity  string           `json:"activity"`
+	Component string           `json:"component"`
+	Revision  string           `json:"revision"`
+	Artifact  string           `json:"artifact"`
+	StartedAt *time.Time       `json:"startedAt,omitempty"`
+	EndedAt   *time.Time       `json:"endedAt,omitempty"`
+	Scenarios []ScenarioResult `json:"scenarios"`
 }
 
 type TestingVariant int
 
 const (
-	TestVariantPlan       TestingVariant = 0
-	TestVariantHarness    TestingVariant = 1
-	TestVariantPerf       TestingVariant = 2
-	TestVariantSystemTest TestingVariant = 3
-	TestVariantQAProcess  TestingVariant = 4
+	TestVariantNone      TestingVariant = 0
+	TestVariantHarness   TestingVariant = 1
+	TestVariantPerf      TestingVariant = 2
+	TestVariantQAProcess TestingVariant = 4
 )
 
 type TraceCall struct {
@@ -1049,27 +1092,9 @@ type ActivityExecutionAccess interface {
 	AppendReviewVerdict(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, verdict ReviewVerdict, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatus(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	DecideReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, outcome ReviewRoundOutcome, decidedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	CommitActivityArtifacts(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, artifacts CommitArtifactsInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordActivityOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, outcome ActivityOutcome, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, kind ArtifactKind, note string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReadActivityExecution(rc fwra.Context, projectID ProjectID, activityID string) (ActivityExecution, error)
-}
-
-// ConstructionTransitionAccess is the generated service-contract interface for this component.
-type ConstructionTransitionAccess interface {
-	RecordChangeReviewed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityExited(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityFailed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordServiceContractProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseArtifactProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, note OperatorNoteInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorNoteDelivered(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, noteID string, attemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 // DesignSessionAccess is the generated service-contract interface for this component.
@@ -1077,10 +1102,7 @@ type DesignSessionAccess interface {
 	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (ProjectEnvelope, error)
 	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ModelEnvelope, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy string, draftedBy string) (Version, error)
-	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
@@ -1088,21 +1110,21 @@ type DesignSessionAccess interface {
 type GitActivityStatusAccess interface {
 	RecordActivityBranchOpened(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, branch string, branchRef string, prRef string, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordActivityCIObserved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityArchApproved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityMerged(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, typ ActivityType, variant TestingVariant, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 // ProjectStateAccess is the generated service-contract interface for this component.
 type ProjectStateAccess interface {
 	AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	AdvancePhase(rc fwra.Context, projectID ProjectID, expectedVersion Version) (Version, error)
-	CommitArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind) (Version, error)
 	CreateProject(rc fwra.Context, projectID ProjectID, owner OwnerScope, name string) (Version, error)
 	ListProjects(rc fwra.Context, owner OwnerScope) ([]ProjectSummary, error)
 	ReadProject(rc fwra.Context, projectID ProjectID) (Project, error)
 	ReadProjectVersion(rc fwra.Context, projectID ProjectID) (Version, error)
+	RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordSdpReviewOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, outcome ArtifactReviewStatus, feedback string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordTrackingPoint(rc fwra.Context, projectID ProjectID, expectedVersion Version, point EvPoint, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetOperatingModel(rc fwra.Context, projectID ProjectID, expectedVersion Version, model OperatingModel) (Version, error)
 	SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error)
 }

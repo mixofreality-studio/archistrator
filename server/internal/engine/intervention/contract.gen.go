@@ -72,20 +72,16 @@ const (
 type OperatedAppID string
 
 type PausePlan struct {
-	PipelinesToCancel []PipelineRef  `json:"PipelinesToCancel"`
-	RecordPaused      bool           `json:"RecordPaused"`
-	NotifyTargets     []NotifyTarget `json:"NotifyTargets"`
-	ResumeHint        string         `json:"ResumeHint"`
+	RecordPaused  bool           `json:"RecordPaused"`
+	NotifyTargets []NotifyTarget `json:"NotifyTargets"`
+	ResumeHint    string         `json:"ResumeHint"`
 }
 
 type PauseRequestContext struct {
-	ProjectID         ProjectID          `json:"ProjectID"`
-	InFlightPipelines []PipelineRef      `json:"InFlightPipelines"`
-	Reason            string             `json:"Reason"`
-	Policy            InterventionPolicy `json:"Policy"`
+	ProjectID ProjectID          `json:"ProjectID"`
+	Reason    string             `json:"Reason"`
+	Policy    InterventionPolicy `json:"Policy"`
 }
-
-type PipelineRef string
 
 type ProjectID string
 

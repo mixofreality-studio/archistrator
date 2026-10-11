@@ -1,5 +1,65 @@
 components:
     schemas:
+        BillingBillingCycleView:
+            additionalProperties: false
+            properties:
+                closed:
+                    description: The period has been closed and its outcome recorded.
+                    type: boolean
+                customerId:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-name: CustomerID
+                    x-go-type: uuid.UUID
+                cycleId:
+                    type: string
+                    x-go-name: CycleID
+                escalated:
+                    description: 'The charge failed and was escalated: the customer is persistently delinquent and the cycle''s invoice unpaid.'
+                    type: boolean
+                routed:
+                    $ref: '#/components/schemas/BillingRoutingDirective'
+            required:
+                - customerId
+                - cycleId
+                - closed
+                - routed
+                - escalated
+            type: object
+        BillingBillingRef:
+            additionalProperties: false
+            properties:
+                customerId:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-name: CustomerID
+                    x-go-type: uuid.UUID
+            required:
+                - customerId
+            type: object
+        BillingErrorResponse:
+            additionalProperties: false
+            properties:
+                code:
+                    type: string
+                error:
+                    type: string
+            required:
+                - error
+                - code
+            type: object
+        BillingRoutingDirective:
+            description: 'Cycle routing under charge-only terms: NoAction (0) or Charge (2). Wire value 1 (the retired payout arm) is tombstoned — never reuse.'
+            enum:
+                - 0
+                - 2
+            type: integer
+            x-enum-varnames:
+                - RoutingDirectiveNoAction
+                - RoutingDirectiveCharge
+            x-go-base: int
         DeliveryActivityBuildStatus:
             enum:
                 - 0
@@ -54,16 +114,13 @@ components:
                     type:
                         - "null"
                         - array
-                Produced:
-                    items:
-                        $ref: '#/components/schemas/DeliveryProducedArtifact'
-                    type:
-                        - "null"
-                        - array
                 Type:
                     $ref: '#/components/schemas/DeliveryActivityType'
                 Variant:
                     $ref: '#/components/schemas/DeliveryTestingVariant'
+                    description: The testing variant of a testing activity; absent on every other row (the zero value is no variant, and ordinals 0 and 3 are retired).
+                    type:
+                        - "null"
                 attempts:
                     items:
                         $ref: '#/components/schemas/DeliveryTaskAttempt'
@@ -110,12 +167,10 @@ components:
                 - ActivityID
                 - Type
                 - Kind
-                - Variant
                 - Phase
                 - Phases
                 - CurrentPhase
                 - BuildStatus
-                - Produced
                 - FailureReason
                 - FailureDetail
                 - classified
@@ -129,8 +184,6 @@ components:
             properties:
                 ActivityID:
                     type: string
-                ArchApproved:
-                    type: boolean
                 BranchName:
                     type: string
                 BranchRef:
@@ -140,8 +193,6 @@ components:
                 CRLabel:
                     type: string
                 IsRevert:
-                    type: boolean
-                Merged:
                     type: boolean
                 PrNumber:
                     type: integer
@@ -162,8 +213,6 @@ components:
                 - PrNumber
                 - PrURL
                 - CICheck
-                - ArchApproved
-                - Merged
                 - CRLabel
                 - IsRevert
                 - UpdatedAt
@@ -781,6 +830,42 @@ components:
                 - severity
                 - note
             type: object
+        DeliveryDeliveryTestRunView:
+            additionalProperties: false
+            description: 'The testing task''s run as the results panel renders it: the recorded run, every projected scenario joined with its result, the projected ids with no result (missing), the results with no projected scenario (unknown), and whether the venue artifact has expired.'
+            properties:
+                artifact:
+                    type: string
+                expired:
+                    type: boolean
+                missing:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                run:
+                    $ref: '#/components/schemas/DeliveryTestRunView'
+                scenarios:
+                    items:
+                        $ref: '#/components/schemas/DeliveryTestRunScenarioView'
+                    type:
+                        - "null"
+                        - array
+                unknown:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - run
+                - scenarios
+                - missing
+                - unknown
+                - expired
+                - artifact
+            type: object
         DeliveryDesignArtifactSessionStage:
             description: 'The stages the DERIVED design-artifact session view can report, and all of them. This is a REPLACEMENT of the eight-member SessionStage, not a renumbering of it: the door is committedSessionView, a projection of one durable ArtifactSlot, so a committed slot reads committed, a withdrawn one withdrawn, and every other terminal-but-uncommitted status reads an honest draftFailed. Drafting, awaitingReview, redrafting and refused had no producer left once stage 4b1 retired the live design rail, and StageDrafting in particular is the value an SPA wedges a spinner on. SessionStageUnknown stays at 0 deliberately: a three-member enum would make the ZERO VALUE mean committed, and a zero-valued view reading as a committed artifact is the same defect class as ArtifactKind''s KindMission == 0.'
             enum:
@@ -1384,25 +1469,29 @@ components:
                 - PipelineFailed
                 - PipelineCancelled
             x-go-base: int
-        DeliveryProducedArtifact:
+        DeliveryProbeView:
             additionalProperties: false
             properties:
-                Kind:
+                component:
                     type: string
-                Note:
+                expect:
+                    $ref: '#/components/schemas/DeliveryTestExpectView'
+                for:
                     type: string
-                Produced:
-                    type: boolean
-                Source:
-                    type: string
-                Title:
+                inputs:
+                    items:
+                        $ref: '#/components/schemas/DeliveryTestArgView'
+                    type:
+                        - "null"
+                        - array
+                operation:
                     type: string
             required:
-                - Kind
-                - Title
-                - Source
-                - Produced
-                - Note
+                - for
+                - component
+                - operation
+                - inputs
+                - expect
             type: object
         DeliveryProjectID:
             type: string
@@ -1557,12 +1646,22 @@ components:
                     $ref: '#/components/schemas/DeliveryPumpStatus'
                     type:
                         - "null"
+                scenarios:
+                    items:
+                        $ref: '#/components/schemas/DeliveryScenarioView'
+                    type:
+                        - "null"
+                        - array
                 session:
                     $ref: '#/components/schemas/DeliveryDesignArtifactSessionView'
                     type:
                         - "null"
                 summary:
                     $ref: '#/components/schemas/DeliveryProjectState'
+                    type:
+                        - "null"
+                testRun:
+                    $ref: '#/components/schemas/DeliveryDeliveryTestRunView'
                     type:
                         - "null"
                 timeline:
@@ -1581,6 +1680,8 @@ components:
                 - designHealth
                 - episodes
                 - timeline
+                - testRun
+                - scenarios
             type: string
             x-enum-varnames:
                 - ProjectViewSummary
@@ -1590,6 +1691,8 @@ components:
                 - ProjectViewDesignHealth
                 - ProjectViewEpisodes
                 - ProjectViewTimeline
+                - ProjectViewTestRun
+                - ProjectViewScenarios
             x-go-base: string
         DeliveryProjectViewQuery:
             additionalProperties: false
@@ -1603,6 +1706,11 @@ components:
                     $ref: '#/components/schemas/DeliveryArtifactKind'
                     type:
                         - "null"
+                componentId:
+                    type:
+                        - "null"
+                        - string
+                    x-go-name: ComponentID
                 episodeId:
                     type:
                         - "null"
@@ -1619,18 +1727,17 @@ components:
                         - "null"
                         - string
                     x-go-name: ProjectID
+                runId:
+                    type:
+                        - "null"
+                        - string
+                    x-go-name: RunID
             required:
                 - kind
             type: object
         DeliveryPumpResult:
             additionalProperties: false
             properties:
-                activityId:
-                    $ref: '#/components/schemas/DeliveryActivityID'
-                    description: DEPRECATED, and populated with the FIRST element of activityIds. A parallel pump dispatches a whole frontier in one tick, so one id is a lie about N; read activityIds. Kept because a reader written against the singular field still gets a true answer about one of the activities that started.
-                    type:
-                        - "null"
-                    x-go-name: ActivityID
                 activityIds:
                     description: Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight).
                     items:
@@ -1721,8 +1828,6 @@ components:
                     items:
                         $ref: '#/components/schemas/DeliveryReviewCommentReply'
                     type: array
-                response:
-                    type: string
                 round:
                     type: integer
                 status:
@@ -2014,6 +2119,204 @@ components:
                 - SDPCommit
                 - SDPRejectAll
             x-go-base: int
+        DeliveryScenarioBindingView:
+            additionalProperties: false
+            properties:
+                scenario:
+                    type: string
+                skip:
+                    $ref: '#/components/schemas/DeliverySkipReasonView'
+                    type:
+                        - "null"
+                steps:
+                    items:
+                        $ref: '#/components/schemas/DeliveryStepBindingView'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - scenario
+                - steps
+            type: object
+        DeliveryScenarioGuardView:
+            additionalProperties: false
+            properties:
+                at:
+                    type: string
+                guard:
+                    type: string
+            required:
+                - at
+                - guard
+            type: object
+        DeliveryScenarioInputView:
+            additionalProperties: false
+            properties:
+                call:
+                    type: string
+                from:
+                    type: string
+                guard:
+                    type: string
+                kind:
+                    type: string
+                op:
+                    type: string
+                to:
+                    type: string
+                via:
+                    description: The alternative callers when an alt group's calls into the component collapse to this one stimulus (Amendment A4); empty when the stimulus has a single caller.
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - kind
+                - from
+                - to
+                - op
+                - call
+                - guard
+                - via
+            type: object
+        DeliveryScenarioOutcomeView:
+            additionalProperties: false
+            properties:
+                expectedOutputs:
+                    items:
+                        $ref: '#/components/schemas/DeliveryScenarioOutputView'
+                    type:
+                        - "null"
+                        - array
+                expectedStates:
+                    items:
+                        $ref: '#/components/schemas/DeliveryScenarioStateView'
+                    type:
+                        - "null"
+                        - array
+                hints:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - expectedOutputs
+                - expectedStates
+                - hints
+            type: object
+        DeliveryScenarioOutputView:
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                label:
+                    type: string
+                node:
+                    type: string
+                to:
+                    type: string
+            required:
+                - node
+                - kind
+                - to
+                - label
+            type: object
+        DeliveryScenarioResultView:
+            additionalProperties: false
+            properties:
+                durationMs:
+                    type: integer
+                scenario:
+                    type: string
+                status:
+                    type: string
+                traceRef:
+                    type: string
+                videoRef:
+                    type: string
+            required:
+                - scenario
+                - status
+                - durationMs
+                - videoRef
+                - traceRef
+            type: object
+        DeliveryScenarioStateView:
+            additionalProperties: false
+            properties:
+                inState:
+                    type: string
+                node:
+                    type: string
+                object:
+                    type: string
+            required:
+                - node
+                - object
+                - inState
+            type: object
+        DeliveryScenarioStimulusView:
+            additionalProperties: false
+            properties:
+                input:
+                    $ref: '#/components/schemas/DeliveryScenarioInputView'
+                node:
+                    type: string
+                outcome:
+                    $ref: '#/components/schemas/DeliveryScenarioOutcomeView'
+                seq:
+                    type: integer
+            required:
+                - seq
+                - node
+                - input
+                - outcome
+            type: object
+        DeliveryScenarioView:
+            additionalProperties: false
+            description: 'One deterministic scenario projected onto a component (framework-go/scenario.ForComponent): the stimuli into it, what is observed after each, and the committed binding for it when the test plan has one.'
+            properties:
+                binding:
+                    $ref: '#/components/schemas/DeliveryScenarioBindingView'
+                    type:
+                        - "null"
+                guards:
+                    items:
+                        $ref: '#/components/schemas/DeliveryScenarioGuardView'
+                    type:
+                        - "null"
+                        - array
+                id:
+                    type: string
+                path:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                preconditions:
+                    $ref: '#/components/schemas/DeliveryScenarioOutcomeView'
+                stimuli:
+                    items:
+                        $ref: '#/components/schemas/DeliveryScenarioStimulusView'
+                    type:
+                        - "null"
+                        - array
+                title:
+                    type: string
+                useCase:
+                    type: string
+            required:
+                - id
+                - useCase
+                - title
+                - path
+                - guards
+                - preconditions
+                - stimuli
+            type: object
         DeliveryServiceContract:
             additionalProperties: false
             properties:
@@ -2088,6 +2391,17 @@ components:
                 - SeverityWarning
                 - SeverityError
             x-go-base: string
+        DeliverySkipReasonView:
+            additionalProperties: false
+            properties:
+                reason:
+                    type: string
+                until:
+                    type: string
+            required:
+                - reason
+                - until
+            type: object
         DeliveryStartProjectResult:
             additionalProperties: false
             properties:
@@ -2103,6 +2417,44 @@ components:
             required:
                 - projectId
                 - version
+            type: object
+        DeliveryStepBindingView:
+            additionalProperties: false
+            properties:
+                expect:
+                    $ref: '#/components/schemas/DeliveryTestExpectView'
+                hook:
+                    type: boolean
+                inputs:
+                    items:
+                        $ref: '#/components/schemas/DeliveryTestArgView'
+                    type:
+                        - "null"
+                        - array
+                operation:
+                    type: string
+                probes:
+                    items:
+                        $ref: '#/components/schemas/DeliveryProbeView'
+                    type:
+                        - "null"
+                        - array
+                seq:
+                    type: integer
+                unobservable:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - seq
+                - operation
+                - inputs
+                - expect
+                - probes
+                - unobservable
+                - hook
             type: object
         DeliverySubagentSpan:
             additionalProperties: false
@@ -2122,18 +2474,6 @@ components:
                     x-go-name: ToolUseID
             required:
                 - toolUseId
-            type: object
-        DeliverySystemTestPlanView:
-            additionalProperties: false
-            properties:
-                scenarios:
-                    items:
-                        $ref: '#/components/schemas/DeliveryTestScenarioView'
-                    type:
-                        - "null"
-                        - array
-            required:
-                - scenarios
             type: object
         DeliveryTaskAttempt:
             additionalProperties: false
@@ -2325,33 +2665,6 @@ components:
                 - value
                 - schemaRef
             type: object
-        DeliveryTestCaseView:
-            additionalProperties: false
-            properties:
-                expectedOutcome:
-                    type: string
-                id:
-                    type: string
-                kind:
-                    type: string
-                proves:
-                    type: string
-                steps:
-                    items:
-                        $ref: '#/components/schemas/DeliveryTestStepView'
-                    type:
-                        - "null"
-                        - array
-                title:
-                    type: string
-            required:
-                - id
-                - kind
-                - title
-                - proves
-                - expectedOutcome
-                - steps
-            type: object
         DeliveryTestExpectView:
             additionalProperties: false
             properties:
@@ -2366,76 +2679,80 @@ components:
                 - errorExpected
                 - errorCode
             type: object
-        DeliveryTestRunView:
+        DeliveryTestRunScenarioView:
             additionalProperties: false
+            description: 'One projected scenario joined with its result in a test run: the title and guards from the projection, the status/duration/refs from results.json, and the artifact path of the go test -json stream (outputRef) its output is filtered from.'
             properties:
-                failed:
+                durationMs:
                     type: integer
-                id:
-                    type: string
-                note:
-                    type: string
-                passed:
-                    type: integer
-            required:
-                - id
-                - passed
-                - failed
-                - note
-            type: object
-        DeliveryTestScenarioView:
-            additionalProperties: false
-            properties:
-                cases:
+                guards:
                     items:
-                        $ref: '#/components/schemas/DeliveryTestCaseView'
+                        $ref: '#/components/schemas/DeliveryScenarioGuardView'
                     type:
                         - "null"
                         - array
-                description:
-                    type: string
                 id:
+                    type: string
+                outputRef:
+                    type: string
+                status:
                     type: string
                 title:
                     type: string
-                useCase:
+                traceRef:
+                    type: string
+                videoRef:
                     type: string
             required:
                 - id
-                - useCase
                 - title
-                - description
-                - cases
+                - guards
+                - status
+                - durationMs
+                - videoRef
+                - traceRef
+                - outputRef
             type: object
-        DeliveryTestStepView:
+        DeliveryTestRunView:
             additionalProperties: false
             properties:
-                assertion:
+                activity:
+                    type: string
+                artifact:
                     type: string
                 component:
                     type: string
-                expect:
-                    $ref: '#/components/schemas/DeliveryTestExpectView'
-                inputs:
+                endedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+                id:
+                    type: string
+                revision:
+                    type: string
+                scenarios:
                     items:
-                        $ref: '#/components/schemas/DeliveryTestArgView'
+                        $ref: '#/components/schemas/DeliveryScenarioResultView'
                     type:
                         - "null"
                         - array
-                operation:
-                    type: string
-                seq:
-                    type: integer
-                status:
-                    type: string
+                startedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
             required:
-                - seq
+                - id
+                - activity
                 - component
-                - operation
-                - status
-                - inputs
-                - expect
-                - assertion
+                - revision
+                - artifact
+                - scenarios
             type: object
         DeliveryTestingStateView:
             additionalProperties: false
@@ -2446,8 +2763,6 @@ components:
                     type:
                         - "null"
                         - array
-                systemTestPlan:
-                    $ref: '#/components/schemas/DeliverySystemTestPlanView'
                 testRuns:
                     items:
                         $ref: '#/components/schemas/DeliveryTestRunView'
@@ -2460,17 +2775,13 @@ components:
             type: object
         DeliveryTestingVariant:
             enum:
-                - 0
                 - 1
                 - 2
-                - 3
                 - 4
             type: integer
             x-enum-varnames:
-                - TestVariantPlan
                 - TestVariantHarness
                 - TestVariantPerf
-                - TestVariantSystemTest
                 - TestVariantQAProcess
             x-go-base: int
         DeliveryTimelineEvent:
@@ -2569,11 +2880,15 @@ components:
         ModelActivityNode:
             additionalProperties: false
             properties:
+                anchor:
+                    type: string
                 decidedBy:
                     type:
                         - "null"
                         - string
                 id:
+                    type: string
+                inState:
                     type: string
                 kind:
                     enum:
@@ -2592,6 +2907,8 @@ components:
                         - interruptEdge
                         - timeEvent
                         - acceptEvent
+                        - sendSignal
+                        - objectNode
                     type: string
                 label:
                     type: string
@@ -3614,6 +3931,10 @@ components:
         ModelSdpReview:
             additionalProperties: false
             properties:
+                chosenOption:
+                    type:
+                        - "null"
+                        - string
                 options:
                     items:
                         $ref: '#/components/schemas/ModelSdpOptionRow'
@@ -3935,41 +4256,6 @@ components:
                 - megatokensInPerDay
                 - megatokensOutPerDay
             type: object
-        OperationsAutoscaleAction:
-            enum:
-                - 0
-                - 1
-                - 2
-                - 3
-                - 4
-            type: integer
-            x-enum-varnames:
-                - AutoscaleNoChange
-                - AutoscaleScaleUp
-                - AutoscaleScaleDown
-                - AutoscalePause
-                - AutoscaleResume
-            x-go-base: int
-        OperationsAutoscaleDecisionView:
-            additionalProperties: false
-            properties:
-                Action:
-                    $ref: '#/components/schemas/OperationsAutoscaleAction'
-                At:
-                    format: date-time
-                    type: string
-                    x-go-import: time
-                    x-go-type: time.Time
-                Published:
-                    type: boolean
-                Reason:
-                    type: string
-            required:
-                - At
-                - Action
-                - Reason
-                - Published
-            type: object
         OperationsAutoscalerMode:
             enum:
                 - 0
@@ -3984,17 +4270,10 @@ components:
         OperationsAutoscalerView:
             additionalProperties: false
             properties:
-                Decisions:
-                    items:
-                        $ref: '#/components/schemas/OperationsAutoscaleDecisionView'
-                    type:
-                        - "null"
-                        - array
                 Mode:
                     $ref: '#/components/schemas/OperationsAutoscalerMode'
             required:
                 - Mode
-                - Decisions
             type: object
         OperationsCostProjectionSeam:
             additionalProperties: false
@@ -4160,12 +4439,6 @@ components:
                     x-go-type: uuid.UUID
                 Phase:
                     $ref: '#/components/schemas/OperationsRuntimeStatusSeam'
-                RecentEvents:
-                    items:
-                        $ref: '#/components/schemas/OperationsRuntimeStatusEventView'
-                    type:
-                        - "null"
-                        - array
                 Slos:
                     items:
                         $ref: '#/components/schemas/OperationsSloRowView'
@@ -4178,7 +4451,6 @@ components:
                 - InFlight
                 - Health
                 - Slos
-                - RecentEvents
                 - Autoscaler
                 - CurrentRunRate
             type: object
@@ -4222,26 +4494,6 @@ components:
                         - "null"
                         - array
                     x-go-name: AppIDs
-            type: object
-        OperationsRuntimeStatusEventView:
-            additionalProperties: false
-            properties:
-                At:
-                    format: date-time
-                    type: string
-                    x-go-import: time
-                    x-go-type: time.Time
-                From:
-                    $ref: '#/components/schemas/OperationsRuntimeStatusSeam'
-                Note:
-                    type: string
-                To:
-                    $ref: '#/components/schemas/OperationsRuntimeStatusSeam'
-            required:
-                - At
-                - From
-                - To
-                - Note
             type: object
         OperationsRuntimeStatusSeam:
             enum:
@@ -4340,6 +4592,211 @@ info:
     version: 1.0.0
 openapi: 3.1.0
 paths:
+    /api/v1/billing/get-billing-cycle/{customerID}:
+        get:
+            operationId: GetBillingCycle
+            parameters:
+                - in: path
+                  name: customerID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+                - in: query
+                  name: cycleID
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingBillingCycleView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/billing/onboard-payment-integration/{deployedAppID}:
+        post:
+            operationId: OnboardPaymentIntegration
+            parameters:
+                - in: path
+                  name: deployedAppID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingBillingRef'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/billing/register-customer/{customerID}:
+        post:
+            operationId: RegisterCustomer
+            parameters:
+                - in: path
+                  name: customerID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                projectID:
+                                    type: string
+                            required:
+                                - projectID
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingBillingRef'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BillingErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
     /api/v1/delivery/acknowledge-stale-basis/{projectID}/{activityID}:
         post:
             operationId: AcknowledgeStaleBasis

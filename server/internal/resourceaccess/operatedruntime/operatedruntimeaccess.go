@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -25,6 +24,13 @@ import (
 	"text/template"
 	"time"
 
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/google/uuid"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -39,7 +45,7 @@ import (
 // the one generated constructor, selected by the composition root:
 //
 //   - LOCAL / dry-run (RuntimeProfileLocal): a deterministic, side-effect-free impl for
-//     dogfood / dev / systemtests. Publishes and withdraws are accepted no-ops; the
+//     dogfood / dev. Publishes and withdraws are accepted no-ops; the
 //     observe reads report a fixed Healthy / SLO-met snapshot; ReadComputeAttribution
 //     invents NO usage facts (empty RuntimeEventID ⇒ the Manager appends nothing). This
 //     mirrors the construction DRYRUN profile (cmd/server/construction_dryrun.go).
@@ -47,16 +53,15 @@ import (
 //   - REAL (RuntimeProfileReal): the production impl. PublishDesiredState and Withdraw are
 //     functional (Task 7): they render the desired state (below) and commit it to the
 //     GitOps repository ArgoCD watches, via a clone → mutate → commit-if-changed → push
-//     sequence where git itself — `git diff --cached --quiet`, never a hand-rolled string
-//     comparison — decides whether anything changed. GetApplicationHealth is also
+//     sequence where git itself — the staged tree's status (go-git), never a hand-rolled
+//     string comparison — decides whether anything changed. GetApplicationHealth is also
 //     functional (Task 9): it reads the Argo Application CR the cluster is actually
-//     converging, via an in-cluster ServiceAccount — see the "Health reads" section below.
-//     GetSloStatus and ReadComputeAttribution are DELIBERATELY inert (spec D7, see their
-//     own doc comments) — not stubs awaiting a backend, but permanent-until-a-real-backend-
-//     lands behaviour: an SLO/cost backend needs infrastructure (Prometheus, per-app SLO
-//     definitions, a defensible attribution formula) that does not exist yet. WirePaymentConfig
-//     still has no backend (N-DEP follow-up) and returns an EXPLICIT fwra.Unknown naming
-//     that follow-up and the dry-run escape hatch — NOT a silent generated stub.
+//     converging, via the cluster API (the in-cluster ServiceAccount unless
+//     RuntimeConfig names another API server) — see the "Health reads" section below — and
+//     reports Withdrawn for an app this component withdrew (a tombstone it commits to the
+//     same GitOps repository). GetSloStatus and ReadComputeAttribution read Prometheus when
+//     RuntimeConfig.PrometheusURL is set (see the "Observability reads" section); with no
+//     Prometheus configured they keep their inert, invents-nothing answers (spec D7).
 //
 // The package imports NO Temporal (layer rule): the idempotency key arrives as an
 // ordinary parameter on each write.
@@ -90,6 +95,25 @@ type RuntimeConfig struct {
 	// composition-root follow-up outside this task's scope (see the file doc); the field
 	// exists so wiring one later needs no further code change.
 	GitOpsToken string
+
+	// ClusterAPIURL is the Kubernetes API server the health reads LIST Argo Applications
+	// from (https://host:port). Empty ⇒ the in-cluster ServiceAccount convention
+	// (KUBERNETES_SERVICE_HOST/PORT plus the projected token and CA cert) — production's
+	// path. Set ⇒ ClusterAPIToken is REQUIRED (a named API server with no credential is a
+	// misconfiguration, never an anonymous read) and ClusterAPICACertPEM, when non-empty, is
+	// the only CA trusted for it.
+	ClusterAPIURL string
+	// ClusterAPIToken is the bearer token presented to ClusterAPIURL.
+	ClusterAPIToken string
+	// ClusterAPICACertPEM is the PEM bundle ClusterAPIURL's certificate must chain to.
+	// Empty ⇒ the system roots.
+	ClusterAPICACertPEM []byte
+
+	// PrometheusURL is the Prometheus HTTP API (base URL, without /api/v1) GetSloStatus and
+	// ReadComputeAttribution query. Empty ⇒ no observability backend: GetSloStatus reports
+	// "not configured" (met) and ReadComputeAttribution attributes nothing — the inert,
+	// invents-nothing answers spec D7 requires when there is nothing to measure.
+	PrometheusURL string
 }
 
 // newProfiledOperatedRuntimeAccess is the hand-written builder behind the generated
@@ -132,32 +156,23 @@ func (dryRunOperatedRuntime) Withdraw(_ fwra.Context, _ uuid.UUID, _ fwra.Idempo
 	return nil
 }
 
-func (dryRunOperatedRuntime) WirePaymentConfig(_ fwra.Context, _ uuid.UUID, _ GatewayBinding, _ fwra.IdempotencyKey) error {
-	return nil
-}
-
 // GetApplicationHealth reports a deterministic Healthy — a freshly published dry-run app
 // "converges" instantly.
 func (dryRunOperatedRuntime) GetApplicationHealth(_ fwra.Context, _ uuid.UUID) (RuntimeStatus, error) {
 	return RuntimeStatusHealthy, nil
 }
 
-// GetDeploymentResourceHealth reports every model key desired declares as Healthy — the
-// same "a freshly published dry-run app converges instantly" fiction GetApplicationHealth
-// keeps, extended per-resource: render(desired) rather than a live cluster is the only
-// source of model keys in this profile, so there is nothing to fail closed against.
+// GetDeploymentResourceHealth reports every model key the app itself deploys
+// (deployedModelKeyHealth) as Healthy — the same "a freshly published dry-run app
+// converges instantly" fiction GetApplicationHealth keeps, extended per-resource:
+// render(desired) rather than a live cluster is the only source of model keys in this
+// profile, so there is nothing to fail closed against.
 func (dryRunOperatedRuntime) GetDeploymentResourceHealth(_ fwra.Context, _ uuid.UUID, desired RuntimeDesiredState) ([]ModelKeyHealth, error) {
 	manifests, err := render(desired)
 	if err != nil {
 		return nil, err
 	}
-	var out []ModelKeyHealth
-	for _, m := range manifests {
-		for _, key := range m.ModelKeys {
-			out = append(out, ModelKeyHealth{ModelKey: key, Status: RuntimeStatusHealthy})
-		}
-	}
-	return out, nil
+	return deployedModelKeyHealth(desired, manifests, func(manifest) RuntimeStatus { return RuntimeStatusHealthy }), nil
 }
 
 func (dryRunOperatedRuntime) GetSloStatus(_ fwra.Context, _ uuid.UUID) (SloStatus, error) {
@@ -170,42 +185,32 @@ func (dryRunOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID,
 	return ComputeAttribution{}, nil
 }
 
+// ReadWorkloadTelemetry reports an unmeasured workload: the dry-run runs nothing, so it
+// measures nothing, and an autoscaler fed it has no utilization signal to act on.
+func (dryRunOperatedRuntime) ReadWorkloadTelemetry(_ fwra.Context, _ uuid.UUID) (WorkloadTelemetry, error) {
+	return WorkloadTelemetry{}, nil
+}
+
 // ---------------------------------------------------------------------------
-// REAL profile — GitOps commit path live (Task 7); observability backend still N-DEP.
+// REAL profile — GitOps commit path, Argo health reads, Prometheus observability reads.
 // ---------------------------------------------------------------------------
 
 // realOperatedRuntime is the production impl. PublishDesiredState and Withdraw commit to
 // the real GitOps repository (below); GetApplicationHealth reads the Argo Application CR
 // live (Task 9, see the "Health reads" section below). GetSloStatus and
-// ReadComputeAttribution are deliberately inert (spec D7 — see their own doc comments),
-// not awaiting a backend. WirePaymentConfig still has no backend, so it returns an
-// explicit, diagnosable fwra.Unknown (fail-fast, non-retryable — preserving the wire
-// behaviour the operationsManager façade maps to a 503) naming the N-DEP follow-up and the
-// dry-run escape hatch.
+// ReadComputeAttribution read Prometheus when one is configured (the "Observability
+// reads" section) and are inert otherwise (spec D7 — see their own doc comments).
 type realOperatedRuntime struct {
 	config RuntimeConfig
 }
 
 var _ OperatedRuntimeAccess = realOperatedRuntime{}
 
-// notImplemented is the shared, explicit real-profile diagnostic. It names the missing
-// backend, the follow-up, and the dry-run escape hatch, and flags an unset GitOps target
-// when that is the proximate misconfiguration.
-func (r realOperatedRuntime) notImplemented(verb string) error {
-	msg := "operatedruntime real profile: " + verb +
-		" requires the GitOps/kubernetes backend, which is not yet implemented (follow-up N-DEP, pairs with the Argo deployment work); " +
-		"set ARCHISTRATOR_OPERATIONS_DRYRUN=true for the deterministic local profile"
-	if r.config.GitOpsRepoURL == "" {
-		msg += " (note: ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL is also unset)"
-	}
-	return fwra.New(fwra.Unknown, msg)
-}
-
 // PublishDesiredState renders d and commits it to the GitOps repo (see the GitOps commit
 // path section below). Content-idempotent: republishing identical desired state produces
-// no new commit, because gitOpsCommit stages the write and lets `git diff --cached
-// --quiet` decide whether anything changed.
-func (r realOperatedRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID, d RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error {
+// no new commit, because gitOpsCommit stages the write and lets the staged tree's git
+// status decide whether anything changed.
+func (r realOperatedRuntime) PublishDesiredState(rc fwra.Context, appID uuid.UUID, d RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error {
 	if d.AppName == "" {
 		return fwra.New(fwra.ContractMisuse, "operatedruntime real profile: publishDesiredState: empty RuntimeDesiredState.AppName")
 	}
@@ -221,7 +226,7 @@ func (r realOperatedRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID
 				" is not a DNS-1123 label (lowercase letters, digits and interior hyphens, at most 63 characters); it names a Kubernetes namespace and a directory in the GitOps repository, and must be a single safe path segment")
 	}
 	msg := fmt.Sprintf("operatedruntime: publish %s (appId=%s, idempotencyKey=%s)", d.AppName, appID, idempotencyKey)
-	return r.gitOpsCommit(msg, gitOpsPublish(appID, d))
+	return r.gitOpsCommit(rc.Context, msg, gitOpsPublish(appID, d))
 }
 
 // Withdraw refuses the self-managed app outright — the third of three paths to deleting
@@ -245,7 +250,9 @@ func (r realOperatedRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID
 // syncPolicy shape), Withdraw refuses rather than guess (gitOpsResolveAppByID's doc has
 // exactly which shapes those are).
 //
-// Otherwise, Withdraw removes that app's rendered tree and its Application. An appID with
+// Otherwise, Withdraw removes that app's rendered tree and its Application and commits a
+// withdrawal tombstone for appID (gitOpsWithdrawnPath) in the same commit — the record
+// GetApplicationHealth reads to report RuntimeStatusWithdrawn. An appID with
 // no match at all is success: nothing is staged, so gitOpsCommit commits nothing, matching
 // the contract's NotFound⇒success withdraw semantics. KNOWN LIMITATION, not fixed here:
 // "no match" covers both "never published" and "a hand-edit stripped the annotation from
@@ -260,9 +267,9 @@ func (r realOperatedRuntime) PublishDesiredState(_ fwra.Context, appID uuid.UUID
 // carries many hand-written Applications this system never published and will never
 // annotate (aiarch-*, temporal, cedar-playground, …), and that rule would refuse every
 // withdraw forever, not just the one hand-edited case it was meant to catch.
-func (r realOperatedRuntime) Withdraw(_ fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error {
+func (r realOperatedRuntime) Withdraw(rc fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error {
 	msg := fmt.Sprintf("operatedruntime: withdraw %s (idempotencyKey=%s)", appID, idempotencyKey)
-	return r.gitOpsCommit(msg, func(workdir string) error {
+	return r.gitOpsCommit(rc.Context, msg, func(workdir string) error {
 		resolved, found, err := gitOpsResolveAppByID(workdir, appID)
 		if err != nil {
 			return err
@@ -277,27 +284,34 @@ func (r realOperatedRuntime) Withdraw(_ fwra.Context, appID uuid.UUID, idempoten
 					"deleting it would take down the thing that would have to undo the deletion; "+
 					"tear it down with a deliberate kubectl operation instead")
 		}
-		appName := resolved.AppName
-		return gitOpsWithdraw(appName)(workdir)
+		return gitOpsWithdraw(appID, resolved.AppName)(workdir)
 	})
 }
 
-func (r realOperatedRuntime) WirePaymentConfig(_ fwra.Context, _ uuid.UUID, _ GatewayBinding, _ fwra.IdempotencyKey) error {
-	return r.notImplemented("wirePaymentConfig")
-}
-
-// GetApplicationHealth reads the Argo Application CR that governs appID's deployment (see
-// the "Health reads" section below for how appID resolves to that CR) and folds
-// status.health.status through mapArgoHealth. A CR that genuinely cannot be found — the
-// cluster LIST succeeded, nothing matched — means the app has never synced: that is
-// RuntimeStatusPending, not an error (the one deliberate exception; see the section doc).
-// Every other failure mode — unreachable API, missing/unreadable ServiceAccount
-// credential, unparseable response — returns RuntimeStatusUnknown alongside a non-nil
-// error. It never falls through to reporting Healthy: that is the fail-open pattern this
-// plan already rejected twice (a renderer that skipped auth on a blank client ID; a
-// delete-guard that disarmed on unset config) — unknown must mean unknown here too.
+// GetApplicationHealth first asks the GitOps repository whether this component withdrew
+// appID (gitOpsIsWithdrawn — the tombstone Withdraw commits): a withdrawn app is
+// RuntimeStatusWithdrawn from the moment the withdrawal is committed, even while Argo is
+// still tearing its live objects down, because the desired state — the thing this
+// component owns — says it is gone. Otherwise it reads the Argo Application CR that
+// governs appID's deployment (see the "Health reads" section below for how appID resolves
+// to that CR) and folds status.health.status through mapArgoHealth. A CR that genuinely
+// cannot be found — the cluster LIST succeeded, nothing matched — means the app has never
+// synced: that is RuntimeStatusPending, not an error (the one deliberate exception; see
+// the section doc). Every other failure mode — unreachable API, missing/unreadable
+// credential, unparseable response, an unreadable GitOps repository — returns
+// RuntimeStatusUnknown alongside a non-nil error. It never falls through to reporting
+// Healthy: that is the fail-open pattern this plan already rejected twice (a renderer that
+// skipped auth on a blank client ID; a delete-guard that disarmed on unset config) —
+// unknown must mean unknown here too.
 func (r realOperatedRuntime) GetApplicationHealth(rc fwra.Context, appID uuid.UUID) (RuntimeStatus, error) {
-	app, _, found, err := argoFindApplicationByAppID(rc.Context, appID)
+	withdrawn, err := r.gitOpsIsWithdrawn(rc.Context, appID)
+	if err != nil {
+		return RuntimeStatusUnknown, err
+	}
+	if withdrawn {
+		return RuntimeStatusWithdrawn, nil
+	}
+	app, _, found, err := r.argoFindApplicationByAppID(rc.Context, appID)
 	if err != nil {
 		return RuntimeStatusUnknown, err
 	}
@@ -310,59 +324,143 @@ func (r realOperatedRuntime) GetApplicationHealth(rc fwra.Context, appID uuid.UU
 // GetDeploymentResourceHealth resolves appID to its Application the same way
 // GetApplicationHealth does (argoFindApplicationByAppID), then joins its
 // status.resources[] against desired's own re-rendered manifest set
-// (parseModelKeyHealth/joinModelKeyHealth, below) to report a RuntimeStatus PER MODEL
-// KEY rather than one app-level rollup. A CR that has genuinely never synced (found is
-// false, not an error) has no live resources for anything render() would emit, so it
-// degrades every rendered manifest the SAME way a partially-synced app would —
-// joinModelKeyHealth's own no-match rule, never a special-cased Healthy or Pending
-// here. Every other failure — unreachable API, missing/unreadable ServiceAccount
-// credential, unparseable response — propagates as a non-nil error and a nil result,
-// never a silently reported Healthy (the fail-open pattern this plan has rejected
-// three times over: a renderer skipping auth on a blank client ID, a delete-guard
-// disarming on unset config, and app-level health defaulting to Healthy on read
-// failure — task-10-brief).
+// (parseModelKeyHealth/deployedModelKeyHealth, below) to report a RuntimeStatus PER
+// MODEL KEY THE APP DEPLOYS rather than one app-level rollup. Only the app's own
+// workloads and database are reported (deployedModelKeys); the environment, shared
+// gateway and shared identity-provider nodes the renderer merely configures are omitted,
+// so the caller paints them neutral, never unhealthy. A CR that has genuinely never
+// synced (found is false, not an error) has no live resources, so every deployed model
+// key is fail-closed Degraded — deployedModelKeyHealth's own no-match rule, never a
+// special-cased Healthy or Pending here. Every other failure — unreachable API,
+// missing/unreadable credential, unparseable response — propagates as a non-nil error
+// and a nil result, never a silently reported Healthy (the fail-open pattern this plan
+// has rejected three times over: a renderer skipping auth on a blank client ID, a
+// delete-guard disarming on unset config, and app-level health defaulting to Healthy on
+// read failure — task-10-brief).
 func (r realOperatedRuntime) GetDeploymentResourceHealth(rc fwra.Context, appID uuid.UUID, desired RuntimeDesiredState) ([]ModelKeyHealth, error) {
-	_, raw, found, err := argoFindApplicationByAppID(rc.Context, appID)
+	_, raw, found, err := r.argoFindApplicationByAppID(rc.Context, appID)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
-		manifests, rerr := render(desired)
-		if rerr != nil {
-			return nil, rerr
-		}
-		// Never synced: no live resources, and no Application to report a rollup —
-		// every model key, the Application's own included, is fail-closed Degraded.
-		return joinModelKeyHealth(manifests, nil, RuntimeStatusDegraded), nil
+		raw = nil
 	}
 	return parseModelKeyHealth(raw, desired)
 }
 
-// GetSloStatus is DELIBERATELY inert (spec D7) — this is not a stub waiting to be filled
-// in. The existing 30-second Temporal Schedule calls this path on every reconcile tick; a
-// real SLO verdict needs a Prometheus client and per-app SLO definitions that do not exist
-// yet (spec §11 — out of scope), and an error returned here would fail that Schedule every
-// 30 seconds, forever, with no operator action able to clear it. Reporting a fixed "no SLO
-// configured, so none is violated" verdict keeps the Schedule green and is an honest
-// description of reality: no SLO IS configured. Do not "fix" this by wiring up a
-// half-finished SLO read — replace it only alongside a real Prometheus-backed
-// implementation, at which point it becomes a live read like GetApplicationHealth above.
-func (r realOperatedRuntime) GetSloStatus(_ fwra.Context, _ uuid.UUID) (SloStatus, error) {
-	return SloStatus{SloMet: true, Detail: "SLO monitoring not configured"}, nil
+// GetSloStatus reports whether appID's service-level objective holds, from Prometheus
+// (see the "Observability reads" section). With no Prometheus configured it is
+// DELIBERATELY inert (spec D7): the 30-second reconcile Schedule calls this on every tick,
+// and an error here would fail that Schedule forever with no operator action able to
+// clear it, so it reports the honest "no SLO configured, so none is violated". An app
+// with no live Application has nothing to measure and is reported met, with that said in
+// Detail. Any failure to resolve the app or to query Prometheus is an error, never a
+// silently met SLO.
+func (r realOperatedRuntime) GetSloStatus(rc fwra.Context, appID uuid.UUID) (SloStatus, error) {
+	if r.config.PrometheusURL == "" {
+		return SloStatus{SloMet: true, Detail: "SLO monitoring not configured"}, nil
+	}
+	ns, found, err := r.argoAppNamespace(rc.Context, appID)
+	if err != nil {
+		return SloStatus{}, err
+	}
+	if !found {
+		return SloStatus{SloMet: true, Detail: "no live Application for " + appID.String() + "; nothing to measure"}, nil
+	}
+	samples, err := r.prometheusQuery(rc.Context, sloViolationQuery(ns), time.Now())
+	if err != nil {
+		return SloStatus{}, err
+	}
+	if len(samples) == 0 {
+		return SloStatus{SloMet: true, Detail: "every Deployment in " + ns + " has its desired replicas available"}, nil
+	}
+	short := make([]string, 0, len(samples))
+	for _, s := range samples {
+		short = append(short, s.Metric["deployment"]+" short by "+strconv.FormatFloat(s.Value, 'f', -1, 64))
+	}
+	sort.Strings(short)
+	return SloStatus{SloMet: false, Detail: "replicas unavailable in " + ns + ": " + strings.Join(short, ", ")}, nil
 }
 
-// ReadComputeAttribution is DELIBERATELY inert (spec D7) — this is not a stub waiting to
-// be filled in. Its result feeds BILLING: a defensible attribution formula needs real
-// usage data and pricing rules that do not exist yet (spec §11 — out of scope), and
-// inventing a number here would produce a real charge from a fabricated usage fact — worse
-// than an error, because nothing downstream would flag it as wrong. An empty
-// ComputeAttribution (zero RuntimeEventID) is the same "invents nothing" contract the
-// LOCAL/dry-run profile already keeps (dryRunOperatedRuntime.ReadComputeAttribution
-// above): the Manager appends no usage record for a zero RuntimeEventID. Do not "fix" this
-// by wiring up a plausible-looking estimate — replace it only alongside a real attribution
-// formula the business is willing to bill against.
-func (r realOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID, _ AttributionWindow) (ComputeAttribution, error) {
-	return ComputeAttribution{}, nil
+// ReadComputeAttribution reports the CPU-seconds appID's namespace consumed over window,
+// from Prometheus (see the "Observability reads" section). Its result feeds BILLING, so
+// it never invents a number: with no Prometheus configured, for an app with no live
+// Application, or for a window with no recorded usage, it returns an empty
+// ComputeAttribution (zero RuntimeEventID) — the same "invents nothing" contract the
+// LOCAL/dry-run profile keeps; the Manager appends no usage record for a zero
+// RuntimeEventID. A measured attribution carries a RuntimeEventID derived from appID and
+// the window alone, so re-reading the same window yields the same event and the Manager's
+// append stays idempotent. A window whose To is not after its From is ContractMisuse.
+func (r realOperatedRuntime) ReadComputeAttribution(rc fwra.Context, appID uuid.UUID, window AttributionWindow) (ComputeAttribution, error) {
+	if r.config.PrometheusURL == "" {
+		return ComputeAttribution{}, nil
+	}
+	span := window.To.Sub(window.From)
+	if span < time.Second {
+		return ComputeAttribution{}, fwra.New(fwra.ContractMisuse,
+			"operatedruntime real profile: readComputeAttribution: window.To must be at least one second after window.From")
+	}
+	ns, found, err := r.argoAppNamespace(rc.Context, appID)
+	if err != nil {
+		return ComputeAttribution{}, err
+	}
+	if !found {
+		return ComputeAttribution{}, nil
+	}
+	samples, err := r.prometheusQuery(rc.Context, cpuSecondsQuery(ns, span), window.To)
+	if err != nil {
+		return ComputeAttribution{}, err
+	}
+	var amount float64
+	for _, s := range samples {
+		amount += s.Value
+	}
+	if amount <= 0 {
+		return ComputeAttribution{}, nil
+	}
+	return ComputeAttribution{
+		Units:          ComputeUnits{Amount: amount, Unit: computeUnitCPUSeconds},
+		RuntimeEventID: fmt.Sprintf("compute/%s/%d-%d", appID, window.From.Unix(), window.To.Unix()),
+	}, nil
+}
+
+// ReadWorkloadTelemetry reports the CPU utilization of appID's server workload — the
+// fraction of its requested CPU its pods used over the last five minutes — from
+// Prometheus (see the "Observability reads" section): the signal the autoscaler weighs
+// against the scaling policy's target. Like the other observability reads it invents
+// nothing: with no Prometheus configured, for an app with no live Application, or for a
+// workload with no CPU request series, it reports the workload unmeasured (Measured
+// false) — never a measured zero, which an autoscaler would read as idle. Any failure
+// to resolve the app or to query Prometheus is an error.
+func (r realOperatedRuntime) ReadWorkloadTelemetry(rc fwra.Context, appID uuid.UUID) (WorkloadTelemetry, error) {
+	if r.config.PrometheusURL == "" {
+		return WorkloadTelemetry{}, nil
+	}
+	app, _, found, err := r.argoFindApplicationByAppID(rc.Context, appID)
+	if err != nil {
+		return WorkloadTelemetry{}, err
+	}
+	if !found {
+		return WorkloadTelemetry{}, nil
+	}
+	ns, name := app.Spec.Destination.Namespace, app.Metadata.Name
+	if !validAppName(ns) || !validAppName(name) {
+		return WorkloadTelemetry{}, fwra.New(fwra.Infrastructure,
+			"operatedruntime: the live Application for "+appID.String()+" names namespace "+strconv.Quote(ns)+
+				" and app "+strconv.Quote(name)+"; both must be DNS-1123 labels to scope a metrics query")
+	}
+	samples, err := r.prometheusQuery(rc.Context, serverCPUUtilizationQuery(ns, name+"-server"), time.Now())
+	if err != nil {
+		return WorkloadTelemetry{}, err
+	}
+	if len(samples) == 0 {
+		return WorkloadTelemetry{}, nil
+	}
+	var utilization float64
+	for _, s := range samples {
+		utilization += s.Value
+	}
+	return WorkloadTelemetry{Measured: true, CPUUtilization: utilization}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +468,7 @@ func (r realOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID,
 // docs/superpowers/specs/2026-08-07-operations-argocd-deployment-design.md).
 //
 // Both verbs clone config.GitOpsRepoURL to a scratch directory, mutate the working tree,
-// stage everything, and commit ONLY IF `git diff --cached --quiet` reports a change. That
+// stage everything, and commit ONLY IF git's status of the staged tree reports a change. That
 // is the entire content-idempotency mechanism: git decides whether the rendered bytes
 // differ from what is already committed — never a hand-rolled comparison of rendered
 // strings against file contents, which would drift from what git itself considers a
@@ -394,7 +492,7 @@ func (r realOperatedRuntime) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID,
 //     ever seen together, so it stamps an archistrator.dev/app-id annotation (holding
 //     appID) directly onto the Application object it commits (withAppIDAnnotation) —
 //     no sidecar file. The annotation is added by string-splicing the ALREADY-RENDERED
-//     Application YAML, not by render() itself: render stays pure and golden-tested
+//     Application YAML, not by render() itself: render stays pure
 //     (Task 4-6), and this bookkeeping belongs to the commit path alone. Withdraw scans
 //     gitOpsApplicationsPath for the Application carrying a matching annotation and
 //     recovers AppName from THAT FILE's own name (gitOpsApplicationFile's convention,
@@ -433,58 +531,40 @@ const (
 	// onto every committed Application, and gitOpsResolveAppByID matches Withdraw's
 	// appID argument against — see SEAM note 1 above.
 	gitOpsAppIDAnnotation = "archistrator.dev/app-id"
+	// gitOpsWithdrawnPath is the directory Withdraw commits one tombstone file per
+	// withdrawn appID into (named by the appID, holding the app name, no extension so no
+	// Argo directory source ever reads it as a manifest). It is this component's own,
+	// durable record that it withdrew an app — the Application it would otherwise have
+	// read is exactly what Withdraw deletes — and GetApplicationHealth reads it to report
+	// RuntimeStatusWithdrawn. A later PublishDesiredState for the same appID removes it.
+	gitOpsWithdrawnPath = "k8s/argocd/withdrawn/"
 )
 
-// authenticatedGitOpsURL injects token as HTTP basic-auth into repoURL when both are
-// non-empty and repoURL is http(s) — the shape a GitHub App installation token is
-// presented in. file:// and other local/ssh transports carry no token and pass through
-// unchanged. No credential is wired to RuntimeConfig.GitOpsToken yet (composition-root
+// gitOpsBranch is the one branch of the GitOps repository ArgoCD watches; every clone
+// reads it and every push updates it.
+const gitOpsBranch = "main"
+
+// gitOpsAuth is the credential go-git presents to GitOpsRepoURL: token as HTTP basic-auth
+// (the shape a GitHub App installation token is presented in) when both are non-empty and
+// repoURL is http(s). file:// and other local/ssh transports carry no token, so the
+// result is nil. No credential is wired to RuntimeConfig.GitOpsToken yet (composition-root
 // follow-up, out of this task's scope — see RuntimeConfig's doc), so this branch is
-// exercised only once one is; until then GitOpsToken is empty and this is a no-op.
-func authenticatedGitOpsURL(repoURL, token string) string {
+// exercised only once one is; until then GitOpsToken is empty and this is nil.
+func gitOpsAuth(repoURL, token string) transport.AuthMethod {
 	if token == "" {
-		return repoURL
+		return nil
 	}
 	u, err := url.Parse(repoURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return repoURL
+		return nil
 	}
-	u.User = url.UserPassword("x-access-token", token)
-	return u.String()
+	return &githttp.BasicAuth{Username: "x-access-token", Password: token}
 }
 
-// runGit runs `git <args...>` with the given working directory (ignored when empty — used
-// for the initial clone, which has no working dir of its own yet) and wraps combined
-// output into the error on failure, for a debuggable diagnostic. Mirrors
-// agenticjob.runGit / sourcecontrol.gitLocalRun.
-func runGit(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...) //nolint:gosec // fixed trusted binary, internally-derived args (repo URL/branch names)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return string(out), nil
-}
-
-// gitOpsHasStagedChanges reports whether dir's index differs from HEAD, via `git diff
-// --cached --quiet`'s exit code (0 ⇒ no difference, 1 ⇒ difference, anything else ⇒ a real
-// error). This check — not a comparison of rendered strings against file contents — is
-// the entire content-idempotency mechanism described in the section doc above.
-func gitOpsHasStagedChanges(dir string) (bool, error) {
-	cmd := exec.Command("git", "diff", "--cached", "--quiet") //nolint:gosec // fixed trusted binary, fixed args
-	cmd.Dir = dir
-	err := cmd.Run()
-	if err == nil {
-		return false, nil
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-		return true, nil
-	}
-	return false, fmt.Errorf("git diff --cached --quiet: %w", err)
+// gitOpsSignature is the author and committer of every commit this component makes —
+// set on the commit itself, so no clone ever carries (or needs) identity config.
+func gitOpsSignature() *object.Signature {
+	return &object.Signature{Name: "archistrator-operations", Email: "archistrator-operations@archistrator.dev", When: time.Now()}
 }
 
 // validAppName reports whether s is a DNS-1123 label: 1–63 characters of lowercase
@@ -651,7 +731,7 @@ func withAppIDAnnotation(applicationYAML string, appID uuid.UUID) (string, error
 // both PublishDesiredState and Withdraw run. mutate receives the clone's working-tree
 // root and makes whatever filesystem changes the caller wants committed; gitOpsCommit
 // owns everything else, including the content-idempotency check.
-func (r realOperatedRuntime) gitOpsCommit(commitMessage string, mutate func(workdir string) error) error {
+func (r realOperatedRuntime) gitOpsCommit(ctx context.Context, commitMessage string, mutate func(workdir string) error) error {
 	if r.config.GitOpsRepoURL == "" {
 		return fwra.New(fwra.Unknown,
 			"operatedruntime real profile: GitOps commit requires ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL; "+
@@ -664,47 +744,51 @@ func (r realOperatedRuntime) gitOpsCommit(commitMessage string, mutate func(work
 	}
 	defer func() { _ = os.RemoveAll(workdir) }()
 
-	remote := authenticatedGitOpsURL(r.config.GitOpsRepoURL, r.config.GitOpsToken)
-	if _, cerr := runGit("", "clone", remote, workdir); cerr != nil {
-		return fwra.Wrap(fwra.Infrastructure, cerr, "operatedruntime.gitops: clone")
+	auth := gitOpsAuth(r.config.GitOpsRepoURL, r.config.GitOpsToken)
+	repo, err := git.PlainCloneContext(ctx, workdir, false, &git.CloneOptions{
+		URL:           r.config.GitOpsRepoURL,
+		Auth:          auth,
+		ReferenceName: plumbing.NewBranchReferenceName(gitOpsBranch),
+		SingleBranch:  true,
+	})
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: clone")
 	}
-	// Local to this scratch clone only — never touches the caller's global git config,
-	// and the clone carries none of its own (identity config lives in .git/config, which
-	// clone does not copy from the remote).
-	if _, cerr := runGit(workdir, "config", "user.email", "archistrator-operations@archistrator.dev"); cerr != nil {
-		return fwra.Wrap(fwra.Infrastructure, cerr, "operatedruntime.gitops: config user.email")
-	}
-	if _, cerr := runGit(workdir, "config", "user.name", "archistrator-operations"); cerr != nil {
-		return fwra.Wrap(fwra.Infrastructure, cerr, "operatedruntime.gitops: config user.name")
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: open worktree")
 	}
 
 	if err := mutate(workdir); err != nil {
 		return err
 	}
 
-	if _, aerr := runGit(workdir, "add", "-A"); aerr != nil {
-		return fwra.Wrap(fwra.Infrastructure, aerr, "operatedruntime.gitops: add")
+	// git add -A: adds, modifies AND removes index entries to match the working tree, so
+	// a tree mutate deleted is staged as deleted.
+	if err := wt.AddWithOptions(&git.AddOptions{All: true}); err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: add")
 	}
-	changed, derr := gitOpsHasStagedChanges(workdir)
-	if derr != nil {
-		return fwra.Wrap(fwra.Infrastructure, derr, "operatedruntime.gitops: diff --cached")
+	status, err := wt.Status()
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: status")
 	}
-	if !changed {
-		// Identical content: no commit, no push. This — git's own verdict, not a
-		// hand-rolled string comparison — is the content-idempotency guarantee.
+	if status.IsClean() {
+		// Identical content: no commit, no push. This — git's own verdict on the staged
+		// tree, not a hand-rolled string comparison — is the content-idempotency guarantee.
 		return nil
 	}
-	if _, cerr := runGit(workdir, "commit", "-m", commitMessage); cerr != nil {
-		return fwra.Wrap(fwra.Infrastructure, cerr, "operatedruntime.gitops: commit")
+	sig := gitOpsSignature()
+	if _, err := wt.Commit(commitMessage, &git.CommitOptions{Author: sig, Committer: sig}); err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: commit")
 	}
 
 	// origin is always bare in every environment this runs against — the real GitOps
-	// remote (GitHub) and every test remote alike (tests use `git init --bare`, see
-	// access_test.go's newScratchRepo) — so a plain push needs no non-bare-repo
-	// workaround. Keeping that concern entirely out of production code was a review
-	// finding on an earlier version of this function.
-	if _, perr := runGit(workdir, "push", "origin", "HEAD:main"); perr != nil {
-		return fwra.Wrap(fwra.Infrastructure, perr, "operatedruntime.gitops: push")
+	// remote (GitHub) and every test remote alike — so a plain push needs no
+	// non-bare-repo workaround. A remote main that moved since the clone is rejected
+	// (non-fast-forward), never overwritten.
+	branch := config.RefSpec("refs/heads/" + gitOpsBranch + ":refs/heads/" + gitOpsBranch)
+	if err := repo.PushContext(ctx, &git.PushOptions{RemoteName: "origin", Auth: auth, RefSpecs: []config.RefSpec{branch}}); err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: push")
 	}
 	return nil
 }
@@ -763,6 +847,11 @@ func gitOpsPublish(appID uuid.UUID, d RuntimeDesiredState) func(string) error {
 		if err := os.WriteFile(appFile, []byte(annotated), 0o600); err != nil {
 			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: write "+appFile)
 		}
+		// Republishing a withdrawn app revives it: its tombstone goes in the same commit.
+		tombstone := gitOpsWithdrawnFile(workdir, appID)
+		if err := os.Remove(tombstone); err != nil && !os.IsNotExist(err) {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: remove "+tombstone)
+		}
 		return nil
 	}
 }
@@ -796,7 +885,7 @@ func gitOpsRefuseSelfManagedDowngrade(workdir string, d RuntimeDesiredState) err
 		return nil
 	}
 	appFile := gitOpsApplicationFile(workdir, d.AppName)
-	raw, err := os.ReadFile(appFile) // #nosec G304 -- appFile is built from a validated app name (validAppName), not from raw input
+	raw, err := readInClone(workdir, filepath.Join(gitOpsApplicationsPath, d.AppName+".yaml"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // first publish for this app — nothing to downgrade.
@@ -818,6 +907,23 @@ func gitOpsRefuseSelfManagedDowngrade(workdir string, d RuntimeDesiredState) err
 				"A self-managed to tenant downgrade is a deliberate human operation, never an automated publish")
 	}
 	return nil
+}
+
+// readInClone reads rel beneath dir through an os.Root, so the read cannot leave dir —
+// not through "..", an absolute rel, or a symlink the repository's contents planted.
+// The GitOps clone is external content: containment is enforced by the filesystem API,
+// not asserted about how rel was built. A missing file reports an error os.IsNotExist
+// recognizes, as os.ReadFile's does.
+func readInClone(dir, rel string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	raw, rerr := root.ReadFile(rel)
+	if cerr := root.Close(); rerr == nil && cerr != nil {
+		return nil, cerr
+	}
+	return raw, rerr
 }
 
 // gitOpsResolvedApp is what gitOpsResolveAppByID reports about the Application whose
@@ -857,7 +963,7 @@ func gitOpsResolveAppByID(workdir string, appID uuid.UUID) (resolved gitOpsResol
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
-		raw, rerr := os.ReadFile(path) // #nosec G304 -- e.Name() comes from os.ReadDir's own listing of dir, not external input
+		raw, rerr := readInClone(dir, e.Name())
 		if rerr != nil {
 			return gitOpsResolvedApp{}, false, fwra.Wrap(fwra.Infrastructure, rerr, "operatedruntime.gitops: read "+path)
 		}
@@ -885,11 +991,13 @@ func gitOpsResolveAppByID(workdir string, appID uuid.UUID) (resolved gitOpsResol
 }
 
 // gitOpsWithdraw is Withdraw's mutate closure for an app that WAS found and confirmed NOT
-// self-managed: it removes appName's rendered tree and its Application. Removing a path
-// that is already gone is not an error (os.RemoveAll is idempotent that way already;
-// os.Remove is made so explicitly below) — matching the contract's NotFound⇒success
-// semantics all the way through, not just at the gitOpsResolveAppByID lookup.
-func gitOpsWithdraw(appName string) func(string) error {
+// self-managed: it removes appName's rendered tree and its Application, and writes appID's
+// withdrawal tombstone (gitOpsWithdrawnPath). Removing a path that is already gone is not
+// an error (os.RemoveAll is idempotent that way already; os.Remove is made so explicitly
+// below) — matching the contract's NotFound⇒success semantics all the way through, not
+// just at the gitOpsResolveAppByID lookup. The tombstone's content is the app name alone,
+// so rewriting it is content-idempotent too.
+func gitOpsWithdraw(appID uuid.UUID, appName string) func(string) error {
 	return func(workdir string) error {
 		if err := os.RemoveAll(gitOpsAppDir(workdir, appName)); err != nil {
 			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: remove app dir")
@@ -897,7 +1005,66 @@ func gitOpsWithdraw(appName string) func(string) error {
 		if err := os.Remove(gitOpsApplicationFile(workdir, appName)); err != nil && !os.IsNotExist(err) {
 			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: remove application file")
 		}
+		dir := filepath.Join(workdir, gitOpsWithdrawnPath)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: create "+dir)
+		}
+		tombstone := gitOpsWithdrawnFile(workdir, appID)
+		if err := os.WriteFile(tombstone, []byte(appName+"\n"), 0o600); err != nil {
+			return fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: write "+tombstone)
+		}
 		return nil
+	}
+}
+
+// gitOpsWithdrawnFile is appID's withdrawal tombstone. A uuid.UUID's string form is a
+// single safe path segment by construction.
+func gitOpsWithdrawnFile(workdir string, appID uuid.UUID) string {
+	return filepath.Join(workdir, gitOpsWithdrawnPath, appID.String())
+}
+
+// gitOpsIsWithdrawn reports whether appID's withdrawal tombstone is committed on the
+// GitOps repository's main branch, via a shallow, checkout-free, in-memory clone and a
+// lookup of the tombstone's path in HEAD's tree (absent entry ⇒ not withdrawn). An unconfigured repository reports false with no error: Withdraw cannot
+// commit anything without one (gitOpsCommit refuses), so with no repository there is no
+// app this component can have withdrawn — the cluster read that follows is then the whole
+// answer, as it was before tombstones existed. Any failure to read a CONFIGURED
+// repository is an error, never a silent "not withdrawn".
+func (r realOperatedRuntime) gitOpsIsWithdrawn(ctx context.Context, appID uuid.UUID) (bool, error) {
+	if r.config.GitOpsRepoURL == "" {
+		return false, nil
+	}
+	repo, err := git.CloneContext(ctx, memory.NewStorage(), nil, &git.CloneOptions{
+		URL:           r.config.GitOpsRepoURL,
+		Auth:          gitOpsAuth(r.config.GitOpsRepoURL, r.config.GitOpsToken),
+		ReferenceName: plumbing.NewBranchReferenceName(gitOpsBranch),
+		SingleBranch:  true,
+		Depth:         1,
+		NoCheckout:    true,
+	})
+	if err != nil {
+		return false, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: clone")
+	}
+	head, err := repo.Head()
+	if err != nil {
+		return false, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: resolve HEAD")
+	}
+	commit, err := repo.CommitObject(head.Hash())
+	if err != nil {
+		return false, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: read HEAD commit")
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return false, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: read HEAD tree")
+	}
+	_, err = tree.FindEntry(gitOpsWithdrawnPath + appID.String())
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, object.ErrEntryNotFound), errors.Is(err, object.ErrDirectoryNotFound):
+		return false, nil
+	default:
+		return false, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime.gitops: look up tombstone")
 	}
 }
 
@@ -1177,13 +1344,13 @@ type workloadData struct {
 	ReadinessPath         string
 	ProbeInitialDelay     int
 	ProbePeriod           int
-	ProbeTimeout          int // 0 omits timeoutSeconds (matches the webapp golden, which relies on the k8s default)
+	ProbeTimeout          int // 0 omits timeoutSeconds (the production chart's webapp relies on the k8s default)
 	ProbeFailureThreshold int // 0 omits failureThreshold, same reasoning
 }
 
-// deploymentTmpl renders one Deployment. Field order and structure mirror
-// testdata/golden/production/archistrator-server.yaml and
-// archistrator-webapp.yaml; the conditionals are exactly the two workloads'
+// deploymentTmpl renders one Deployment. Field order and structure mirror the
+// production chart's archistrator-server and archistrator-webapp Deployments;
+// the conditionals are exactly the two workloads'
 // differences (env block, security contexts, probe timeout/failureThreshold).
 var deploymentTmpl = template.Must(template.New("deployment").Parse(`apiVersion: apps/v1
 kind: Deployment
@@ -1292,7 +1459,7 @@ spec:
 `))
 
 // serviceTmpl renders one ClusterIP Service fronting a workload Deployment.
-// Mirrors the golden's service.yaml shape (port/targetPort/selector); the
+// Mirrors the production chart's Service shape (port/targetPort/selector); the
 // label set trades the Helm-specific labels (helm.sh/chart,
 // app.kubernetes.io/version) for a fixed managed-by, since this renderer is
 // not Helm-templated and has no chart version to report.
@@ -1328,12 +1495,11 @@ func renderTemplate(tmpl *template.Template, data any) (string, error) {
 	return b.String(), nil
 }
 
-// serverEnv builds the server container's env block, reproducing
-// testdata/golden/production/archistrator-server.yaml's env: entries
-// variable-for-variable (Task 4 brief requirement) — see the file-level doc
-// comment for which values come from RuntimeDesiredState versus the
-// archistrator-only platform constants above. Order matches the golden file
-// so a human diffing the two can read them side by side.
+// serverEnv builds the server container's env block, reproducing the production
+// chart's archistrator-server env: entries variable-for-variable (Task 4 brief
+// requirement) — see the file-level doc comment for which values come from
+// RuntimeDesiredState versus the archistrator-only platform constants above. Order
+// matches the chart so a human diffing the two can read them side by side.
 func serverEnv(d RuntimeDesiredState, serverName string) []envVar {
 	env := []envVar{
 		{Name: "ARCHISTRATOR_LISTEN_ADDR", Value: fmt.Sprintf(":%d", serverContainerPort)},
@@ -1419,9 +1585,9 @@ func renderServerWorkload(d RuntimeDesiredState) ([]manifest, error) {
 
 // renderWebAppWorkload builds the webapp's Deployment + Service manifests.
 // The webapp serves static assets via nginx: no env block, no hardened
-// security contexts, matching testdata/golden/production/archistrator-webapp.yaml
-// exactly on those points. Its container name is "webapp", not the Deployment
-// name — the golden chart names it that way and downstream tooling (e.g.
+// security contexts, matching the production chart's archistrator-webapp exactly
+// on those points. Its container name is "webapp", not the Deployment
+// name — the production chart names it that way and downstream tooling (e.g.
 // `kubectl logs deploy/archistrator-webapp -c webapp`) depends on it.
 func renderWebAppWorkload(d RuntimeDesiredState) ([]manifest, error) {
 	name := d.AppName + "-webapp"
@@ -1466,8 +1632,8 @@ func renderWorkloadManifests(wd workloadData, modelKeys []string) ([]manifest, e
 // CNPG Postgres cluster.
 // ---------------------------------------------------------------------------
 
-// clusterData is the CNPG Cluster template input. Mirrors
-// testdata/golden/production/archistrator-postgres.yaml field for field.
+// clusterData is the CNPG Cluster template input. Mirrors the production chart's
+// archistrator-postgres Cluster field for field.
 type clusterData struct {
 	Name      string
 	Namespace string
@@ -1492,8 +1658,8 @@ type clusterData struct {
 
 // quotedResourceQuantities returns the [memory, cpu] pair the CNPG Cluster
 // template expects, in that order and quoted, as the production chart writes
-// them. The quantities carry their own quotes because CNPG's chart quotes them
-// and the golden diff is byte-level.
+// them. The quantities carry their own quotes because CNPG's chart quotes them,
+// and the rendered manifest keeps the chart's text byte for byte.
 func quotedResourceQuantities(mem, cpu string) []resourceQuantity {
 	return []resourceQuantity{
 		{Name: "memory", Value: `"` + mem + `"`},
@@ -2194,14 +2360,14 @@ func render(d RuntimeDesiredState) ([]manifest, error) {
 // Health reads — Argo Application CR (Task 9, spec D7/D10,
 // docs/superpowers/specs/2026-08-07-operations-argocd-deployment-design.md).
 //
-// GetApplicationHealth (above) is the one REAL-profile observability verb with a live
-// backend today: it reads the Argo Application object straight off the Kubernetes API via
-// the in-cluster ServiceAccount every server pod already carries — no API token to mint or
-// distribute (spec §3). This is a credential entirely separate from RuntimeConfig's
-// GitOpsToken (spec §7): read-only Argo-CR access via the cluster API, not git write
-// access to the GitOps repo. GetSloStatus and ReadComputeAttribution stay deliberately
-// inert (D7, see their own doc comments above) — this section implements ONLY the health
-// half.
+// GetApplicationHealth and GetDeploymentResourceHealth (above) read the Argo Application
+// object straight off the Kubernetes API — by default via the in-cluster ServiceAccount
+// every server pod already carries, so there is no API token to mint or distribute (spec
+// §3); RuntimeConfig.ClusterAPIURL/Token/CACertPEM name another API server explicitly.
+// This is a credential entirely separate from RuntimeConfig's GitOpsToken (spec §7):
+// read-only Argo-CR access via the cluster API, not git write access to the GitOps repo.
+// The observability reads (GetSloStatus, ReadComputeAttribution) resolve appID to its
+// destination namespace through the same lookup (argoAppNamespace).
 //
 // appID -> Application resolution mirrors Withdraw's own scheme (see the GitOps commit
 // path section's SEAM note 1, above): PublishDesiredState stamps an archistrator.dev/app-id
@@ -2228,7 +2394,7 @@ const (
 	// in-cluster counterpart of gitOpsApplicationsPath; applicationTmpl always sets
 	// metadata.namespace: argocd.
 	argoNamespace = "argocd"
-	// inClusterTokenPath / inClusterCACertPath are the fixed paths every Kubernetes pod's
+	// inClusterServiceAccountJWTPath / inClusterCACertPath are the fixed paths every Kubernetes pod's
 	// projected ServiceAccount mounts to — the same "in-cluster config" convention
 	// client-go's InClusterConfig reads, reimplemented here in stdlib net/http rather than
 	// importing client-go: TestMethodLayering's operator-curated dependency allowlist
@@ -2237,20 +2403,27 @@ const (
 	// itself a new production dependency just because a real client would be convenient
 	// here (mirrors the no-YAML-library decision on gitOpsAppIDAnnotationValue's doc
 	// comment).
-	inClusterTokenPath  = "/var/run/secrets/kubernetes.io/serviceaccount/token" //nolint:gosec // G101 false positive: a fixed mount PATH, not a credential value
-	inClusterCACertPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	inClusterServiceAccountJWTPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	inClusterCACertPath            = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 )
 
 // argoApplication is the minimal shape this file reads off the Argo Application CR's JSON:
-// metadata.annotations to resolve appID -> Application (see the section doc above), and
-// status.health / status.resources for RuntimeStatus and per-resource health respectively.
-// Every other field on the real object (spec.source, spec.destination, status.sync, …) is
-// intentionally unparsed — this is a read path, not a round-trip, and adding a field here
+// metadata.annotations to resolve appID -> Application (see the section doc above),
+// metadata.name (the app name its workloads are named after) and
+// spec.destination.namespace for the observability reads, and status.health /
+// status.resources for RuntimeStatus and per-resource health respectively. Every other
+// field on the real object (spec.source, status.sync, …) is intentionally unparsed — this is a read path, not a round-trip, and adding a field here
 // is cheap whenever a later task needs one.
 type argoApplication struct {
 	Metadata struct {
+		Name        string            `json:"name"`
 		Annotations map[string]string `json:"annotations"`
 	} `json:"metadata"`
+	Spec struct {
+		Destination struct {
+			Namespace string `json:"namespace"`
+		} `json:"destination"`
+	} `json:"spec"`
 	Status struct {
 		Health struct {
 			Status string `json:"status"`
@@ -2305,7 +2478,7 @@ func parseApplicationListEnvelope(body []byte) (argoApplicationListEnvelope, err
 }
 
 // resourceHealth is one entry of an Argo Application's status.resources[] — PER-RESOURCE
-// health, as opposed to the app-level rollup mapArgoHealth folds. joinModelKeyHealth
+// health, as opposed to the app-level rollup mapArgoHealth folds. parseModelKeyHealth
 // (below) joins this against the model-key map re-derived by re-rendering, reusing
 // mapArgoHealth's own OBSERVED/absent-status distinction for the per-resource fold too —
 // there is no separate Progressing/Pending-aware mapping for resources: an individual
@@ -2342,9 +2515,9 @@ func mapArgoHealth(status string) RuntimeStatus {
 }
 
 // parseResourceHealth extracts status.resources[] from a raw Argo Application JSON
-// document (testdata/argo/*.json fixtures are exactly this shape). Used both by this
-// file's own tests and, per spec §6, by the later deployment-diagram health-overlay task
-// that joins the result against the re-derived model-key map.
+// document (an argoproj.io/v1alpha1 Application as the cluster API returns it). The
+// deployment-diagram health overlay (spec §6) joins the result against the re-derived
+// model-key map.
 func parseResourceHealth(raw []byte) ([]resourceHealth, error) {
 	var app argoApplication
 	if err := json.Unmarshal(raw, &app); err != nil {
@@ -2381,7 +2554,7 @@ func parseResourceHealth(raw []byte) ([]resourceHealth, error) {
 // A gradeable kind keeps Argo's own health verdict unchanged — Argo grades those against
 // the live object, and second-guessing it here would be this file inventing a rule.
 //
-// The fail-closed case remains ABSENCE from status.resources[] entirely (joinModelKeyHealth's
+// The fail-closed case remains ABSENCE from status.resources[] entirely (parseModelKeyHealth's
 // no-match rule): a genuinely different fact — the renderer emitted an object the cluster
 // does not have at all.
 func mapArgoResourceHealth(health, sync string) RuntimeStatus {
@@ -2394,75 +2567,121 @@ func mapArgoResourceHealth(health, sync string) RuntimeStatus {
 	return mapArgoHealth(health)
 }
 
-// joinModelKeyHealth is the health-overlay join itself (task-10-brief Step 4/spec §6):
-// match each of manifests' (Kind, Name, Namespace) against resources, and emit one
-// ModelKeyHealth per ModelKey a manifest carries — fanning out where a manifest carries
-// several (the Postgres Cluster carries all three database-role model keys, spec §5.1a).
-//
-// FAIL-CLOSED: a manifest render() emits with NO matching entry in resources reports
-// RuntimeStatusDegraded, never RuntimeStatusHealthy and never a silently dropped
-// ModelKeyHealth. It should exist on the cluster and does not — that absence is exactly
-// what red is for, not something to paper over as "nothing to report." resources being
-// nil/empty (the never-synced case, GetDeploymentResourceHealth above) degrades every
-// manifest the same way, by the same rule — there is no separate branch for it.
-//
-// THE APPLICATION IS NOT JOINED AGAINST ITS OWN RESOURCE LIST (2026-08-08 final review,
-// fix 2). An Argo Application never lists ITSELF among status.resources[] — that list is
-// what the Application manages, not what it is. Joining it therefore hit the fail-closed
-// no-match rule on every read, painting the app's namespace node (the node the
-// Application carries, renderApplication) permanently red no matter how healthy the
-// deployment was. The Application is the thing REPORTING, so its model keys take its own
-// app-level rollup instead, passed in as applicationStatus — the honest verdict for "how
-// is this whole app doing", and the same value GetApplicationHealth returns. The
-// never-synced path passes RuntimeStatusDegraded, keeping that case fail-closed.
-func joinModelKeyHealth(manifests []manifest, resources []resourceHealth, applicationStatus RuntimeStatus) []ModelKeyHealth {
-	type identity struct{ Kind, Name, Namespace string }
-	byIdentity := make(map[identity]resourceHealth, len(resources))
-	for _, r := range resources {
-		byIdentity[identity{Kind: r.Kind, Name: r.Name, Namespace: r.Namespace}] = r
+// deployedModelKeys is the set of deployment-diagram model keys an app ITSELF deploys:
+// its server and web-app workloads and, when enabled, its database roles. The renderer
+// also emits objects carrying three other keys — the environment the Application
+// represents (RuntimeDesiredState.ModelKey), the shared gateway its routes attach to
+// (GatewayModelKey) and the shared identity provider its realm is imported into
+// (OIDC.ModelKey) — but those nodes are infrastructure the app configures, not runs:
+// their health is not this app's to report, and the deployment diagram paints a node
+// with no reported health neutral, never unhealthy (view-live-deployment-health).
+func deployedModelKeys(d RuntimeDesiredState) map[string]bool {
+	keys := map[string]bool{}
+	if d.Server.ModelKey != "" {
+		keys[d.Server.ModelKey] = true
 	}
-
-	var out []ModelKeyHealth
-	for _, m := range manifests {
-		status := RuntimeStatusDegraded // fail-closed default: rendered, but no live match.
-		switch m.Kind {
-		case "Application":
-			status = applicationStatus
-		default:
-			if r, ok := byIdentity[identity{Kind: m.Kind, Name: m.Name, Namespace: m.Namespace}]; ok {
-				status = mapArgoResourceHealth(r.Health, r.Sync)
+	if d.WebApp.ModelKey != "" {
+		keys[d.WebApp.ModelKey] = true
+	}
+	if d.Postgres.Enabled {
+		for _, k := range d.Postgres.ModelKeys {
+			if k != "" {
+				keys[k] = true
 			}
 		}
+	}
+	return keys
+}
+
+// deployedModelKeyHealth is the health-overlay fold (task-10-brief Step 4/spec §6): for
+// every manifest render() emits that carries a deployed model key (deployedModelKeys), it
+// asks statusOf for that manifest's live status, and emits ONE ModelKeyHealth per model
+// key — in the order the key first appears in manifests (render's own deterministic
+// order) — whose status is the WORST of its manifests' (a workload's Deployment and
+// Service share a key; Postgres's Cluster carries several). Healthy only if every one of
+// a key's manifests is Healthy: a Service that is up in front of a Deployment that is
+// not is not a healthy node.
+func deployedModelKeyHealth(d RuntimeDesiredState, manifests []manifest, statusOf func(manifest) RuntimeStatus) []ModelKeyHealth {
+	deployed := deployedModelKeys(d)
+	index := map[string]int{}
+	var out []ModelKeyHealth
+	for _, m := range manifests {
 		for _, key := range m.ModelKeys {
-			out = append(out, ModelKeyHealth{ModelKey: key, Status: status})
+			if !deployed[key] {
+				continue
+			}
+			status := statusOf(m)
+			i, seen := index[key]
+			if !seen {
+				index[key] = len(out)
+				out = append(out, ModelKeyHealth{ModelKey: key, Status: status})
+				continue
+			}
+			out[i].Status = worseStatus(out[i].Status, status)
 		}
 	}
 	return out
+}
+
+// worseStatus folds two per-manifest statuses for one model key: Healthy only when both
+// are; otherwise Degraded beats Unknown beats Pending (the order in which each is evidence
+// that something is wrong).
+func worseStatus(a, b RuntimeStatus) RuntimeStatus {
+	rank := func(s RuntimeStatus) int {
+		switch s {
+		case RuntimeStatusHealthy:
+			return 0
+		case RuntimeStatusPending:
+			return 1
+		case RuntimeStatusUnknown:
+			return 2
+		case RuntimeStatusWithdrawn:
+			return 3
+		case RuntimeStatusDegraded:
+			return 4
+		default:
+			return 2
+		}
+	}
+	if rank(b) > rank(a) {
+		return b
+	}
+	return a
 }
 
 // parseModelKeyHealth re-renders desired — render's purity is what makes this safe (spec
 // §6): re-deriving the model-key -> (kind, name, namespace) map on demand, rather than
 // persisting one that could drift from the renderer — and joins the result against raw
 // (an Argo Application CR's JSON body, the same shape parseResourceHealth reads) via
-// joinModelKeyHealth. The RA-verb boundary function GetDeploymentResourceHealth calls
-// this directly when the CR was found; it is exported to this file's tests as the
-// pure, HTTP-free join to exercise (task-10-brief Step 2/4).
+// deployedModelKeyHealth. raw nil is the never-synced case: no live resources.
+//
+// FAIL-CLOSED: a deployed manifest with NO matching entry in status.resources[] reports
+// RuntimeStatusDegraded, never RuntimeStatusHealthy and never a silently dropped
+// ModelKeyHealth. It should exist on the cluster and does not — that absence is exactly
+// what red is for. A never-synced app degrades every deployed key by the same rule.
 func parseModelKeyHealth(raw []byte, desired RuntimeDesiredState) ([]ModelKeyHealth, error) {
 	manifests, err := render(desired)
 	if err != nil {
 		return nil, err
 	}
-	var app argoApplication
-	if uerr := json.Unmarshal(raw, &app); uerr != nil {
-		return nil, fwra.Wrap(fwra.Infrastructure, uerr, "operatedruntime: parse Argo Application")
+	var resources []resourceHealth
+	if raw != nil {
+		resources, err = parseResourceHealth(raw)
+		if err != nil {
+			return nil, err
+		}
 	}
-	resources, err := parseResourceHealth(raw)
-	if err != nil {
-		return nil, err
+	type identity struct{ Kind, Name, Namespace string }
+	byIdentity := make(map[identity]resourceHealth, len(resources))
+	for _, r := range resources {
+		byIdentity[identity{Kind: r.Kind, Name: r.Name, Namespace: r.Namespace}] = r
 	}
-	// The Application's own model keys take its app-level rollup, not a resource match
-	// it can never have — see joinModelKeyHealth.
-	return joinModelKeyHealth(manifests, resources, mapArgoHealth(app.Status.Health.Status)), nil
+	return deployedModelKeyHealth(desired, manifests, func(m manifest) RuntimeStatus {
+		if r, ok := byIdentity[identity{Kind: m.Kind, Name: m.Name, Namespace: m.Namespace}]; ok {
+			return mapArgoResourceHealth(r.Health, r.Sync)
+		}
+		return RuntimeStatusDegraded // fail-closed: rendered, but no live match.
+	}), nil
 }
 
 // inClusterHTTPClient builds an *http.Client trusting the cluster's own CA and returns the
@@ -2484,7 +2703,7 @@ func inClusterHTTPClient() (client *http.Client, apiServer, token string, err er
 				"health reads require the in-cluster ServiceAccount")
 	}
 
-	tokenBytes, terr := os.ReadFile(inClusterTokenPath)
+	tokenBytes, terr := os.ReadFile(inClusterServiceAccountJWTPath)
 	if terr != nil {
 		return nil, "", "", fwra.Wrap(fwra.Infrastructure, terr, "operatedruntime: read in-cluster ServiceAccount token")
 	}
@@ -2502,6 +2721,31 @@ func inClusterHTTPClient() (client *http.Client, apiServer, token string, err er
 		Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}},
 	}
 	return client, "https://" + net.JoinHostPort(host, port), strings.TrimSpace(string(tokenBytes)), nil
+}
+
+// clusterClient returns the HTTP client, API server base URL and bearer token the health
+// reads use: RuntimeConfig.ClusterAPIURL's when it is set, the in-cluster ServiceAccount's
+// (inClusterHTTPClient) otherwise. A named API server with no token is refused — an
+// anonymous LIST is never what a misconfiguration should quietly turn into — and a CA
+// bundle that is not valid PEM is refused rather than falling back to the system roots.
+func (r realOperatedRuntime) clusterClient() (client *http.Client, apiServer, token string, err error) {
+	if r.config.ClusterAPIURL == "" {
+		return inClusterHTTPClient()
+	}
+	if r.config.ClusterAPIToken == "" {
+		return nil, "", "", fwra.New(fwra.Infrastructure,
+			"operatedruntime: RuntimeConfig.ClusterAPIURL is set but ClusterAPIToken is empty; health reads never LIST anonymously")
+	}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	if len(r.config.ClusterAPICACertPEM) > 0 {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(r.config.ClusterAPICACertPEM) {
+			return nil, "", "", fwra.New(fwra.Infrastructure, "operatedruntime: RuntimeConfig.ClusterAPICACertPEM is not valid PEM")
+		}
+		tlsConfig.RootCAs = pool
+	}
+	client = &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig}}
+	return client, strings.TrimSuffix(r.config.ClusterAPIURL, "/"), r.config.ClusterAPIToken, nil
 }
 
 // argoFindApplicationByAppID lists every Application in the argocd namespace via the
@@ -2524,8 +2768,8 @@ func inClusterHTTPClient() (client *http.Client, apiServer, token string, err er
 // ctx propagates the caller's fwra.Context.Context (Task 10 fold-in of a Task 9 Minor
 // finding: this request used to be built with the context-less http.NewRequest, which
 // meant an activity deadline or cancellation was never honoured by the outbound call).
-func argoFindApplicationByAppID(ctx context.Context, appID uuid.UUID) (app argoApplication, raw []byte, found bool, err error) {
-	client, apiServer, token, cerr := inClusterHTTPClient()
+func (r realOperatedRuntime) argoFindApplicationByAppID(ctx context.Context, appID uuid.UUID) (app argoApplication, raw []byte, found bool, err error) {
+	client, apiServer, token, cerr := r.clusterClient()
 	if cerr != nil {
 		return argoApplication{}, nil, false, cerr
 	}
@@ -2569,4 +2813,154 @@ func argoFindApplicationByAppID(ctx context.Context, appID uuid.UUID) (app argoA
 		}
 	}
 	return argoApplication{}, nil, false, nil
+}
+
+// argoAppNamespace resolves appID to the namespace its live Application deploys into
+// (spec.destination.namespace) — the scope every observability query is bounded to.
+// found is false, with no error, exactly when argoFindApplicationByAppID's is. The
+// namespace is about to be spliced into a PromQL label matcher, so it must be a DNS-1123
+// label (validAppName's rule, which is also Kubernetes' own rule for a namespace name);
+// anything else is refused rather than quoted and hoped for.
+func (r realOperatedRuntime) argoAppNamespace(ctx context.Context, appID uuid.UUID) (namespace string, found bool, err error) {
+	app, _, found, err := r.argoFindApplicationByAppID(ctx, appID)
+	if err != nil || !found {
+		return "", found, err
+	}
+	ns := app.Spec.Destination.Namespace
+	if !validAppName(ns) {
+		return "", false, fwra.New(fwra.Infrastructure,
+			"operatedruntime: the live Application for "+appID.String()+" has destination namespace "+strconv.Quote(ns)+
+				", which is not a DNS-1123 label; refusing to scope a metrics query by it")
+	}
+	return ns, true, nil
+}
+
+// ---------------------------------------------------------------------------
+// Observability reads — Prometheus (GetSloStatus, ReadComputeAttribution, ReadWorkloadTelemetry).
+//
+// Both verbs scope an instant query (GET <PrometheusURL>/api/v1/query) to the app's
+// destination namespace (argoAppNamespace), over the metrics every Kubernetes Prometheus
+// stack already scrapes — kube-state-metrics for replica availability, cAdvisor for CPU —
+// so no per-app instrumentation is assumed:
+//
+//   - SLO: every Deployment in the namespace has its desired replicas available. The query
+//     (sloViolationQuery) is written in alert form — it returns a series per Deployment
+//     that is short of replicas and nothing when the objective holds — so "met" is
+//     exactly "no samples".
+//   - Compute: the CPU-seconds the namespace's containers consumed over the window
+//     (cpuSecondsQuery), evaluated at window.To.
+//   - Workload telemetry: the server Deployment's CPU use over its CPU request
+//     (serverCPUUtilizationQuery), the autoscaler's utilization signal.
+//
+// Any transport failure, non-200, non-"success" status or unparseable body is an
+// fwra.Infrastructure error: an observability backend that cannot be read must never
+// read as "SLO met" or "no usage".
+// ---------------------------------------------------------------------------
+
+// computeUnitCPUSeconds is the unit every measured ComputeAttribution is denominated in.
+const computeUnitCPUSeconds = "cpu-seconds"
+
+// sloViolationQuery returns one series per Deployment in namespace that has fewer
+// replicas available than it specifies; its value is the shortfall.
+func sloViolationQuery(namespace string) string {
+	sel := `{namespace="` + namespace + `"}`
+	return `(kube_deployment_spec_replicas` + sel + ` - kube_deployment_status_replicas_available` + sel + `) > 0`
+}
+
+// serverCPUUtilizationQuery returns the CPU the deployment's pods in namespace used over
+// the last five minutes as a fraction of the CPU they request: one series, or none when
+// the workload has no request series.
+func serverCPUUtilizationQuery(namespace, deployment string) string {
+	sel := `{namespace="` + namespace + `",pod=~"` + deployment + `-.*",container!=""}`
+	return `sum(rate(container_cpu_usage_seconds_total` + sel + `[5m])) / sum(kube_pod_container_resource_requests` +
+		`{namespace="` + namespace + `",pod=~"` + deployment + `-.*",resource="cpu"})`
+}
+
+// cpuSecondsQuery returns the CPU-seconds namespace's containers consumed over the span
+// ending at the query's evaluation time.
+func cpuSecondsQuery(namespace string, span time.Duration) string {
+	return `sum(increase(container_cpu_usage_seconds_total{namespace="` + namespace + `",container!=""}[` +
+		strconv.FormatInt(int64(span/time.Second), 10) + `s]))`
+}
+
+// prometheusSample is one element of an instant-vector query result.
+type prometheusSample struct {
+	Metric map[string]string
+	Value  float64
+}
+
+// prometheusQuery runs an instant query at time at against RuntimeConfig.PrometheusURL and
+// returns its vector result.
+func (r realOperatedRuntime) prometheusQuery(ctx context.Context, query string, at time.Time) ([]prometheusSample, error) {
+	u, err := url.Parse(strings.TrimSuffix(r.config.PrometheusURL, "/") + "/api/v1/query")
+	if err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime: parse RuntimeConfig.PrometheusURL")
+	}
+	q := u.Query()
+	q.Set("query", query)
+	q.Set("time", strconv.FormatInt(at.Unix(), 10))
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime: build Prometheus query request")
+	}
+	req.Header.Set("Accept", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime: query Prometheus")
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime: read Prometheus response")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fwra.New(fwra.Infrastructure,
+			fmt.Sprintf("operatedruntime: query Prometheus: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))
+	}
+	return parsePrometheusVector(body)
+}
+
+// parsePrometheusVector decodes a Prometheus instant-query response, asserting it
+// succeeded and is a vector, and parses each sample's string-encoded value.
+func parsePrometheusVector(body []byte) ([]prometheusSample, error) {
+	var envelope struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+		Data   struct {
+			ResultType string `json:"resultType"`
+			Result     []struct {
+				Metric map[string]string `json:"metric"`
+				Value  []any             `json:"value"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime: parse Prometheus response")
+	}
+	if envelope.Status != "success" {
+		return nil, fwra.New(fwra.Infrastructure, "operatedruntime: Prometheus query failed: "+strconv.Quote(envelope.Error))
+	}
+	if envelope.Data.ResultType != "vector" {
+		return nil, fwra.New(fwra.Infrastructure,
+			"operatedruntime: Prometheus query returned resultType "+strconv.Quote(envelope.Data.ResultType)+", want vector")
+	}
+	out := make([]prometheusSample, 0, len(envelope.Data.Result))
+	for _, res := range envelope.Data.Result {
+		if len(res.Value) != 2 {
+			return nil, fwra.New(fwra.Infrastructure, "operatedruntime: Prometheus sample is not a [timestamp, value] pair")
+		}
+		raw, ok := res.Value[1].(string)
+		if !ok {
+			return nil, fwra.New(fwra.Infrastructure, "operatedruntime: Prometheus sample value is not a string")
+		}
+		v, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return nil, fwra.Wrap(fwra.Infrastructure, err, "operatedruntime: parse Prometheus sample value")
+		}
+		out = append(out, prometheusSample{Metric: res.Metric, Value: v})
+	}
+	return out, nil
 }

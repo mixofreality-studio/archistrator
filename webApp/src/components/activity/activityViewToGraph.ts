@@ -58,12 +58,14 @@ export const OUTCOME_TEXT: Readonly<Record<OutcomeWire, string>> = {
  * The lifecycle key for a wire (type, variant) pair — the same rule
  * `projectstate.LifecycleKeyFor` applies server-side: `testing:<variant>` for
  * a testing activity, the bare type for everything else. A testing row that
- * arrived without a variant reads as the plan variant, matching the server's
- * zero `TestingVariant`.
+ * arrived without a variant keys as `testing:none`, which names no lifecycle:
+ * the server's zero `TestingVariant` is None since the system test plan
+ * (`plan`) and system testing (`systemTest`) variants were retired (spec §7), so there is nothing to
+ * fall back to.
  */
 export function lifecycleKeyFor(type: string, variant: string | undefined): string {
   if (type !== 'testing') return type;
-  return `testing:${variant !== undefined && variant.length > 0 ? variant : 'plan'}`;
+  return `testing:${variant !== undefined && variant.length > 0 ? variant : 'none'}`;
 }
 
 /** The dispatch header's facts for one task — every one a join, none on the wire. */

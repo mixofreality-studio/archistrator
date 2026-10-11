@@ -130,7 +130,6 @@ type ToolchainRef string
 
 // AgenticJobAccess is the generated service-contract interface for this component.
 type AgenticJobAccess interface {
-	CancelAgenticJob(rc fwra.Context, handle PipelineHandle) error
 	ObserveAgenticJob(rc fwra.Context, handle PipelineHandle) (PipelineObservation, error)
 	SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (PipelineHandle, error)
 }

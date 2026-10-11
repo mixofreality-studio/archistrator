@@ -416,6 +416,17 @@ func appArchSpec() arch.Spec {
 		"github.com/modelcontextprotocol/go-sdk", // sanctioned MCP substrate for the generated mcpClient tool surface (internal/client/mcp/*, framework-go-mcp-generator output)
 		"github.com/google/jsonschema-go",        // the MCP SDK's own JSON Schema type; the generated mcpClient tools carry explicit InputSchema (enum values/meanings + REST-matching optionality) built from it (internal/client/mcp/*, cmd/clientgen mcpemit output)
 	}
+
+	// Hooks-file import allowlist — what a component's ONE hand-written test
+	// file (<stereotype>_hooks_test.go) may import beyond the built-in set
+	// (its own package, stdlib, platform testinfra doubles, scenariohost).
+	// Deterministic component tests are black-box: a hooks file arranges the
+	// subject against generated fakes of the resources it fronts, never
+	// against another component's internals. modulePrefix already ends in
+	// "internal/", so the entries are relative to it.
+	spec.HooksImportAllowlist = []string{
+		modulePrefix + "resourceaccess/projectstate/fake",
+	}
 	return spec
 }
 
@@ -459,12 +470,21 @@ var encapsulationAllowlistData = map[string][]string{
 	// (projectstate.ProjectStateAccess) and because the drift gate (make
 	// derived-plan-check) reads it. It came across from internal/manager/projectdesign
 	// with the stage-4a collapse; nothing else about it changed.
+	// STREAMING TEST-RUN FILE READ (deterministic component testing, spec §6.3):
+	// TestRunFileReader + TestRunFile are the Manager's ONE read that is not a contract
+	// op — a video/trace/zip byte stream the generated JSON op surface cannot carry. The
+	// composition root (cmd/server/hooks.go handleTestRunFile) mounts
+	// GET /api/v1/delivery/test-run/{runID}/file over the interface behind the same auth
+	// boundary and the same PDP action as query-project-view; the Manager stays the only
+	// caller of artifactAccess, so the layering is unchanged.
 	"internal/manager/delivery": {
 		"MaterializeActivityPlan",
 		"RegisterManagerWorker",
 		"RegisterSchedules",
 		"RegisterWorker",
 		"TaskQueue",
+		"TestRunFile",
+		"TestRunFileReader",
 	},
 	// Temporal registration entrypoints (see delivery). RegisterSchedules registers the
 	// operatedStateReconcile Schedule at startup.
@@ -491,26 +511,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"NewDryRunArtifactAccess",
 		"NewGitHubCloudArtifactAccess",
 		"NewGitLocalArtifactAccess",
-	},
-	// PERMANENT NO-OP CONSTRUCTOR (B5): revenueLedgerAccess has no infrastructure binding
-	// (charge-only removed the ledger's persistence — see revenueledgeraccess.go's package
-	// doc); NewRevenueLedgerAccess returns the sole, permanent no-op impl, same
-	// VARIANT-CONSTRUCTOR category as artifact/agenticjob's dry-run constructors above/below.
-	// The revenueLedgerAccess FACET re-folded into billingstate (Wave 1 reconciliation,
-	// reversing the ea56a36 split) — one component, one Go package — so its no-op constructor
-	// now lives in the billingStateAccess package alongside the generated billing surface.
-	"internal/resourceaccess/billingstate": {
-		"NewRevenueLedgerAccess",
-	},
-	// EXPLICIT NOT-CONFIGURED VARIANT CONSTRUCTOR (same VARIANT-CONSTRUCTOR category as
-	// artifact/agenticjob's dry-run constructors above): the generated stub fails every op
-	// with fwra.Unknown ("not implemented"), which burns the workflow's full retry budget
-	// before failing — dishonest about WHY, since the real component IS wired and only a
-	// live Stripe credential is missing. NewNotConfiguredMerchantGatewayAccess replaces the
-	// generated stub (composed via hooks.FinalizeMerchantGatewayAccess) with a terminal
-	// fwra.Auth error pointing at docs/billing-setup.md.
-	"internal/resourceaccess/merchantgateway": {
-		"NewNotConfiguredMerchantGatewayAccess",
 	},
 	// FREE-FUNCTION BEHAVIOUR over the contract's named-scalar handle/enum value types: the
 	// schema-first rule keeps generated contract types method-free, so
@@ -567,25 +567,23 @@ var encapsulationAllowlistData = map[string][]string{
 		// + projectstate_git_adapter.go folded in). NewGitLocal/GitHubProjectStateAccess build
 		// the cred-binding adapter over *GitStore; CredentialMinter is the port the CLOUD
 		// sourcecontrol-backed minter (kept at the composition root — NoSideways) satisfies;
-		// GitConstructionPorts encapsulates the former composition-root private-field
-		// type-assert to the git construction-transition + git-activity-status ports.
+		// GitActivityStatusPort encapsulates the former composition-root private-field
+		// type-assert to the git-activity-status port.
 		"NewGitLocalProjectStateAccess",
 		"NewGitHubProjectStateAccess",
 		"CredentialMinter",
-		"GitConstructionPorts",
+		"GitActivityStatusPort",
 		// designSessionAccess (B4): NewDesignSessionAccess wraps a base ProjectStateAccess,
 		// running the SAME branch/ledger/provenance/reconcile capability-fallback chains the
 		// design Managers' custom activities used to run inline — a facade, not a Manager-
 		// consumed constructor yet, same VARIANT-CONSTRUCTOR category as the pair above.
 		"NewDesignSessionAccess",
-		"NewGitLocalConstructionTransitionAccess",
 		"NewGitLocalGitActivityStatusAccess",
-		"NewGitHubConstructionTransitionAccess",
 		"NewGitHubGitActivityStatusAccess",
 		"NewGitLocalDesignSessionAccess",
 		"NewGitHubDesignSessionAccess",
-		// activityExecutionAccess (stage 3): the FIFTH facet's variant constructors, in the
-		// same VARIANT-CONSTRUCTOR category as the four pairs above and for the same reason
+		// activityExecutionAccess (stage 3): the facet's variant constructors, in the
+		// same VARIANT-CONSTRUCTOR category as the pairs above and for the same reason
 		// — composegen's generated composition root calls them by name per profile.
 		"NewActivityExecutionAccess",
 		"NewGitLocalActivityExecutionAccess",
@@ -593,7 +591,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"ActivityDiagram",
 		"ActivityEdge",
 		"ActivityItem",
-		"ActivityKind",
 		"ActivityList",
 		"ActivityList.Kind",
 		"ActivityNetwork",
@@ -797,6 +794,18 @@ var encapsulationAllowlistData = map[string][]string{
 		//	                    an operator requeue is dispatchable again whatever its attempt
 		//	                    ledger resolves to, because the ledger is deliberately KEPT.
 		"RequeuedAfterExit",
+		// THE T4 READ RULE (deterministic component testing, spec §1 T4). QualifiedAttempts is
+		// the same category as ResolvePhaseCompletions above, which reads through it: a total,
+		// side-effect-free function over projectstate's OWN TaskAttempt ledger — no resource,
+		// so no contract op. It drops a `testing` pass that cites no TestRun from a test-planned
+		// activity's ledger, so the testing task can never READ passed without a qualifying
+		// run. Callers outside this package, verifiable by grep:
+		//
+		//	QualifiedAttempts → the delivery Manager: the activity view's task states
+		//	                    (activityTaskViews) and the walk's ledger seed
+		//	                    (seedWalkFromLedger), so the screen and the walk read the
+		//	                    testing task exactly as the phase resolution does.
+		"QualifiedAttempts",
 		// OPERATOR NOTES (plan B1.1). OperatorNote is the STORED note on
 		// ActivityExecution.OperatorNotes, hand-written beside that row type like
 		// TaskAttempt; the verbs' input shape (OperatorNoteInput, NoteComment,
@@ -844,7 +853,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"ComputeCostKind",
 		"ComputeCostTieredFloors",
 		"ComputeCostUnknown",
-		"ConstructionTransitionAccess",
 		"ContainerInstance",
 		"CoreUseCases",
 		"CoreUseCases.Kind",
@@ -864,7 +872,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"DeploymentTopology",
 		"DeriveBuildStatus",
 		"DeriveKind",
-		"DeriveProduced",
 		"DeriveType",
 		"DynamicView",
 		"EdgeControlFlow",
@@ -905,20 +912,8 @@ var encapsulationAllowlistData = map[string][]string{
 		"GitActivityStatusAccess",
 		"GitStore",
 		"GitStore.ReadProjectOnBranch",
-		"GitStore.RecordActivityArchApproved",
 		"GitStore.RecordActivityBranchOpened",
 		"GitStore.RecordActivityCIObserved",
-		"GitStore.RecordActivityCompleted",
-		"GitStore.RecordActivityExited",
-		"GitStore.RecordActivityFailed",
-		"GitStore.RecordActivityMerged",
-		"GitStore.RecordActivityStarted",
-		"GitStore.RecordChangeReviewed",
-		"GitStore.RecordOperatorPaused",
-		"GitStore.RecordPhaseArtifactProduced",
-		"GitStore.RecordPhaseCompleted",
-		"GitStore.RecordPhaseStarted",
-		"GitStore.RecordServiceContractProduced",
 		"GitStore.StageArtifactForReviewOnBranch",
 		"GitStore.WithCatalog",
 		"GitStore.WithClock",
@@ -968,6 +963,18 @@ var encapsulationAllowlistData = map[string][]string{
 		// for which payload field lands in which slot). Same category as RequireModelFields
 		// above (a pure helper the MCP binary shares with the server read/write path).
 		"ApplyPhaseArtifactPayload",
+		// SCENARIO DERIVATION ADAPTER (deterministic component testing, design §2/§3.2):
+		// the pure, I/O-free projection of the typed Project onto framework-go/scenario's
+		// adapter-neutral Input (ScenarioInputOf) and the derive+project composition over
+		// it (ComponentScenarios). projectstate OWNS the use-case diagrams, dynamic views
+		// and contract corpus the derivation reads, so the adapter lives here — the
+		// server-side mirror of methodcheck.ScenarioInput — and is consumed by
+		// cmd/aiarch-state-mcp (listComponentScenarios) and the delivery Manager's
+		// test-plan/test-run views, so every consumer binds against ONE canonical id set.
+		// Same category as ClassifyActivity/ApplyPhaseArtifactPayload above (a total,
+		// side-effect-free function the MCP binary shares with the server read path).
+		"ScenarioInputOf",
+		"ComponentScenarios",
 		// INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
 		// ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
 		// needs an explicit entry like the System model types) + its hand-written accessors.
@@ -1058,14 +1065,10 @@ var encapsulationAllowlistData = map[string][]string{
 		// status (the CritiqueVerdictApprove/Revise precedent above). Plain-string consts owned
 		// here; the ReviewComment type itself is generated contract surface. The LIVE
 		// vocabulary a thread's status is derived into is open/answered/resolved
-		// (normalizeReviewThread); Addressed and Waived are DEPRECATED — never written by
-		// current code, kept only as the values the read-compat shim (migrateLegacyReviewThread)
-		// maps a pre-thread ledger's retired statuses FROM on decode.
-		"ReviewCommentAddressed",
+		// (normalizeReviewThread).
 		"ReviewCommentAnswered",
 		"ReviewCommentOpen",
 		"ReviewCommentResolved",
-		"ReviewCommentWaived",
 		// QUESTION-COMMENTS vocabulary + behavior — the closed type/addressee wire values of a
 		// durable ReviewComment plus the pure classification helpers over them. Plain-string
 		// consts + funcs owned here (same category as the status vocabulary above); the
@@ -1206,8 +1209,6 @@ var encapsulationAllowlistData = map[string][]string{
 		// (GoVersion / FrameworkGoVersion were deleted with the B4 methodassets
 		// delegation — the seated go.mod pins are module-owned now.)
 		"GoModPath",
-		"InstallationIsZero",
-		"InstallationString",
 		"ManagedCommitMessage",
 		"ManagedScaffoldFiles",
 		"MethodTestPath",
@@ -1235,30 +1236,16 @@ var encapsulationAllowlistData = map[string][]string{
 		"SyncManagedScaffold",
 	},
 	// Cross-package identity value types (CustomerID, OperatedAppID) consumed by downstream
-	// Managers, + Error alias. NewNoOpUsageAccess is the LOCAL-PROFILE VARIANT CONSTRUCTOR
-	// (Task 2, local-first-init-funnel): the local deployment binding declares infra: []
-	// for usageAccess (no Postgres in local mode — metering is a cloud-only concern), so
-	// there is no generated New<Infra><Component> for it; same VARIANT-CONSTRUCTOR category
-	// as artifact/agenticjob's dry-run constructors and revenueledger's permanent
-	// no-op above.
+	// Managers, + Error alias. (Both profiles bind the Postgres store since the local
+	// profile serves the operations console, DCT §12 B16 — no local variant constructor.)
 	"internal/resourceaccess/usage": {
 		"CustomerID",
 		"Error",
-		"NewNoOpUsageAccess",
 		"OperatedAppID",
-	},
-	// NewNoOpOperatedSystemStateAccess is the LOCAL-PROFILE VARIANT CONSTRUCTOR
-	// (local-first-init-funnel Task 2b): the local deployment binding declares
-	// infra: [] for operatedSystemStateAccess (no Postgres in local mode — deploy/
-	// operate is a cloud-only, paid-tier concern), so there is no generated
-	// New<Infra><Component> for it; same VARIANT-CONSTRUCTOR category as
-	// usage.NewNoOpUsageAccess above.
-	"internal/resourceaccess/operatedsystemstate": {
-		"NewNoOpOperatedSystemStateAccess",
 	},
 	// SP1 capture-seam Task 3: episodeAccess's contract carries no `infra` binding, so
 	// both its variants are hand-written VARIANT CONSTRUCTORS (same category as
-	// agenticjob's NewLocalExecAgenticJobAccess / usage's NewNoOpUsageAccess above).
+	// agenticjob's NewLocalExecAgenticJobAccess above).
 	// NewLocalFSEpisodeAccess is the local-profile filesystem-backed sidecar store
 	// (<repoRoot>/.aiarch/traces/episodes.jsonl); NewNoOpEpisodeAccess is the permanent
 	// no-op fallback (episode capture is best-effort observability, not a contract the

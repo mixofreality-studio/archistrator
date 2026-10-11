@@ -11,7 +11,7 @@
  * size that never scales. The canvas still reserves the gutter's room at fit
  * (invisible spacer nodes where the labels were), so cards clear it.
  *
- * Pure — no React — pinned by rowGutter.test.ts.
+ * Pure — no React.
  */
 
 /** The gutter's width on screen. */

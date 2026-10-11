@@ -39,6 +39,7 @@ import type {
   ScrubbedRequirements,
   StandardCheck,
   System,
+  UseCaseDecision,
   Volatilities,
 } from './types';
 import { toDeploymentEdges, type DeploymentEdgeView } from './deploymentEdges';
@@ -513,6 +514,22 @@ export function toDynamicView(
   });
 
   return { title: view.title, participants, persons, edges, unresolved };
+}
+
+/**
+ * The committed System model and use-case decisions, typed — what a scenario's
+ * reading joins against (the test plan's scenario view: the use case's diagram,
+ * actors and trigger; the dynamic view's real callers; each component's layer).
+ * An absent / unstaged envelope reads as no model (undefined / []).
+ */
+export function scenarioModels(
+  systemEnvelope: ArtifactModelEnvelope | undefined,
+  useCasesEnvelope: ArtifactModelEnvelope | undefined
+): { system: System | undefined; decisions: UseCaseDecision[] } {
+  return {
+    system: narrow(systemEnvelope, 'system'),
+    decisions: narrow(useCasesEnvelope, 'coreUseCases')?.decisions ?? [],
+  };
 }
 
 // ---------------------------------------------------------------------------

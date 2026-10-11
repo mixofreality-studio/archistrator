@@ -3,7 +3,9 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -113,10 +116,11 @@ func rereadRowVersion(ctx workflow.Context, acts genInvokers, projectID ProjectI
 // GetVersion is called FIRST and before any branch that could skip it, so a new execution
 // records the marker deterministically on its first Conflict; a recorded history takes the
 // DefaultVersion arm and makes no row read, which is what keeps the nineteen replays green.
-func terminalAfterRowReread(ctx workflow.Context, acts genInvokers, projectID ProjectID, projectVersionMoved bool) (bool, error) {
+func terminalAfterRowReread(ctx workflow.Context, acts genInvokers, projectID ProjectID, projectVersionMoved bool, sent int64) (bool, error) {
 	if workflow.GetVersion(ctx, changeRowConflictReread, workflow.DefaultVersion, 1) < 1 {
 		return false, nil
 	}
+	comparesSent := workflow.GetVersion(ctx, changeRowConflictSentVersion, workflow.DefaultVersion, 1) >= 1
 	acc, bound := rowAccessorFrom(ctx)
 	if !bound {
 		return false, nil
@@ -152,7 +156,27 @@ func terminalAfterRowReread(ctx workflow.Context, acts genInvokers, projectID Pr
 		// healthy activity non-retryably, which is the very defect this arm removes.
 		return false, nil
 	}
+	if comparesSent {
+		// THE REFUSED CALL'S OWN EXPECTATION is what "nothing moved" is measured against
+		// (changeRowConflictSentVersion): a store at the version the call carried, on a
+		// project that did not move either, is refusing the transition; a store at any other
+		// version was a stale CAS — whoever moved the held copy — and the re-seed above is
+		// the retry's answer.
+		return !projectVersionMoved && sent != projectstate.NoActivityVersionExpectation && after == sent, nil
+	}
 	return !projectVersionMoved && after == before, nil
+}
+
+// heldRowVersion is the row version the bound accessor holds right now — read immediately
+// before a write, it is the expectation that write carries (the apply closures read the
+// accessor's copy synchronously when they build the call). NoActivityVersionExpectation for
+// a caller that holds no row.
+func heldRowVersion(ctx workflow.Context) int64 {
+	acc, bound := rowAccessorFrom(ctx)
+	if !bound {
+		return projectstate.NoActivityVersionExpectation
+	}
+	return acc.version()
 }
 
 // csBindRowAccessor binds the construction activity's ROW onto the child's context. A
@@ -1452,6 +1476,7 @@ func (wf *csWorkflows) submitConstructionJob(
 		ComponentID: tc.In.Activity.ComponentID,
 		Phase:       tc.Phase.ID,
 		Command:     tc.Task.Command,
+		Revision:    attemptID,
 	}, tc.State, attemptID, &tc.State.walk.gf, &tc.State.walk.headVersion)
 	if err != nil {
 		return constructionDispatch{}, false, err
@@ -1526,8 +1551,15 @@ func (s sdpComputeStrategy) Produce(ctx workflow.Context, tc taskContext) (produ
 		// silent about it.
 		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
 	}
+	// PENDING, NOT PASSED (dct4 scenario commit-to-a-project-option). This row's producer IS
+	// its own gate task (roundJudges), so the compute's attempt id and the gate's attempt id
+	// are the SAME id — sdpReview:<revision+1>. Recording the computation as PASSED wrote the
+	// gate's own verdict before any human had judged the plan: App A's completion rule reads
+	// a phase as complete when its gate task's latest attempt passed, so the activity read
+	// DONE for the whole M0 review window while the spend gate stood open. The computation
+	// opens the attempt; passGateAttempt (or the send-back's reject) is what resolves it.
 	return producedSubject{
-		StagedRef: ref, AttemptID: attemptID, Outcome: projectstate.OutcomePassed,
+		StagedRef: ref, AttemptID: attemptID, Outcome: projectstate.OutcomePending,
 		// The defaulting rides the attempt's Detail because that is what the M0 screen reads
 		// back: an assumed number the founder never saw is the one way a computed cost can
 		// mislead. Task 14 renders the sentence; recording it is this task's.
@@ -1932,6 +1964,9 @@ func (wf *csWorkflows) DeliveryActivityWorkflow(ctx workflow.Context, in deliver
 	// store would absorb the new dispatch as a replay of the old one.
 	seedTaskAttempts(state, snap.ActivityExecution[string(in.ActivityID)])
 	ws := wf.seedWalkFromLedger(ctx, in, lc, snap)
+	if err := wf.openReopenedGate(ctx, in, lc, ws, state); err != nil {
+		return err
+	}
 	// The router starts BEFORE the first task is scheduled, so a signal that arrives
 	// during the very first dispatch is buffered against its task rather than lost.
 	workflow.Go(ctx, func(gctx workflow.Context) {
@@ -2026,7 +2061,16 @@ func (wf *csWorkflows) walkTasks(
 // phase, not a task that already passed. The flat walk had no way to say this.
 func reopenJudgedPair(lc methodassets.Lifecycle, ws *walkState, reviewTaskID string) {
 	t, ok := lifecycleTaskByID(lc, reviewTaskID)
-	if !ok || t.Reviews == "" {
+	if !ok {
+		return
+	}
+	if t.Reviews == "" {
+		// THE M0 ROW JUDGES ITS OWN SUBJECT: a reject-all (rejectAtM0) re-runs it — the
+		// options re-computed at revision n+1, then a fresh round.
+		if isM0Gate(lc, t) {
+			ws.revision[t.ID]++
+			ws.byTask[t.ID] = walkTaskPending
+		}
 		return
 	}
 	ws.revision[t.Reviews]++
@@ -2383,6 +2427,13 @@ func (wf *csWorkflows) runGate(
 		if oerr := wf.openRound(ctx, in, t, tc, judgedSubject(ws, t), roundArtifactKind(lc, t), ReviewSet{}, state, &refused); oerr != nil {
 			return walkTaskFailed, oerr
 		}
+		// THE TESTING GATE HOLDS HERE TOO (the section at the end of this file): the human
+		// this arm waits for must not be handed a testing round with no run and no system
+		// comment, so the venue's evidence is judged and a hold lands its blocking comment
+		// on the round before the gate is parked. Held or not, the arm waits for a human.
+		if _, gerr := wf.testingGateHeld(ctx, in, lc, t, ws, state, &refused); gerr != nil {
+			return walkTaskFailed, gerr
+		}
 		state.surfaceReviewSetRefusal(t.ID, err.Error())
 		state.stage = StageAwaitingApproval
 		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &refused, inbox, nil)
@@ -2436,6 +2487,26 @@ func (wf *csWorkflows) runGate(
 		// A critic that did not judge has nothing for a resolve to address, and a critic that
 		// asked for a revise filed no comment to resolve (runAgentReviewers appends its verdict
 		// with a nil comment list).
+		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, nil)
+	}
+	// THE TESTING GATE (deterministic component testing, spec §6.5; the section at the end
+	// of this file). The `testing` review of a lifecycle that binds a test plan judges the
+	// VENUE'S evidence —
+	// the scenario run its integration job recorded — and the round cannot pass, by autogate
+	// or by a human, unless that run is at the judged integration attempt, covers every
+	// projected scenario, is all green and still renders. It sits BEFORE the policy arms for
+	// the same reason the critic's floor does: a policy that asks for no human must not pass
+	// a run nobody recorded, and a human must not be handed a task that cannot render. The
+	// hold is a HUMAN gate (nil autogate reason): the remedy is a send-back, which re-runs
+	// integration and with it the venue's record step, or an approve over the resolved system
+	// comment, which is an override on the record.
+	held, err := wf.testingGateHeld(ctx, in, lc, t, ws, state, &gate)
+	if err != nil {
+		return walkTaskFailed, err
+	}
+	if held {
+		state.surfaceReviewSet(t.ID, &set)
+		state.stage = StageAwaitingApproval
 		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, nil)
 	}
 	if set.RequiresHuman == nil || !*set.RequiresHuman {
@@ -2808,11 +2879,58 @@ func (wf *csWorkflows) completeProjectDesign(ctx workflow.Context, in deliveryAc
 		return err
 	}
 	for _, kind := range projectDesignComputedKinds() {
-		if err := wf.landComputedSlotOnMain(ctx, in, state, kind, slotForKind(src, kind).Model); err != nil {
+		model := slotForKind(src, kind).Model
+		if kind == projectstate.KindSdpReview {
+			chosen, cerr := withChosenOption(model, state.m0Option)
+			if cerr != nil {
+				return cerr
+			}
+			model = chosen
+		}
+		if err := wf.landComputedSlotOnMain(ctx, in, state, kind, model); err != nil {
 			return err
 		}
 	}
 	return wf.advanceToConstruction(ctx, in, state)
+}
+
+// m0OptionOf is the option an approve at the M0 gate names (nil at any other gate, where an
+// option means nothing).
+func m0OptionOf(lc methodassets.Lifecycle, t methodassets.LifecycleTask, sig *taskDecisionSignal) *OptionID {
+	if !isM0Gate(lc, t) {
+		return nil
+	}
+	return sig.OptionID
+}
+
+// withChosenOption is the SDP review M0's approve commits: the computed review, naming the
+// option the approve chose (dct5 round-3 ruling; the use case's object state is "chosen option
+// + build-cost ceiling", and billing's registration reads it). An approve that named no option
+// adopts the plan's recommendation. A named option the review does not present is refused —
+// committing it would record a choice nobody was offered. A copy is returned: the source model
+// is the branch's read-back, and the walk must not mutate what it read.
+func withChosenOption(model projectstate.ArtifactModel, option *OptionID) (projectstate.ArtifactModel, error) {
+	review, ok := model.(*projectstate.SdpReview)
+	if !ok || review == nil {
+		// landComputedSlotOnMain names the missing model; a wrong-typed one cannot occur
+		// (the slot decodes by kind), and is passed on for the same refusal.
+		return model, nil
+	}
+	chosen := review.Recommendation
+	if option != nil {
+		chosen = projectstate.OptionID(*option)
+	}
+	presented := false
+	for _, row := range review.Options {
+		presented = presented || row.OptionID == chosen
+	}
+	if !presented {
+		return nil, newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"cannot commit the SDP review: the M0 approve chose option %q, which the review does not present", chosen))
+	}
+	committed := *review
+	committed.ChosenOption = &chosen
+	return &committed, nil
 }
 
 // changeProjectDesignApproveMerge is the ONE version marker gating wedge 3's fix, read at
@@ -3040,11 +3158,11 @@ func (wf *csWorkflows) awaitTaskDecision(
 		case routedKindOverride:
 			wf.recordGateOverride(ctx, in, state, t, msg.Override)
 		case routedKindRedraft:
-			// A re-draft at M0 is the same refusal a send-back is (noSendBackAtM0): there is no
-			// draft to re-run — the plan is DERIVED — and withdrawing the round would strand the
-			// walk exactly as a send-back would. The gate keeps awaiting its approve.
+			// A re-draft at M0 is refused (noRedraftAtM0): there is no draft to re-run — the
+			// plan is DERIVED — and withdrawing the round would strand the walk. The gate keeps
+			// awaiting its decision (an approve, or a reject: rejectAtM0).
 			if isM0Gate(lc, t) {
-				logNoSendBackAtM0(ctx, in, t, "redraft")
+				logNoRedraftAtM0(ctx, in, t, "redraft")
 				continue
 			}
 			// The operator asked for a re-draft instead of judging what is in front of them,
@@ -3068,6 +3186,32 @@ func (wf *csWorkflows) awaitTaskDecision(
 			}
 		}
 	}
+}
+
+// testingGateRefusesApprove is a human approve's check at a scenario testing gate: a human
+// cannot approve a testing gate over a run that does not qualify (spec §1 T4; §6.5: the round
+// "cannot passRound unless" the run holds up, whoever decides it). Resolving the gate's system
+// comment used to make the approve an override on the record; T4 forbids that override. So
+// the run is judged again at the approve — the venue may have recorded a new one since the
+// hold — and while it still does not qualify the approve is refused: the hold lands again on
+// the round (a fresh system comment naming why, which is how the reviewer learns the approve
+// did not pass) and the gate keeps awaiting. When it qualifies, the judged run is what the
+// pass cites (testingGateHeld records it on the gate). Every other gate is never refused here.
+func (wf *csWorkflows) testingGateRefusesApprove(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, t methodassets.LifecycleTask,
+	ws *walkState, state *constructState, gate *gateLedger,
+) (bool, error) {
+	if !scenarioTestingGate(lc, t) || workflow.GetVersion(ctx, changeTestingPassCitesRun, workflow.DefaultVersion, 1) < 1 {
+		return false, nil
+	}
+	held, err := wf.testingGateHeld(ctx, in, lc, t, ws, state, gate)
+	if err != nil || !held {
+		return false, err
+	}
+	workflow.GetLogger(ctx).Warn("delivery.gate.approveRefusedOnTestingGate",
+		"activityId", in.ActivityID, "taskId", t.ID, "roundId", gate.roundID,
+		"consequence", "the testing task passes only on a qualifying test run; the gate keeps awaiting")
+	return true, nil
 }
 
 // routedPayloadPresent reports whether a routed signal carries the payload its Kind names.
@@ -3173,31 +3317,29 @@ func (wf *csWorkflows) decideTaskGate(
 				"activityId", in.ActivityID, "taskId", t.ID, "open", len(open))
 			return walkTaskFailed, false, nil
 		}
+		if refused, err := wf.testingGateRefusesApprove(ctx, in, lc, t, ws, state, gate); err != nil || refused {
+			return walkTaskFailed, err != nil, err
+		}
 		state.leaveHumanStage(ctx, t.ID, activityType, gateOutcomeApproved)
 		if err := wf.closeGateRound(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
 			projectstate.VerdictApprove, projectstate.RoundPassed, sig.Feedback); err != nil {
 			return walkTaskFailed, true, err
 		}
+		state.m0Option = m0OptionOf(lc, t, sig)
 		st, err := wf.passRound(ctx, in, lc, t, tc, state, gate, gateActorOperator, decidedByOperator)
 		return st, true, err
 	case ReviewReject:
-		// M0 HAS NO SEND-BACK, AND THE GATE IS WHERE THAT IS ENFORCED (Task 8 review finding
-		// 6). Recording the rejection instead would leave the ledger in a state no reader can
-		// explain: sendBackRound writes a sendBack verdict and a REJECTED gate attempt,
-		// reopenJudgedPair then does NOTHING (the row names no `reviews` target, so there is no
-		// pair to re-open), finalizeWalk finds a task that never passed and fails the activity
-		// WalkStalled/VarianceExhausted — a rejection filed against a variance-exhausted
-		// activity, for a decision the product does not offer.
-		//
-		// So the round stays OPEN, awaiting its approve, and nothing is written. The typed
-		// refusal the founder actually sees is at the façade
-		// (deliveryManager.SubmitReviewDecision, which answers FailedPrecondition naming the
-		// amendment path and matches the SPA's own NO_SDP_SEND_BACK copy); reaching here means
-		// a signal arrived past that guard, and the gate's job is then to refuse it rather than
-		// to absorb it.
+		// M0'S REJECT IS A DECISION THE PRODUCT OFFERS (spec §12 B7; use cases
+		// commit-to-a-project-option [reject-all + feedback] and replan-under-scope-change
+		// [reject]). It is not a send-back of a draft — the plan is derived — so it is
+		// rejectAtM0's, not the redraft budget's below. A history recorded before the fence
+		// refused it here and kept awaiting, and replays doing exactly that.
 		if isM0Gate(lc, t) {
-			logNoSendBackAtM0(ctx, in, t, "sendBack")
-			return walkTaskFailed, false, nil
+			if workflow.GetVersion(ctx, changeM0Reject, workflow.DefaultVersion, 1) < 1 {
+				logNoRedraftAtM0(ctx, in, t, "sendBack")
+				return walkTaskFailed, false, nil
+			}
+			return wf.rejectAtM0(ctx, in, t, ws, state, gate, sig.Feedback)
 		}
 		*redraft++
 		if *redraft >= maxPhaseRedrafts {
@@ -3223,18 +3365,98 @@ func (wf *csWorkflows) decideTaskGate(
 	return walkTaskFailed, false, nil
 }
 
-// noSendBackAtM0 is the one sentence both M0 refusal sites give, and it is the SERVER's
-// copy of the SPA's NO_SDP_SEND_BACK: to change a derived plan you amend the Architecture,
-// and re-opening Architecture makes the compute recompute rather than ask for an
-// acknowledgement. Stated once so the two sites cannot drift.
-const noSendBackAtM0 = "M0 has no send-back: the project plan is DERIVED, so changing it means amending the Architecture (slot 5) — re-opening it recomputes the plan and opens a fresh M0 round"
+// changeM0Reject fences the M0 reject (rejectAtM0): an execution recorded before it refused
+// a reject at the gate and kept awaiting its approve.
+const changeM0Reject = "m0-reject"
 
-// logNoSendBackAtM0 records the refusal and says the gate is still waiting, so an operator
+// rejectAtM0 records the M0 gate's reject, and what it means depends on whether a
+// commitment already stands — which main's SDP review says:
+//
+//   - NONE (the first M0 of the project, or one after a revoke): REJECT-ALL. No option is
+//     acceptable; the round is decided sentBack with the architect's feedback, the SDP
+//     review the gate presented reads rejected with the feedback on its thread
+//     (recordRejectAll), the project stays in — or returns to — project design, and the M0
+//     task re-runs (reopenJudgedPair): the options re-computed, a fresh round awaiting.
+//   - A STANDING COMMITMENT (a replan re-opened M0 during construction): the revision is
+//     rejected and not adopted. The round is decided sentBack, nothing lands on main, and
+//     the activity exits again on the plan it committed: construction carries on against
+//     the current network.
+func (wf *csWorkflows) rejectAtM0(
+	ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask,
+	ws *walkState, state *constructState, gate *gateLedger, fb *ReviewFeedback,
+) (walkTaskState, bool, error) {
+	head, err := wf.readProject(ctx, in.ProjectID)
+	if err != nil {
+		return walkTaskFailed, true, err
+	}
+	standing := slotForKind(head, projectstate.KindSdpReview).Status == projectstate.ReviewCommitted
+	state.leaveHumanStage(ctx, t.ID, in.Activity.activityTypeName(), gateOutcomeSentBack)
+	if err := wf.sendBackRound(ctx, in, t, state, gate, ws, fb); err != nil {
+		return walkTaskFailed, true, err
+	}
+	if standing {
+		workflow.GetLogger(ctx).Info("delivery.m0.revisionRejected", "activityId", in.ActivityID,
+			"consequence", "the revision is not adopted; the commitment stands")
+		if err := wf.recordBinaryExit(ctx, in.csIn(), &state.walk.headVersion, state, state.walk.cred); err != nil {
+			return walkTaskFailed, true, err
+		}
+		return walkTaskExited, true, nil
+	}
+	if err := wf.recordRejectAll(ctx, in, state, signalNotes(fb)); err != nil {
+		return walkTaskFailed, true, err
+	}
+	return walkTaskSentBack, true, nil
+}
+
+// recordRejectAll records the reject-all on main's SDP review: the review the gate
+// presented is staged there (the compute stages it on the session branch, and main holds
+// it only once a decision lands), then recorded rejected with the feedback.
+func (wf *csWorkflows) recordRejectAll(ctx workflow.Context, in deliveryActivityInput, state *constructState, feedback string) error {
+	src, err := wf.readComputedPlanSource(ctx, in)
+	if err != nil {
+		return err
+	}
+	model := slotForKind(src, projectstate.KindSdpReview).Model
+	if model == nil {
+		return newError(fwmanager.FailedPrecondition,
+			"cannot record the reject-all: no computed SDP review to record it on for activity "+string(in.ActivityID))
+	}
+	env, encErr := encodeModel(model)
+	if encErr != nil {
+		return fwmanager.MapError(encErr)
+	}
+	pid := projectstate.ProjectID(in.ProjectID)
+	v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.DesignSessionStageArtifactForReviewOnBranch(ctx, pid, expected, "", env)
+	})
+	if err != nil {
+		return err
+	}
+	state.walk.headVersion = v
+	v, err = wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ProjectStateRecordSdpReviewOutcome(ctx, pid, expected, projectstate.ReviewRejected, feedback)
+	})
+	if err != nil {
+		return err
+	}
+	state.walk.headVersion = v
+	return nil
+}
+
+// noRedraftAtM0 is the sentence the M0 refusals give, and it is the SERVER's copy of the
+// SPA's NO_SDP_SEND_BACK: there is no draft at M0 to re-run — the plan is derived — so to
+// change it you amend the Architecture, and re-opening Architecture makes the compute
+// recompute rather than ask for an acknowledgement. A reject at M0 is NOT refused: it is
+// the reject-all / reject-the-revision decision (rejectAtM0). Stated once so the sites
+// cannot drift.
+const noRedraftAtM0 = "M0 has no redraft: the project plan is DERIVED, so changing it means amending the Architecture (slot 5) — re-opening it recomputes the plan and opens a fresh M0 round"
+
+// logNoRedraftAtM0 records the refusal and says the gate is still waiting, so an operator
 // reading the log is not left thinking their decision landed.
-func logNoSendBackAtM0(ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask, kind string) {
+func logNoRedraftAtM0(ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask, kind string) {
 	workflow.GetLogger(ctx).Warn("delivery.gate.refusedSendBack",
 		"activityId", in.ActivityID, "taskId", t.ID, "decision", kind,
-		"reason", noSendBackAtM0, "gate", "still awaiting approve")
+		"reason", noRedraftAtM0, "gate", "still awaiting approve")
 }
 
 // sendBackRound records the rejection: the human's verdict with the comments that rode
@@ -3412,12 +3634,24 @@ func (wf *csWorkflows) seedWalkFromLedger(
 		return resumed
 	}
 	row := proj.ActivityExecution[string(in.ActivityID)]
+	// T4 (spec §1): an uncited testing pass does not seed the testing task passed, so a walk
+	// over a ledger that carries one — the backfill's, an override written before the rule —
+	// stops at the testing gate and judges the run there. The numbering below still counts
+	// the dropped attempt, so the gate's next attempt does not collide with it.
+	seeded := row
+	if lifecycleBindsTestPlan(lc) && workflow.GetVersion(ctx, changeTestingPassCitesRun, workflow.DefaultVersion, 1) >= 1 {
+		seeded.Attempts = projectstate.QualifiedAttempts(true, row.Attempts)
+	}
 	ws := newWalkState(lc)
 	ws.rec = wf.Deliveries
 	for _, t := range lc.Tasks {
-		latest, n := latestTaskOutcome(row, projectstate.MethodTask(t.ID))
+		latest, _ := latestTaskOutcome(seeded, projectstate.MethodTask(t.ID))
+		_, n := latestTaskOutcome(row, projectstate.MethodTask(t.ID))
 		if latest == projectstate.OutcomePassed || committedArtifactOfTask(proj, lc, t) {
 			ws.byTask[t.ID] = walkTaskPassed
+			if a, ok := latestPassedAttempt(seeded, projectstate.MethodTask(t.ID)); ok {
+				ws.produced[t.ID] = producedFromLedger(a)
+			}
 		}
 		if int64(n) > ws.revision[t.ID] {
 			ws.revision[t.ID] = int64(n)
@@ -3428,7 +3662,94 @@ func (wf *csWorkflows) seedWalkFromLedger(
 			ws.revision[string(r.TaskID)] = r.Round
 		}
 	}
+	reopenAtSeed(ctx, in, lc, ws)
 	return ws
+}
+
+// latestPassedAttempt is the highest-numbered PASSED attempt the ledger holds at task.
+func latestPassedAttempt(row projectstate.ActivityExecution, task projectstate.MethodTask) (projectstate.TaskAttempt, bool) {
+	var best projectstate.TaskAttempt
+	found := false
+	for _, a := range row.Attempts {
+		if a.Task != task || a.Outcome != projectstate.OutcomePassed {
+			continue
+		}
+		if !found || a.Attempt > best.Attempt {
+			best, found = a, true
+		}
+	}
+	return best, found
+}
+
+// producedFromLedger is a seeded task's output as the ledger recorded it: the attempt that
+// passed and what it cited (attemptEvidence's two kinds, read back). It is what a review the
+// walk still has to run judges when its producer passed in an EARLIER execution of the
+// activity — the case the B12 fork makes ordinary: stp passes beside a construction that
+// then exhausts its variance budget, the activity exits with stpReview never decided, and the
+// re-run seeded stp passed with nothing in ws.produced, so its round cited an empty subject
+// and the store refused it ("empty subjectRef"), failing the re-run before it dispatched
+// anything (dct5 scenario execute-a-project-activity P6).
+func producedFromLedger(a projectstate.TaskAttempt) producedSubject {
+	out := producedSubject{AttemptID: a.AttemptID, Outcome: a.Outcome, Detail: a.Detail}
+	switch a.Evidence.Kind {
+	case projectstate.EvidenceGit:
+		out.StagedRef = a.Evidence.Ref
+	case projectstate.EvidenceEpisode:
+		out.EpisodeID = a.Evidence.Ref
+	case projectstate.EvidenceNone, projectstate.EvidenceArtifact, projectstate.EvidenceContract, projectstate.EvidenceTestRun:
+		// A dispatch cites only the two kinds above (attemptEvidence); the others are a
+		// gate's own citations, and the round's subject then falls to the attempt itself.
+	}
+	return out
+}
+
+// openReopenedGate records the re-opened gate's next attempt PENDING before the walk runs.
+// The ledger otherwise still says the gate PASSED — its latest attempt is the one the walk
+// that ended recorded — so App A's completion rule kept reading the phase complete and the
+// activity DONE through a whole re-review the reviewer was being asked to decide. One
+// pending attempt at the number the gate will decide (passGateAttempt / rejectGateAttempt
+// resolve the same id) is the ledger saying the phase is open again.
+func (wf *csWorkflows) openReopenedGate(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, ws *walkState, state *constructState,
+) error {
+	if in.Reopen == nil {
+		return nil
+	}
+	gate, ok := lifecycleTaskByID(lc, in.Reopen.TaskID)
+	if !ok {
+		return nil
+	}
+	n := int(ws.revision[gate.ID]) + 1
+	task := projectstate.MethodTask(gate.ID)
+	return wf.openWorkAttempt(ctx, in.csIn(), state, &state.walk.headVersion, state.walk.cred,
+		task, n, projectstate.AttemptID(string(in.ActivityID), task, n))
+}
+
+// reopenAtSeed applies a DispatchActivityTask reopen (deliveryActivityInput.Reopen) to the
+// freshly seeded walk: the named gate's judged pair goes back to pending at revision n+1 and
+// carries the dispatch's steer — the send-back rule, so the walk re-produces exactly the task
+// the caller asked for and judges it again. A gate that judges nothing of its own (the M0 row)
+// re-opens itself, which recomputes its subject.
+func reopenAtSeed(ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, ws *walkState) {
+	if in.Reopen == nil {
+		return
+	}
+	gate, ok := lifecycleTaskByID(lc, in.Reopen.TaskID)
+	if !ok {
+		workflow.GetLogger(ctx).Error("delivery.walk.reopenUnknownTask; the walk runs as seeded",
+			"activityId", in.ActivityID, "taskId", in.Reopen.TaskID)
+		return
+	}
+	judged := roundJudges(gate)
+	for _, id := range []string{gate.ID, string(judged)} {
+		ws.byTask[id] = walkTaskPending
+	}
+	// NO REVISION BUMP: the seed already holds the ledger's count (the rounds a gate has
+	// held, the attempts a dispatch has made), which is exactly the revision a live
+	// send-back would have reached — the next round and the next dispatch take n+1 from it.
+	ws.feedback[string(judged)] = signalNotes(in.Reopen.Feedback)
+	workflow.GetLogger(ctx).Info("delivery.walk.reopened", "activityId", in.ActivityID,
+		"gate", gate.ID, "judged", string(judged))
 }
 
 // seedTaskAttempts raises the run's per-task dispatch counter to whatever the ledger already
@@ -3495,13 +3816,11 @@ func (wf *csWorkflows) openActivityRow(ctx workflow.Context, in deliveryActivity
 		return err
 	}
 	state.walk.cred, state.walk.gitOn = cred, gitOn
-	switch {
-	case state.executionLedger:
+	// The pre-ledger arm (DefaultVersion of changeExecutionLedger) stamped a git row's
+	// "started" instead; it was reachable only by replaying a history recorded before the
+	// ledger existed, and none exists, so it was deleted in dct4 with its RA verb.
+	if state.executionLedger {
 		if err := wf.openActivity(ctx, csIn, state, cred, &state.walk.headVersion); err != nil {
-			return err
-		}
-	case gitOn:
-		if err := wf.recordActivityStarted(ctx, csIn, cred, &state.walk.headVersion); err != nil {
 			return err
 		}
 	}
@@ -3606,7 +3925,7 @@ func (wf *csWorkflows) finalizeWalk(
 	// above this line writes to the ACTIVITY BRANCH or to the activity's own row, and both
 	// are already serialised — the row by its CAS, the branch by being this activity's
 	// alone. Everything below writes MAIN: runWalkMerge's merge, finalizeActivity's
-	// mergeAndRecord, and commitDesignArtifacts' N slot commits. So the lease brackets
+	// mergeGated, and commitDesignArtifacts' N slot commits. So the lease brackets
 	// exactly the main-writing tail and nothing else, and a walk that never reaches its
 	// tail never asks for one.
 	//
@@ -3659,7 +3978,7 @@ func (wf *csWorkflows) finalizeWalk(
 	// after it lands the work first and exits second. The marker is taken unconditionally,
 	// at this one point, before either arm emits a command.
 	exitLast := workflow.GetVersion(ctx, changeExitAfterTheWorkLands, workflow.DefaultVersion, 1) >= 1
-	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred,
+	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.cred,
 		reconcileTargetOf(lc), exitLast); err != nil {
 		return wf.recordTailFailure(ctx, in, state, "finalizeActivity", err)
 	}
@@ -3682,7 +4001,7 @@ func (wf *csWorkflows) finalizeWalk(
 			// error: the caller must receive the commit's cause and not a report about
 			// bookkeeping.
 			if eerr := wf.recordBinaryExit(ctx, csIn, &state.walk.headVersion, state,
-				state.walk.gitOn, state.walk.cred); eerr != nil {
+				state.walk.cred); eerr != nil {
 				workflow.GetLogger(ctx).Error("the completion a broken landing earned could not be recorded",
 					"activityId", in.ActivityID, "err", eerr.Error(),
 					"consequence", "the row reads failed rather than completedNotLanded, so only an operator can re-open it")
@@ -3692,7 +4011,7 @@ func (wf *csWorkflows) finalizeWalk(
 	}
 	if exitLast {
 		if err := wf.recordBinaryExit(ctx, csIn, &state.walk.headVersion, state,
-			state.walk.gitOn, state.walk.cred); err != nil {
+			state.walk.cred); err != nil {
 			return wf.recordTailFailure(ctx, in, state, "recordBinaryExit", err)
 		}
 	}
@@ -3794,7 +4113,7 @@ func (wf *csWorkflows) requestMainWriteLease(
 	if derr := wf.Acts.MessageBusDeliverSignal(ctx,
 		messagebus.ExecutionID(pumpWorkflowID(in.ProjectID)),
 		messagebus.SignalName(signalActivityLeaseRequested),
-		messagebus.ExecutionPayload{Bytes: b}); derr != nil {
+		messagebus.ExecutionPayload{Bytes: b}, nil); derr != nil {
 		logger.Error("delivery.lease.unreachable",
 			"activityId", in.ActivityID, "err", derr.Error(),
 			"consequence", "the merge tail runs UNLEASED; the per-row CAS and the branch-file version guard still serialise per row")
@@ -3878,7 +4197,7 @@ func (wf *csWorkflows) signalActivityFinished(
 	if derr := wf.Acts.MessageBusDeliverSignal(ctx,
 		messagebus.ExecutionID(pumpWorkflowID(in.ProjectID)),
 		messagebus.SignalName(signalActivityFinished),
-		messagebus.ExecutionPayload{Bytes: b}); derr != nil && !isSignalTargetNotFound(derr) {
+		messagebus.ExecutionPayload{Bytes: b}, nil); derr != nil && !isSignalTargetNotFound(derr) {
 		logger.Error("delivery.finish.undelivered",
 			"activityId", in.ActivityID, "epoch", epoch, "err", derr.Error(),
 			"consequence", "the pump learns this terminal from its 30s reconcile instead of at once")
@@ -3893,7 +4212,7 @@ func (wf *csWorkflows) signalActivityFinished(
 // commits on main and takes no branch, so the model has to BE on main first — and the model is
 // staged on the activity branch. The retired session merged its branch and then committed, in
 // that order, for exactly this reason. The child's merges are both inside finalizeWalk
-// (runWalkMerge for the rail-dormant profile, finalizeActivity's mergeAndRecord for the PR
+// (runWalkMerge for the rail-dormant profile, finalizeActivity's mergeGated for the PR
 // rail), so the earliest honest commit point is after them. A per-gate commit is not available
 // at all: one activity holds FOUR kinds and one branch, so committing mission when its gate
 // passes would mean four merges of one branch.
@@ -4145,6 +4464,16 @@ func (wf *csWorkflows) runWalkMerge(
 		ws.byTask[mergeGateTaskID] = walkTaskPassed
 		ws.closeInbox(workflow.GetLogger(ctx), mergeGateTaskID)
 	}()
+	if isDesignLifecycle(in.Activity.Type) {
+		// A DESIGN ACTIVITY'S MERGE IS ITS APPROVE (approve-merge, the design rail's ratified
+		// convention): every artifact on this branch already passed a review gate, so a merge
+		// hold would ask the same human for the same decision a second time — and, because the
+		// review engine gates a design type outside "vibes" at EVERY phase, it always held. An
+		// amendment approved at coreUseCasesReview then sat at a merge gate nobody is shown, and
+		// the re-committed model never reached main (dct5 scenario
+		// add-a-use-case-to-an-in-flight-project).
+		return wf.mergeUnderSupervision(ctx, in, ws, state, inbox)
+	}
 	set, err := wf.proposeReviewSet(csIn, methodassets.LifecyclePhase{ID: projectstate.MethodPhaseConstruction.String()},
 		state.walk.policy, state)
 	if err != nil {
@@ -4582,18 +4911,18 @@ func (wf *csWorkflows) readPRStatus(ctx workflow.Context, gf *gitForward) (csPul
 	return st, nil
 }
 
-// relayArchApprovalAndRecord relays the architecture +1 (PostReview Approve) to the PR
-// and records the audit-worthy ArchApproved fact (D-PA-GIT §5). Called once the
-// activity's review has passed (the architect's in-app sign-off). A dormant slice is a
-// no-op.
+// relayArchApproval relays the architecture +1 (PostReview Approve) to the PR. Called
+// once the activity's review has passed (the architect's in-app sign-off). A dormant
+// slice is a no-op. The approval itself is recorded on the review ledger (the decided
+// round), which is the authoritative record; the git row's ArchApproved mirror was
+// deleted in dct4 because nothing read it.
 //
 // This is a GATE-DECISION-TIME rail call: the human it waits for may have been away for
 // hours, so it re-mints an expired credential before it speaks to the rail (F-QA2-44).
-func (wf *csWorkflows) relayArchApprovalAndRecord(
+func (wf *csWorkflows) relayArchApproval(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
-	headVersion *projectstate.Version,
 ) error {
 	if !gf.enabled {
 		return nil
@@ -4603,27 +4932,17 @@ func (wf *csWorkflows) relayArchApprovalAndRecord(
 	if err != nil {
 		return err
 	}
-	if err := wf.railWithAuthRetry(ctx, func() error {
+	return wf.railWithAuthRetry(ctx, func() error {
 		return wf.Acts.RailPostReview(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef),
 			sourcecontrol.ReviewSubmission{Verdict: sourcecontrol.ReviewApprove, Body: archApprovalBody(in.ActivityID)},
 			cred.toRail())
-	}); err != nil {
-		return err
-	}
-
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityArchApproved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), gf.cred.toProjectState())
 	})
-	if err != nil {
-		return err
-	}
-	*headVersion = v
-	return nil
 }
 
-// mergeAndRecord PERFORMS the gated merge (the interventionEngine gate already
-// cleared in workflow code) and, on a Merged result, records the terminal git fact
-// (D-PA-GIT §5). A dormant slice is a no-op.
+// mergeGated PERFORMS the gated merge (the interventionEngine gate already cleared in
+// workflow code). A dormant slice is a no-op. Whether the activity is integrated is
+// earned on the execution ledger (the commit and the recorded exit), so a completed
+// merge records nothing further: the git row's Merged mirror was deleted in dct4.
 //
 // THE TWO PRECONDITIONS ARE THE GUARD, and neither survived the co-author files'
 // deletion. `RailMergePullRequest` was called bare, over a PR whose CI rollup this code
@@ -4646,7 +4965,7 @@ func (wf *csWorkflows) relayArchApprovalAndRecord(
 // the screen says what the rail said) and returned as a NAMED terminal the operator can
 // act on. Re-opening the activity is the documented repair (see commitDesignArtifacts),
 // and it is the right one — nothing this workflow can do makes a build go green.
-func (wf *csWorkflows) mergeAndRecord(
+func (wf *csWorkflows) mergeGated(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
@@ -4680,18 +4999,10 @@ func (wf *csWorkflows) mergeAndRecord(
 		return temporal.NewNonRetryableApplicationError(
 			"gated merge did not complete (PR not mergeable)", "MergeNotCompleted", nil)
 	}
-
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityMerged(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), gf.cred.toProjectState())
-	})
-	if err != nil {
-		return err
-	}
-	*headVersion = v
 	return nil
 }
 
-// guardMergePreconditions is mergeAndRecord's two refusals, and it returns nil ONLY when the
+// guardMergePreconditions is mergeGated's two refusals, and it returns nil ONLY when the
 // PR may actually be merged. Split out from the merge body so each half reads as the one
 // question it asks.
 func (wf *csWorkflows) guardMergePreconditions(
@@ -4813,64 +5124,6 @@ func (wf *csWorkflows) reconcileDivergedBranch(
 	// deliberately — feeding a branch-scoped version into a main-scoped CAS is the exact
 	// mistake applyRecoveringOnBranch's own comment warns about.
 	_ = headVersion
-	return nil
-}
-
-// recordActivityStarted marks the activity Running in the per-activity construction
-// head-state at the TOP of the spine (Task 3), BEFORE any dispatch. This is what
-// flips the activity out of NotStarted so the pump's eligibility selection
-// (nextEligibleActivity over proj.ActivityExecution) does not re-dispatch it on a
-// concurrent/redundant tick. Cred-threaded like the four git head-state records; a
-// dormant slice (git unwired) is a no-op (the live Postgres composition has no
-// per-activity construction head-state, so the gate degrades to the child-workflow-id
-// idempotency the pump already relies on). It mints a credential ONCE for the
-// started+completed pair via the supplied gitForward.cred when the branch lifecycle
-// has already minted one, else mints its own.
-//
-// It also stamps the activity's classified (Type, Variant) onto the head-state row —
-// the RA seeds its Phases slice from that pair, so an unstamped row seeded the 5-phase
-// SERVICE set for every activity and made earned value disagree with the profile the
-// workflow walks.
-func (wf *csWorkflows) recordActivityStarted(
-	ctx workflow.Context,
-	in constructActivityInput,
-	cred railCredEnvelope,
-	headVersion *projectstate.Version,
-) error {
-	if wf.GitStatus == nil {
-		return nil
-	}
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityStarted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
-			in.Activity.Type, in.Activity.Variant, cred.toProjectState())
-	})
-	if err != nil {
-		return err
-	}
-	*headVersion = v
-	return nil
-}
-
-// recordActivityCompleted marks the activity Done in the per-activity construction
-// head-state at the END of the spine (Task 3), alongside RecordActivityExited. This
-// is what unblocks dependents in the pump's eligibility selection (projectstate.AllDepsSatisfied). A
-// dormant slice is a no-op.
-func (wf *csWorkflows) recordActivityCompleted(
-	ctx workflow.Context,
-	in constructActivityInput,
-	cred railCredEnvelope,
-	headVersion *projectstate.Version,
-) error {
-	if wf.GitStatus == nil {
-		return nil
-	}
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityCompleted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), cred.toProjectState())
-	})
-	if err != nil {
-		return err
-	}
-	*headVersion = v
 	return nil
 }
 
@@ -5102,14 +5355,33 @@ func (wf *csWorkflows) loadReviewSnapshot(
 	// contract touches deploy/spend/schema — never re-evaluated mid-loop, mirroring
 	// reviewPolicy itself. A missing contract (nil map lookup) reads as the zero
 	// ServiceContract, which never touches the floor.
-	state.floorTouched = projectstate.ContractTouchesReviewFloor(snap.ServiceContracts[in.Activity.ComponentID])
+	//
+	// The activity names its component by the System's id ("review-engine") while
+	// .serviceContracts is keyed by the component's contractKey ("reviewEngine"), so the
+	// contract is found through the System (componentContractKey). An execution that
+	// recorded no changeFloorByContractKey marker looked the contract up under the id —
+	// which found none, so its floor read untouched — and replays that read.
+	floorKey := in.Activity.ComponentID
+	if workflow.GetVersion(ctx, changeFloorByContractKey, workflow.DefaultVersion, 1) >= 1 {
+		floorKey, _ = componentContractKey(snap, in.Activity.ComponentID)
+	}
+	state.floorTouched = projectstate.ContractTouchesReviewFloor(snap.ServiceContracts[floorKey])
 	return reviewPolicy, snap, nil
 }
 
+// changeFloorByContractKey fences the review floor's contract lookup by the component's
+// contractKey (loadReviewSnapshot) from the pre-fence lookup by its System id.
+const changeFloorByContractKey = "review-floor-by-contract-key"
+
 // finalizeActivity runs the clean-pass tail of an attempt (constructionManager.md §6.3
-// steps 5a-6a): relay the architecture +1, record the change reviewed, and perform the
-// gated merge (interventionEngine is the App-only-merge authority). The git-forward steps
-// are no-ops when the slice is unwired.
+// steps 5a-6a): relay the architecture +1 and perform the gated merge (interventionEngine
+// is the App-only-merge authority). The git-forward steps are no-ops when the slice is
+// unwired.
+//
+// STEP 6 — "record the change reviewed" — IS GONE (dct Plan 4 Task 3, which deleted
+// constructionTransitionAccess.RecordChangeReviewed). The review is the ROUND the gate
+// decided on the execution ledger (DecideReviewRound); the retired verb had been reduced to
+// birthing a row that OpenActivity had already born, so it wrote nothing but a version.
 //
 // STEPS 8/8a — THE BINARY EXIT — LEFT THIS FUNCTION (wedge #6). They are recordBinaryExit's
 // now, and finalizeWalk calls it LAST, after commitDesignArtifacts; deferExit is false only
@@ -5120,32 +5392,24 @@ func (wf *csWorkflows) finalizeActivity(
 	gf *gitForward,
 	headVersion *projectstate.Version,
 	state *constructState,
-	gitOn bool,
 	startedCred railCredEnvelope,
 	preserveKinds []projectstate.ArtifactKind,
 	deferExit bool,
 ) error {
 	// --- Step 5a: relay the architecture +1 and record it (git-forward). ---
-	if err := wf.relayArchApprovalAndRecord(ctx, in, gf, headVersion); err != nil {
+	if err := wf.relayArchApproval(ctx, in, gf); err != nil {
 		return err
 	}
 
-	// --- Step 6: record the change reviewed (head-state). ---
-	v, e := wf.recordChangeReviewed(ctx, in, state, *headVersion, startedCred)
-	if e != nil {
-		return e
-	}
-	*headVersion = v
-
 	// --- Step 6a: perform the gated merge and record it (git-forward). ---
-	if err := wf.mergeAndRecord(ctx, in, gf, preserveKinds, headVersion); err != nil {
+	if err := wf.mergeGated(ctx, in, gf, preserveKinds, headVersion); err != nil {
 		return err
 	}
 
 	if deferExit {
 		return nil
 	}
-	return wf.recordBinaryExit(ctx, in, headVersion, state, gitOn, startedCred)
+	return wf.recordBinaryExit(ctx, in, headVersion, state, startedCred)
 }
 
 // recordBinaryExit is step 8 (and 8a): the activity's BINARY EXIT, and it is the LAST main
@@ -5164,37 +5428,26 @@ func (wf *csWorkflows) finalizeActivity(
 // in AwaitingReview would put the pump into construction against a plan nobody committed."
 // This is the same rule one level down — the activity's exit instead of the phase's advance.
 //
-// Behind the fence RecordActivityOutcome is the fold of the exited + completed pair below:
-// both stamped the SAME write-once CompletedAt, which is the whole of an exit now that the
-// coarse roll-up is derived, so the two calls became one.
+// RecordActivityOutcome is the fold of the retired exited + completed pair: both stamped the
+// SAME write-once CompletedAt, which is the whole of an exit now that the coarse roll-up is
+// derived, so the two calls became one.
+//
+// THERE IS NO PRE-LEDGER ARM ANY MORE (dct Plan 4 Task 3). The exit used to branch on the
+// execution-ledger fence, the old arm writing constructionTransitionAccess.RecordActivityExited
+// and gitActivityStatusAccess.RecordActivityCompleted. constructionTransitionAccess is
+// deleted, and the arm only ever served an execution that recorded no ledger marker: there
+// are none (no production usage — the founder's ruling the pump's fence discharge in stage
+// 4b3 rests on), and no live replay fixture holds such a history.
 func (wf *csWorkflows) recordBinaryExit(
 	ctx workflow.Context,
 	in constructActivityInput,
 	headVersion *projectstate.Version,
 	state *constructState,
-	gitOn bool,
 	startedCred railCredEnvelope,
 ) error {
-	if state.executionLedger {
-		if err := wf.recordExecutionOutcome(ctx, in, state, headVersion, startedCred,
-			projectstate.ActivityOutcomeCompleted, projectstate.FailureReasonUnknown, ""); err != nil {
-			return err
-		}
-	} else {
-		v2, e2 := wf.recordActivityExited(ctx, in, *headVersion, projectstate.ActivityOutcomeCompleted, startedCred)
-		if e2 != nil {
-			return e2
-		}
-		*headVersion = v2
-
-		// --- Step 8a: record the per-activity construction COMPLETED (Task 3). Flip the
-		// activity to Done so the pump's eligibility selection unblocks its dependents on
-		// the next tick. Dormant (no-op) when the git slice is unwired. ---
-		if gitOn {
-			if err := wf.recordActivityCompleted(ctx, in, startedCred, headVersion); err != nil {
-				return err
-			}
-		}
+	if err := wf.recordExecutionOutcome(ctx, in, state, headVersion, startedCred,
+		projectstate.ActivityOutcomeCompleted, projectstate.FailureReasonUnknown, ""); err != nil {
+		return err
 	}
 
 	state.stage = StageExited
@@ -5466,6 +5719,11 @@ func (wf *csWorkflows) passGateAttempt(
 		return nil
 	}
 	kind, ref := gateEvidence(gate.subject)
+	if gate.testRunID != "" {
+		// A scenario testing gate's pass cites the run it judged (spec §1 T4): the store
+		// refuses a testing pass without it, and no reader counts one.
+		kind, ref = projectstate.EvidenceTestRun, gate.testRunID
+	}
 	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
 		AttemptID:    projectstate.AttemptID(string(in.ActivityID), gate.task, gate.number),
 		TaskID:       gate.task,
@@ -5602,15 +5860,15 @@ func (wf *csWorkflows) recordOperatorNote(
 		Comments: noteComments(fb.comments),
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ConstructionTransitionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), note, cred.toProjectState())
+		return wf.Acts.ActivityExecutionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID), note, "", cred.toProjectState())
 	})
 	if err != nil {
 		return err
 	}
 	*headVersion = v
-	// A retired-facet write onto the row, fenced on note delivery rather than on the
-	// execution ledger, so it lands on a ledger-on run too (see rowAdvanced).
+	// A transition on the row under its per-activity CAS, so the run's copy of the row
+	// version follows it (see rowAdvanced).
 	state.rowAdvanced()
 	recorded := projectstate.OperatorNote{
 		NoteID: note.NoteID, Kind: note.Kind, Gate: note.Gate, Text: note.Text, Comments: note.Comments,
@@ -5668,7 +5926,7 @@ func (wf *csWorkflows) submitCarryingNotes(
 			delivered[n.NoteID] = true
 			continue
 		}
-		if wf.stampNoteDelivered(ctx, in, state, n.NoteID, attemptID, gf, headVersion) {
+		if wf.stampNoteDelivered(ctx, in, state, n, attemptID, gf, headVersion) {
 			delivered[n.NoteID] = true
 		}
 	}
@@ -5686,15 +5944,24 @@ func (wf *csWorkflows) submitCarryingNotes(
 	return handle, nil
 }
 
-// stampNoteDelivered records noteID delivered to attemptID and reports whether the store
-// now says so. It never fails the run: the job is already dispatched. A stamp that still
-// fails after its retry window leaves the note pending (at-least-once); a stamp the store
-// refuses because the note was already delivered to another attempt means it is no
+// stampNoteDelivered records the note n delivered to attemptID and reports whether the
+// store now says so. It never fails the run: the job is already dispatched. A stamp that
+// still fails after its retry window leaves the note pending (at-least-once); a stamp the
+// store refuses because the note was already delivered to another attempt means it is no
 // longer pending, so that reads as delivered.
-func (wf *csWorkflows) stampNoteDelivered(ctx workflow.Context, in constructActivityInput, state *constructState, noteID, attemptID string, gf *gitForward, headVersion *projectstate.Version) bool {
+//
+// THE STAMP IS A RE-RECORD OF THE NOTE carrying the attempt (activityExecutionAccess's
+// RecordOperatorNote — the fold of the retired note/delivery pair, dct Plan 4 Task 3), so
+// it sends the note's own content back: the store matches it by id AND content, exactly as
+// it does any re-record. It rides stampActs, which keeps M4's bounded envelope on THIS call
+// while the same verb's gate-time record keeps the record preset.
+func (wf *csWorkflows) stampNoteDelivered(ctx workflow.Context, in constructActivityInput, state *constructState, n projectstate.OperatorNote, attemptID string, gf *gitForward, headVersion *projectstate.Version) bool {
+	noteID := n.NoteID
+	note := projectstate.OperatorNoteInput{NoteID: n.NoteID, Kind: n.Kind, Gate: n.Gate, Text: n.Text, Comments: n.Comments}
+	acts := wf.stampActs()
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ConstructionTransitionRecordOperatorNoteDelivered(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), noteID, attemptID, gf.cred.toProjectState())
+		return acts.ActivityExecutionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID), note, attemptID, gf.cred.toProjectState())
 	})
 	if err == nil {
 		*headVersion = v
@@ -5805,32 +6072,6 @@ func (wf *csWorkflows) runMergePipeline(ctx workflow.Context, in constructActivi
 	return csPipelineObservation{Phase: PipelineFailed, Diagnostic: "merge pipeline did not reach a terminal phase within the poll budget"}, nil
 }
 
-// recordChangeReviewed applies the head-state transition with the Conflict loop. The
-// Manager-minted cred is threaded into the write (empty/zero in dev/dry-run).
-//
-// Another retired-facet verb that writes the row unfenced (see recordPhaseStarted): it
-// lands between the gate's last round write and the outcome the ledger records, so the
-// run's copy of the row version follows its stamp.
-func (wf *csWorkflows) recordChangeReviewed(ctx workflow.Context, in constructActivityInput, state *constructState, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
-	v, err := wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ConstructionTransitionRecordChangeReviewed(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), cred.toProjectState())
-	})
-	if err != nil {
-		return 0, err
-	}
-	state.rowAdvanced()
-	return v, nil
-}
-
-// recordActivityExited applies the binary-exit head-state transition.
-func (wf *csWorkflows) recordActivityExited(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, outcome projectstate.ActivityOutcome, cred railCredEnvelope) (projectstate.Version, error) {
-	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ConstructionTransitionRecordActivityExited(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), outcome, cred.toProjectState())
-	})
-}
-
 // Shared workflow-context helper (used by 2 csWorkflows); lives in its first caller's file per the file-layout standard.
 // readVersionE runs the cheap ReadProjectVersion GENERATED invoker (B8: migrated off the
 // custom ReadProjectVersionActivity) and returns ONLY the head-state optimistic-
@@ -5865,6 +6106,7 @@ func (wf *csWorkflows) applyRecovering(
 ) (projectstate.Version, error) {
 	expected := seed
 	for attempt := 0; ; attempt++ {
+		sent := heldRowVersion(ctx)
 		v, err := apply(expected)
 		if err == nil {
 			return v, nil
@@ -5890,7 +6132,7 @@ func (wf *csWorkflows) applyRecovering(
 		// version can, and re-reading it also re-seeds the CAS this run holds by hand
 		// (rowAdvanced). Fenced, guarded for the callers that hold no row, and terminal only
 		// when NEITHER version moved — see terminalAfterRowReread.
-		terminal, terr := terminalAfterRowReread(ctx, wf.Acts, projectID, next != expected)
+		terminal, terr := terminalAfterRowReread(ctx, wf.Acts, projectID, next != expected, sent)
 		if terr != nil {
 			return 0, terr
 		}
@@ -5901,4 +6143,395 @@ func (wf *csWorkflows) applyRecovering(
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "nextExpectedVersion", expected)
 	}
+}
+
+// ===========================================================================
+// THE TESTING GATE (deterministic component testing design, §6.5).
+//
+// The `testing` review of a lifecycle that binds a test plan judges the venue's own
+// evidence, not an agent's claim: the deterministic scenario run the integration job
+// recorded (spec §6.1/§6.2, `record-test-run`). Before runGate lets that round pass — by
+// a policy that asks for no human as much as by a human's approve — the run must be:
+//
+//  1. RECORDED for the activity at the integration attempt this round judges;
+//  2. COMPLETE — its scenario set equals ForComponent(c): nothing missing, nothing unknown;
+//  3. GREEN — every status `pass` (a skip is not a pass, §3.1);
+//  4. READABLE — its artifact indexes and has not expired, and every video/trace a result
+//     names is a file the artifact still holds.
+//
+// Anything else HOLDS the gate for a human with ONE system comment naming what is wrong,
+// anchored at the run it judged, so reviewers never see a task that cannot render. The
+// hold is a human gate like the agent critic's (criticHoldsTheGate): a resolve does not
+// release it, a send-back re-runs integration (and with it the venue's record step), and
+// an approve over the resolved comment is the operator's recorded override.
+//
+// THE RUN IS READ OFF THE ACTIVITY BRANCH, because that is where the venue publishes it.
+// record-test-run writes the TestRun into the job's checkout and the publish pushes it
+// onto AIARCH_TARGET_BRANCH = activity/<id> (aiarch-construct.yml stamps that from the
+// activity id; the local executor's constructDispatchPlan stamps the same). That branch
+// reaches main only when finalizeWalk merges it — after every task, this gate included —
+// so a gate reading main could never see a run before the round had already passed, and
+// would hold every service and frontend activity with "no test run is recorded". The read
+// is readProjectOnBranch on activity/<id> — named from the activity id exactly as the venue
+// names it, not resolved through designVenue (readTestingGateProject says why) — and falls
+// back to main only when the branch answers NotFound (a branch that is gone, or a boot
+// where nothing cut one), which cannot pass a run the judged dispatch did not produce
+// because the attempt id is this walk's own. The run crosses the Temporal boundary in
+// ProjectEnvelope.TestingState.
+//
+// THE REVISION A RUN IS "AT" IS THE WALK'S OWN: the integration ATTEMPT ID the round judges
+// (judgedSubject(ws, t).AttemptID, "<activity>:integration:<n>"). The walk holds no commit
+// SHA of the activity branch — no RA op returns one, and the construction arm stages no
+// ref — while it does hold the attempt it opened PENDING before the dispatch, which the
+// venue's checkout therefore already carries on the activity's row. A run stamped with an
+// EARLIER attempt is a run the judged dispatch did not produce, whatever its commit, which
+// is exactly the staleness Review Focus 1 names.
+//
+// EARMARK — SPEC DRIFT NEEDING A RULING, NOT SILENT ADOPTION. Spec §6.1 defines
+// TestRun.Revision as "the construction revision tested" and record-test-run documents
+// AIARCH_REVISION as "the commit the scenario tests ran against"; this gate redefines it as
+// the judged integration attempt id. Either Task 3 / method-assets adopt that meaning (the
+// venue stamps the attempt id, which its checkout already holds on the activity's row) or
+// the walk must learn a SHA (a staged ref the construction arm does not carry today).
+// Until one is ruled, every cloud run reads as "stale" here.
+//
+// EARMARK — THE VENUE RECORDS NOTHING TODAY, FOR TWO REASONS, and both halves must land
+// before any cloud run reaches this gate: (1) the construct template's "Record test run"
+// step runs AFTER claude-code-action has already published, writes only the runner's
+// working tree (applyConstructionMutation → writeProjectBytes), and no later step commits
+// or pushes it — the record needs its own commit + push to the target branch; (2)
+// AIARCH_REVISION is unset by the template, so record-test-run exits 1 before writing at
+// all. Until both are fixed every service and frontend activity holds here for a human.
+// Fail-closed, visibly.
+//
+// THE EVALUATION IS WORKFLOW-SIDE OVER THE GENERATED INVOKERS — two reads
+// (designSessionAccess.readProjectOnBranch, artifactAccess.getTestRunIndex) and a pure
+// join — and not a Manager activity, because this package registers no handwritten
+// Temporal activity (arch_activitynames_test.go: every activity is one generated RA op)
+// and the join itself (joinTestRun, the projection) is deterministic.
+//
+// IT RUNS ON BOTH ARMS OF runGate — the ordinary roster and the engine-refused one — because
+// spec §6.5 says the round "cannot passRound unless" the evidence holds up, whoever decides
+// it. An empty-roster round parked for a human is still a round a human can approve.
+//
+// EARMARK — THE VACUOUS PASS: a run with NO results over a component with NO projected
+// scenarios passes (testingGateHold). Spec §6.5 does not say so; it is admitted so the
+// hand-built rigs that run the production projector over use-case-less projects do not
+// wedge. In production projectstate.ComponentScenarios is empty for a component on no
+// use-case path, so a zero-result run — if any path ever stores one — passes for such a
+// component. Needs a ruling (hold on an empty projection, or accept it as "nothing to test").
+//
+// IT LIVES IN THIS FILE, not in a testinggate.go of its own, because the file-layout gate
+// (framework-go/arch, TestFileLayout at zero waivers) admits exactly one handwritten file
+// per workflow entry func plus the impl file — a helpers-only file is `file-not-allowed`.
+// The gate is a step of DeliveryActivityWorkflow's walk, so it is this workflow's file.
+// ===========================================================================
+
+// artifactKindSTP is the lifecycle artifactKind of the bound test plan task (`stp`): the
+// row whose presence says this lifecycle's `testing` review judges a scenario run.
+const artifactKindSTP = "STP"
+
+// changeTestingPassCitesRun fences the two command-visible halves of T4 (spec §1) in the
+// walk: the ledger seed no longer seeds an uncited testing pass passed, and a human approve
+// at a scenario testing gate re-judges the run and is refused while the gate holds. A
+// history recorded before either keeps its old commands.
+const changeTestingPassCitesRun = "testing-pass-cites-run"
+
+// scenarioTestingGate reads the DATA and nothing else: the `testing` review of a lifecycle
+// that carries a test-plan task. Those are the service and frontend lifecycles — the ones
+// whose testing exit criterion is "a test run at the current revision covers every
+// scenario" — and not the harness, perf, deployment or documentation lifecycles, which
+// name a `testing` review too but bind no scenarios for a venue to run. Reading the
+// lifecycle keeps the walker ignorant of activity types, exactly as isM0Gate does.
+func scenarioTestingGate(lc methodassets.Lifecycle, t methodassets.LifecycleTask) bool {
+	if t.Kind != methodassets.LifecycleTaskReview || t.ID != string(projectstate.TaskTesting) {
+		return false
+	}
+	return lifecycleBindsTestPlan(lc)
+}
+
+// lifecycleBindsTestPlan reports whether a lifecycle carries a test-plan task — whether its
+// `testing` review judges a scenario run, and so passes only on a cited, qualifying TestRun
+// (spec §1 T4; projectstate.QualifiedAttempts).
+func lifecycleBindsTestPlan(lc methodassets.Lifecycle) bool {
+	return slices.ContainsFunc(lc.Tasks, func(row methodassets.LifecycleTask) bool {
+		return row.ArtifactKind == artifactKindSTP
+	})
+}
+
+// testingPassCitesRun reports whether the ledger holds a `testing` pass that cites the
+// TestRun its gate judged — the only pass T4 lets the testing task read passed on.
+func testingPassCitesRun(attempts []projectstate.TaskAttempt) bool {
+	return slices.ContainsFunc(attempts, func(a projectstate.TaskAttempt) bool {
+		return a.Task == projectstate.TaskTesting && a.Outcome == projectstate.OutcomePassed &&
+			a.Evidence.Kind == projectstate.EvidenceTestRun && a.Evidence.Ref != ""
+	})
+}
+
+// testingGateEvidence is what the gate reads for ONE contract the activity's component
+// owns: how many scenarios are projected onto it, the contract's latest run joined with that
+// projection and its artifact index (Run), the files that artifact holds, and — when the index
+// could not be read at all — the read's own failure. Run is nil when no run is recorded for
+// the contract.
+type testingGateEvidence struct {
+	Contract  string
+	Projected int
+	Run       *DeliveryTestRunView
+	Files     []string
+	IndexErr  error
+	// Unresolved: the committed System does not resolve the activity's component to a
+	// contract key, so Contract is the component's id and there is no contract to judge.
+	Unresolved bool
+}
+
+// testingGateHold returns "" when the contract's evidence lets the gate pass, else the hold
+// reason (the text of the system ReviewComment the round carries). currentRevision is the
+// integration attempt the round judges; an empty one is itself a hold, because a run cannot be
+// matched against a revision the walk does not know.
+//
+// NOTHING PROJECTED IS A HOLD, NEVER A VACUOUS PASS (dct5 round-2 ruling). TP-OP-REACHED makes
+// every operation of every contract the input of some scenario, so a contract whose lifecycle
+// binds a test plan and projects zero scenarios is a model defect, never "nothing to test" —
+// and a gate that passed it would be passing a component nobody exercised.
+func testingGateHold(ev testingGateEvidence, currentRevision string) string {
+	if ev.Unresolved {
+		return fmt.Sprintf("the committed System gives component %q no contractKey, so it owns no contract whose test runs this gate could judge", ev.Contract)
+	}
+	if ev.Projected == 0 {
+		return fmt.Sprintf("no scenario is projected onto %s: a component whose lifecycle binds a test plan and projects none is a model defect (every operation is the input of a use case, TP-OP-REACHED), not nothing to test",
+			ev.Contract)
+	}
+	if ev.Run == nil {
+		return fmt.Sprintf("no test run is recorded for %s on this activity; the venue's integration job records one per contract with record-test-run", ev.Contract)
+	}
+	run := ev.Run.Run
+	if currentRevision == "" {
+		return fmt.Sprintf("test run %s cannot be matched: the walk holds no integration attempt for this round to judge", run.Id)
+	}
+	if run.Revision != currentRevision {
+		return fmt.Sprintf("test run %s was recorded at revision %q, not at the integration attempt this round judges (%q); re-run the scenarios",
+			run.Id, run.Revision, currentRevision)
+	}
+	if ev.IndexErr != nil {
+		return fmt.Sprintf("the artifact %q of test run %s could not be indexed: %s", ev.Run.Artifact, run.Id, ev.IndexErr.Error())
+	}
+	if ev.Run.Expired {
+		return fmt.Sprintf("the artifact %q of test run %s has expired; re-run the scenarios", ev.Run.Artifact, run.Id)
+	}
+	if len(ev.Run.Missing) > 0 {
+		return fmt.Sprintf("test run %s never ran projected scenario(s): %s", run.Id, strings.Join(ev.Run.Missing, ", "))
+	}
+	if len(ev.Run.Unknown) > 0 {
+		return fmt.Sprintf("test run %s reports result(s) for no projected scenario: %s", run.Id, strings.Join(ev.Run.Unknown, ", "))
+	}
+	if reason := testingGateStatuses(run.Id, ev.Run.Scenarios); reason != "" {
+		return reason
+	}
+	if lost := testingGateLostFiles(ev.Run.Scenarios, ev.Files); len(lost) > 0 {
+		return fmt.Sprintf("test run %s names video/trace file(s) its artifact does not hold: %s", run.Id, strings.Join(lost, ", "))
+	}
+	return ""
+}
+
+// testingGateStatuses is rule 3: every status `pass`. Failures and skips are named
+// separately — "skipped: <ids>" is the sentence spec §3.1 gives a skip — and anything
+// outside the three statuses record-test-run admits is reported as what it is.
+func testingGateStatuses(runID string, scenarios []TestRunScenarioView) string {
+	var failed, skipped, other []string
+	for _, sc := range scenarios {
+		switch sc.Status {
+		case scenarioStatusPass:
+		case scenarioStatusFail:
+			failed = append(failed, sc.Id)
+		case scenarioStatusSkip:
+			skipped = append(skipped, sc.Id)
+		default:
+			other = append(other, sc.Id+"="+sc.Status)
+		}
+	}
+	var parts []string
+	if len(failed) > 0 {
+		parts = append(parts, "failed: "+strings.Join(failed, ", "))
+	}
+	if len(skipped) > 0 {
+		parts = append(parts, "skipped: "+strings.Join(skipped, ", "))
+	}
+	if len(other) > 0 {
+		parts = append(parts, "unrecognised status: "+strings.Join(other, ", "))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("test run %s did not pass — %s", runID, strings.Join(parts, "; "))
+}
+
+// testingGateLostFiles is rule 4's second half: every video/trace a result names must be
+// a file the artifact holds. A server component names none, so the rule is vacuous there;
+// a client component's run that names a video the artifact lost cannot render.
+func testingGateLostFiles(scenarios []TestRunScenarioView, files []string) []string {
+	var lost []string
+	for _, sc := range scenarios {
+		for _, ref := range []string{sc.VideoRef, sc.TraceRef} {
+			if ref != "" && !slices.Contains(files, ref) {
+				lost = append(lost, ref)
+			}
+		}
+	}
+	return lost
+}
+
+const (
+	scenarioStatusPass = "pass"
+	scenarioStatusFail = "fail"
+	scenarioStatusSkip = "skip"
+)
+
+// readTestingGateEvidence reads the gate's evidence through the generated invokers, ONE
+// entry per contract the activity's component owns (gateContracts): the project as the
+// ACTIVITY BRANCH holds it, the contract's latest run there (selectContractRun), the
+// projection onto the contract, and the run's artifact index. An index read that fails is
+// EVIDENCE, not a walk failure: the gate holds naming it, because a run whose artifact cannot
+// be read cannot render either.
+//
+// PER CONTRACT, NOT THE ACTIVITY'S LATEST RUN (dct5 round-2 ruling). A component with several
+// contracts (projectStateAccess's four facets) records one run per contract, so judging only
+// the activity's latest run let a green facet mask a red one. Every contract's latest run is
+// judged, and all must hold.
+func (wf *csWorkflows) readTestingGateEvidence(ctx workflow.Context, in deliveryActivityInput) ([]testingGateEvidence, error) {
+	proj, err := wf.readTestingGateProject(ctx, in)
+	if err != nil {
+		// The state itself unreadable IS a walk failure — a store fault, not a fact about
+		// the run — and so is a projection that refuses (below): both are defects in the
+		// composition, which a held gate would hide behind a comment nobody can act on.
+		return nil, fmt.Errorf("testing gate: reading the activity branch: %w", err)
+	}
+	contracts, resolved := gateContracts(&proj, in.Activity.ComponentID)
+	if !resolved {
+		return []testingGateEvidence{{Contract: in.Activity.ComponentID, Unresolved: true}}, nil
+	}
+	out := make([]testingGateEvidence, 0, len(contracts))
+	for _, contract := range contracts {
+		projected, err := wf.Scenarios(&proj, contract)
+		if err != nil {
+			return nil, fmt.Errorf("testing gate: projecting scenarios onto %q: %w", contract, err)
+		}
+		ev := testingGateEvidence{Contract: contract, Projected: len(projected)}
+		run, ok := selectContractRun(&proj, string(in.ActivityID), contract)
+		if ok {
+			idx, ierr := wf.Acts.ArtifactGetTestRunIndex(ctx, testRunRef(run))
+			if ierr != nil {
+				// A terminal RA refusal lands here — NotFound (the venue never uploaded it) and
+				// ContractMisuse are the preset's non-retryable kinds (testRunIndexActivityOptions)
+				// — and it means one thing to the gate: the evidence cannot be read. Indexed as
+				// nothing, so the join still renders Missing/Unknown for the comment. A
+				// NON-terminal fault (an infrastructure error) does NOT land here: the preset sets
+				// no MaxAttempts, so per framework-go's ActivityPreset the index read retries
+				// without limit and the walk waits at the activity rather than holding with a
+				// comment — the package's convention for every RA read.
+				idx = artifact.TestRunIndex{}
+			}
+			view := joinTestRun(run, projected, idx)
+			ev.Run, ev.Files, ev.IndexErr = &view, idx.Files, ierr
+		}
+		out = append(out, ev)
+	}
+	return out, nil
+}
+
+// readTestingGateProject reads the project as the venue left it: on the ACTIVITY BRANCH,
+// activity/<id>, falling back to main when that branch answers NotFound.
+//
+// THE BRANCH IS NAMED FROM THE ACTIVITY ID AND NOT RESOLVED THROUGH designVenue, because
+// that is how the venue names it: aiarch-construct.yml stamps AIARCH_TARGET_BRANCH from
+// the activity id and the local executor's constructDispatchPlan does the same, neither
+// consulting the Repo resolver — which decides WHICH repo a job dispatches into, not where
+// its publish lands. designVenue's dormant arm ("", main) is the design rail's own
+// convention for a boot with no repo at all, and it is wrong here: on such a boot the run
+// is still on the activity branch, and a read of main would hold the gate for a run it
+// cannot see.
+//
+// The fallback is reachable rather than defensive: a store with no such branch reads an
+// EMPTY subtree, which decodes NotFound (a branch the rail has already deleted; a boot
+// where nothing cut one), and main is then the only place a run can be. It cannot pass a
+// stale run, because the revision the gate matches is the attempt id this walk opened.
+func (wf *csWorkflows) readTestingGateProject(ctx workflow.Context, in deliveryActivityInput) (projectstate.Project, error) {
+	branch := activityBranchName(in.ActivityID)
+	proj, err := wf.readProjectOnBranch(ctx, in.ProjectID, branch)
+	if err == nil || !isReadNotFound(err) {
+		return proj, err
+	}
+	workflow.GetLogger(ctx).Info("delivery.gate.testingReadsMain",
+		"activityId", in.ActivityID, "branch", branch,
+		"reason", "the activity branch holds no project state; the venue's run is read off main")
+	return wf.readProject(ctx, in.ProjectID)
+}
+
+// testingGateHeld evaluates the testing gate for a round that is open and reports whether
+// it HELD — in which case the system verdict and its blocking comment are on the round
+// (holdTestingGate). A task that is not a scenario testing gate never holds.
+func (wf *csWorkflows) testingGateHeld(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, t methodassets.LifecycleTask,
+	ws *walkState, state *constructState, gate *gateLedger,
+) (bool, error) {
+	if !scenarioTestingGate(lc, t) {
+		return false, nil
+	}
+	evidence, err := wf.readTestingGateEvidence(ctx, in)
+	if err != nil {
+		return false, err
+	}
+	revision := judgedSubject(ws, t).AttemptID
+	cited := make([]string, 0, len(evidence))
+	for _, ev := range evidence {
+		reason := testingGateHold(ev, revision)
+		if reason == "" {
+			cited = append(cited, ev.Run.Run.Id)
+			continue
+		}
+		gate.testRunID = ""
+		if err := wf.holdTestingGate(ctx, in, t, state, gate, ev, reason); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	// Not held means every contract's run was found and every §6.5 rule holds for each: they
+	// are the runs the pass will cite (passGateAttempt) — one id for a component with one
+	// contract, the facets' ids in contract order otherwise.
+	gate.testRunID = strings.Join(cited, ",")
+	return false, nil
+}
+
+// holdTestingGate lands the hold on the round — ONE system verdict (send back: the gate
+// asks for a re-run) carrying ONE system comment anchored at the run — and parks the gate
+// for a human. The comment is a change request, so the autogate cannot pass over it and a
+// human approve must resolve it first (ReviewCommentBlocksApprove): the override is on
+// the record.
+func (wf *csWorkflows) holdTestingGate(
+	ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask,
+	state *constructState, gate *gateLedger, ev testingGateEvidence, reason string,
+) error {
+	anchor := "$.testRuns"
+	anchorText := "no run recorded"
+	if ev.Run != nil {
+		anchor = fmt.Sprintf("$.testRuns[id=%s]", ev.Run.Run.Id)
+		anchorText = "test run " + ev.Run.Run.Id
+	}
+	workflow.GetLogger(ctx).Warn("delivery.gate.testingHeld", "activityId", in.ActivityID, "taskId", t.ID,
+		"roundId", gate.roundID, "reason", reason)
+	return wf.appendVerdict(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
+		projectstate.ReviewVerdict{
+			ReviewerRole: gateActorSystem,
+			Actor:        gateActorSystem,
+			Verdict:      projectstate.VerdictSendBack,
+			Summary:      reason,
+			AttemptID:    gate.judgedAttemptID,
+		},
+		[]projectstate.ReviewComment{{
+			Anchor:     anchor,
+			AnchorText: anchorText,
+			Text:       reason,
+			AuthorRole: gateActorSystem,
+			Type:       projectstate.ReviewCommentTypeChangeRequest,
+			Addressee:  projectstate.ReviewAddresseeArchitect,
+		}})
 }

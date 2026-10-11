@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -20,7 +22,7 @@ import (
 // A miniature architecture that exercises every evidence path and every failing
 // condition once:
 //
-//	U-SPA-web-client  client, contract without a goPackage          -> condition 2
+//	U-SPA-web-client  client app, no SPA tree (fixture default)     -> client app condition 3
 //	C-alpha-manager   manager, implemented                          -> qualifies (code)
 //	C-beta-engine     engine, no contractKey                        -> condition 1
 //	C-gamma-access    RA with a facet, own interface implemented    -> qualifies (code, facet rule)
@@ -28,8 +30,8 @@ import (
 //	R-gamma-store     resource reached by gamma-access              -> qualifies (inferred)
 //	R-delta-gateway   resource reached by delta-access              -> its RA fails
 //	R-orphan          resource no RA reaches                        -> nothing to infer from
-//	N-STP             componentless, founder sign-off, plan present -> qualifies (sign-off)
-//	N-IT              componentless, no sign-off                    -> no evidence path
+//	N-QA              componentless, no sign-off                    -> no evidence path
+//	N-PERF            componentless, no sign-off                    -> no evidence path
 
 const fixtureHead = "0123456789abcdef0123456789abcdef01234567"
 
@@ -40,6 +42,8 @@ var (
 )
 
 func strp(s string) *string { return &s }
+
+func boolp(b bool) *bool { return &b }
 
 func contractFor(component, goPackage, iface string, ops ...string) projectstate.ServiceContract {
 	sc := projectstate.ServiceContract{Component: component, GoPackage: goPackage, Title: component + " contract"}
@@ -53,7 +57,7 @@ func contractFor(component, goPackage, iface string, ops ...string) projectstate
 func fixtureProject() projectstate.Project {
 	sys := &projectstate.System{
 		Components: []projectstate.Component{
-			{ID: "web-client", Name: "WebClient", Encapsulates: "a fixture volatility", Kind: projectstate.CompClient, Layer: projectstate.LayerClient, ContractKey: strp("webClient")},
+			{ID: "web-client", Name: "WebClient", Encapsulates: "a fixture volatility", Kind: projectstate.CompClient, Layer: projectstate.LayerClient, ContractKey: strp("webClient"), UiSurface: boolp(true)},
 			{ID: "alpha-manager", Name: "AlphaManager", Encapsulates: "a fixture volatility", Kind: projectstate.CompManager, Layer: projectstate.LayerManager, ContractKey: strp("alphaManager")},
 			{ID: "beta-engine", Name: "BetaEngine", Encapsulates: "a fixture volatility", Kind: projectstate.CompEngine, Layer: projectstate.LayerEngine},
 			{ID: "gamma-access", Name: "GammaAccess", Encapsulates: "a fixture volatility", Kind: projectstate.CompResourceAccess, Layer: projectstate.LayerResourceAccess, ContractKey: strp("gammaAccess")},
@@ -80,8 +84,8 @@ func fixtureProject() projectstate.Project {
 		{Name: "R-gamma-store", WorkerClass: "senior-developer", ComponentID: "gamma-store"},
 		{Name: "R-delta-gateway", WorkerClass: "senior-developer", ComponentID: "delta-gateway"},
 		{Name: "R-orphan", WorkerClass: "senior-developer", ComponentID: "orphan"},
-		{Name: "N-STP", WorkerClass: "test-engineer"},
-		{Name: "N-IT", WorkerClass: "software-tester"},
+		{Name: "N-QA", WorkerClass: "qa-engineer"},
+		{Name: "N-PERF", WorkerClass: "test-engineer"},
 	}}
 	delta := contractFor("deltaAccess", "internal/resourceaccess/delta", "DeltaAccess", deltaOps...)
 	delta.Stub = true
@@ -95,9 +99,6 @@ func fixtureProject() projectstate.Project {
 		"gammaFacetAccess": contractFor("gammaAccess", "internal/resourceaccess/gamma", "GammaFacetAccess", "FacetOnly"),
 		"deltaAccess":      delta,
 	}
-	p.TestingState = &projectstate.TestingState{SystemTestPlan: &projectstate.SystemTestPlan{
-		Scenarios: []projectstate.TestScenario{{ID: "STP-1"}, {ID: "STP-2"}, {ID: "STP-3"}},
-	}}
 	// The slot-10 network. By default every QUALIFYING activity depends only on qualifying,
 	// integrated activities (or on M0), so the qualifying set is fully Done; the
 	// integration tests below re-point edges at the non-qualifiers.
@@ -111,8 +112,8 @@ func fixtureProject() projectstate.Project {
 			{Activity: "R-gamma-store", DependsOn: []string{"M0"}},
 			{Activity: "R-delta-gateway", DependsOn: []string{"M0"}},
 			{Activity: "R-orphan", DependsOn: []string{"M0"}},
-			{Activity: "N-STP", DependsOn: []string{"M0"}},
-			{Activity: "N-IT", DependsOn: []string{"N-STP", "U-SPA-web-client"}},
+			{Activity: "N-QA", DependsOn: []string{"M0"}},
+			{Activity: "N-PERF", DependsOn: []string{"N-QA", "U-SPA-web-client"}},
 		},
 		Milestones: []projectstate.NetworkMilestone{
 			{ID: "M0", Name: "SDP Review Approved", Public: true},
@@ -257,17 +258,18 @@ func qualifyingSet(vs map[string]verdict) []string {
 func TestEvaluate_ExactQualifyingSetOnTheFixture(t *testing.T) {
 	vs := evaluateFixture(t, fixtureProject(), fixtureServer(t))
 
-	want := []string{"C-alpha-manager", "C-gamma-access", "N-STP", "R-gamma-store"}
+	want := []string{"C-alpha-manager", "C-gamma-access", "R-gamma-store"}
 	if got := qualifyingSet(vs); !reflect.DeepEqual(got, want) {
 		t.Fatalf("qualifying set = %v, want %v", got, want)
 	}
 	failing := map[string]string{
-		"U-SPA-web-client": "condition 2: serviceContracts[webClient] has no goPackage",
+		"U-SPA-web-client": "client app: condition 3",
 		"C-beta-engine":    "condition 1",
 		"C-delta-access":   "condition 2: serviceContracts[deltaAccess] is stub: true",
 		"R-delta-gateway":  "its ResourceAccess C-delta-access does not qualify",
 		"R-orphan":         "no ResourceAccess has a slot-5 relationship",
-		"N-IT":             "no founder sign-off is recorded",
+		"N-QA":             "no founder sign-off is recorded",
+		"N-PERF":           "no founder sign-off is recorded",
 	}
 	for id, reason := range failing {
 		if v := vs[id]; !strings.Contains(v.Reason, reason) {
@@ -444,8 +446,9 @@ func TestFullyImplemented_FacetInterfacesAreNotRequiredToHaveAFile(t *testing.T)
 	}
 }
 
-// The revenueLedgerAccess shape: the component's OWN entry is the stub and its facet is
-// not. The facet being built does not rescue the component.
+// A component whose OWN entry is the stub while a facet of it is built (the shape
+// billingStateAccess had while it carried the since-deleted revenueLedgerAccess facet). The
+// facet being built does not rescue the component.
 func TestFullyImplemented_AnOwnStubWithABuiltFacetStillFails(t *testing.T) {
 	p, root := fixtureProject(), fixtureServer(t)
 	own := p.ServiceContracts["gammaAccess"]
@@ -610,50 +613,18 @@ func TestInferredFromAccess_EveryResourceAccessMustQualify(t *testing.T) {
 
 // ---- the sign-off path ----------------------------------------------------------------
 
-func TestSignOff_NSTPQualifiesOnTheRecordedSignOffAndTheCountedArtifact(t *testing.T) {
-	vs := evaluateFixture(t, fixtureProject(), fixtureServer(t))
-	v := vs["N-STP"]
-	if !v.Qualifies {
-		t.Fatalf("N-STP did not qualify: %s", v.Reason)
+// No sign-off is recorded: the one there was (N-STP, 2026-09-12) was retired with the
+// system test plan (deterministic component testing, spec §7), so every componentless
+// activity (the fixture's N-QA and N-PERF) has no evidence path. A sign-off that reappears here
+// must name an artifact the model still has.
+func TestFounderSignOffs_NoneStandAfterTheSystemTestPlanRetired(t *testing.T) {
+	if len(founderSignOffs) != 0 {
+		t.Fatalf("%d sign-offs recorded, want none: the N-STP sign-off's artifact (testingState.systemTestPlan) no longer exists", len(founderSignOffs))
 	}
-	const want = `testingState.systemTestPlan (3 scenarios) + founderSignOff[2026-09-12]="stp looks good in the app. sign off. continue"`
-	if v.Basis != want {
-		t.Errorf("basis = %q\nwant    %q", v.Basis, want)
-	}
-	if v.ArtifactRef != "testingState.systemTestPlan" {
-		t.Errorf("artifact ref = %q", v.ArtifactRef)
-	}
-}
-
-// A sign-off never stands alone: with the artifact gone, the activity does not qualify.
-func TestSignOff_DoesNotStandWithoutItsArtifact(t *testing.T) {
-	for name, ts := range map[string]*projectstate.TestingState{
-		"no testing state":         nil,
-		"no system test plan":      {},
-		"a plan with no scenarios": {SystemTestPlan: &projectstate.SystemTestPlan{}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			p := fixtureProject()
-			p.TestingState = ts
-			if v := evaluateFixture(t, p, fixtureServer(t))["N-STP"]; v.Qualifies {
-				t.Errorf("N-STP qualified with %s: %s", name, v.Basis)
-			}
-		})
-	}
-}
-
-// The recorded sign-off is the founder's words, verbatim, and it is the ONLY one: N-IT
-// and every other componentless activity have no evidence path.
-func TestFounderSignOffs_AreExactlyTheRecordedDecision(t *testing.T) {
-	if len(founderSignOffs) != 1 {
-		t.Fatalf("%d sign-offs recorded, want exactly 1 (N-STP, 2026-09-12)", len(founderSignOffs))
-	}
-	s := founderSignOffs[0]
-	if s.ActivityID != "N-STP" || s.Date != "2026-09-12" || s.Quote != "stp looks good in the app. sign off. continue" {
-		t.Errorf("sign-off = %+v", s)
-	}
-	if s.Artifact.Ref != "testingState.systemTestPlan" {
-		t.Errorf("sign-off artifact = %q", s.Artifact.Ref)
+	for _, id := range []string{"N-QA", "N-PERF"} {
+		if v := evaluateFixture(t, fixtureProject(), fixtureServer(t))[id]; v.Qualifies {
+			t.Errorf("%s qualified with no sign-off: %s", id, v.Basis)
+		}
 	}
 }
 
@@ -696,6 +667,17 @@ func profileTasks(typ projectstate.ActivityType, v projectstate.TestingVariant) 
 	return projectstate.TasksForProfile(projectstate.ProfileFor(typ, v))
 }
 
+// backfilledTasks is what the tool derives for a fully built, integrated activity: the
+// profile's task set, minus the `testing` review when the lifecycle binds a test plan —
+// that review passes only on a cited TestRun (spec §1 T4), which a backfill never has.
+func backfilledTasks(typ projectstate.ActivityType, v projectstate.TestingVariant) []projectstate.MethodTask {
+	tasks := profileTasks(typ, v)
+	if !bindsTestPlan(projectstate.ProfileFor(typ, v)) {
+		return tasks
+	}
+	return slices.DeleteFunc(tasks, func(task projectstate.MethodTask) bool { return task == projectstate.TaskTesting })
+}
+
 // Every qualifying activity gets exactly one passed attempt per non-conditional task of
 // its profile, every one validates, every one is backfilled by this tool with the
 // verdict's basis — and a non-qualifier gets no row at all.
@@ -706,14 +688,13 @@ func TestBackfill_EveryAttemptIsValidBackfilledAndCoversTheProfile(t *testing.T)
 		"C-alpha-manager": projectstate.ActivityTypeService,
 		"C-gamma-access":  projectstate.ActivityTypeService,
 		"R-gamma-store":   projectstate.ActivityTypeDeployment,
-		"N-STP":           projectstate.ActivityTypeTesting,
 	}
 	var rows []string
 	for id := range p.ActivityExecution {
 		rows = append(rows, id)
 	}
 	sort.Strings(rows)
-	if want := []string{"C-alpha-manager", "C-gamma-access", "N-STP", "R-gamma-store"}; !reflect.DeepEqual(rows, want) {
+	if want := []string{"C-alpha-manager", "C-gamma-access", "R-gamma-store"}; !reflect.DeepEqual(rows, want) {
 		t.Fatalf("rows = %v, want exactly the qualifying set %v", rows, want)
 	}
 	for id, typ := range wantType {
@@ -737,8 +718,8 @@ func TestBackfill_EveryAttemptIsValidBackfilledAndCoversTheProfile(t *testing.T)
 				t.Errorf("%s: outcome/attempt/id = %v/%d/%s", a.AttemptID, a.Outcome, a.Attempt, a.AttemptID)
 			}
 		}
-		if want := profileTasks(typ, projectstate.TestVariantPlan); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s: tasks = %v, want the profile minus the conditionals %v", id, got, want)
+		if want := backfilledTasks(typ, 0); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: tasks = %v, want the profile minus the conditionals (and, for a test-planned lifecycle, minus testing) %v", id, got, want)
 		}
 	}
 }
@@ -756,11 +737,6 @@ func TestBackfill_EvidenceRefsPointOnlyAtWhatBacksTheTask(t *testing.T) {
 		}
 		if a.Evidence != want {
 			t.Errorf("%s: evidence = %+v, want %+v", a.AttemptID, a.Evidence, want)
-		}
-	}
-	for _, a := range p.ActivityExecution["N-STP"].Attempts {
-		if a.Evidence != (projectstate.EvidenceRef{Kind: projectstate.EvidenceArtifact, Ref: "testingState.systemTestPlan"}) {
-			t.Errorf("%s: evidence = %+v, want the signed-off artifact", a.AttemptID, a.Evidence)
 		}
 	}
 	for _, a := range p.ActivityExecution["R-gamma-store"].Attempts {
@@ -930,8 +906,8 @@ func TestBackfill_ANonQualifierWithoutThisGeneratorsAttemptsIsNotARegression(t *
 		t.Fatal(err)
 	}
 	p.ActivityExecution = map[string]projectstate.ActivityExecution{
-		"N-IT": {ActivityID: "N-IT", Attempts: []projectstate.TaskAttempt{
-			{AttemptID: "N-IT:testing:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}},
+		"N-PERF": {ActivityID: "N-PERF", Attempts: []projectstate.TaskAttempt{
+			{AttemptID: "N-PERF:testing:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}},
 		}},
 		"R-orphan": {ActivityID: "R-orphan", Attempts: []projectstate.TaskAttempt{
 			{AttemptID: "R-orphan:construction:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved, Generator: generatorID}},
@@ -948,21 +924,28 @@ func TestBackfill_ANonQualifierWithoutThisGeneratorsAttemptsIsNotARegression(t *
 
 // ---- the writer -----------------------------------------------------------------------
 
-// stateDocument encodes p through the codec and adds what a committed document carries
-// that the codec does not — a real updatedAt and the activityListOverrides sidecar — so
-// a test can prove a rewrite leaves both alone.
+// fixtureUpdatedAt is the committed document's updatedAt every fixture carries.
+var fixtureUpdatedAt = time.Date(2026, 8, 9, 5, 30, 44, 213963000, time.UTC)
+
+// stateDocument encodes p through the codec, stamped with the committed updatedAt when
+// p carries none (the codec round-trips it), and adds a top-level member the codec does
+// not carry — an activityListOverrides sidecar — so a test can prove a rewrite leaves
+// every member but the one it replaces byte-for-byte alone.
 func stateDocument(t *testing.T, p projectstate.Project) []byte {
 	t.Helper()
+	if p.UpdatedAt.IsZero() {
+		p.UpdatedAt = fixtureUpdatedAt
+	}
 	enc, err := projectstate.EncodeProjectJSON(p)
 	if err != nil {
 		t.Fatalf("encode fixture: %v", err)
 	}
-	const zeroStamp = `"updatedAt": "0001-01-01T00:00:00Z"`
-	if !bytes.Contains(enc, []byte(zeroStamp)) {
-		t.Fatalf("fixture encoding carries no %s to replace", zeroStamp)
+	stamp := `"updatedAt": "` + p.UpdatedAt.Format(time.RFC3339Nano) + `"`
+	if !bytes.Contains(enc, []byte(stamp)) {
+		t.Fatalf("fixture encoding carries no %s", stamp)
 	}
-	withSidecar := bytes.Replace(enc, []byte(zeroStamp),
-		[]byte(`"updatedAt": "2026-08-09T05:30:44.213963Z", "activityListOverrides": {"overrides": []}`), 1)
+	withSidecar := bytes.Replace(enc, []byte(stamp),
+		[]byte(stamp+`, "activityListOverrides": {"overrides": []}`), 1)
 	var compact, out bytes.Buffer
 	if err := json.Compact(&compact, withSidecar); err != nil {
 		t.Fatalf("compact fixture: %v", err)
@@ -1042,8 +1025,8 @@ func TestRewrite_AddsTheMemberAtTheCodecPositionAndTouchesNothingElse(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(back.ActivityExecution) != 4 {
-		t.Errorf("decoded %d rows, want the 4 qualifying activities", len(back.ActivityExecution))
+	if len(back.ActivityExecution) != 3 {
+		t.Errorf("decoded %d rows, want the 3 qualifying activities", len(back.ActivityExecution))
 	}
 }
 
@@ -1074,8 +1057,8 @@ func TestRewrite_RefusesToReplaceAMemberTheCodecCannotRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, kept := back.ActivityExecution["C-beta-engine"]; !kept || len(back.ActivityExecution) != 5 {
-		t.Errorf("rows = %d, want the untouched row kept plus the 4 qualifying ones", len(back.ActivityExecution))
+	if _, kept := back.ActivityExecution["C-beta-engine"]; !kept || len(back.ActivityExecution) != 4 {
+		t.Errorf("rows = %d, want the untouched row kept plus the 3 qualifying ones", len(back.ActivityExecution))
 	}
 }
 
@@ -1373,20 +1356,29 @@ func assertIntegrationPending(t *testing.T, p projectstate.Project, vs map[strin
 	}
 }
 
-// assertDone: every non-conditional task is attempted, the basis says nothing about
-// Integration being pending, and the pump reads the row as Done and integrated.
+// assertDone: every non-conditional task is attempted — but, on a test-planned lifecycle,
+// the testing review (T4) — and the basis says nothing about Integration being pending. A
+// lifecycle that binds no test plan reads Done and integrated. A test-planned one reads
+// running/in-review: its Integration task passed and its testing task awaits the run.
 func assertDone(t *testing.T, p projectstate.Project, vs map[string]verdict, id string) {
 	t.Helper()
 	row := p.ActivityExecution[id]
-	if got, want := tasksOf(row), profileTasks(row.Type, row.Variant); !reflect.DeepEqual(got, want) {
-		t.Errorf("%s: tasks = %v, want the whole profile %v", id, got, want)
+	if got, want := tasksOf(row), backfilledTasks(row.Type, row.Variant); !reflect.DeepEqual(got, want) {
+		t.Errorf("%s: tasks = %v, want the whole profile (testing excepted on a test-planned lifecycle) %v", id, got, want)
 	}
 	if vs[id].IntegrationPending != "" || strings.Contains(vs[id].Basis, "Integration pending") {
 		t.Errorf("%s: pending = %q, basis = %q, want it integrated", id, vs[id].IntegrationPending, vs[id].Basis)
 	}
+	if !slices.Contains(tasksOf(row), projectstate.TaskIntegration) {
+		t.Errorf("%s: no Integration attempt, want it integrated", id)
+	}
+	want := [2]any{projectstate.ActivityConstructionDone, projectstate.BuildIntegrated}
+	if bindsTestPlan(projectstate.ProfileFor(row.Type, row.Variant)) {
+		want = [2]any{projectstate.ActivityConstructionRunning, projectstate.BuildInReview}
+	}
 	phase, build := projectstate.EffectiveConstructionPhase(row, itemOf(t, p, id))
-	if phase != projectstate.ActivityConstructionDone || build != projectstate.BuildIntegrated {
-		t.Errorf("%s: effective = %v/%v, want done/integrated", id, phase, build)
+	if got := [2]any{phase, build}; got != want {
+		t.Errorf("%s: effective = %v/%v, want %v/%v", id, phase, build, want[0], want[1])
 	}
 }
 
@@ -1399,43 +1391,44 @@ func TestIntegration_ADependencyThatIsNotBuiltLeavesTheDependentPending(t *testi
 
 	assertIntegrationPending(t, p, vs, "C-alpha-manager",
 		"Integration pending: dependency C-delta-access is not built; dependency R-orphan is not built.")
-	for _, id := range []string{"C-gamma-access", "R-gamma-store", "N-STP"} {
+	for _, id := range []string{"C-gamma-access", "R-gamma-store"} {
 		assertDone(t, p, vs, id)
 	}
 }
 
-// Transitively: N-STP depends on C-alpha-manager, which qualifies but is itself pending,
-// so N-STP is pending too — and it says its dependency is built but not integrated.
+// Transitively: the edges are re-pointed so C-gamma-access depends on C-alpha-manager,
+// which qualifies but is itself pending, so C-gamma-access is pending too — and it says
+// its dependency is built but not integrated. (N-STP used to play the dependent here; it
+// no longer qualifies, see TestFounderSignOffs_NoneStandAfterTheSystemTestPlanRetired.)
 func TestIntegration_PendingPropagatesToEveryDependent(t *testing.T) {
 	p := fixtureProject()
 	dependOn(t, &p, "C-alpha-manager", "C-delta-access")
-	dependOn(t, &p, "N-STP", "C-alpha-manager")
+	dependOn(t, &p, "C-gamma-access", "C-alpha-manager")
 	p, vs := backfillWith(t, p)
 
 	assertIntegrationPending(t, p, vs, "C-alpha-manager", "Integration pending: dependency C-delta-access is not built.")
-	assertIntegrationPending(t, p, vs, "N-STP", "Integration pending: dependency C-alpha-manager is built but not integrated.")
-	assertDone(t, p, vs, "C-gamma-access")
+	assertIntegrationPending(t, p, vs, "C-gamma-access", "Integration pending: dependency C-alpha-manager is built but not integrated.")
+	assertDone(t, p, vs, "R-gamma-store")
 }
 
 // Every dependency fully Done means Done, even when the dependent comes FIRST in plan
-// order: the gate is computed in topological order, never in plan order. N-STP is moved to
-// the front and depends on C-alpha-manager <- C-gamma-access <- R-gamma-store <- M0.
+// order: the gate is computed in topological order, never in plan order. C-alpha-manager
+// is moved to the front; it depends on C-gamma-access <- R-gamma-store <- M0.
 func TestIntegration_AllDependenciesDoneMeansDoneWhateverThePlanOrder(t *testing.T) {
 	p := fixtureProject()
 	list := p.ActivityList.Model.(*projectstate.ActivityList)
 	for i, a := range list.Activities {
-		if a.Name == "N-STP" {
+		if a.Name == "C-alpha-manager" {
 			list.Activities = append([]projectstate.ActivityItem{a}, append(list.Activities[:i:i], list.Activities[i+1:]...)...)
 			break
 		}
 	}
-	if list.Activities[0].Name != "N-STP" {
+	if list.Activities[0].Name != "C-alpha-manager" {
 		t.Fatal("fixture reorder did not apply")
 	}
-	dependOn(t, &p, "N-STP", "C-alpha-manager")
 	p, vs := backfillWith(t, p)
 
-	for _, id := range []string{"N-STP", "C-alpha-manager", "C-gamma-access", "R-gamma-store"} {
+	for _, id := range []string{"C-alpha-manager", "C-gamma-access", "R-gamma-store"} {
 		assertDone(t, p, vs, id)
 	}
 }
@@ -1474,7 +1467,7 @@ func TestIntegration_RefusesADependencyGraphThatIsNotWhole(t *testing.T) {
 			dependOn(t, p, "C-alpha-manager", "M2")
 		}, `milestone "M2" depends, directly or transitively, on itself`},
 		{"an activity cycle", func(t *testing.T, p *projectstate.Project) { dependOn(t, p, "C-gamma-access", "C-alpha-manager") },
-			"slot 10 has a dependency cycle; these activities cannot be ordered: C-alpha-manager, C-gamma-access, N-IT, U-SPA-web-client"},
+			"slot 10 has a dependency cycle; these activities cannot be ordered: C-alpha-manager, C-gamma-access, N-PERF, U-SPA-web-client"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1731,7 +1724,7 @@ func TestDesignPhaseArtifact_NamesOneSlotOfItsOwnActivityForEveryDesignPhase(t *
 		for _, s := range slots {
 			refs[s.Ref] = true
 		}
-		for _, ph := range projectstate.ProfileFor(typ, projectstate.TestVariantPlan).Phases {
+		for _, ph := range projectstate.ProfileFor(typ, 0).Phases {
 			ref := designPhaseArtifact[ph.Phase]
 			if ref == "" {
 				t.Errorf("%s phase %q names no artifact, so its attempts would carry no evidence", id, ph.Phase)
@@ -1749,5 +1742,356 @@ func TestDesignPhaseArtifact_NamesOneSlotOfItsOwnActivityForEveryDesignPhase(t *
 		if ref != "" && !covered[ph] {
 			t.Errorf("designPhaseArtifact points phase %q at .%s, but no design lifecycle carries that phase", ph, ref)
 		}
+	}
+}
+
+// ---- T4: the testing task passes only on a cited TestRun --------------------------------
+
+// No backfilled activity whose lifecycle binds a test plan has passed its testing task
+// (spec §1 T4): the row stops at Integration and its testing review awaits the gate. A
+// lifecycle that binds no test plan (a Resource's deployment lifecycle) is backfilled
+// whole, testing included.
+func TestBackfill_NoTestPlannedActivityPassesItsTestingTask(t *testing.T) {
+	p, _ := backfillFixture(t)
+	for _, id := range []string{"C-alpha-manager", "C-gamma-access"} {
+		row := p.ActivityExecution[id]
+		if slices.Contains(tasksOf(row), projectstate.TaskTesting) {
+			t.Errorf("%s: a testing attempt was backfilled; T4 lets only the testing gate pass it, on a cited run", id)
+		}
+		if !slices.Contains(tasksOf(row), projectstate.TaskIntegration) {
+			t.Errorf("%s: no Integration attempt; a built, integrated component is backfilled through Integration", id)
+		}
+	}
+	if !slices.Contains(tasksOf(p.ActivityExecution["R-gamma-store"]), projectstate.TaskTesting) {
+		t.Error("R-gamma-store: the deployment lifecycle binds no test plan, so its testing review is backfilled with the rest")
+	}
+}
+
+// The READ guard the backfilled rows are read through (projectstate.QualifiedAttempts via
+// ResolvePhaseCompletions): a testing pass that cites no TestRun — the shape every row this
+// tool wrote before T4 carries — does not close the Integration phase; one citing a run
+// does. Pinned here because these rows are what the founder's plan view reads.
+func TestT4_AnUncitedTestingPassNeverReadsPassed(t *testing.T) {
+	p, _ := backfillFixture(t)
+	item := itemOf(t, p, "C-alpha-manager")
+	base := p.ActivityExecution["C-alpha-manager"]
+	withTesting := func(evidence projectstate.EvidenceRef) projectstate.ActivityExecution {
+		row := base
+		row.Attempts = append(slices.Clone(base.Attempts), projectstate.TaskAttempt{
+			AttemptID: projectstate.AttemptID("C-alpha-manager", projectstate.TaskTesting, 1),
+			Task:      projectstate.TaskTesting, Phase: projectstate.MethodPhaseIntegration, Attempt: 1,
+			Outcome: projectstate.OutcomePassed, Evidence: evidence,
+			Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Generator: generatorID, Basis: "pre-T4"},
+		})
+		return row
+	}
+	cases := []struct {
+		name     string
+		evidence projectstate.EvidenceRef
+		want     [2]any
+	}{
+		{"no evidence (the pre-T4 backfill)", projectstate.EvidenceRef{}, [2]any{projectstate.ActivityConstructionRunning, projectstate.BuildInReview}},
+		{"a git ref is not a run", projectstate.EvidenceRef{Kind: projectstate.EvidenceGit, Ref: fixtureHead}, [2]any{projectstate.ActivityConstructionRunning, projectstate.BuildInReview}},
+		{"a testRun kind naming no run", projectstate.EvidenceRef{Kind: projectstate.EvidenceTestRun}, [2]any{projectstate.ActivityConstructionRunning, projectstate.BuildInReview}},
+		{"a cited run", projectstate.EvidenceRef{Kind: projectstate.EvidenceTestRun, Ref: "run-1"}, [2]any{projectstate.ActivityConstructionDone, projectstate.BuildIntegrated}},
+	}
+	for _, c := range cases {
+		phase, build := projectstate.EffectiveConstructionPhase(withTesting(c.evidence), item)
+		if got := [2]any{phase, build}; got != c.want {
+			t.Errorf("%s: effective = %v/%v, want %v/%v", c.name, phase, build, c.want[0], c.want[1])
+		}
+	}
+	// A lifecycle that binds no test plan is read as it is: its testing pass needs no run.
+	if phase, build := projectstate.EffectiveConstructionPhase(p.ActivityExecution["R-gamma-store"], itemOf(t, p, "R-gamma-store")); phase != projectstate.ActivityConstructionDone || build != projectstate.BuildIntegrated {
+		t.Errorf("R-gamma-store: effective = %v/%v, want done/integrated", phase, build)
+	}
+}
+
+// A row this tool backfilled before T4 holds a testing pass; the re-run re-derives it
+// without one (this generator's own backfill is replaced when the derivation changes), and
+// every other attempt stands as it was.
+func TestBackfill_ReRunWithdrawsItsOwnPreT4TestingPass(t *testing.T) {
+	p, vs := backfillFixture(t)
+	before := slices.Clone(p.ActivityExecution["C-alpha-manager"].Attempts)
+	row := p.ActivityExecution["C-alpha-manager"]
+	stamp := time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)
+	row.Attempts = append(slices.Clone(before), projectstate.TaskAttempt{
+		AttemptID: projectstate.AttemptID("C-alpha-manager", projectstate.TaskTesting, 1),
+		Task:      projectstate.TaskTesting, Phase: projectstate.MethodPhaseIntegration, Attempt: 1,
+		Actor: projectstate.ActorAgent, Outcome: projectstate.OutcomePassed,
+		Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Generator: generatorID, GeneratedAt: &stamp, Basis: vs["C-alpha-manager"].Basis},
+	})
+	p.ActivityExecution["C-alpha-manager"] = row
+
+	var verdicts []verdict
+	for _, v := range vs {
+		verdicts = append(verdicts, v)
+	}
+	if _, err := backfill(&p, verdicts, stamp.Add(time.Hour)); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	got := p.ActivityExecution["C-alpha-manager"].Attempts
+	if slices.ContainsFunc(got, func(a projectstate.TaskAttempt) bool { return a.Task == projectstate.TaskTesting }) {
+		t.Fatalf("the pre-T4 testing pass survived the re-run: %v", tasksOf(p.ActivityExecution["C-alpha-manager"]))
+	}
+	if !reflect.DeepEqual(tasksOf(projectstate.ActivityExecution{Attempts: got}), tasksOf(projectstate.ActivityExecution{Attempts: before})) {
+		t.Errorf("tasks = %v, want the T4 derivation %v", tasksOf(projectstate.ActivityExecution{Attempts: got}), tasksOf(projectstate.ActivityExecution{Attempts: before}))
+	}
+}
+
+// ---- the client app -----------------------------------------------------------------------
+
+// spaFixture writes an SPA whose identifier table declares the anchors the fixture's
+// client contract names, and a component that renders them. edit, when given, rewrites a
+// file (path relative to the SPA root) before the test reads the tree.
+func spaFixture(t *testing.T, edits map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"package.json": `{"name":"spa","scripts":{"build":"tsc -b && vite build","test":"node --test"}}`,
+		spaIdentifiers: "export const UI_IDENTIFIERS = {\n" +
+			"  GatePanel: {\n    APPROVE: 'gate-approve',\n    REJECT: 'gate-reject',\n  },\n" +
+			"  Plan: {\n    row: (id: string) => `plan-row-${id}`,\n  },\n" +
+			"  Activity: {\n    SCREEN: 'activity-screen',\n    UNUSED: 'activity-unused',\n  },\n" +
+			"};\n",
+		"src/components/Gate.tsx": "const { GatePanel, Plan } = UI_IDENTIFIERS;\n" +
+			"export const Gate = () => [GatePanel.APPROVE, GatePanel.REJECT, Plan.row('a')];\n",
+		"src/routes/Activity.tsx":      "export const A = () => UI_IDENTIFIERS.Activity.SCREEN;\n",
+		"src/routes/Activity.test.tsx": "UI_IDENTIFIERS.Activity.UNUSED;\n",
+	}
+	maps.Copy(files, edits)
+	for rel, content := range files {
+		if content == "" {
+			continue // an edit of "" deletes the file
+		}
+		writeFile(t, root, rel, content)
+	}
+	return root
+}
+
+// clientAppProject is the fixture with a client contract whose two user actions name
+// their anchors (spec §12 B1).
+func clientAppProject() projectstate.Project {
+	p := fixtureProject()
+	sc := contractFor("webClient", "", "WebClient", "DecideReview", "OpenActivity")
+	sc.Notes = "The web client's review actions. Anchors (UI_IDENTIFIERS): DecideReview GatePanel.APPROVE/REJECT; OpenActivity Plan.row -> Activity.SCREEN."
+	p.ServiceContracts["webClient"] = sc
+	return p
+}
+
+func evaluateClientApp(t *testing.T, p projectstate.Project, spa string) map[string]verdict {
+	t.Helper()
+	vs, err := evaluate(inputs{Project: p, ServerRoot: fixtureServer(t), SPARoot: spa, Head: fixtureHead})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	out := make(map[string]verdict, len(vs))
+	for _, v := range vs {
+		out[v.ActivityID] = v
+	}
+	return out
+}
+
+// A UI-surface client whose contract's every user action is anchored on a data-testid
+// the SPA declares and renders, in an SPA that builds, is a built client app: it cites
+// its contract, the SPA's build, its identifier table and the files that render the
+// anchors, and it is backfilled as a FRONTEND activity — the contract does not make it a
+// service — through Integration, with its testing review left for the gate (T4).
+func TestClientApp_ABuiltSPAQualifies(t *testing.T) {
+	p := clientAppProject()
+	vs := evaluateClientApp(t, p, spaFixture(t, nil))
+	v := vs["U-SPA-web-client"]
+	if !v.Qualifies || !v.ClientApp {
+		t.Fatalf("U-SPA-web-client: qualifies=%v clientApp=%v reason=%q", v.Qualifies, v.ClientApp, v.Reason)
+	}
+	if want := "client app: serviceContracts[webClient]; 2 user actions, 4 UI_IDENTIFIERS anchors, each declared and rendered"; v.Reason != want {
+		t.Errorf("reason = %q, want %q", v.Reason, want)
+	}
+	wantFiles := []string{"webApp/package.json", "webApp/" + spaIdentifiers, "webApp/src/components/Gate.tsx", "webApp/src/routes/Activity.tsx"}
+	if !reflect.DeepEqual(v.Files, wantFiles) {
+		t.Errorf("files = %v, want %v", v.Files, wantFiles)
+	}
+	if v.ContractRef != "webClient" || v.CodeRef != fixtureHead || !strings.Contains(v.Basis, founderRulingRef) || !strings.Contains(v.Basis, `build "tsc -b && vite build"`) {
+		t.Errorf("verdict = %+v", v)
+	}
+
+	var verdicts []verdict
+	for _, x := range vs {
+		verdicts = append(verdicts, x)
+	}
+	if _, err := backfill(&p, verdicts, time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	row := p.ActivityExecution["U-SPA-web-client"]
+	if row.Type != projectstate.ActivityTypeFrontend {
+		t.Errorf("type = %v, want frontend", row.Type)
+	}
+	if got, want := tasksOf(row), backfilledTasks(projectstate.ActivityTypeFrontend, 0); !reflect.DeepEqual(got, want) {
+		t.Errorf("tasks = %v, want %v", got, want)
+	}
+	if slices.Contains(tasksOf(row), projectstate.TaskTesting) {
+		t.Error("the client app's testing review was backfilled; T4 leaves it for the gate")
+	}
+}
+
+// Each condition fails the client app on its own, and says which.
+func TestClientApp_EachConditionFailsTheClientApp(t *testing.T) {
+	cases := []struct {
+		name  string
+		edit  func(p *projectstate.Project)
+		files map[string]string
+		want  string
+	}{
+		{"no UI surface", func(p *projectstate.Project) { componentOf(t, p, "web-client").UiSurface = boolp(false) }, nil,
+			"client app: condition 1: client \"web-client\" has no UI surface"},
+		{"no contractKey", func(p *projectstate.Project) { componentOf(t, p, "web-client").ContractKey = nil }, nil,
+			"client app: condition 2: client \"web-client\" names no contractKey"},
+		{"a stub contract", func(p *projectstate.Project) {
+			sc := p.ServiceContracts["webClient"]
+			sc.Stub = true
+			p.ServiceContracts["webClient"] = sc
+		}, nil, "client app: condition 2: serviceContracts[webClient] is stub: true"},
+		{"a Go client", func(p *projectstate.Project) {
+			sc := p.ServiceContracts["webClient"]
+			sc.GoPackage = "internal/client/web"
+			p.ServiceContracts["webClient"] = sc
+		}, nil, "client app: condition 2: serviceContracts[webClient] names goPackage internal/client/web"},
+		{"no build script", nil, map[string]string{"package.json": `{"scripts":{"test":"x"}}`},
+			"client app: condition 3: webApp/package.json declares no build script"},
+		{"no anchors list", func(p *projectstate.Project) {
+			sc := p.ServiceContracts["webClient"]
+			sc.Notes = "The web client's review actions."
+			p.ServiceContracts["webClient"] = sc
+		}, nil, `client app: condition 4: serviceContracts[webClient]: its notes carry no "Anchors (UI_IDENTIFIERS):" list`},
+		{"an action with no anchor", func(p *projectstate.Project) {
+			sc := p.ServiceContracts["webClient"]
+			sc.Notes = "Anchors (UI_IDENTIFIERS): DecideReview GatePanel.APPROVE; OpenActivity the plan row."
+			p.ServiceContracts["webClient"] = sc
+		}, nil, "client app: condition 4: serviceContracts[webClient]: the anchors list names no data-testid for operation(s) OpenActivity"},
+		{"an anchor for no action", func(p *projectstate.Project) {
+			sc := p.ServiceContracts["webClient"]
+			sc.Notes += "; SteerActivity Activity.SCREEN"
+			p.ServiceContracts["webClient"] = sc
+		}, nil, `client app: condition 4: serviceContracts[webClient]: the anchors list names "SteerActivity", which is not one of its operations`},
+		{"an undeclared anchor", func(p *projectstate.Project) {
+			sc := p.ServiceContracts["webClient"]
+			sc.Notes = "Anchors (UI_IDENTIFIERS): DecideReview GatePanel.SEND_BACK; OpenActivity Plan.row."
+			p.ServiceContracts["webClient"] = sc
+		}, nil, "client app: condition 4: anchor(s) not declared in webApp/" + spaIdentifiers + ": webClient.DecideReview:GatePanel.SEND_BACK"},
+		{"an anchor only a test renders", func(p *projectstate.Project) {
+			sc := p.ServiceContracts["webClient"]
+			sc.Notes = "Anchors (UI_IDENTIFIERS): DecideReview GatePanel.APPROVE; OpenActivity Activity.UNUSED."
+			p.ServiceContracts["webClient"] = sc
+		}, nil, "client app: condition 4: anchor(s) no source file of the SPA renders: webClient.OpenActivity:Activity.UNUSED"},
+		{"a facet with an unanchored action", func(p *projectstate.Project) {
+			facet := contractFor("webClient", "", "WebClientPlan", "OpenPlan")
+			facet.Notes = "Facet of webClient: the plan."
+			p.ServiceContracts["webClientPlan"] = facet
+		}, nil, `client app: condition 4: serviceContracts[webClientPlan]: its notes carry no "Anchors (UI_IDENTIFIERS):" list`},
+		{"a stub facet", func(p *projectstate.Project) {
+			facet := contractFor("webClient", "", "WebClientPlan", "OpenPlan")
+			facet.Stub = true
+			p.ServiceContracts["webClientPlan"] = facet
+		}, nil, "client app: condition 2: serviceContracts[webClientPlan] is stub: true"},
+		{"no identifier table", nil, map[string]string{spaIdentifiers: ""}, "client app: condition 4: open " + spaIdentifiers},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := clientAppProject()
+			if c.edit != nil {
+				c.edit(&p)
+			}
+			v := evaluateClientApp(t, p, spaFixture(t, c.files))["U-SPA-web-client"]
+			if v.Qualifies || !strings.HasPrefix(v.Reason, c.want) {
+				t.Errorf("qualifies=%v reason = %q, want it to start %q", v.Qualifies, v.Reason, c.want)
+			}
+		})
+	}
+}
+
+// The anchors list's grammar: "NS.KEY", "NS.KEY/KEY2" (one namespace, two keys),
+// "NS.a/NS.b" (two anchors), and prose around them that names none.
+func TestAnchorsIn_ReadsTheContractsAnchorGrammar(t *testing.T) {
+	got := anchorsIn(strings.Fields("Chat.ADDRESSEE_PM/ADDRESSEE_ARCHITECT, Plan.row/Plan.tile -> Activity.SCREEN (from M0) / Margin.card."))
+	want := []uiAnchor{{"Chat", "ADDRESSEE_PM"}, {"Chat", "ADDRESSEE_ARCHITECT"}, {"Plan", "row"}, {"Plan", "tile"}, {"Activity", "SCREEN"}, {"Margin", "card"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("anchors = %v, want %v", got, want)
+	}
+}
+
+// ---- retiring rows the plan re-derived under a new id ------------------------------------
+
+// A component activity's row this tool backfilled under an id the plan no longer holds is
+// retired; a row holding anything else — real history, a pump's head fact, a componentless
+// activity's ledger, an activity the plan still holds — stands.
+func TestRetireOrphans_RetiresOnlyThisToolsComponentRowsTheRePlanLeftBehind(t *testing.T) {
+	p, _ := backfillFixture(t)
+	own := p.ActivityExecution["C-alpha-manager"].Attempts
+	started := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	observed := projectstate.TaskAttempt{AttemptID: "C-old-observed:srs:1", Task: projectstate.TaskSRS, Attempt: 1,
+		Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}}
+	p.ActivityExecution["C-old-manager"] = projectstate.ActivityExecution{ActivityID: "C-old-manager", Type: projectstate.ActivityTypeService, Attempts: own}
+	p.ActivityExecution["U-SPA-old-client"] = projectstate.ActivityExecution{ActivityID: "U-SPA-old-client", Type: projectstate.ActivityTypeFrontend, Attempts: own}
+	p.ActivityExecution["C-old-observed"] = projectstate.ActivityExecution{ActivityID: "C-old-observed", Type: projectstate.ActivityTypeService, Attempts: append(slices.Clone(own), observed)}
+	p.ActivityExecution["C-old-started"] = projectstate.ActivityExecution{ActivityID: "C-old-started", Type: projectstate.ActivityTypeService, Attempts: own, StartedAt: &started}
+	p.ActivityExecution["C-old-empty"] = projectstate.ActivityExecution{ActivityID: "C-old-empty", Type: projectstate.ActivityTypeService}
+	p.ActivityExecution["N-STP"] = projectstate.ActivityExecution{ActivityID: "N-STP", Type: projectstate.ActivityTypeTesting, Attempts: own}
+
+	retired, err := retireOrphans(&p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"C-old-manager", "U-SPA-old-client"}; !reflect.DeepEqual(retired, want) {
+		t.Fatalf("retired = %v, want %v", retired, want)
+	}
+	for _, id := range retired {
+		if _, held := p.ActivityExecution[id]; held {
+			t.Errorf("%s: retired but still held", id)
+		}
+	}
+	for _, id := range []string{"C-alpha-manager", "C-gamma-access", "R-gamma-store", "C-old-observed", "C-old-started", "C-old-empty", "N-STP"} {
+		if _, held := p.ActivityExecution[id]; !held {
+			t.Errorf("%s: retired, want it to stand", id)
+		}
+	}
+}
+
+// The whole run's edit retires through the same splice the backfill writes through: only
+// .activityExecution moves, and a re-run over the result writes nothing.
+func TestApply_RetiresThroughTheRewriteAndIsIdempotent(t *testing.T) {
+	p, _ := backfillFixture(t)
+	p.ActivityExecution["C-old-manager"] = projectstate.ActivityExecution{ActivityID: "C-old-manager", Type: projectstate.ActivityTypeService,
+		Attempts: p.ActivityExecution["C-alpha-manager"].Attempts}
+	raw := stateDocument(t, p)
+	root := fixtureServer(t)
+	edit := func(raw []byte) []byte {
+		t.Helper()
+		doc, err := decodeDocument(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		vs, err := evaluate(inputs{Project: doc, ServerRoot: root, Head: fixtureHead})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := rewrite(raw, func(p *projectstate.Project) error {
+			_, _, err := apply(p, vs, time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC))
+			return err
+		})
+		if err != nil {
+			t.Fatalf("rewrite: %v", err)
+		}
+		return out
+	}
+	once := edit(raw)
+	doc, err := decodeDocument(once)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, held := doc.ActivityExecution["C-old-manager"]; held {
+		t.Error("C-old-manager survived the run")
+	}
+	if twice := edit(once); !bytes.Equal(twice, once) {
+		t.Error("a re-run over the retired document wrote again")
 	}
 }

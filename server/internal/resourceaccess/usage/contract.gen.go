@@ -46,7 +46,6 @@ type UsageRangeQuery struct {
 type UsageAccess interface {
 	ReadRange(rc fwra.Context, query UsageRangeQuery) ([]UsageEvent, error)
 	RecordComputeUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error)
-	RecordFinalUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error)
 }
 
 // NewPostgresUsageAccess constructs the Postgres-backed UsageAccess, delegating to the hand-written,

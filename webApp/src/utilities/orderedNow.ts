@@ -12,7 +12,7 @@
  *
  * The values stay epoch milliseconds — a call that would repeat the last value moves
  * on by a microsecond — so a duration measured against `Date.now()` (the 60s hold)
- * is unchanged. Zero imports, so node:test pins it (orderedNow.test.ts).
+ * is unchanged.
  */
 let last = 0;
 

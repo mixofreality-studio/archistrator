@@ -54,7 +54,8 @@ export interface LifecycleLayout {
   /** Grid position per node id. */
   positions: ReadonlyMap<string, LifecycleGridPoint>;
   edges: LifecycleLayoutEdge[];
-  /** Column / lane counts (max + 1); both 0 for an empty graph. */
+  /** Column / lane counts (max + 1) over every pip AND every rail waypoint; both 0
+   *  for an empty graph. */
   cols: number;
   lanes: number;
 }
@@ -164,9 +165,12 @@ export function layoutLifecycleGraph(nodes: readonly LifecycleLayoutInput[]): Li
     }
   }
 
+  // A rail's waypoints count too: a redundant transitive edge detours on a lane
+  // no pip sits on, and a strip sized by the pips alone would draw that rail
+  // outside its own box, where the spine bar's scroller clips it.
   let cols = 0;
   let lanes = 0;
-  for (const p of positions.values()) {
+  for (const p of [...positions.values(), ...edges.flatMap((e) => e.points)]) {
     cols = Math.max(cols, p.col + 1);
     lanes = Math.max(lanes, p.lane + 1);
   }

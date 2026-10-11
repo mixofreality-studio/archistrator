@@ -32,7 +32,6 @@ var allowedTopLevel = map[string]bool{
 	"README.md":     true,
 	"scripts":       true,
 	"server":        true,
-	"systemtests":   true,
 	"uitests":       true,
 	"webApp":        true,
 }
@@ -46,9 +45,6 @@ var allowedCmd = map[string]bool{
 	"backfill-attempts":          true,
 	"clientgen":                  true,
 	"gen-lifecycles":             true,
-	"gen-systemtests":            true,
-	"gen-uitests-episodes":       true,
-	"gen-uitests-fixtures":       true,
 	"internaltoolsgen":           true,
 	"migrate-activity-execution": true,
 	"modelgen":                   true,

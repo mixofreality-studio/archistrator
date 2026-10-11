@@ -145,20 +145,22 @@ export function runtimePhaseFromOrdinal(ordinal: number): RuntimePhase {
 
 // --- TestingVariant ------------------------------------------------------
 // The local type name is "TestingVariant" but the Go consts use the short
-// prefix "Test" (TestVariantPlan, ...) — "Test" does not whole-word-strip from
+// prefix "Test" (TestVariantHarness, ...) — "Test" does not whole-word-strip from
 // "TestingVariant", so the mechanical derivation falls through to the full
-// lowerFirst varname ("testVariantPlan"). The app instead uses short forms.
+// lowerFirst varname ("testVariantHarness"). The app instead uses short forms.
 // Not mechanically derivable.
 
 const TESTING_VARIANT_APP_STRING: Readonly<Record<TestingVariantGoVarname, TestingVariantName>> = {
-  TestVariantPlan: 'plan',
   TestVariantHarness: 'harness',
   TestVariantPerf: 'perf',
-  TestVariantSystemTest: 'systemTest',
   TestVariantQAProcess: 'qaProcess',
 };
 
-/** TestingVariant (0 plan,1 harness,2 perf,3 systemTest,4 qaProcess); undefined for non-testing. */
+/**
+ * TestingVariant (1 harness, 2 perf, 4 qaProcess); undefined for non-testing
+ * and for the retired ordinals 0 (plan) and 3 (systemTest), which the generated
+ * table carries as holes — it is indexed by wire VALUE, not position.
+ */
 export function testingVariantFromOrdinal(ordinal: number): TestingVariantName | undefined {
   const varname = TESTING_VARIANT_ORDINAL_TO_GO_VARNAME[ordinal];
   return varname !== undefined ? TESTING_VARIANT_APP_STRING[varname] : undefined;

@@ -1,8 +1,8 @@
 /**
  * The plan's GRAPH lens — one tile per ACTIVITY, read as a PROJECT NETWORK in
  * Table 11-1 BUILD order (FRONT END → RESOURCES → RESOURCE ACCESS → ENGINES →
- * MANAGERS → CLIENTS → SYSTEM TESTING, with N-STP in its own side lane), every
- * edge a dependency pointing DOWN, and M0 fanning into the build roots.
+ * MANAGERS → CLIENTS), every edge a dependency pointing DOWN, and M0 fanning into
+ * the build roots.
  *
  * FOUR behaviours are carried over from the retired construction graph lens,
  * and exactly four:

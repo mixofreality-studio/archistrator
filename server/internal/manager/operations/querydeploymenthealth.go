@@ -52,15 +52,25 @@ type queryDeploymentHealthInput struct {
 //
 // A precondition failure mirrors DeployWorkflow's own (FailedPrecondition, non-retryable):
 // there is nothing to read live health FOR until something has been deployed at least
-// once.
+// once. An app with no head-state row has never been registered, let alone deployed, so
+// it answers the same way (view-live-deployment-health, anything-deployed=[no]) rather
+// than with an opaque NotFound from inside the ResourceAccess.
 func (wf *workflows) QueryDeploymentHealthWorkflow(ctx workflow.Context, in queryDeploymentHealthInput) (DeploymentHealth, error) {
 	op, err := wf.readOperatedSystem(ctx, in.OperatedAppID)
 	if err != nil {
+		if isReadNotFound(err) {
+			return DeploymentHealth{}, temporal.NewNonRetryableApplicationError(
+				"operated app "+in.OperatedAppID.String()+" has no head-state row (it was never registered or deployed), so there is no live deployment to read health for",
+				fwmgr.ErrType(fwmgr.FailedPrecondition), err)
+		}
 		return DeploymentHealth{}, err
 	}
-	if op.DeployableBundleRef == "" {
+	// anything-deployed: a deploy is what publishes a desired state, and every publish
+	// records the scale it published (ScaledAt is its time). A registered system carries
+	// its deployable bundle from registration on, so the bundle alone cannot answer it.
+	if op.DeployableBundleRef == "" || op.Scale.ScaledAt.IsZero() {
 		return DeploymentHealth{}, temporal.NewNonRetryableApplicationError(
-			"operated system has no deployableBundleRef (nothing has been deployed yet, so there is no live deployment to read health for)",
+			"operated app "+in.OperatedAppID.String()+" has never had a desired state published (nothing has been deployed yet, so there is no live deployment to read health for)",
 			fwmgr.ErrType(fwmgr.FailedPrecondition), nil)
 	}
 

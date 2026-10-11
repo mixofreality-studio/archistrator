@@ -1,9 +1,7 @@
 /**
  * Pure disabled-state logic for GatePanel's "Send back" button, split out of
- * GatePanel.tsx so it is unit-testable headlessly (see sendBackLogic.test.ts) —
- * GatePanel.tsx is JSX, outside this repo's plain `node --test 'src/**\/*.test.ts'`
- * harness (no jsdom/RTL; see roleLine.ts for the established pattern of pulling
- * pure UI logic out into a React-free module for exactly this reason).
+ * GatePanel.tsx into a React-free module (see roleLine.ts for the established
+ * pattern of pulling pure UI logic out of the JSX).
  *
  * SPA default (`allowEmptySendBack: false`): stays disabled until at least one
  * client-accumulated comment exists, so a redraft always carries guidance.

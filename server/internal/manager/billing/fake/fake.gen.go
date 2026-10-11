@@ -13,10 +13,9 @@ import (
 // a test needs; calling a method whose Fn is unset panics.
 type FakeBillingManager struct {
 	CloseBillingCycleFn         func(rc fwm.Context, customerID uuid.UUID, cycleID string) (billing.CloseCycleResult, error)
+	GetBillingCycleFn           func(rc fwm.Context, customerID uuid.UUID, cycleID string) (billing.BillingCycleView, error)
 	OnboardPaymentIntegrationFn func(rc fwm.Context, deployedAppID uuid.UUID) (billing.BillingRef, error)
-	RecordInboundRevenueFn      func(rc fwm.Context, event billing.GatewayRevenueEvent) error
-	RecordRevenueReversalFn     func(rc fwm.Context, event billing.GatewayReversalEvent) error
-	RegisterCustomerFn          func(rc fwm.Context, customerID uuid.UUID) (billing.BillingRef, error)
+	RegisterCustomerFn          func(rc fwm.Context, customerID uuid.UUID, projectID string) (billing.BillingRef, error)
 	RunShortfallSweepFn         func(rc fwm.Context, tickID string) (billing.ShortfallSweepResult, error)
 }
 
@@ -27,6 +26,13 @@ func (f *FakeBillingManager) CloseBillingCycle(rc fwm.Context, customerID uuid.U
 	return f.CloseBillingCycleFn(rc, customerID, cycleID)
 }
 
+func (f *FakeBillingManager) GetBillingCycle(rc fwm.Context, customerID uuid.UUID, cycleID string) (billing.BillingCycleView, error) {
+	if f.GetBillingCycleFn == nil {
+		panic("FakeBillingManager.GetBillingCycleFn not set")
+	}
+	return f.GetBillingCycleFn(rc, customerID, cycleID)
+}
+
 func (f *FakeBillingManager) OnboardPaymentIntegration(rc fwm.Context, deployedAppID uuid.UUID) (billing.BillingRef, error) {
 	if f.OnboardPaymentIntegrationFn == nil {
 		panic("FakeBillingManager.OnboardPaymentIntegrationFn not set")
@@ -34,25 +40,11 @@ func (f *FakeBillingManager) OnboardPaymentIntegration(rc fwm.Context, deployedA
 	return f.OnboardPaymentIntegrationFn(rc, deployedAppID)
 }
 
-func (f *FakeBillingManager) RecordInboundRevenue(rc fwm.Context, event billing.GatewayRevenueEvent) error {
-	if f.RecordInboundRevenueFn == nil {
-		panic("FakeBillingManager.RecordInboundRevenueFn not set")
-	}
-	return f.RecordInboundRevenueFn(rc, event)
-}
-
-func (f *FakeBillingManager) RecordRevenueReversal(rc fwm.Context, event billing.GatewayReversalEvent) error {
-	if f.RecordRevenueReversalFn == nil {
-		panic("FakeBillingManager.RecordRevenueReversalFn not set")
-	}
-	return f.RecordRevenueReversalFn(rc, event)
-}
-
-func (f *FakeBillingManager) RegisterCustomer(rc fwm.Context, customerID uuid.UUID) (billing.BillingRef, error) {
+func (f *FakeBillingManager) RegisterCustomer(rc fwm.Context, customerID uuid.UUID, projectID string) (billing.BillingRef, error) {
 	if f.RegisterCustomerFn == nil {
 		panic("FakeBillingManager.RegisterCustomerFn not set")
 	}
-	return f.RegisterCustomerFn(rc, customerID)
+	return f.RegisterCustomerFn(rc, customerID, projectID)
 }
 
 func (f *FakeBillingManager) RunShortfallSweep(rc fwm.Context, tickID string) (billing.ShortfallSweepResult, error) {

@@ -1,7 +1,7 @@
 package main
 
 // preflight.go implements Task-5 Step 4: the `archistrator serve` boot-time
-// checks (git present, claude present, claude authenticated) with actionable,
+// checks (git present, claude present, claude authenticated, a Postgres named) with actionable,
 // install-command-naming messages. Amendment 2026-07-19 ("standalone serve,
 // drop Serena pattern"): there is no MCP session left at this layer to carry
 // Instructions() text through (serve.go, no local mcp.Server) — a Fatal()
@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -25,25 +26,38 @@ import (
 // enough that a hung/unreachable probe doesn't wedge server startup.
 const claudeAuthProbeTimeout = 25 * time.Second
 
+// postgresURLEnv names the Postgres the spawned archistrator-server's local profile
+// keeps its billing state in (billingStateAccess and merchantGatewayAccess bind their
+// Postgres variant on the local profile too — deterministic component testing, spec
+// §12 ruling B5). The child inherits it from this process's environment.
+const postgresURLEnv = "ARCHISTRATOR_POSTGRES_URL"
+
+// errPostgresURLMissing is the preflight finding for an unset postgresURLEnv.
+var errPostgresURLMissing = errors.New(postgresURLEnv + " is not set — the local stack keeps billing state in Postgres. " +
+	"Start one (e.g. `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=archistrator postgres:16-alpine`) and export " +
+	postgresURLEnv + "=postgres://postgres:archistrator@localhost:5432/postgres?sslmode=disable, then restart")
+
 // preflightReport is the outcome of runPreflight — see its doc for how each
 // field is populated and how Instructions() renders them.
 type preflightReport struct {
 	gitErr    error // nil ⇒ git is on PATH
 	claudeErr error // nil ⇒ `claude --version` ran cleanly (llm.PreflightClaudeCLI)
+	pgErr     error // nil ⇒ postgresURLEnv is set
 
 	authChecked bool  // false when --skip-auth-check was passed, or claude itself is missing
 	authErr     error // nil ⇒ the auth probe reported success (or was not run)
 }
 
-// Fatal reports whether the local stack cannot possibly start: git and claude
-// are both HARD requirements (git backs the project-state substrate; claude
+// Fatal reports whether the local stack cannot possibly start: git, claude and a
+// Postgres are HARD requirements (git backs the project-state substrate; claude
 // backs the local worker provider cmd/server's own boot-time preflight,
-// resolveWorkerProvider/hooks.go, ALSO requires). An auth-probe failure is
+// resolveWorkerProvider/hooks.go, ALSO requires; the Postgres backs the billing
+// stores, and cmd/server refuses to load without it). An auth-probe failure is
 // deliberately NOT fatal — the user may still be able to fix it (`claude
 // login`) from within the very Claude Code session asking, so RunServe (serve.go)
 // logs and prints it to stderr rather than refusing to start at all.
 func (r preflightReport) Fatal() bool {
-	return r.gitErr != nil || r.claudeErr != nil
+	return r.gitErr != nil || r.claudeErr != nil || r.pgErr != nil
 }
 
 // Instructions renders the report as the MCP server Instructions text —
@@ -58,12 +72,15 @@ func (r preflightReport) Instructions() string {
 	if r.claudeErr != nil {
 		issues = append(issues, r.claudeErr.Error())
 	}
+	if r.pgErr != nil {
+		issues = append(issues, r.pgErr.Error()+".")
+	}
 	if r.authChecked && r.authErr != nil {
 		issues = append(issues, "claude does not appear to be authenticated ("+r.authErr.Error()+
 			") — run `claude login` (or set ANTHROPIC_API_KEY to use the cloud provider instead) and restart.")
 	}
 	if len(issues) == 0 {
-		return "archistrator: preflight OK (git + claude present" + authSuffix(r) + ")."
+		return "archistrator: preflight OK (git + claude + Postgres present" + authSuffix(r) + ")."
 	}
 	var b strings.Builder
 	b.WriteString("archistrator preflight found issue(s) — the local stack may not be fully usable until these are fixed:\n")
@@ -95,6 +112,10 @@ func runPreflight(ctx context.Context, skipAuthCheck bool) preflightReport {
 
 	if err := llm.PreflightClaudeCLI(); err != nil {
 		r.claudeErr = err
+	}
+
+	if strings.TrimSpace(os.Getenv(postgresURLEnv)) == "" {
+		r.pgErr = errPostgresURLMissing
 	}
 
 	if r.claudeErr == nil && !skipAuthCheck {

@@ -13,7 +13,6 @@ import (
 type FakeBillingEngine struct {
 	ComputeNetFn                   func(rc fweng.Context, revenue billing.CycleRevenue, usage billing.CycleUsage, terms billing.BillingTerms) (billing.BillingResult, error)
 	ProjectCommitTimeComputeCostFn func(rc fweng.Context, option billing.ProjectOption) (billing.Projection, error)
-	RecomputeNetFn                 func(rc fweng.Context, affectedCycle billing.ReBillingInput) (billing.BillingResult, error)
 }
 
 func (f *FakeBillingEngine) ComputeNet(rc fweng.Context, revenue billing.CycleRevenue, usage billing.CycleUsage, terms billing.BillingTerms) (billing.BillingResult, error) {
@@ -28,13 +27,6 @@ func (f *FakeBillingEngine) ProjectCommitTimeComputeCost(rc fweng.Context, optio
 		panic("FakeBillingEngine.ProjectCommitTimeComputeCostFn not set")
 	}
 	return f.ProjectCommitTimeComputeCostFn(rc, option)
-}
-
-func (f *FakeBillingEngine) RecomputeNet(rc fweng.Context, affectedCycle billing.ReBillingInput) (billing.BillingResult, error) {
-	if f.RecomputeNetFn == nil {
-		panic("FakeBillingEngine.RecomputeNetFn not set")
-	}
-	return f.RecomputeNetFn(rc, affectedCycle)
 }
 
 var _ billing.BillingEngine = (*FakeBillingEngine)(nil)

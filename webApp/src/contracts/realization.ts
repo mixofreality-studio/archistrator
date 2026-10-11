@@ -131,7 +131,9 @@ export interface LinearizedCall {
  * declared order within the group ('a', 'b', …); a plain call still advances
  * the numeric counter by one, alone.
  */
-function altLabelsForStep(calls: readonly { alt?: string | null }[]): (string | undefined)[] {
+export function altLabelsForStep(
+  calls: readonly { alt?: string | null }[]
+): (string | undefined)[] {
   if (!calls.some((c) => c.alt != null && c.alt.length > 0)) {
     return calls.map(() => undefined);
   }

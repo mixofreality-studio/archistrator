@@ -11,9 +11,24 @@ import (
 // FakeArtifactAccess is a generated test double for artifact.ArtifactAccess: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeArtifactAccess struct {
+	GetTestRunIndexFn            func(rc fwra.Context, run artifact.TestRunRef) (artifact.TestRunIndex, error)
+	ReadTestRunFileFn            func(rc fwra.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error)
 	RetrieveConstructionOutputFn func(rc fwra.Context, contentAddress string) (artifact.ConstructionOutput, error)
-	RetrieveOutputTreeFn         func(rc fwra.Context, contentAddress string) (artifact.OutputTree, error)
 	StoreConstructionOutputFn    func(rc fwra.Context, content artifact.ConstructionOutput) (string, error)
+}
+
+func (f *FakeArtifactAccess) GetTestRunIndex(rc fwra.Context, run artifact.TestRunRef) (artifact.TestRunIndex, error) {
+	if f.GetTestRunIndexFn == nil {
+		panic("FakeArtifactAccess.GetTestRunIndexFn not set")
+	}
+	return f.GetTestRunIndexFn(rc, run)
+}
+
+func (f *FakeArtifactAccess) ReadTestRunFile(rc fwra.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
+	if f.ReadTestRunFileFn == nil {
+		panic("FakeArtifactAccess.ReadTestRunFileFn not set")
+	}
+	return f.ReadTestRunFileFn(rc, run, path)
 }
 
 func (f *FakeArtifactAccess) RetrieveConstructionOutput(rc fwra.Context, contentAddress string) (artifact.ConstructionOutput, error) {
@@ -21,13 +36,6 @@ func (f *FakeArtifactAccess) RetrieveConstructionOutput(rc fwra.Context, content
 		panic("FakeArtifactAccess.RetrieveConstructionOutputFn not set")
 	}
 	return f.RetrieveConstructionOutputFn(rc, contentAddress)
-}
-
-func (f *FakeArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress string) (artifact.OutputTree, error) {
-	if f.RetrieveOutputTreeFn == nil {
-		panic("FakeArtifactAccess.RetrieveOutputTreeFn not set")
-	}
-	return f.RetrieveOutputTreeFn(rc, contentAddress)
 }
 
 func (f *FakeArtifactAccess) StoreConstructionOutput(rc fwra.Context, content artifact.ConstructionOutput) (string, error) {

@@ -14,11 +14,27 @@
  *
  * ── A navigation, deliberately not a verb ───────────────────────────────────
  * The Project Design M0 gate has no send-back (spec R7): the plan is DERIVED, so
- * changing it means amending the Architecture. That is a different activity, so
- * it is a link — under `Activity.AMEND_ARCHITECTURE`, beside the bar rather than
- * on it. A `components/` file may import `contracts/` and may NOT import
- * `routes/` or call `useNavigate`, so the navigation itself is the container's
- * `onNavigate` callback.
+ * changing it means amending what it derives from. An ARCHITECTURE change amends
+ * the Architecture, a different activity, so it is a link — under
+ * `Activity.AMEND_ARCHITECTURE`, beside the bar rather than on it. A `components/`
+ * file may import `contracts/` and may NOT import `routes/` or call `useNavigate`,
+ * so the navigation itself is the container's `onNavigate` callback. A SCOPE change
+ * is the committed plan's own AMEND (below): the plan is re-derived with it.
+ *
+ * ── What a DECIDED gate still offers (spec §12 B7) ─────────────────────────
+ * A decided gate has no decision bar, and three verbs live past the decision: a
+ * committed design slot's AMEND (`AmendComposer`, the add-a-use-case / replan
+ * entry — on the M0 gate, the committed plan's scope change), its ASK (a question staged on the committed slot — ask-a-clarifying-
+ * question-during-review [no: committed] — sent by the bar in its committed mode,
+ * which offers Ask and nothing else: change requests on a committed slot go
+ * through the amend composer, and an unstaged committed slot renders no bar), and
+ * a committed M0 plan's grace-window REVOKE (`RevokeStrip`). Each renders only when
+ * the container hands its prop, which it does only on the head revision.
+ *
+ * Once an amendment is sent, the gate is no longer decided: its head is the
+ * redraft, drafting or awaiting review, while the slot is still committed. The
+ * body then says so (`amending`, the `AmendingNotice` the drafting scene carries
+ * too): the committed revision stays current until the redraft is approved.
  *
  * ── Why no `VerbsFor` prop ──────────────────────────────────────────────────
  * `containers/activityVerbs.ts` owns the verb table, and `components → containers`
@@ -41,7 +57,9 @@ import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 
-import { ArtifactPanel } from './ArtifactPanel';
+import { AmendComposer } from './AmendComposer';
+import { ArtifactPanel, type SdpDecisionProps } from './ArtifactPanel';
+import { RevokeStrip } from './RevokeStrip';
 import { ReviewersStrip } from './ReviewersStrip';
 import { TaskHeader } from './TaskHeader';
 import {
@@ -50,13 +68,15 @@ import {
   advanceFailed,
   AMEND_ARCHITECTURE,
   REVISION_NOTE_LABEL,
+  sdpDecisionFailed,
 } from './activityCopy.ts';
+import { AmendingNotice } from '../design/GeneratingScene';
 import { StaleBasisHeaderChip } from '../design/StaleBasisChip';
 import type { TaskFacts } from './activityViewToGraph.ts';
 import type { LifecycleRevision } from './lifecycleGraphTypes.ts';
 import { ARCHITECTURE_ACTIVITY_ID, type TaskArtifact } from './taskArtifactFor.ts';
 import { SubmitBar } from '../design/SubmitBar';
-import type { ArtifactActivityVM } from '../construction/artifactRenderers';
+import type { ArtifactActivityVM, TestingArtifactData } from '../construction/artifactRenderers';
 import type { ContractJoin } from '../../contracts/serviceContracts';
 import { ACTIVITY_PATH } from '../../contracts/routePaths.ts';
 import type { components } from '../../contracts/schema.ts';
@@ -84,7 +104,12 @@ export function ReviewBody({
   project,
   systemEnvelope,
   contractJoin,
+  testing,
   sdp,
+  revoke,
+  sdpDecisionError,
+  amend,
+  amending,
   historyCaption,
   note,
   stale,
@@ -120,11 +145,28 @@ export function ReviewBody({
   project: ProjectStateWithGit | undefined;
   systemEnvelope: ArtifactModelEnvelope | undefined;
   contractJoin: ContractJoin | undefined;
+  /** The scenario plan / test run reads a component's testing phases render. */
+  testing?: TestingArtifactData | undefined;
   /**
-   * Project Design M0 only: how the chosen option reaches the bar. OMITTED on a
-   * read-only history, where the option radiogroup goes inert with it.
+   * Project Design M0 only: how the chosen option reaches the bar, and the gate's
+   * reject-all while a decision is owed. OMITTED on a read-only history, where the
+   * option radiogroup goes inert with it.
    */
-  sdp?: { onChoose: (optionId: string) => void } | undefined;
+  sdp?: SdpDecisionProps | undefined;
+  /** Project Design M0 only, on a COMMITTED plan: the grace-window revoke. */
+  revoke?: { pending: boolean; onRevoke: () => void } | undefined;
+  /** What the server said when it refused a reject-all or a revoke. */
+  sdpDecisionError?: string | undefined;
+  /** A COMMITTED design slot on its head revision: the amend exit. */
+  amend?:
+    | { pending: boolean; error: string | undefined; onSubmit: (rationale: string) => void }
+    | undefined;
+  /**
+   * An amendment of this gate's COMMITTED slot is in flight: the committed revision
+   * it would replace. `undefined` when the head is the decided revision itself, and
+   * on a read-only history.
+   */
+  amending?: number | undefined;
   /**
    * The caption over the artifact while a NON-LATEST revision is on screen
    * (`HISTORY_ARTIFACT_CAPTION`): what is rendered is the CURRENT artifact, not
@@ -174,7 +216,10 @@ export function ReviewBody({
         onAdvanceAnyway: () => void;
       }
     | undefined;
-  /** A decision is owed on THIS revision — the bar renders only then. */
+  /**
+   * A decision is owed on THIS revision — the bar renders in its decision mode only
+   * then (and in its committed, Ask-only mode on a committed slot's head: `amend`).
+   */
   live: boolean;
   /** `openThreadCount(thread)` — nothing else computes this number. */
   openThreads: number;
@@ -218,6 +263,8 @@ export function ReviewBody({
         title={title}
         onRevision={onRevision}
       />
+
+      {amending !== undefined ? <AmendingNotice committedRevision={amending} /> : null}
 
       {/* The two warnings about the committed basis, on ONE row: the chip (an
           upstream slot drifted) and the cost-basis line (part of the cost was
@@ -280,8 +327,27 @@ export function ReviewBody({
         sdp={sdp}
         slots={slots}
         systemEnvelope={systemEnvelope}
+        testing={testing}
         vm={vm}
       />
+
+      {revoke !== undefined ? (
+        <RevokeStrip pending={revoke.pending} onRevoke={revoke.onRevoke} />
+      ) : null}
+
+      {sdpDecisionError !== undefined ? (
+        <Typography
+          data-testid={UI_IDENTIFIERS.SdpReview.DECISION_ERROR}
+          role="alert"
+          sx={{ fontSize: 13, color: t.dangerFg, lineHeight: 1.5 }}
+        >
+          {sdpDecisionFailed(sdpDecisionError)}
+        </Typography>
+      ) : null}
+
+      {amend !== undefined ? (
+        <AmendComposer error={amend.error} pending={amend.pending} onSubmit={amend.onSubmit} />
+      ) : null}
 
       {amendable ? (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -345,16 +411,16 @@ export function ReviewBody({
         </Box>
       ) : null}
 
-      {live ? (
+      {live || amend !== undefined ? (
         <SubmitBar
           allowAsk={allowAsk}
-          allowSendBack={allowSendBack}
+          allowSendBack={live ? allowSendBack : false}
           approveCopy={approveCopy}
           askPending={askPending}
-          committed={false}
+          committed={!live}
           openThreads={openThreads}
           pending={decisionPending}
-          stage="awaitingReview"
+          stage={live ? 'awaitingReview' : 'other'}
           stagedChangeRequests={stagedChangeRequests}
           stagedQuestions={stagedQuestions}
           onAmend={noAmend}

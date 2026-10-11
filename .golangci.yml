@@ -1,6 +1,6 @@
 # golangci-lint v2 config seated by the method-assets scaffold — the shared
 # archistrator baseline gate every built app starts from (the same baseline the
-# archistrator server + systemtests modules run). Server-owned policy: this file
+# archistrator server module runs). Server-owned policy: this file
 # is converged by the managed-scaffold sync, so local edits will be overwritten.
 version: "2"
 

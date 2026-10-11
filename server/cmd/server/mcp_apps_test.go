@@ -70,7 +70,7 @@ func TestDevCORSPreflight(t *testing.T) {
 func TestMCPAppsSeam(t *testing.T) {
 	const webAppOrigin = "https://app.example.com"
 	const assetVersion = "42"
-	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, webAppOrigin, assetVersion)
+	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, nil, webAppOrigin, assetVersion)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -133,7 +133,7 @@ func TestMCPAppsSeam(t *testing.T) {
 // is required.
 func mustListTools(t *testing.T) []*mcp.Tool {
 	t.Helper()
-	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, "http://localhost:5173", "dev")
+	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, nil, "http://localhost:5173", "dev")
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 

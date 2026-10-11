@@ -24,15 +24,17 @@ const here = dirname(fileURLToPath(import.meta.url));
 const doc = loadOas();
 const validate = compileFixtureValidator(doc);
 
-// The test-local fixtures the uitests build the preview over (design §2′.5 item
-// 4), and the recorded-design location the U-SPA-web-client Design phase will fill.
-const UITESTS_FIXTURES = join(here, '..', '..', 'uitests', 'preview-fixtures');
+// The recorded-design location the U-SPA-web-client Design phase fills (design §2′.5
+// item 4) — the one tree the preview build is pointed at. The corpus the hand-written
+// uitests used to hold under uitests/preview-fixtures moved here when those specs went
+// (deterministic component testing, spec §7): the webApp's own unit tests read it.
 const DESIGN_FIXTURES = join(here, '..', 'preview', 'fixtures');
+const FIXTURE_ROOTS = [DESIGN_FIXTURES];
 
-void test('every uitests fixture passes the OAS-generated schema (and there are some)', () => {
-  const { files, errors } = validateFixtureTree(UITESTS_FIXTURES, { validate });
+void test('every preview fixture passes the OAS-generated schema (and there are some)', () => {
+  const { files, errors } = validateFixtureTree(DESIGN_FIXTURES, { validate });
   assert.deepEqual(errors, []);
-  assert.ok(files.length >= 3, `expected the uitests fixture states, found ${files.length}`);
+  assert.ok(files.length >= 3, `expected the recorded fixture states, found ${files.length}`);
 });
 
 // THE SCHEMA SAYS A FIXTURE IS WELL-SHAPED; IT CANNOT SAY IT IS SERVABLE. A
@@ -76,7 +78,7 @@ const GATE_TASK = {
 };
 
 void test('every construction fixture row is one the server could serve', () => {
-  const { files } = validateFixtureTree(UITESTS_FIXTURES, { validate });
+  const files = FIXTURE_ROOTS.flatMap((root) => validateFixtureTree(root, { validate }).files);
   const offences = [];
   let rowsChecked = 0;
   for (const file of files) {
@@ -254,10 +256,18 @@ void test('the schema keys ops by exactly the OpsClient OpIds, composition route
   assert.ok(schemaOps.includes('compositionGetUserinfo'));
   // The whole roster, MEASURED off the bindings rather than typed here: stage 4a
   // took it from 51 ops to 23, stage 4b2 to 22 (deliveryManager 12 -> 11 as ReplanProject
-  // went), and a floor written by hand would be the one thing in this file that does not
-  // move when the contract does.
+  // went), dct Plan 4 to 23 (billingGetBillingCycle, use case view-a-billing-cycle), dct
+  // Plan 5 to 25 (onboarding's two entries, use case onboard-a-new-customer, spec §12 B7),
+  // then 24 (compositionGetCapabilities went: every profile serves operations, §12 B16),
+  // and a floor written by hand would be the one thing in this file that does not move
+  // when the contract does.
   assert.equal(schemaOps.filter((o) => o.startsWith('delivery')).length, 11);
-  assert.equal(schemaOps.length, 22);
+  assert.deepEqual(
+    schemaOps.filter((o) => o.startsWith('billing')),
+    ['billingGetBillingCycle', 'billingOnboardPaymentIntegration', 'billingRegisterCustomer'],
+    'billingManager reaches the client with the ops a use case draws from it, and no other'
+  );
+  assert.equal(schemaOps.length, 24);
 });
 
 void test(`${VIEW_OP} is keyed by the OAS view kinds, not by one answer`, () => {
@@ -274,6 +284,8 @@ void test(`${VIEW_OP} is keyed by the OAS view kinds, not by one answer`, () => 
     'designHealth',
     'episodes',
     'timeline',
+    'testRun',
+    'scenarios',
   ]);
   assert.equal(entry.additionalProperties, false, 'an unknown kind is refused');
   assert.equal(entry.oneOf, undefined, 'it is not a bare answer');
@@ -282,7 +294,7 @@ void test(`${VIEW_OP} is keyed by the OAS view kinds, not by one answer`, () => 
 const ok = (ops) => validate({ route: '/', ops });
 
 void test('it accepts a result, an error, or pending', () => {
-  assert.equal(ok({ compositionGetCapabilities: { result: { operations: false } } }), true);
+  assert.equal(ok({ compositionGetOperatedAppId: { result: { operatedAppId: 'a' } } }), true);
   assert.equal(
     ok({ deliveryQueryActivityView: { error: { status: 500, message: 'down' } } }),
     true
@@ -317,7 +329,7 @@ void test('it rejects an op the transport does not have', () => {
 });
 
 void test('it rejects a result that drifted from the contract', () => {
-  assert.equal(ok({ compositionGetCapabilities: { result: { operations: 'yes' } } }), false);
+  assert.equal(ok({ compositionGetOperatedAppId: { result: { operatedAppId: 7 } } }), false);
   assert.equal(
     ok({ deliveryQueryProjectView: { projects: { result: [{ ProjectID: 'x' }] } } }),
     false
@@ -349,12 +361,9 @@ void test('it rejects a fixture without an absolute route', () => {
   assert.equal(validate({ ops: {} }), false);
 });
 
-// THE ACTIVITY-EXPERIENCE FIXTURES LIVE IN THE UITESTS TREE, because that is the only one
-// the preview build is pointed at (playwright.config.ts's ARCHISTRATOR_PREVIEW_FIXTURES);
-// a scenario recorded under preview/fixtures is a scenario the suite cannot open. ONE
-// smoke fixture stays behind so the recorded-design location still validates something
-// real and this file's DESIGN_FIXTURES clauses are not vacuous. Every clause below walks
-// BOTH trees, so a fixture is held to the same rules wherever it was recorded.
+// THE ACTIVITY-EXPERIENCE FIXTURES LIVE IN THE RECORDED-DESIGN TREE, the one the preview
+// build is pointed at. Every clause below walks every fixture root, so a fixture is held
+// to the same rules wherever it was recorded.
 const activityViews = (root) => {
   const { files, errors } = validateFixtureTree(root, { validate });
   assert.deepEqual(errors, [], `${root}: fixtures must validate before they are read`);
@@ -365,26 +374,25 @@ const activityViews = (root) => {
     .filter(([, view]) => view !== undefined);
 };
 
-const FIXTURE_ROOTS = [UITESTS_FIXTURES, DESIGN_FIXTURES];
-
 void test('the activity-experience fixtures are recorded where the preview can open them', () => {
   const states = (root) => activityViews(root).map(([p]) => p.slice(p.lastIndexOf('/') + 1)).sort();
-  assert.deepEqual(states(UITESTS_FIXTURES), [
+  assert.deepEqual(states(DESIGN_FIXTURES), [
     'architecture-round.json',
     'construction-round-withdrawn.json',
     'deployment-linear.json',
     'done.json',
     'escalated.json',
     'failed.json',
+    'not-started.json',
     'project-design-m0-defaulted.json',
     'project-design-m0-history.json',
     'project-design-m0.json',
     'requirements-backfilled.json',
     'review-set-error.json',
     'service-fork-sent-back.json',
+    'service-parallel-testplan.json',
     'sub-attempts.json',
   ]);
-  assert.deepEqual(states(DESIGN_FIXTURES), ['not-started.json'], 'the one smoke fixture');
 });
 
 void test('the activity-experience fixtures answer the one read, with a closed task DAG', () => {

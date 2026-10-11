@@ -61,7 +61,7 @@ export interface Tokens {
    * critical-path mark — a node's stripe, border, ring, header and chip, the
    * critical edges and milestones, the legend and the minimap, the graph lens's
    * critical lane edge. The accent never means critical, and neither does dangerFg.
-   * The heaviest colour on the float ramp (bandRamp.test.ts measures it).
+   * The heaviest colour on the float ramp.
    */
   criticalFg: string;
   /** Text on a criticalFg fill (a critical node's header, the CP chip): ≥ 4.5:1. */
@@ -71,7 +71,7 @@ export interface Tokens {
    * bandYellow → bandGreen, and each step, measured against paper and paperAlt,
    * is lighter in weight (contrast falls ≥1.08× a step, green ≥3.2:1), later in
    * LCh hue (≥12° a step) and ≥10 CIEDE2000 from its neighbour, and every band is
-   * ≥15 CIEDE2000 from every status colour and the accent (bandRamp.test.ts).
+   * ≥15 CIEDE2000 from every status colour and the accent.
    */
   bandRed: string;
   /** Float-band YELLOW (6–25d slack) — an amber, on the same ramp. */

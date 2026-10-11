@@ -13,7 +13,9 @@
  *   - the read-only cost-projection (GET /operations/{id}/cost-projection) drives
  *     the scale what-if curve;
  *   - the publish actions (Deploy / Scale / UpdateAutoscalerPolicy / Withdraw)
- *     call the real POST endpoints.
+ *     call the real POST endpoints;
+ *   - Register (RegisterOperatedApp, use case register-a-delivered-system-for-
+ *     operation) seeds the operated system's head state once, above every tab.
  *
  * Operations is CLOUD / k8s only — the local/embedded profile has no operate
  * surface. Every tab degrades to an honest awaiting state rather than an error
@@ -27,25 +29,24 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Tooltip from '@mui/material/Tooltip';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import Button from '@mui/material/Button';
 import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import BoltOutlinedIcon from '@mui/icons-material/BoltOutlined';
-import RefreshIcon from '@mui/icons-material/Refresh';
 import { getRouteApi, useNavigate, Link as RouterLink } from '@tanstack/react-router';
 
 import { ApiError } from '../contracts/errors';
 import { useOperationsView } from '../hooks/useOperationsView';
+import { useRegisterOperatedApp } from '../hooks/useOperationsMutations';
 import { sloSummary } from '../contracts/operationsAdapters';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { CommentProvider } from '../components/comments/CommentContext';
-import { ErrorAlert } from '../components/shared/ErrorAlert';
 import { StatusTab } from '../components/operations/StatusTab';
 import { DeploymentsTab } from '../components/operations/DeploymentsTab';
 import { ScalingCostTab } from '../components/operations/ScalingCostTab';
 import { InterventionsTab } from '../components/operations/InterventionsTab';
+import { RegisterPanel, type RegisterResult } from '../components/operations/RegisterPanel';
 
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
@@ -96,63 +97,11 @@ const TABS: readonly [TabMeta, ...TabMeta[]] = [
 
 export function OperationsConsoleScreen(): ReactNode {
   const { operatedAppId } = routeApi.useParams();
-  const { capabilitiesUnreachable } = routeApi.useRouteContext();
-
-  // routes/operationsGuard.ts's beforeLoad already redirected home for the
-  // real D9 case ({operations:false}) — reaching this component at all means
-  // either operations is enabled, or the capabilities check itself failed
-  // after retrying. The latter renders an honest error instead of the
-  // console, rather than pretending nothing is wrong.
-  if (capabilitiesUnreachable) {
-    return <CapabilitiesUnreachablePanel />;
-  }
 
   return (
     <CommentProvider>
       <OperationsConsoleBody operatedAppId={operatedAppId} />
     </CommentProvider>
-  );
-}
-
-/**
- * Rendered in place of the console when routes/operationsGuard.ts could not
- * confirm capabilities after retrying — a genuine server/network failure, NOT
- * "operations is disabled" (D9's local-hides-operations case always answers
- * successfully, since local IS the process serving this SPA). A cloud
- * operator mid-incident needs to know THIS failed, not be silently bounced to
- * the catalog with no explanation.
- */
-function CapabilitiesUnreachablePanel(): ReactNode {
-  const t = useTokens();
-  return (
-    <Box
-      data-testid={UI_IDENTIFIERS.Operations.CAPABILITIES_UNREACHABLE}
-      sx={{ display: 'flex', justifyContent: 'center', px: 2, py: 10 }}
-    >
-      <Box sx={{ maxWidth: 520 }}>
-        <Typography sx={{ color: t.ink, mb: 1 }} variant="h5">
-          Couldn&rsquo;t confirm Operations is available
-        </Typography>
-        <ErrorAlert
-          error={
-            new Error(
-              'The capabilities check to the server failed after several attempts. This does NOT mean operations is disabled — it means the server could not be confirmed reachable. Check your connection and retry.'
-            )
-          }
-        />
-        <Button
-          data-testid={UI_IDENTIFIERS.Operations.CAPABILITIES_RETRY}
-          startIcon={<RefreshIcon />}
-          sx={{ mt: 1.5 }}
-          variant="outlined"
-          onClick={() => {
-            window.location.reload();
-          }}
-        >
-          Retry
-        </Button>
-      </Box>
-    </Box>
   );
 }
 
@@ -167,6 +116,15 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
   const sum = sloSummary(view);
 
   const active = TABS.find((x) => x.id === tab) ?? TABS[0];
+
+  const register = useRegisterOperatedApp(operatedAppId);
+  const registerResult: RegisterResult | undefined = register.isPending
+    ? { kind: 'pending' }
+    : register.data !== undefined
+      ? { kind: 'registered', version: register.data }
+      : register.error !== null
+        ? { kind: 'failed', message: register.error.message }
+        : undefined;
 
   return (
     <ExperienceChrome
@@ -279,6 +237,12 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
         </Box>
 
         <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
+          <RegisterPanel
+            result={registerResult}
+            onRegister={(vars) => {
+              register.mutate(vars);
+            }}
+          />
           <ConsoleHeader subtitle={active.subtitle} t={t} title={active.title} />
 
           {viewQuery.isLoading && !viewMissing ? (

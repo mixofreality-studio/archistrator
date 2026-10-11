@@ -1,11 +1,13 @@
 /**
- * Research-input affordance for the first System Design step. startSystemDesign
- * requires a ResearchInput corpus to be present; when the server reports it
- * missing (409 failed_precondition), this panel collects a single research source
- * (title + content) and submits it via setResearchInput. On success the caller
- * retries start. Minimal, deliberately one-source — and setResearchInput
- * REPLACES the whole corpus (it does not append), so this single source IS the
- * corpus until a replacing resubmission.
+ * Research-input affordance for the first System Design step (use case
+ * manage-projects/capture-research). Starting system design requires a
+ * ResearchInput corpus, so the Activity Experience shows this panel on the
+ * requirements activity's first dispatch while the project holds none; it collects
+ * a single research source (title + content) and the caller submits it through
+ * StartProject addressed at the project with `start: true`, which saves the corpus
+ * and starts the walk in one call. Minimal, deliberately one-source — and the
+ * research write REPLACES the whole corpus (it does not append), so this single
+ * source IS the corpus until a replacing resubmission.
  */
 import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';

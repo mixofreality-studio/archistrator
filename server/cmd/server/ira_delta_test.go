@@ -92,7 +92,7 @@ func newIRADeltaHarness(t *testing.T) *iraDeltaHarness {
 	// missed until Task 8's `go vet ./...` pass surfaced it as a build break).
 	// activityExecutionAccess (stage 3 task 6) is nil for the same reason: this
 	// harness drives no co-author workflow, so nothing reaches the round ledger. ---
-	mgr := delivery.NewDeliveryManager(nil, stateAdapter, nil, nil, nil, nil, nil, nil, nil, scAccess, nil, nil, designAdapter, nil, nil, nil, 0, "", nil, "")
+	mgr := delivery.NewDeliveryManager(nil, stateAdapter, nil, nil, nil, nil, nil, nil, nil, nil, scAccess, nil, designAdapter, nil, nil, nil, 0, "", nil, "")
 
 	return &iraDeltaHarness{mgr: mgr, fakeGH: fake, gitRepo: rawRepo, ctx: context.Background()}
 }

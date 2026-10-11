@@ -11,17 +11,16 @@ import (
 // FakeSourceControlAccess is a generated test double for sourcecontrol.SourceControlAccess: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeSourceControlAccess struct {
-	AdoptProjectRepoFn          func(rc fwra.Context, spec sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error)
-	CommitManagedFilesFn        func(rc fwra.Context, repo sourcecontrol.RepoRef, files []sourcecontrol.ManagedFile, cred sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error)
-	ConfigureBranchProtectionFn func(rc fwra.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) error
-	GetInstallationTokenFn      func(rc fwra.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error)
-	GetPullRequestStatusFn      func(rc fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error)
-	InstallAuthorizeAppFn       func(rc fwra.Context, account sourcecontrol.AccountRef) (sourcecontrol.Installation, error)
-	MergePullRequestFn          func(rc fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error)
-	OpenBranchFn                func(rc fwra.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error)
-	OpenPullRequestFn           func(rc fwra.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error)
-	PostReviewFn                func(rc fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential) error
-	SyncManagedScaffoldFn       func(rc fwra.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error)
+	AdoptProjectRepoFn     func(rc fwra.Context, spec sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error)
+	CommitManagedFilesFn   func(rc fwra.Context, repo sourcecontrol.RepoRef, files []sourcecontrol.ManagedFile, cred sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error)
+	GetInstallationTokenFn func(rc fwra.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error)
+	GetPullRequestStatusFn func(rc fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error)
+	MergePullRequestFn     func(rc fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error)
+	OpenBranchFn           func(rc fwra.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error)
+	OpenPullRequestFn      func(rc fwra.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error)
+	PostReviewFn           func(rc fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential) error
+	SyncManagedScaffoldFn  func(rc fwra.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error)
+	ReadManagedFileFn      func(rc fwra.Context, repo sourcecontrol.RepoRef, path string, cred sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error)
 }
 
 func (f *FakeSourceControlAccess) AdoptProjectRepo(rc fwra.Context, spec sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
@@ -38,13 +37,6 @@ func (f *FakeSourceControlAccess) CommitManagedFiles(rc fwra.Context, repo sourc
 	return f.CommitManagedFilesFn(rc, repo, files, cred)
 }
 
-func (f *FakeSourceControlAccess) ConfigureBranchProtection(rc fwra.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) error {
-	if f.ConfigureBranchProtectionFn == nil {
-		panic("FakeSourceControlAccess.ConfigureBranchProtectionFn not set")
-	}
-	return f.ConfigureBranchProtectionFn(rc, repo, cred)
-}
-
 func (f *FakeSourceControlAccess) GetInstallationToken(rc fwra.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	if f.GetInstallationTokenFn == nil {
 		panic("FakeSourceControlAccess.GetInstallationTokenFn not set")
@@ -57,13 +49,6 @@ func (f *FakeSourceControlAccess) GetPullRequestStatus(rc fwra.Context, repo sou
 		panic("FakeSourceControlAccess.GetPullRequestStatusFn not set")
 	}
 	return f.GetPullRequestStatusFn(rc, repo, pr, cred)
-}
-
-func (f *FakeSourceControlAccess) InstallAuthorizeApp(rc fwra.Context, account sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
-	if f.InstallAuthorizeAppFn == nil {
-		panic("FakeSourceControlAccess.InstallAuthorizeAppFn not set")
-	}
-	return f.InstallAuthorizeAppFn(rc, account)
 }
 
 func (f *FakeSourceControlAccess) MergePullRequest(rc fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
@@ -99,6 +84,13 @@ func (f *FakeSourceControlAccess) SyncManagedScaffold(rc fwra.Context, repo sour
 		panic("FakeSourceControlAccess.SyncManagedScaffoldFn not set")
 	}
 	return f.SyncManagedScaffoldFn(rc, repo, cred)
+}
+
+func (f *FakeSourceControlAccess) ReadManagedFile(rc fwra.Context, repo sourcecontrol.RepoRef, path string, cred sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	if f.ReadManagedFileFn == nil {
+		panic("FakeSourceControlAccess.ReadManagedFileFn not set")
+	}
+	return f.ReadManagedFileFn(rc, repo, path, cred)
 }
 
 var _ sourcecontrol.SourceControlAccess = (*FakeSourceControlAccess)(nil)

@@ -49,9 +49,10 @@ type recordPhaseArtifactInput struct {
 
 // recordTestingStateInput carries a testing-state payload (a PhaseArtifactPayload with
 // exactly one project-level testing field set). mapKey is unused for testing-state
-// singletons, so it is not an input.
+// singletons, so it is not an input. TestRun is NOT among the admitted fields: the run is
+// the venue's record (record-test-run), never the agent's claim.
 type recordTestingStateInput struct {
-	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE testing-state field set (SystemTestPlan, HarnessModule, PerfHarness, QualityGate, TestRun, Defect, or QualityAuditReport)"`
+	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE testing-state field set (HarnessModule, PerfHarness, QualityGate, Defect, or QualityAuditReport); a TestRun is refused — the venue's record-test-run step records runs"`
 }
 
 // applyConstructionMutation is the shared validate-then-write core for the construction
@@ -98,7 +99,10 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 }
 
 // recordServiceContract writes the typed ServiceContract for the AMBIENT component into
-// .serviceContracts, lazy-allocating the map — the detailed-design phase's artifact.
+// .serviceContracts, lazy-allocating the map — the detailed-design phase's artifact. The
+// ambient component is the architecture component's id (AIARCH_COMPONENT_ID, kebab-case);
+// the contract is keyed by the component's own contractKey, the one key every reader of
+// .serviceContracts uses, so a component the System gives no contract key is refused.
 func (s *Session) recordServiceContract(contract map[string]any) error {
 	if s.ComponentID == "" {
 		return fmt.Errorf("recordServiceContract needs the ambient component (AIARCH_COMPONENT_ID); this construct job has none — it is not a component activity")
@@ -113,12 +117,36 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 			" — fix the field and call recordServiceContract again", err)
 	}
 	return s.applyConstructionMutation("service contract", func(p *projectstate.Project) error {
+		key, err := contractKeyOf(*p, s.ComponentID)
+		if err != nil {
+			return err
+		}
 		if p.ServiceContracts == nil {
 			p.ServiceContracts = make(map[string]projectstate.ServiceContract)
 		}
-		p.ServiceContracts[s.ComponentID] = sc
+		p.ServiceContracts[key] = sc
 		return nil
 	})
+}
+
+// contractKeyOf is the .serviceContracts key of the System component componentID: its
+// contractKey. A project with no System model, a component the System does not name, or
+// one it gives no contract key has no contract to record.
+func contractKeyOf(p projectstate.Project, componentID string) (string, error) {
+	sys, ok := p.SystemDesign.Model.(*projectstate.System)
+	if !ok || sys == nil {
+		return "", fmt.Errorf("recordServiceContract: the project has no System model, so component %q has no contract key to record under", componentID)
+	}
+	for _, c := range sys.Components {
+		if c.ID != componentID {
+			continue
+		}
+		if c.ContractKey == nil || *c.ContractKey == "" {
+			return "", fmt.Errorf("recordServiceContract: the System gives component %q no contractKey — it has no service contract to record", componentID)
+		}
+		return *c.ContractKey, nil
+	}
+	return "", fmt.Errorf("recordServiceContract: the System names no component %q", componentID)
 }
 
 // recordPhaseArtifact routes a phase-artifact payload into .phaseArtifacts under mapKey,
@@ -139,6 +167,13 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 
 // recordTestingState routes a testing-state payload into .testingState (project-level
 // singletons/slices; mapKey unused), via the same server routing.
+//
+// THE RUN HALF IS REFUSED (deterministic component testing, §6.1: record-test-run
+// "replaces the run half of recordTestingState"). The testing gate judges the venue's
+// evidence, not an agent's claim, and a verb the agent can call that appended a TestRun
+// would let a fabricated all-pass run, stamped with the judged attempt id, pass that gate.
+// The routing (ApplyPhaseArtifactPayload) still carries TestRun because the venue's
+// subcommand goes through it; only this agent-facing entry closes the door.
 func (s *Session) recordTestingState(payload map[string]any) error {
 	if s.ActivityID == "" {
 		return fmt.Errorf("recordTestingState needs the ambient activity (AIARCH_ACTIVITY_ID); this construct job has none")
@@ -146,6 +181,11 @@ func (s *Session) recordTestingState(payload map[string]any) error {
 	pl, err := decodePhaseArtifactPayload(payload)
 	if err != nil {
 		return err
+	}
+	if pl.TestRun != nil {
+		return fmt.Errorf("recordTestingState does not record test runs: a run is the venue's measured evidence, " +
+			"recorded by the workflow's `record-test-run` step from the test-results the scenario host flushed — " +
+			"an agent cannot claim one")
 	}
 	return s.applyConstructionMutation("testing state", func(p *projectstate.Project) error {
 		projectstate.ApplyPhaseArtifactPayload(p, "", pl)

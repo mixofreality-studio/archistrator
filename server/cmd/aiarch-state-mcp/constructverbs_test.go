@@ -7,11 +7,25 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
+// projectWithComponent is minimalProject with a System naming one component: the
+// architecture id the construct job carries (kebab) and the contract key its service
+// contract is recorded under.
+func projectWithComponent(id, contractKey string) projectstate.Project {
+	p := minimalProject()
+	c := projectstate.Component{ID: id, Name: "Billing Engine", Kind: projectstate.CompEngine, Layer: projectstate.LayerEngine, Encapsulates: "Billing rules volatility"}
+	if contractKey != "" {
+		c.ContractKey = &contractKey
+	}
+	p.SystemDesign = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &projectstate.System{Components: []projectstate.Component{c}}}
+	return p
+}
+
 // TestRecordServiceContract_WritesAndValidates proves the detailed-design write lands
-// in .serviceContracts under the AMBIENT component and passes the codec + methodcheck.
+// in .serviceContracts under the AMBIENT component's contract key (not its architecture
+// id) and passes the codec + methodcheck.
 func TestRecordServiceContract_WritesAndValidates(t *testing.T) {
-	s, _ := seedProject(t, minimalProject(), jobModeConstruct, 0)
-	s.ComponentID = "billingEngine"
+	s, _ := seedProject(t, projectWithComponent("billing-engine", "billingEngine"), jobModeConstruct, 0)
+	s.ComponentID = "billing-engine"
 	if err := s.recordServiceContract(map[string]any{
 		"component": "billingEngine",
 		"layer":     "Engine",
@@ -24,7 +38,10 @@ func TestRecordServiceContract_WritesAndValidates(t *testing.T) {
 		t.Fatalf("read back: %v", err)
 	}
 	if proj.ServiceContracts["billingEngine"].Component != "billingEngine" {
-		t.Fatalf("contract not written under the ambient component: %+v", proj.ServiceContracts)
+		t.Fatalf("contract not written under the ambient component's contract key: %+v", proj.ServiceContracts)
+	}
+	if _, wrong := proj.ServiceContracts["billing-engine"]; wrong {
+		t.Fatalf("contract written under the architecture id, not the contract key: %+v", proj.ServiceContracts)
 	}
 	if !s.wroteState {
 		t.Fatal("wroteState must latch so publishDraft will not no-op")
@@ -41,11 +58,32 @@ func TestRecordServiceContract_MissingAmbientComponent(t *testing.T) {
 	}
 }
 
+// TestRecordServiceContract_RefusesComponentWithoutContractKey proves a component the
+// System gives no contract key (or does not name) has nothing recorded for it.
+func TestRecordServiceContract_RefusesComponentWithoutContractKey(t *testing.T) {
+	for name, p := range map[string]projectstate.Project{
+		"no contract key":   projectWithComponent("billing-engine", ""),
+		"unknown component": projectWithComponent("other-engine", "otherEngine"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, _ := seedProject(t, p, jobModeConstruct, 0)
+			s.ComponentID = "billing-engine"
+			err := s.recordServiceContract(map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine"})
+			if err == nil || !strings.Contains(err.Error(), "billing-engine") {
+				t.Fatalf("expected a refusal naming the component, got: %v", err)
+			}
+			if s.wroteState {
+				t.Fatal("a refused contract must not latch wroteState or write anything")
+			}
+		})
+	}
+}
+
 // TestRecordServiceContract_RejectsMalformed proves a type-mismatched contract is
 // rejected by the strict codec with nothing written.
 func TestRecordServiceContract_RejectsMalformed(t *testing.T) {
-	s, _ := seedProject(t, minimalProject(), jobModeConstruct, 0)
-	s.ComponentID = "billingEngine"
+	s, _ := seedProject(t, projectWithComponent("billing-engine", "billingEngine"), jobModeConstruct, 0)
+	s.ComponentID = "billing-engine"
 	// component must be a string; a number fails the strict decode.
 	err := s.recordServiceContract(map[string]any{"component": 123})
 	if err == nil || !strings.Contains(err.Error(), "does not conform") {
@@ -76,13 +114,37 @@ func TestRecordPhaseArtifact_Writes(t *testing.T) {
 // .testingState (project-level; mapKey unused).
 func TestRecordTestingState_Writes(t *testing.T) {
 	s, _ := seedProject(t, minimalProject(), jobModeConstruct, 0)
-	s.ActivityID = "N-STP"
+	s.ActivityID = "N-QA"
 	if err := s.recordTestingState(map[string]any{"QualityAuditReport": "audit passed"}); err != nil {
 		t.Fatalf("recordTestingState: %v", err)
 	}
 	proj, _, _ := s.readProject()
 	if proj.TestingState == nil || proj.TestingState.QualityAuditReport != "audit passed" {
 		t.Fatalf("testing state not written: %+v", proj.TestingState)
+	}
+}
+
+// TestRecordTestingState_RefusesTheRunHalf pins spec §6.1: record-test-run REPLACES the run
+// half of recordTestingState. The testing gate judges "the venue's evidence, not an agent's
+// claim", and an agent-facing verb that still accepted a TestRun payload could record a
+// fabricated all-pass run stamped with the judged attempt id and pass the gate with it.
+// The refusal names the venue's subcommand, and NOTHING is written.
+func TestRecordTestingState_RefusesTheRunHalf(t *testing.T) {
+	s, _ := seedProject(t, minimalProject(), jobModeConstruct, 0)
+	s.ActivityID = "C-BE"
+	err := s.recordTestingState(map[string]any{"TestRun": map[string]any{
+		"id": "fab-1", "activity": "C-BE", "component": "billing-engine", "revision": "C-BE:integration:1",
+		"artifact": "test-results-C-BE-fab-1", "scenarios": []any{map[string]any{"scenario": "s1", "status": "pass"}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "record-test-run") {
+		t.Fatalf("the run half must be refused naming the venue's record-test-run, got: %v", err)
+	}
+	proj, _, _ := s.readProject()
+	if proj.TestingState != nil && len(proj.TestingState.TestRuns) != 0 {
+		t.Fatalf("a refused run must not be written: %+v", proj.TestingState)
+	}
+	if s.wroteState {
+		t.Fatal("a refused run must leave the checkout untouched")
 	}
 }
 

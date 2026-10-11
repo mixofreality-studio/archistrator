@@ -21,7 +21,7 @@ import (
 func TestMCPMountInitializeAndListTools(t *testing.T) {
 	// Dev mode: AuthMiddleware injects a principal and validates no token, so a
 	// nil validator is fine (mirrors the local ARCHISTRATOR_AUTH_DEV_MODE=true run).
-	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, "http://localhost:5173", "dev")
+	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, nil, "http://localhost:5173", "dev")
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -47,9 +47,12 @@ func TestMCPMountInitializeAndListTools(t *testing.T) {
 		got[tool.Name] = true
 	}
 
-	// One representative tool per web-wired manager: all four Handler sets must be
+	// One representative tool per web-wired manager: all three Handler sets must be
 	// registered on the one server behind /mcp.
 	want := []string{
+		"billingGetBillingCycle",
+		"billingOnboardPaymentIntegration",
+		"billingRegisterCustomer",
 		"deliveryStartProject",
 		"deliveryDispatchActivityTask",
 		"deliveryExecuteNextActivity",
@@ -58,6 +61,14 @@ func TestMCPMountInitializeAndListTools(t *testing.T) {
 	for _, name := range want {
 		if !got[name] {
 			t.Errorf("tools/list missing %q; got %d tools: %s", name, len(res.Tools), strings.Join(toolNames(res.Tools), ", "))
+		}
+	}
+	// billingManager reaches MCP with the ops a use case draws from a client — the
+	// cycle read and onboarding's two entries (spec §12 B7) — and nothing else: the
+	// scheduler-driven ops stay on its Temporal worker.
+	for _, name := range []string{"billingCloseBillingCycle", "billingRunShortfallSweep"} {
+		if got[name] {
+			t.Errorf("tools/list exposes the scheduler-driven %q", name)
 		}
 	}
 }

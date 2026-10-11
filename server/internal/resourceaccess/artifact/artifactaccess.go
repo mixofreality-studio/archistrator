@@ -4,11 +4,20 @@
 package artifact
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,9 +65,6 @@ import (
 //     branch / address; the prior output is never overwritten (immutable history).
 //   - RetrieveConstructionOutput resolves an address back to its bytes+MIMEType via
 //     the satellite (read the content file and its sibling meta.json at the commit).
-//   - RetrieveOutputTree resolves the address's commit, flattens its tree into a
-//     path->address map (each entry address is "{commitToken}:{entryPath}", itself
-//     retrievable via RetrieveConstructionOutput), pinned to the queried address.
 //
 // The receiver imports NO Temporal (layer rule): the idempotencyKey arrives as an
 // ordinary parameter and is never read from ambient context. Git vocabulary lives
@@ -149,39 +155,6 @@ func (g *GitArtifactAccess) RetrieveConstructionOutput(rc fwra.Context, contentA
 	return ConstructionOutput{Bytes: contentBytes, MIMEType: mime}, nil
 }
 
-// RetrieveOutputTree resolves the commit at contentAddress and returns its flat
-// path->content-address snapshot (artifactAccess.md §2.3). Every entry address is
-// itself a content address resolvable by RetrieveConstructionOutput. An unknown
-// address surfaces as fwra.NotFound.
-func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress string) (OutputTree, error) {
-	commitToken, _, err := parseAddress(contentAddress)
-	if err != nil {
-		return OutputTree{}, err
-	}
-	ctx := rc.Context
-	auth, err := g.auth(ctx)
-	if err != nil {
-		return OutputTree{}, err
-	}
-
-	paths, err := g.git.WalkTreeFiles(ctx, commitToken, auth)
-	if err != nil {
-		return OutputTree{}, err
-	}
-
-	// The generated OutputTree.Entries map is keyed by string (JSON Schema map keys
-	// are always strings); the logical OutputPath key bridges to its string form at
-	// this boundary (a within-package conversion — OutputPath is the contract's own
-	// named scalar, but the map key carries the bare string per the wire shape).
-	entries := map[string]string{}
-	for _, name := range paths {
-		// Each file entry is addressed by the SAME commit token + its path, so it
-		// round-trips through RetrieveConstructionOutput.
-		entries[string(OutputPath(name))] = makeAddress(commitToken, name)
-	}
-	return OutputTree{Root: contentAddress, Entries: entries}, nil
-}
-
 // Package artifact is the artifactAccess component of the aiarch server's
 // ResourceAccess layer — the Temporal-free port over the content-addressable
 // store for PHASE-3 CONSTRUCTION OUTPUTS only (artifactAccess.md, re-cut
@@ -195,14 +168,14 @@ func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress s
 // Manager-owned Temporal Activity and passes the idempotencyKey in as an
 // ordinary parameter; this package never reads Temporal context.
 //
-// The shared value types ConstructionOutput / OutputTree / OutputPath are owned
+// The shared value type ConstructionOutput is owned
 // HERE (construction.go) — this is the RA that stores them. workerAccess —
 // which PRODUCES a ConstructionOutput — imports them as a downward edge.
 //
 // Derived faithfully from the frozen artifactAccess.md contract (Phase-3 CAS).
 
-// The ArtifactAccess port interface and its I/O value types (ConstructionOutput,
-// OutputTree, and the named scalar OutputPath) are now GENERATED from
+// The ArtifactAccess port interface and its I/O value types (ConstructionOutput and
+// the test-run index) are now GENERATED from
 // this component's `.serviceContracts` entry in .aiarch/state/project.json into
 // contract.gen.go (schema-first; edit that entry and run
 // `make gen`). Each method takes the ResourceAccess call Context `rc fwra.Context`
@@ -218,8 +191,6 @@ func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress s
 //     commit message; this method never reads Temporal.
 //   - RetrieveConstructionOutput is a pure by-address read; an unknown address
 //     surfaces as fwra.NotFound. Byte-identical across retries.
-//   - RetrieveOutputTree returns the flat path->content-address snapshot at a
-//     tree-root address; an unknown address surfaces as fwra.NotFound.
 //
 // The shared ResourceAccess error model is framework-go's fwra.Error, constructed
 // with fwra.New / fwra.Wrap using the shared kinds (fwra.NotFound, fwra.Conflict,
@@ -244,11 +215,6 @@ func (g *GitArtifactAccess) RetrieveOutputTree(rc fwra.Context, contentAddress s
 //     by workerAccess (which produces a ConstructionOutput as a downward import —
 //     the worker RA can read the artifact RA's value types because they sit at the
 //     same layer and the producer→store value flow is the natural direction).
-//   - OutputTree is a frozen path->content-address snapshot (artifactAccess.md §3).
-//     Its Entries map is generated as map[string]string (JSON Schema map keys are
-//     always strings); the impl bridges the logical OutputPath key at the boundary.
-//   - OutputPath is a logical, slash-separated path within an OutputTree
-//     (artifactAccess.md §3). Infrastructure-opaque.
 
 // helpers.go holds the INFRASTRUCTURE-PRIVATE address/branch/meta encoding for the
 // content-addressable construction-output store. It imports NO git package — git
@@ -380,10 +346,12 @@ func commitMessage(key fwra.IdempotencyKey) string {
 //	LOCAL  — the user's on-disk git repo over a file:// remote needs no HTTP
 //	         credential (GitAuth{Local:true}).
 //	CLOUD  — the user's GitHub repo; the short-lived INSTALLATION TOKEN is minted
-//	         INTERNALLY (App-JWT -> MintInstallationToken) and cached to expiry. The
-//	         credential is NEVER threaded through the RA's contract surface and the RA
-//	         NEVER calls a sibling RA to obtain it (NoSideways) — the discipline the
-//	         artifactAccess contract §6 / Non-goal #11 prescribes.
+//	         INTERNALLY (App-JWT -> MintInstallationToken, over the shared *AppClient
+//	         the composition root builds once) and cached to expiry. The credential
+//	         is NEVER threaded through the RA's contract surface and the RA NEVER
+//	         calls a sibling RA to obtain it (NoSideways) — the discipline the
+//	         artifactAccess contract §6 / Non-goal #11 prescribes. The same client
+//	         backs the test-run store (Actions run artifacts).
 //	DRY-RUN — an in-memory stub for the local dogfood/demo profile
 //	         (ARCHISTRATOR_CONSTRUCTION_DRYRUN=true); nothing is committed.
 //
@@ -413,19 +381,44 @@ func NewGitLocalArtifactAccess(repoURL string) ArtifactAccess {
 
 // NewGitHubCloudArtifactAccess builds the CLOUD-profile artifactAccess: a satellite
 // *GitBlobStore over the user's GitHub construction repo plus the internal
-// token-minting auth resolver (App-JWT -> MintInstallationToken, cached to expiry).
-// Config is validated eagerly (a missing field / bad key surfaces as
-// fwra.ContractMisuse) but no network IO happens; the installation token is minted
-// lazily on first use. installationID 0 ⇒ discovered on first call.
+// token-minting auth resolver (App-JWT -> MintInstallationToken, cached to expiry),
+// and the GitHub-Actions-backed test-run store over the SAME shared *AppClient the
+// sourcecontrol + agenticjob variants use (the composition root builds it once from
+// the github-app credentials; no raw credential crosses into this package). Config
+// is validated eagerly (a missing field surfaces as fwra.ContractMisuse) but no
+// network IO happens; the installation token is minted lazily on first use.
+// installationID 0 ⇒ discovered on first call. The test-run zips cache under the
+// user cache dir (archistrator/testruns/<run>/<artifact>.zip).
 //
 // This is the step-8 A2 composegen VARIANT constructor (variant token GitHubCloud):
 // the composition root threads its args via hooks.ArtifactAccessGitHubCloudArgs.
-func NewGitHubCloudArtifactAccess(repoURL, owner, appID, privateKeyPEM, apiBaseURL string, installationID int64) (ArtifactAccess, error) {
-	blob, authResolver, err := newCloudArtifactStore(repoURL, owner, appID, privateKeyPEM, apiBaseURL, installationID)
+func NewGitHubCloudArtifactAccess(app *githubinfra.AppClient, repoURL, owner string, installationID int64) (ArtifactAccess, error) {
+	blob, auth, err := newCloudArtifactStore(app, repoURL, owner, installationID)
 	if err != nil {
 		return nil, err
 	}
-	return NewGitArtifactAccess(blob, authResolver), nil
+	cacheDir, err := defaultTestRunCacheDir()
+	if err != nil {
+		return nil, err
+	}
+	token := func(ctx context.Context) (string, error) {
+		a, aerr := auth.resolve(ctx)
+		return a.Token, aerr
+	}
+	runs := newCloudTestRunStore(app, owner, repoNameOf(repoURL), token, cacheDir)
+	return newCloudArtifactAccess(blob, auth.resolve, runs), nil
+}
+
+// repoNameOf extracts the repository name from a GitHub clone URL
+// ("https://github.com/acme/proj.git" → "proj"); the Actions artifact routes
+// address the repo by owner + name while the blob store takes the URL whole.
+func repoNameOf(repoURL string) string {
+	u := strings.TrimRight(strings.TrimSpace(repoURL), "/")
+	u = strings.TrimSuffix(u, ".git")
+	if i := strings.LastIndexAny(u, "/:"); i >= 0 {
+		u = u[i+1:]
+	}
+	return u
 }
 
 // erroringArtifactAccess is the deferred-guard store NewGitLocalArtifactAccess
@@ -444,8 +437,476 @@ func (e erroringArtifactAccess) RetrieveConstructionOutput(fwra.Context, string)
 	return ConstructionOutput{}, e.err
 }
 
-func (e erroringArtifactAccess) RetrieveOutputTree(fwra.Context, string) (OutputTree, error) {
-	return OutputTree{}, e.err
+func (e erroringArtifactAccess) GetTestRunIndex(fwra.Context, TestRunRef) (TestRunIndex, error) {
+	return TestRunIndex{}, e.err
+}
+
+func (e erroringArtifactAccess) ReadTestRunFile(fwra.Context, TestRunRef, string) (ConstructionOutput, error) {
+	return ConstructionOutput{}, e.err
+}
+
+// ---------------------------------------------------------------------------
+// TEST-RUN OPS (deterministic component testing, spec §6.3). The venue's
+// test-results artifact — `test-results/**` with `<component>/results.json`, the
+// `go test -json` stream, Playwright videos/traces — is a GitHub Actions artifact
+// zip in the CLOUD profile and a directory under .aiarch/test-results in the LOCAL
+// one. Both are read through the same two contract ops:
+//
+//   - GetTestRunIndex(run) → the file list (slash-separated, relative to the
+//     artifact root, sorted), the bytes of results.json, or Expired=true when the
+//     venue's retention window elapsed (a RENDERED state the gate holds on, never a
+//     500 — Review Focus 3).
+//   - ReadTestRunFile(run, path) → one file's bytes + an advisory MIME by extension
+//     (the delivery file endpoint streams it); a traversal path is ContractMisuse,
+//     an absent entry NotFound.
+//
+// The profile split is the testRunStore seam below: localTestRunStore walks the
+// directory TestRunRef.Artifact names; cloudTestRunStore lists the run's artifacts,
+// finds TestRunRef.Artifact by name, downloads the zip ONCE into an on-disk cache
+// keyed by run id + artifact name, and indexes/reads it with archive/zip. The
+// generated GitArtifactAccess (contract.gen.go: blob store + auth resolver) has no
+// field for the Actions client, so the LOCAL profile — which needs nothing beyond
+// the directory — is served by the generated receiver itself (dispatching on the
+// resolver's GitAuth.Local), and the CLOUD profile wraps it with the Actions-backed
+// store (cloudArtifactAccess). The two variants live in this file, not in
+// testrun_cloud.go / testrun_local.go, because the layer file-layout gate
+// (TestFileLayout, rule file-not-allowed) permits exactly one handwritten impl
+// file per ResourceAccess package.
+// ---------------------------------------------------------------------------
+
+// testRunStore is the profile seam behind the two test-run contract ops.
+type testRunStore interface {
+	index(ctx context.Context, run TestRunRef) (TestRunIndex, error)
+	read(ctx context.Context, run TestRunRef, path string) (ConstructionOutput, error)
+}
+
+// GetTestRunIndex serves the LOCAL profile from the generated receiver: a file://
+// store's test runs are directories. A non-local resolver means this receiver was
+// built without the Actions-backed store the cloud profile needs
+// (NewGitHubCloudArtifactAccess wraps it in one), so the call is refused rather
+// than answered with an empty run a gate could mistake for evidence.
+func (g *GitArtifactAccess) GetTestRunIndex(rc fwra.Context, run TestRunRef) (TestRunIndex, error) {
+	store, err := g.localTestRuns(rc.Context)
+	if err != nil {
+		return TestRunIndex{}, err
+	}
+	return store.index(rc.Context, run)
+}
+
+// ReadTestRunFile reads one file of a LOCAL test-run directory; see GetTestRunIndex
+// for the profile rule.
+func (g *GitArtifactAccess) ReadTestRunFile(rc fwra.Context, run TestRunRef, path string) (ConstructionOutput, error) {
+	store, err := g.localTestRuns(rc.Context)
+	if err != nil {
+		return ConstructionOutput{}, err
+	}
+	return store.read(rc.Context, run, path)
+}
+
+// localTestRuns resolves the profile: a GitAuth.Local resolver ⇒ the directory
+// store; anything else is the cloud profile reached without its wrapper.
+func (g *GitArtifactAccess) localTestRuns(ctx context.Context) (testRunStore, error) {
+	auth, err := g.auth(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !auth.Local {
+		return nil, fwra.New(fwra.ContractMisuse, "artifact: test-run ops on a non-local store need the GitHub Actions client; build the cloud profile with NewGitHubCloudArtifactAccess")
+	}
+	return localTestRunStore{}, nil
+}
+
+// cloudArtifactAccess is the CLOUD-profile artifactAccess: the generated git-backed
+// store for construction outputs plus the Actions-backed test-run store.
+type cloudArtifactAccess struct {
+	ArtifactAccess
+	runs testRunStore
+}
+
+var _ ArtifactAccess = (*cloudArtifactAccess)(nil)
+
+func newCloudArtifactAccess(blob *githubinfra.GitBlobStore, auth func(ctx context.Context) (githubinfra.GitAuth, error), runs testRunStore) ArtifactAccess {
+	return &cloudArtifactAccess{ArtifactAccess: NewGitArtifactAccess(blob, auth), runs: runs}
+}
+
+func (c *cloudArtifactAccess) GetTestRunIndex(rc fwra.Context, run TestRunRef) (TestRunIndex, error) {
+	return c.runs.index(rc.Context, run)
+}
+
+func (c *cloudArtifactAccess) ReadTestRunFile(rc fwra.Context, run TestRunRef, path string) (ConstructionOutput, error) {
+	return c.runs.read(rc.Context, run, path)
+}
+
+// resultsFile is the per-component scenario results the venue writes
+// (`<component>/results.json`, shape scenariohost.ScenarioResult[]).
+const resultsFile = "results.json"
+
+// cleanTestRunPath validates a path inside a test-run artifact: relative,
+// slash-separated, no empty / "." / ".." segments — so neither the directory
+// variant nor a zip lookup can escape the artifact root.
+func cleanTestRunPath(p string) (string, error) {
+	if strings.TrimSpace(p) == "" {
+		return "", fwra.New(fwra.ContractMisuse, "artifact: empty test-run file path")
+	}
+	if strings.HasPrefix(p, "/") || strings.Contains(p, "\\") {
+		return "", fwra.New(fwra.ContractMisuse, "artifact: test-run file path must be relative and slash-separated: "+p)
+	}
+	for seg := range strings.SplitSeq(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return "", fwra.New(fwra.ContractMisuse, "artifact: test-run file path escapes the artifact: "+p)
+		}
+	}
+	return p, nil
+}
+
+// pickResults chooses the results.json an index reports from the sorted file
+// list: a root-level results.json first, else the shallowest (then first) one — a
+// run is recorded for ONE component, so there is normally exactly one.
+func pickResults(files []string) (string, bool) {
+	best, depth := "", -1
+	for _, f := range files {
+		if f != resultsFile && !strings.HasSuffix(f, "/"+resultsFile) {
+			continue
+		}
+		d := strings.Count(f, "/")
+		if depth == -1 || d < depth {
+			best, depth = f, d
+		}
+	}
+	return best, depth != -1
+}
+
+// testRunMIME is the advisory MIME the file endpoint streams a test-run file
+// under, by extension. Unknown extensions are opaque bytes.
+func testRunMIME(p string) string {
+	switch strings.ToLower(path.Ext(p)) {
+	case ".webm":
+		return "video/webm"
+	case ".zip":
+		return "application/zip"
+	case ".json":
+		return "application/json"
+	case ".jsonl", ".txt", ".log":
+		return "text/plain"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// localTestRunStore is the LOCAL variant: TestRunRef.Artifact is the results
+// directory (`.aiarch/test-results/<run>`), absolute or relative to the server
+// process's working directory — which `serve` pins to the state repo.
+type localTestRunStore struct{}
+
+func (localTestRunStore) root(run TestRunRef) (string, error) {
+	if strings.TrimSpace(run.Artifact) == "" {
+		return "", fwra.New(fwra.ContractMisuse, "artifact: local test run needs its results directory in TestRunRef.Artifact")
+	}
+	info, err := os.Stat(run.Artifact)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fwra.New(fwra.NotFound, "artifact: test-run directory not found: "+run.Artifact)
+		}
+		return "", fwra.Wrap(fwra.Infrastructure, err, "artifact: stat test-run directory")
+	}
+	if !info.IsDir() {
+		return "", fwra.New(fwra.ContractMisuse, "artifact: test-run artifact is not a directory: "+run.Artifact)
+	}
+	return run.Artifact, nil
+}
+
+// open roots every read of the run at its results directory: an *os.Root
+// refuses any name (a "..", an absolute path or a symlink) that would escape
+// it, so neither a caller's path nor a planted link can read outside the run.
+func (s localTestRunStore) open(run TestRunRef) (*os.Root, error) {
+	dir, err := s.root(run)
+	if err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "artifact: open test-run directory")
+	}
+	return r, nil
+}
+
+func (s localTestRunStore) index(_ context.Context, run TestRunRef) (TestRunIndex, error) {
+	root, err := s.open(run)
+	if err != nil {
+		return TestRunIndex{}, err
+	}
+	defer func() { _ = root.Close() }()
+	var files []string
+	walk := func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			return werr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		files = append(files, p)
+		return nil
+	}
+	if err := fs.WalkDir(root.FS(), ".", walk); err != nil {
+		return TestRunIndex{}, fwra.Wrap(fwra.Infrastructure, err, "artifact: walk test-run directory")
+	}
+	sort.Strings(files)
+	idx := TestRunIndex{Files: files}
+	if name, ok := pickResults(files); ok {
+		b, rerr := root.ReadFile(filepath.FromSlash(name))
+		if rerr != nil {
+			return TestRunIndex{}, fwra.Wrap(fwra.Infrastructure, rerr, "artifact: read "+name)
+		}
+		idx.Results = b
+	}
+	return idx, nil
+}
+
+func (s localTestRunStore) read(_ context.Context, run TestRunRef, p string) (ConstructionOutput, error) {
+	rel, err := cleanTestRunPath(p)
+	if err != nil {
+		return ConstructionOutput{}, err
+	}
+	root, err := s.open(run)
+	if err != nil {
+		return ConstructionOutput{}, err
+	}
+	defer func() { _ = root.Close() }()
+	b, err := root.ReadFile(filepath.FromSlash(rel))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return ConstructionOutput{}, fwra.New(fwra.NotFound, "artifact: test-run file not found: "+rel)
+		}
+		return ConstructionOutput{}, fwra.Wrap(fwra.Infrastructure, err, "artifact: read test-run file "+rel)
+	}
+	return ConstructionOutput{Bytes: b, MIMEType: testRunMIME(rel)}, nil
+}
+
+// actionsArtifactClient is the satellite surface the cloud store depends on
+// (*githubinfra.AppClient satisfies it); an interface so the seam is explicit.
+type actionsArtifactClient interface {
+	ListArtifacts(ctx context.Context, owner, repo string, runID int64, instToken string) ([]githubinfra.Artifact, error)
+	DownloadArtifact(ctx context.Context, owner, repo string, artifactID int64, instToken string) (io.ReadCloser, error)
+}
+
+// cloudTestRunStore is the CLOUD variant: TestRunRef.RunID is the GitHub Actions
+// run id and TestRunRef.Artifact the artifact's upload name
+// (`test-results-<activityId>-<revision>`). The zip is fetched once per
+// (run, artifact) into cacheDir and served from there afterwards; a listing that
+// says expired, or a zip route answering 404/410, is Expired, not an error.
+type cloudTestRunStore struct {
+	actions  actionsArtifactClient
+	owner    string
+	repo     string
+	token    func(ctx context.Context) (string, error)
+	cacheDir string
+
+	// mu serialises the fetch-or-reuse of a cached zip so two concurrent readers
+	// of the same run download it once.
+	mu sync.Mutex
+}
+
+func newCloudTestRunStore(actions actionsArtifactClient, owner, repo string, token func(ctx context.Context) (string, error), cacheDir string) *cloudTestRunStore {
+	return &cloudTestRunStore{actions: actions, owner: owner, repo: repo, token: token, cacheDir: cacheDir}
+}
+
+// defaultTestRunCacheDir is where the cloud store keeps downloaded zips:
+// $XDG_CACHE_HOME-equivalent/archistrator/testruns (the per-user cache the OS
+// reserves for re-fetchable data).
+func defaultTestRunCacheDir() (string, error) {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, err, "artifact: no user cache dir for test-run zips")
+	}
+	return filepath.Join(base, "archistrator", "testruns"), nil
+}
+
+func parseRunID(run TestRunRef) (int64, error) {
+	id, err := strconv.ParseInt(strings.TrimSpace(run.RunID), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, fwra.New(fwra.ContractMisuse, "artifact: cloud test run needs a numeric GitHub run id in TestRunRef.RunID, got "+strconv.Quote(run.RunID))
+	}
+	if strings.TrimSpace(run.Artifact) == "" {
+		return 0, fwra.New(fwra.ContractMisuse, "artifact: cloud test run needs the artifact name in TestRunRef.Artifact")
+	}
+	return id, nil
+}
+
+// cachePath keys the cached zip by run id AND artifact name (a run may upload more
+// than one artifact); the name is sanitised to a single path segment.
+func (c *cloudTestRunStore) cachePath(runID int64, artifact string) string {
+	safe := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			return r
+		default:
+			return '_'
+		}
+	}, artifact)
+	return filepath.Join(c.cacheDir, strconv.FormatInt(runID, 10), safe+".zip")
+}
+
+// ensureZip returns the on-disk zip for the run's artifact, downloading it once.
+// expired=true (with no path) reports a retention-expired artifact.
+func (c *cloudTestRunStore) ensureZip(ctx context.Context, run TestRunRef) (zipPath string, expired bool, err error) {
+	runID, err := parseRunID(run)
+	if err != nil {
+		return "", false, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	zipPath = c.cachePath(runID, run.Artifact)
+	if _, serr := os.Stat(zipPath); serr == nil {
+		return zipPath, false, nil
+	}
+	tok, err := c.token(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	arts, err := c.actions.ListArtifacts(ctx, c.owner, c.repo, runID, tok)
+	if err != nil {
+		return "", false, err
+	}
+	var found *githubinfra.Artifact
+	for i := range arts {
+		if arts[i].Name == run.Artifact {
+			found = &arts[i]
+			break
+		}
+	}
+	if found == nil {
+		return "", false, fwra.New(fwra.NotFound, "artifact: run "+run.RunID+" has no artifact named "+run.Artifact)
+	}
+	if found.Expired {
+		return "", true, nil
+	}
+	body, err := c.actions.DownloadArtifact(ctx, c.owner, c.repo, found.ID, tok)
+	if err != nil {
+		if isArtifactGone(err) {
+			return "", true, nil
+		}
+		return "", false, err
+	}
+	defer func() { _ = body.Close() }()
+	if err := writeFileAtomically(zipPath, body); err != nil {
+		return "", false, err
+	}
+	return zipPath, false, nil
+}
+
+// isArtifactGone recognises the satellite's mapping of a vanished artifact zip:
+// 404 → fwra.NotFound, and GitHub's 410 Gone (ClassifyStatus has no Gone kind, so
+// it arrives as Infrastructure "status 410").
+func isArtifactGone(err error) bool {
+	var e *fwra.Error
+	if errors.As(err, &e) && e.Kind == fwra.NotFound {
+		return true
+	}
+	return strings.Contains(err.Error(), "status 410")
+}
+
+// writeFileAtomically streams r into a temp file beside dst and renames it into
+// place, so a crashed download never leaves a half-written zip the cache would
+// then trust.
+func writeFileAtomically(dst string, r io.Reader) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "artifact: create test-run cache dir")
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dst), filepath.Base(dst)+".*.part")
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "artifact: create test-run cache file")
+	}
+	tmpName := tmp.Name()
+	if _, err := io.Copy(tmp, r); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return fwra.Wrap(fwra.Transient, err, "artifact: download test-run zip")
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fwra.Wrap(fwra.Infrastructure, err, "artifact: close test-run cache file")
+	}
+	if err := os.Rename(tmpName, dst); err != nil {
+		_ = os.Remove(tmpName)
+		return fwra.Wrap(fwra.Infrastructure, err, "artifact: commit test-run cache file")
+	}
+	return nil
+}
+
+func (c *cloudTestRunStore) index(ctx context.Context, run TestRunRef) (TestRunIndex, error) {
+	zipPath, expired, err := c.ensureZip(ctx, run)
+	if err != nil {
+		return TestRunIndex{}, err
+	}
+	if expired {
+		return TestRunIndex{Expired: true}, nil
+	}
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return TestRunIndex{}, fwra.Wrap(fwra.Infrastructure, err, "artifact: open test-run zip")
+	}
+	defer func() { _ = zr.Close() }()
+	var files []string
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		files = append(files, f.Name)
+	}
+	sort.Strings(files)
+	idx := TestRunIndex{Files: files}
+	if name, ok := pickResults(files); ok {
+		b, rerr := readZipEntry(&zr.Reader, name)
+		if rerr != nil {
+			return TestRunIndex{}, rerr
+		}
+		idx.Results = b
+	}
+	return idx, nil
+}
+
+func (c *cloudTestRunStore) read(ctx context.Context, run TestRunRef, p string) (ConstructionOutput, error) {
+	rel, err := cleanTestRunPath(p)
+	if err != nil {
+		return ConstructionOutput{}, err
+	}
+	zipPath, expired, err := c.ensureZip(ctx, run)
+	if err != nil {
+		return ConstructionOutput{}, err
+	}
+	if expired {
+		return ConstructionOutput{}, fwra.New(fwra.NotFound, "artifact: test-run artifact "+run.Artifact+" of run "+run.RunID+" has expired")
+	}
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return ConstructionOutput{}, fwra.Wrap(fwra.Infrastructure, err, "artifact: open test-run zip")
+	}
+	defer func() { _ = zr.Close() }()
+	b, err := readZipEntry(&zr.Reader, rel)
+	if err != nil {
+		return ConstructionOutput{}, err
+	}
+	return ConstructionOutput{Bytes: b, MIMEType: testRunMIME(rel)}, nil
+}
+
+// readZipEntry reads one named entry; absent → NotFound.
+func readZipEntry(zr *zip.Reader, name string) ([]byte, error) {
+	for _, f := range zr.File {
+		if f.Name != name || f.FileInfo().IsDir() {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fwra.Wrap(fwra.Infrastructure, err, "artifact: open test-run zip entry "+name)
+		}
+		defer func() { _ = rc.Close() }()
+		b, err := io.ReadAll(rc)
+		if err != nil {
+			return nil, fwra.Wrap(fwra.Infrastructure, err, "artifact: read test-run zip entry "+name)
+		}
+		return b, nil
+	}
+	return nil, fwra.New(fwra.NotFound, "artifact: test-run file not found: "+name)
 }
 
 // localGitAuth is the LOCAL/embedded profile resolver: a file:// remote needs no
@@ -497,11 +958,14 @@ func (c *cloudGitAuth) resolve(ctx context.Context) (githubinfra.GitAuth, error)
 }
 
 // newCloudArtifactStore builds the cloud-profile satellite *GitBlobStore over the
-// project's construction repo plus the internal token-minting auth resolver. It
-// validates config eagerly (a missing field / bad key surfaces as
+// project's construction repo plus the internal token-minting auth resolver over
+// the shared App client. It validates config eagerly (a missing field surfaces as
 // fwra.ContractMisuse) but performs no network IO; the installation token is minted
 // lazily on first use. installationID 0 ⇒ discovered on first call.
-func newCloudArtifactStore(repoURL, owner, appID, privateKeyPEM, apiBaseURL string, installationID int64) (*githubinfra.GitBlobStore, func(ctx context.Context) (githubinfra.GitAuth, error), error) {
+func newCloudArtifactStore(app *githubinfra.AppClient, repoURL, owner string, installationID int64) (*githubinfra.GitBlobStore, *cloudGitAuth, error) {
+	if app == nil {
+		return nil, nil, fwra.New(fwra.ContractMisuse, "artifact cloud: nil github app client")
+	}
 	if strings.TrimSpace(repoURL) == "" {
 		return nil, nil, fwra.New(fwra.ContractMisuse, "artifact cloud: empty RepoURL")
 	}
@@ -512,12 +976,7 @@ func newCloudArtifactStore(repoURL, owner, appID, privateKeyPEM, apiBaseURL stri
 	if err != nil {
 		return nil, nil, err
 	}
-	app, err := githubinfra.NewAppClient(appID, privateKeyPEM, apiBaseURL)
-	if err != nil {
-		return nil, nil, err
-	}
-	ca := &cloudGitAuth{app: app, owner: owner, installationID: installationID}
-	return blob, ca.resolve, nil
+	return blob, &cloudGitAuth{app: app, owner: owner, installationID: installationID}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -545,6 +1004,10 @@ func (dryRunArtifacts) RetrieveConstructionOutput(_ fwra.Context, _ string) (Con
 	return ConstructionOutput{Bytes: []byte("dry-run construction output"), MIMEType: "text/plain"}, nil
 }
 
-func (dryRunArtifacts) RetrieveOutputTree(_ fwra.Context, contentAddress string) (OutputTree, error) {
-	return OutputTree{Root: contentAddress, Entries: map[string]string{}}, nil
+func (dryRunArtifacts) GetTestRunIndex(_ fwra.Context, _ TestRunRef) (TestRunIndex, error) {
+	return TestRunIndex{Results: []byte("[]"), Files: []string{}}, nil
+}
+
+func (dryRunArtifacts) ReadTestRunFile(_ fwra.Context, _ TestRunRef, _ string) (ConstructionOutput, error) {
+	return ConstructionOutput{Bytes: []byte("dry-run test-run file"), MIMEType: "text/plain"}, nil
 }

@@ -61,6 +61,19 @@
  * caption saying it is the CURRENT one. There is no op that reads an artifact as
  * of a ref (GAP-5); saying so is honest where a silently-current artifact is not.
  *
+ * ── The verbs the use cases draw past the bar (spec §12 B7) ─────────────────
+ * Four surfaces sit beside the review bar, each on its own mutation observer so
+ * its pending state and refusal are its own:
+ *   - the requirements activity's FIRST dispatch asks for the research corpus
+ *     (`ResearchInputPanel`, manage-projects/capture-research) while the project has
+ *     none, and StartProject — addressed at this project, `start: true` — both saves
+ *     it and starts system design;
+ *   - a COMMITTED design slot on its head revision offers AMEND (add-a-use-case,
+ *     replan back-to-design): a redraft carrying the architect's rationale;
+ *   - the LIVE M0 gate offers REJECT ALL with feedback (commit-to-a-project-option,
+ *     replan-under-scope-change), which is not a send-back;
+ *   - a COMMITTED M0 plan offers the grace-window REVOKE.
+ *
  * ── Liveness ────────────────────────────────────────────────────────────────
  * A 404 from the activity read is an ERROR there, never a value, and is never
  * polled: it means the committed plan has no such activity, which the screen
@@ -83,6 +96,7 @@ import { DispatchBody } from '../components/activity/DispatchBody';
 import { HistoryBanner } from '../components/activity/HistoryBanner';
 import { LifecycleGraph } from '../components/activity/LifecycleGraph';
 import { ReviewBody } from '../components/activity/ReviewBody';
+import { ResearchInputPanel } from '../components/design/ResearchInputPanel';
 import {
   ACTIVITY_LOADING,
   ACTIVITY_NOT_IN_PLAN,
@@ -92,6 +106,7 @@ import {
   notDispatchedYet,
   planIndexFor,
   RECONCILE_RATIONALE,
+  researchFailed,
 } from '../components/activity/activityCopy.ts';
 import { activityCommentKey } from '../components/activity/pendingCommentKey.ts';
 import { lastPlanLens } from '../components/activity/planLensMemory.ts';
@@ -113,10 +128,18 @@ import { openThreadCount, toReviewThread } from '../components/activity/threadAd
 import { askEntriesFor, decisionFeedbackFor } from '../components/comments/reviewBatch.ts';
 import {
   ARCHITECTURE_ACTIVITY_ID,
+  REQUIREMENTS_ACTIVITY_ID,
   taskArtifactFor,
 } from '../components/activity/taskArtifactFor.ts';
-import { REVIEW_ADVANCE, REVIEW_SET_COMMENT_STATUS, verbsFor } from './activityVerbs.ts';
+import {
+  REVIEW_ADVANCE,
+  REVIEW_SET_COMMENT_STATUS,
+  isConstructionRail,
+  verbsFor,
+} from './activityVerbs.ts';
+import { EpisodesPanelContainer } from './EpisodesPanelContainer';
 import { toC4View } from '../contracts/adapters';
+import { ARTIFACT_STAGE_ORDINAL_TO_APP } from '../contracts/enums.gen.ts';
 import { narrowProject } from '../contracts/projectAdapters';
 import { contractJoinFor } from '../contracts/serviceContracts';
 import type { ProjectArtifactModelEnvelope } from '../contracts/types';
@@ -127,19 +150,23 @@ import {
   useDesignHealth,
   useEpisodeTimeline,
   useProject,
+  useSessionState,
 } from '../hooks/useDeliveryQueries';
-import { useCapabilities } from '../hooks/useCapabilities';
+import { activityViewSignature } from '../hooks/activityViewPolling';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
+import { useComponentScenarios, useTestRun, useTestRunOutputs } from '../hooks/useTestRun';
+import type { TestingArtifactData } from '../components/construction/artifactRenderers';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
-import { operationsEnabled } from '../utilities/capabilities';
 import { isNoSessionError } from '../hooks/sessionPolling';
 import {
   useAcknowledgeStaleBasis,
   useAskQuestions,
   useDispatchActivityTask,
   useOverrideActivity,
+  useStartProject,
   useSubmitReviewDecision,
 } from '../hooks/useDeliveryMutations';
+import { useUser } from '../utilities/auth/UserContext';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
@@ -160,6 +187,25 @@ function revisionWireFor(
   return view?.tasks
     .find((taskView) => taskView.id === sel.taskId)
     ?.revisions.find((r) => r.n === sel.revision);
+}
+
+/**
+ * The revision an AMENDMENT in flight would replace — the last revision of the
+ * selected task that PASSED — when the task holds a newer one (the redraft, drafting
+ * or awaiting its review). `undefined` when the head is the decided revision, or
+ * nothing has passed yet (a first draft amends nothing). Whether the slot it judges
+ * is still COMMITTED is the caller's other half of the question.
+ */
+function amendedRevisionFor(
+  view: ActivityViewWire | undefined,
+  sel: ActivitySelection | undefined
+): number | undefined {
+  if (sel === undefined) return undefined;
+  const revisions = view?.tasks.find((taskView) => taskView.id === sel.taskId)?.revisions ?? [];
+  const passed = revisions.filter((r) => r.outcome === 'passed').map((r) => r.n);
+  if (passed.length === 0) return undefined;
+  const committed = Math.max(...passed);
+  return Math.max(...revisions.map((r) => r.n)) > committed ? committed : undefined;
 }
 
 /**
@@ -204,7 +250,14 @@ export function ActivityExperienceContainer({
     setAnchor,
     setActiveKey,
   } = useComments();
-  const { data: view, error, isLoading } = useActivityView(projectId, activityId);
+  // A decision, an amendment or an override sent from this screen is applied by the
+  // server asynchronously: the activity as it read when the write went out, followed
+  // until it moves (activityViewPollIntervalMs).
+  const [owedFrom, setOwedFrom] = useState<string | undefined>(undefined);
+  const { data: view, error, isLoading } = useActivityView(projectId, activityId, true, owedFrom);
+  const owe = (): void => {
+    setOwedFrom(view === undefined ? undefined : activityViewSignature(view));
+  };
   // The ARTIFACT read. No refetchInterval: see the file header.
   const { data: project } = useProject(projectId);
   // THE TWO READS THE THREE CROSS-SLOT PROVIDERS NEED (stage 4b2 Task 9) — see the
@@ -217,13 +270,10 @@ export function ActivityExperienceContainer({
   const { data: designHealth } = useDesignHealth(projectId);
   // The Deployment lens' live health tint — the same dormant-by-default
   // arrangement the two design containers use: nothing fires unless the
-  // operations capability is on (D9) and the derived operated-app id has landed,
+  // derived operated-app id has landed,
   // and an absent overlay renders the diagram untinted, never red.
   const operatedAppId = useOperatedAppId(projectId);
-  const { data: deploymentHealth } = useDeploymentHealth(
-    operatedAppId ?? '',
-    operationsEnabled(useCapabilities())
-  );
+  const { data: deploymentHealth } = useDeploymentHealth(operatedAppId ?? '');
 
   const graph = view === undefined ? undefined : activityViewToGraph(view);
   const nodes = graph?.nodes ?? [];
@@ -291,6 +341,13 @@ export function ActivityExperienceContainer({
   const dispatchTask = useDispatchActivityTask(projectId);
   const overrideActivity = useOverrideActivity(projectId);
   const acknowledgeStale = useAcknowledgeStaleBasis(projectId);
+  // The B7 surfaces, each its own observer (see the file header): the M0 reject-all and
+  // revoke share one, because they are never on screen together (a live gate vs a
+  // decided one); the amendment and the research corpus have their own.
+  const sdpDecision = useSubmitReviewDecision(projectId);
+  const amendTask = useDispatchActivityTask(projectId);
+  const startProject = useStartProject();
+  const owner = useUser().sub;
 
   // The option the M0 bar will commit. `SdpReviewView` reports its standing
   // choice (its own recommendation, until the reader picks another) — an approve
@@ -390,6 +447,40 @@ export function ActivityExperienceContainer({
     artifactKind: facts.artifactKind,
   });
 
+  // The two testing-phase reads (spec §6.4), fired only on the phase that renders
+  // them: the component's projected scenarios on `test_plan`, the activity's
+  // latest run on `integration` (its scenarios are already joined with the
+  // projection server-side). Each stays disabled on `undefined` rather than
+  // firing a read for an empty id. `components/` is pure, so the renderers take
+  // these as data through ReviewBody → ArtifactPanel.
+  const testingPhase = artifact.kind === 'classified' ? artifact.phase : undefined;
+  const scenariosQuery = useComponentScenarios(
+    projectId,
+    testingPhase === 'test_plan' ? view?.componentId : undefined
+  );
+  const testRunQuery = useTestRun(
+    projectId,
+    testingPhase === 'integration' ? activityId : undefined
+  );
+  const testRunOutputs = useTestRunOutputs(testRunQuery.data);
+  const testing: TestingArtifactData | undefined =
+    testingPhase === 'test_plan' || testingPhase === 'integration'
+      ? {
+          component: view?.componentId ?? '',
+          scenarios: {
+            data: scenariosQuery.data,
+            error: scenariosQuery.error,
+            isLoading: scenariosQuery.isLoading,
+          },
+          testRun: {
+            data: testRunQuery.data,
+            error: testRunQuery.error,
+            isLoading: testRunQuery.isLoading,
+          },
+          outputs: testRunOutputs,
+        }
+      : undefined;
+
   const thread = toReviewThread(revisionWire?.thread);
   const openThreads = openThreadCount(thread);
   const questionCount = pendingQuestions().length;
@@ -441,6 +532,7 @@ export function ActivityExperienceContainer({
       },
       {
         onSuccess: () => {
+          owe();
           reset();
           // THE CLIENT NO LONGER ADVANCES THE PHASE (final fix wave, F1). It used to fire
           // ReviewAdvance unconditionally on every M0 approve, which made the M0 approve a
@@ -488,7 +580,7 @@ export function ActivityExperienceContainer({
    */
   const overrideAction = historical ? 'none' : overrideActionFor(view);
   const applyOverride = (note: string): void => {
-    overrideActivity.mutate({ activityId, kind: OVERRIDE_KIND, notes: note });
+    overrideActivity.mutate({ activityId, kind: OVERRIDE_KIND, notes: note }, { onSuccess: owe });
   };
 
   /**
@@ -533,6 +625,40 @@ export function ActivityExperienceContainer({
     });
   };
 
+  /**
+   * M0: decline every option, with the required feedback (spec §12 B7). The wire is
+   * `reject` carrying the feedback as notes; it is not a send-back — no anchored
+   * change request rides it, so the staged margin notes are left where they are.
+   */
+  const rejectAll = (feedback: string): void => {
+    if (verbs.rejectAll.kind !== 'decision') return;
+    sdpDecision.mutate({
+      ...ref,
+      artifactKind: decidedKind,
+      decision: { decision: verbs.rejectAll.decision },
+      feedback: { notes: feedback },
+    });
+  };
+
+  /** M0: revoke the committed plan inside its grace window — `withdraw` on the gate. */
+  const revokeCommitment = (): void => {
+    if (verbs.revoke.kind !== 'decision') return;
+    sdpDecision.mutate({
+      ...ref,
+      artifactKind: decidedKind,
+      decision: { decision: verbs.revoke.decision },
+    });
+  };
+
+  /** A committed design slot: redraft it with the architect's rationale as feedback. */
+  const amendSlot = (rationale: string): void => {
+    if (verbs.amend.kind !== 'dispatch') return;
+    amendTask.mutate(
+      { ...ref, artifactKind: decidedKind, feedback: rationale },
+      { onSuccess: owe }
+    );
+  };
+
   // One OP behind both, but three observers of it (decision / advance / comment
   // status), so each surface reports only its own work in flight.
   const statusPending = commentStatus.isPending;
@@ -544,6 +670,49 @@ export function ActivityExperienceContainer({
   // blocks — both exits below are offered, neither is required.
   const staleSlot =
     artifact.kind === 'slot' ? slots.find((s) => s.kind === artifact.artifactKind) : undefined;
+
+  // A decision is owed on THIS revision — not merely "the task is at a gate" — AND
+  // this rail can take one. An earlier, decided round offers no bar; neither does a
+  // gate whose artifact kind would not resolve, because every button on it would be
+  // a no-op.
+  const liveGate =
+    !historical && revisionWire?.outcome === 'awaitingHuman' && verbs.approve.kind !== 'none';
+  // THE DRAFT A LIVE DESIGN GATE JUDGES is not on main: it is staged on the owning
+  // activity's branch until the approve merges it (a first draft and an amendment
+  // alike), so the project read above holds the slot as it was before the draft — empty
+  // for a first draft. The session view is the read that answers with the draft under
+  // review (ask-a-clarifying-question-during-review [yes: session branch],
+  // send-back-change-requests-for-a-redraft), and while a gate is live the body renders
+  // its draft. Every other screen state renders the project's own slot.
+  const liveSlotKind =
+    liveGate && artifact.kind === 'slot'
+      ? (artifact.artifactKind as ArtifactKind | undefined)
+      : undefined;
+  const { data: liveSession } = useSessionState(
+    projectId,
+    liveSlotKind ?? 'mission',
+    liveSlotKind !== undefined
+  );
+  const liveDraft = liveSlotKind === undefined ? undefined : liveSession?.view.draft;
+  const gateSlots =
+    liveDraft?.model === undefined
+      ? slots
+      : slots.map((s) => (s.kind === liveSlotKind ? { ...s, model: liveDraft } : s));
+  // The head revision of a gate that PASSED and has nothing re-running upstream of it:
+  // what the amendment and the revoke act on. `node.state === 'done'` is what keeps
+  // both off a gate whose redraft is already in flight.
+  const decidedHead = !historical && node?.state === 'done' && revisionWire?.outcome === 'passed';
+  const slotCommitted =
+    staleSlot !== undefined && ARTIFACT_STAGE_ORDINAL_TO_APP[staleSlot.stage] === 'committed';
+  // An amendment sent from this gate (or its draft) is in flight: the slot is still
+  // committed and the task's head is the redraft. Said on the head only — a past
+  // revision on screen is not where the amendment is.
+  const amending = !historical && slotCommitted ? amendedRevisionFor(view, sel) : undefined;
+
+  // The requirements activity's first dispatch needs the research corpus (StartProject
+  // refuses to start system design without it). Shown while the project holds none.
+  const needsResearch =
+    activityId === REQUIREMENTS_ACTIVITY_ID && project?.research.sources.length === 0;
 
   // ── What the M0 cost was computed on (Step 3a; re-pointed at stage 4b2 Task 9) ──
   // The Project-Design compute defaults any planning-assumption family the founder
@@ -725,6 +894,36 @@ export function ActivityExperienceContainer({
           />
         ) : null}
 
+        {/* The research corpus, asked for on the FIRST dispatch of the requirements
+            activity and nowhere else: it is the precondition of the whole walk, not a
+            fact about the task on screen. StartProject addressed at this project saves
+            it and starts system design in one call. */}
+        {needsResearch ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <ResearchInputPanel
+              pending={startProject.isPending}
+              onSubmit={(research) => {
+                startProject.mutate({
+                  projectId,
+                  name: projectId,
+                  owner,
+                  research,
+                  start: true,
+                });
+              }}
+            />
+            {startProject.error !== null ? (
+              <Typography
+                data-testid={UI_IDENTIFIERS.Activity.RESEARCH_ERROR}
+                role="alert"
+                sx={{ fontSize: 13, color: t.dangerFg, lineHeight: 1.5 }}
+              >
+                {researchFailed(startProject.error.message)}
+              </Typography>
+            ) : null}
+          </Box>
+        ) : null}
+
         {/* The operator's override, above the body: it is about the ACTIVITY, not
             about the task on screen, and exactly one of the two is possible at a
             time (activityOverride.ts). Absent — not disabled — when neither is. */}
@@ -781,6 +980,16 @@ export function ActivityExperienceContainer({
             advance={advanceSurface}
             allowAsk={canAsk}
             allowSendBack={verbs.allowSendBack}
+            amend={
+              decidedHead && slotCommitted && verbs.amend.kind === 'dispatch'
+                ? {
+                    pending: amendTask.isPending,
+                    error: amendTask.error?.message,
+                    onSubmit: amendSlot,
+                  }
+                : undefined
+            }
+            amending={amending}
             approveCopy={verbs.approveCopy}
             artifact={artifact}
             askPending={askQuestionsMut.isPending}
@@ -793,15 +1002,7 @@ export function ActivityExperienceContainer({
             // (GAP-5). The caption says so, and its presence is what puts the
             // panel in read-only mode.
             historyCaption={historical ? HISTORY_ARTIFACT_CAPTION : undefined}
-            // A decision is owed on THIS revision — not merely "the task is at a
-            // gate" — AND this rail can take one. An earlier, decided round
-            // offers no bar; neither does a gate whose artifact kind would not
-            // resolve, because every button on it would be a no-op.
-            live={
-              !historical &&
-              revisionWire?.outcome === 'awaitingHuman' &&
-              verbs.approve.kind !== 'none'
-            }
+            live={liveGate}
             note={revisionWire?.note}
             openThreads={openThreads}
             project={project}
@@ -812,9 +1013,24 @@ export function ActivityExperienceContainer({
             reviewSetError={historical ? undefined : taskGate.reviewSetError}
             revision={sel.revision}
             revisions={node.revisions}
+            revoke={
+              decidedHead && verbs.revoke.kind === 'decision'
+                ? { pending: sdpDecision.isPending, onRevoke: revokeCommitment }
+                : undefined
+            }
             roster={revisionWire?.reviewers}
-            sdp={historical ? undefined : { onChoose: setSdpOption }}
-            slots={slots}
+            sdp={
+              historical
+                ? undefined
+                : {
+                    onChoose: setSdpOption,
+                    ...(liveGate && verbs.rejectAll.kind === 'decision'
+                      ? { onRejectAll: rejectAll, rejectPending: sdpDecision.isPending }
+                      : {}),
+                  }
+            }
+            sdpDecisionError={sdpDecision.error?.message}
+            slots={gateSlots}
             stagedChangeRequests={changeRequestCount}
             stagedQuestions={questionCount}
             // Advisory, non-blocking, and only where a mutation is possible: a
@@ -831,6 +1047,7 @@ export function ActivityExperienceContainer({
                 : undefined
             }
             systemEnvelope={systemEnvelope}
+            testing={testing}
             title={node.title}
             verdicts={revisionWire?.verdicts}
             vm={vm}
@@ -850,6 +1067,14 @@ export function ActivityExperienceContainer({
             }}
           />
         )}
+
+        {/* The activity's recorded attempts, under whichever task is on screen: a failed
+            run is diagnosed from what its agent jobs did (requeue-a-failed-construction-
+            activity/read-attempts, read-failed-trace) before the operator re-opens it
+            from the override bar above. */}
+        {view !== undefined && isConstructionRail(view.type) ? (
+          <EpisodesPanelContainer byActivity projectId={projectId} targetRef={activityId} />
+        ) : null}
       </Box>
     </ExperienceChrome>
   );

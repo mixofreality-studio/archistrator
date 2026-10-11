@@ -8,11 +8,10 @@
 > persistence, the webhook handler) returns with the settlement re-plan — this doc
 > only gets you to "provisioned and ready," not "live."
 
-Referenced by `merchantgateway.notConfiguredDetail`
-(`server/internal/resourceaccess/merchantgateway/merchantgatewayaccess.go`): every
-`ChargeCustomer` / `ValidateStoredInstrument` call fails today with
-`"merchantgateway: Stripe not configured — see docs/billing-setup.md"`. If you landed
-here from that error, jump to [What's missing to go live](#whats-missing-to-go-live).
+Since 2026-10-04 (deterministic component testing, spec §12 ruling B5) both
+billing stores are real and Postgres-backed on every profile, including local; what
+this runbook still covers is the card-network (Stripe) variant of
+`merchantGatewayAccess`, which does not exist yet.
 
 ## 1. What works today without Stripe
 
@@ -28,37 +27,22 @@ Truthfully, as of 2026-08-09:
   Engine that folds revenue + usage into a signed net and states a routing directive.
   Charge-only: a non-negative net always routes `NoAction` — the platform never pays
   out, only charges shortfalls.
-- **billingStateAccess** (`server/internal/resourceaccess/billingstate`) is a real,
-  contract-backed **component** (wired via `hooks.FinalizeBillingStateAccess`, which
-  is identity), but its head-state ops — `ReadBilling`, `RegisterCustomer`,
-  `BindGatewayLive`, `SettleCycle`, `ResettleCycle`,
-  `ReadPersistentlyDelinquentCustomers` — are still the **generated, unimplemented
-  stub** (`contract.gen.go`'s `stubBillingStateAccess`): every call returns
-  `fwra.Unknown, "not implemented"`. There is no pgx/Postgres backing yet. This is a
-  **separate gap from Stripe** — even with Stripe fully provisioned, no billing
-  workflow can complete a real run until this component gets a real persistence
-  implementation (or an honest not-configured wrapper, mirroring what
-  `merchantGatewayAccess` already has).
-- **revenueLedgerAccess** (folded into the same `billingstate` package,
-  `revenueledger.go`) is a **documented, permanent no-op** — not a stub waiting to be
-  filled in. Per the charge-only ruling (2026-07-03, R-013), the platform never
-  invoices for or shares in end-user revenue, so `RecordInboundRevenue` /
-  `RecordReversal` drop the fact (return a stub ref) and `ReadRange` always returns
-  nothing. `FinalizeRevenueLedgerAccess` is identity over this no-op.
-- **merchantGatewayAccess** (`server/internal/resourceaccess/merchantgateway`) is a
-  real, wired component whose one remaining dependency is a live Stripe credential.
-  `hooks.FinalizeMerchantGatewayAccess` swaps the generated not-implemented stub for
-  `notConfiguredMerchantGatewayAccess`, which fails **both** ops
-  (`ChargeCustomer`, `ValidateStoredInstrument`) terminally with `fwra.Auth` and the
-  message above — no wasted retry budget (`Auth` is in
-  `gatewayActivityOptions().TerminalRA`, `server/internal/manager/billing/billingmanager.go`),
-  and the message names this doc.
-
-Net effect: `OnboardPaymentIntegration` fails at `BindGatewayLive` (the
-`billingStateAccess` stub) before it would even reach Stripe; `RegisterCustomer`
-fails at `ValidateStoredInstrument` (the not-configured gateway). Provisioning Stripe
-alone (this doc) does not make a billing workflow complete end-to-end — see
-[What's missing to go live](#whats-missing-to-go-live).
+- **billingStateAccess** (`server/internal/resourceaccess/billingstate`) is real:
+  the Postgres-backed billing aggregate (`schema.sql` in the package is its
+  migration, applied at boot). It records registration (under the customer's
+  project — `CustomerProfile.ProjectID`, the link a `DelinquencyScope` narrows by),
+  the gateway binding and each cycle's settlement; a customer with an escalated
+  (unpaid) cycle is persistently delinquent. No op writes `BillingTerms` yet, so a
+  customer's terms read as the unknown regime and `billingEngine.ComputeNet`
+  refuses them ("unknown terms") — `CloseBillingCycle` cannot complete until a
+  terms writer is designed.
+- **merchantGatewayAccess** (`server/internal/resourceaccess/merchantgateway`) is
+  real, with one variant: the platform's own Postgres gateway ledger. It records
+  which customers hold a validated stored instrument (`ValidateStoredInstrument`)
+  and every request with its outcome; a charge against a customer with no validated
+  instrument is declined (`fwra.Auth`), and a replayed idempotency key returns the
+  recorded outcome, a decline included. It moves **no money** — that is the Stripe
+  variant this runbook provisions for.
 
 ## 2. The billing model: ordinary Stripe vendor account, NOT Connect
 
@@ -190,10 +174,8 @@ is consumed by the server yet (see the table above):
        ARCHISTRATOR_STRIPE_WEBHOOK_SECRET=whsec_...
 
 2. Use TEST MODE values from the steps above. Never put a live key in `server/.env`.
-3. Until step 1 lands, setting these locally is a no-op — the composition root still
-   builds `notConfiguredMerchantGatewayAccess` unconditionally
-   (`cmd/server/hooks.go` `FinalizeMerchantGatewayAccess` has no cfg-gated branch —
-   see next section).
+3. Until step 1 lands, setting these locally is a no-op — both profiles bind the
+   Postgres gateway ledger (see next section).
 
 ## 5. What's missing to go live
 
@@ -201,20 +183,13 @@ Provisioning Stripe (sections 3–4) is necessary but not sufficient. In order, 
 still has to be built (all deferred to the settlement re-plan per the founder's
 billing→settlement deferral):
 
-1. **Real `billingStateAccess` persistence.** Today it's the generated
-   not-implemented stub for every op — no database backing at all. This blocks every
-   billing workflow regardless of Stripe. Needs a real (pgx-backed, most likely)
-   implementation, or at minimum an honest not-configured wrapper like
-   `merchantGatewayAccess` has today, so failures are diagnosable instead of a bare
-   `"not implemented"`.
-2. **A real `merchantGatewayAccess` Stripe client**, replacing
-   `notConfiguredMerchantGatewayAccess`, implementing `ChargeCustomer` and
-   `ValidateStoredInstrument` against the real Stripe API using
-   `ARCHISTRATOR_STRIPE_API_KEY`.
-3. **`config.gen.go` gets the two Stripe fields** (a `configgen` regen), and
-   `cmd/server/hooks.go`'s `FinalizeMerchantGatewayAccess` gets a real cfg-gated
-   branch (real client when configured, `notConfiguredMerchantGatewayAccess`
-   otherwise) instead of the current unconditional not-configured return.
+1. **A Stripe variant of `merchantGatewayAccess`**, implementing `ChargeCustomer`
+   and `ValidateStoredInstrument` against the real Stripe API using
+   `ARCHISTRATOR_STRIPE_API_KEY`, bound per profile in the deployment model beside
+   the Postgres ledger variant.
+2. **A writer for `BillingTerms`** (see §1): a model change to `billingStateAccess`.
+3. **`config.gen.go` gets the two Stripe fields** (a `configgen` regen from the
+   deployment model).
 4. **Flip `stripe.enabled: true`** in `values.yaml` in the same change.
 5. **The instrument-binding seam needs a real gateway ref, not a placeholder.**
    Today, `OnboardWorkflow.bindGatewayLive`

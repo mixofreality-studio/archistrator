@@ -40,6 +40,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
+import PauseRoundedIcon from '@mui/icons-material/PauseRounded';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import { useNavigate } from '@tanstack/react-router';
 
@@ -73,6 +74,7 @@ import { ApiError } from '../contracts/errors';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirmDialog';
+import { PauseDialog } from '../components/construction/lens/PauseDialog';
 import {
   DEFAULT_TOOLBAR,
   useLensToolbar,
@@ -95,6 +97,10 @@ import {
   NOTHING_TO_DISPATCH,
   notStartedActivities,
   pausedControlFor,
+  pauseControlFor,
+  pauseOutcomeCopy,
+  pauseOutcomeFor,
+  type PauseOutcome,
   pumpDispatched,
   pumpEvidencedSince,
   resumeOutcomeCopy,
@@ -299,19 +305,13 @@ export function PlanContainer({
   const emptyCounts = useMemo(() => {
     const statuses =
       networkModel !== undefined
-        ? computeActivityStatuses(
-            networkModel,
-            (id) => gitFor(project, id),
-            undefined,
-            'not-started',
-            (id) => rows?.[id]
-          )
+        ? computeActivityStatuses(networkModel, undefined, 'not-started', (id) => rows?.[id])
         : new Map<string, never>();
     return emptyStateCounts(statuses, {
       inFlight: inFlightIds,
       waiting: waitingActivityIds(rows),
     });
-  }, [networkModel, project, rows, inFlightIds]);
+  }, [networkModel, rows, inFlightIds]);
 
   // The toolbar's module store, kept so "Clear filters" is a real reset rather
   // than a no-op. The plan mounts NO toolbar (ConstructionShell, which owned
@@ -468,8 +468,8 @@ export function PlanContainer({
     beginControlRef.current = beginControl;
   }, [beginControl]);
 
-  // Resume is now one half of SetProjectRunState — the pause is the other, and its
-  // control is still unbuilt (stage-5 earmark), which this task does not change.
+  // Resume and Pause are the two halves of SetProjectRunState, each its own observer so
+  // a pause in flight never greys out Resume's control or the reverse.
   const resume = useSetProjectRunState(projectId);
   const pausedControl = pausedControlFor({
     operatorPaused: project?.operatorPaused,
@@ -493,6 +493,36 @@ export function PlanContainer({
     );
   };
   const resumeCopy = resumeOutcome !== null ? resumeOutcomeCopy(resumeOutcome) : undefined;
+
+  // The PAUSE (use case pause-construction): offered while construction runs and no
+  // pause is recorded; the dialog collects the reason the Manager requires.
+  const pause = useSetProjectRunState(projectId);
+  const pauseControl = pauseControlFor({
+    constructionStarted: project?.constructionStarted,
+    operatorPaused: project?.operatorPaused,
+    operating: project?.operating,
+    projectLoading,
+    pending: pause.isPending,
+  });
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const [pauseOutcome, setPauseOutcome] = useState<PauseOutcome | null>(null);
+  const onPause = (reason: string): void => {
+    setPauseOutcome(null);
+    pause.mutate(
+      { runState: 'paused', reason },
+      {
+        onSuccess: () => {
+          setPauseOpen(false);
+          setPauseOutcome({ kind: 'paused' });
+        },
+        onError: (err) => {
+          setPauseOpen(false);
+          setPauseOutcome(pauseOutcomeFor(failureStatusOf(err), err.message));
+        },
+      }
+    );
+  };
+  const pauseCopy = pauseOutcome !== null ? pauseOutcomeCopy(pauseOutcome) : undefined;
   const dispatchCandidates = useMemo(
     () => notStartedActivities(rows, titleForId),
     [rows, titleForId]
@@ -518,11 +548,10 @@ export function PlanContainer({
   const shapeOf = (item: RankedOwed): string => {
     const join = contractJoinFor(contractJoinInput, item.activityId);
     const contract = join.kind === 'contract' ? join.contract : undefined;
-    const scenarios = project?.testingState?.systemTestPlan?.scenarios?.length;
-    const isPlan = rows?.[item.activityId]?.variant === 'plan';
+    // The system test plan is retired (spec §7): a component's scenario
+    // plan is projected per component, not counted project-wide here.
     return shapeFor(item.kind, {
       ...(contract?.ops !== undefined ? { contractOps: contract.ops.length } : {}),
-      ...(isPlan && scenarios !== undefined ? { scenarios } : {}),
     });
   };
 
@@ -595,6 +624,44 @@ export function PlanContainer({
         >
           {beginControl.label}
         </Button>
+        {pauseControl !== undefined ? (
+          <Button
+            data-testid={UI_IDENTIFIERS.Construction.PAUSE_BUTTON}
+            disabled={pauseControl.disabled}
+            size="small"
+            startIcon={
+              pauseControl.busy ? (
+                <CircularProgress color="inherit" size={14} />
+              ) : (
+                <PauseRoundedIcon />
+              )
+            }
+            sx={{
+              ml: 1,
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 12,
+              textTransform: 'none',
+              color: t.ink,
+              borderColor: t.line,
+              px: 1.5,
+            }}
+            variant="outlined"
+            onClick={() => {
+              setPauseOpen(true);
+            }}
+          >
+            {pauseControl.label}
+          </Button>
+        ) : null}
+        <PauseDialog
+          open={pauseOpen}
+          pending={pause.isPending}
+          onCancel={() => {
+            setPauseOpen(false);
+          }}
+          onConfirm={onPause}
+        />
         <BeginConfirmDialog
           candidates={dispatchCandidates}
           tickId={beginTick}
@@ -695,6 +762,25 @@ export function PlanContainer({
             }}
           >
             {NOTHING_TO_DISPATCH}
+          </Alert>
+        ) : null}
+
+        {pauseOutcome !== null && pauseCopy !== undefined ? (
+          <Alert
+            data-outcome={pauseOutcome.kind}
+            data-testid={UI_IDENTIFIERS.Construction.PAUSE_OUTCOME}
+            severity={pauseOutcome.kind === 'paused' ? 'success' : 'error'}
+            sx={{ mb: 2, fontFamily: t.mono, fontSize: 12 }}
+            onClose={() => {
+              setPauseOutcome(null);
+            }}
+          >
+            <Box component="span" sx={{ display: 'block', fontWeight: 700 }}>
+              {pauseCopy.headline}
+            </Box>
+            <Box component="span" sx={{ display: 'block' }}>
+              {pauseCopy.detail}
+            </Box>
           </Alert>
         ) : null}
 

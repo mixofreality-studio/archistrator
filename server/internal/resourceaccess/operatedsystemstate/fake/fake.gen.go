@@ -13,7 +13,7 @@ import (
 // a test needs; calling a method whose Fn is unset panics.
 type FakeOperatedSystemStateAccess struct {
 	RegisterOperatedSystemFn    func(rc fwra.Context, operatedAppID uuid.UUID, customerID uuid.UUID, projectRef string, deployableBundleRef string, idempotencyKey fwra.IdempotencyKey) (operatedsystemstate.Version, error)
-	PublishDesiredStateFn       func(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion operatedsystemstate.Version, reason operatedsystemstate.DesiredStateReason, decision *operatedsystemstate.AutoscaleDecision, idempotencyKey fwra.IdempotencyKey) (operatedsystemstate.Version, error)
+	PublishDesiredStateFn       func(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion operatedsystemstate.Version, reason operatedsystemstate.DesiredStateReason, scale operatedsystemstate.DesiredScale, idempotencyKey fwra.IdempotencyKey) (operatedsystemstate.Version, error)
 	ReadInFlightOperatedAppsFn  func(rc fwra.Context, scope operatedsystemstate.InFlightScope) ([]operatedsystemstate.OperatedSystemSummary, error)
 	ReadOperatedSystemFn        func(rc fwra.Context, operatedAppID uuid.UUID) (operatedsystemstate.OperatedSystem, error)
 	RecordDelinquencyActionFn   func(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion operatedsystemstate.Version, action operatedsystemstate.DelinquencyAction, idempotencyKey fwra.IdempotencyKey) (operatedsystemstate.Version, error)
@@ -28,11 +28,11 @@ func (f *FakeOperatedSystemStateAccess) RegisterOperatedSystem(rc fwra.Context, 
 	return f.RegisterOperatedSystemFn(rc, operatedAppID, customerID, projectRef, deployableBundleRef, idempotencyKey)
 }
 
-func (f *FakeOperatedSystemStateAccess) PublishDesiredState(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion operatedsystemstate.Version, reason operatedsystemstate.DesiredStateReason, decision *operatedsystemstate.AutoscaleDecision, idempotencyKey fwra.IdempotencyKey) (operatedsystemstate.Version, error) {
+func (f *FakeOperatedSystemStateAccess) PublishDesiredState(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion operatedsystemstate.Version, reason operatedsystemstate.DesiredStateReason, scale operatedsystemstate.DesiredScale, idempotencyKey fwra.IdempotencyKey) (operatedsystemstate.Version, error) {
 	if f.PublishDesiredStateFn == nil {
 		panic("FakeOperatedSystemStateAccess.PublishDesiredStateFn not set")
 	}
-	return f.PublishDesiredStateFn(rc, operatedAppID, expectedVersion, reason, decision, idempotencyKey)
+	return f.PublishDesiredStateFn(rc, operatedAppID, expectedVersion, reason, scale, idempotencyKey)
 }
 
 func (f *FakeOperatedSystemStateAccess) ReadInFlightOperatedApps(rc fwra.Context, scope operatedsystemstate.InFlightScope) ([]operatedsystemstate.OperatedSystemSummary, error) {

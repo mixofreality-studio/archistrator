@@ -28,15 +28,17 @@
 // Engine-legal by construction: pure computation over the typed project state the
 // Manager passes in (no I/O, no Temporal), zero imports of any
 // manager/engine/resourceaccess/client package, and a downward-only M→E edge from
-// SystemDesignManager. The authoring gate and the CI harness reach the same
-// EvaluateRaw entry point from the composition root, which sits outside the layer
-// scan.
+// the delivery Manager. Since dct Plan 4 Task 5 the component has a service contract
+// (serviceContracts.designHealthEngine, one op: EvaluateDesignHealth), and every
+// caller — the Manager, and the authoring gate and CI harness in the composition root
+// (outside the layer scan) — goes through the generated DesignHealthEngine port.
 //
 // The design (wave2-technical-design.md §3e) specifies ONE implementation with
 // THREE call sites: getDesignHealth render-on-read (webApp), the putDraftModel
 // authoring gate (the existing methodcheck seam in cmd/aiarch-state-mcp), and CI.
-// EvaluateRaw is that one implementation; the seam appends its findings alongside
-// the framework findings inside applyGateSeverityPolicies (see staleness.go).
+// evaluateRaw is that one implementation behind the contract op; the seam appends its
+// findings alongside the framework findings inside applyGateSeverityPolicies (see
+// staleness.go).
 //
 // This package also carries an internal PORT of the platform's work-bounded
 // activity-path walker (framework-go/methodcheck/activitypaths.go — the platform
@@ -86,53 +88,53 @@ const (
 	// Cardinality (App-C counts over the component inventory, plus the ch. 4
 	// "smallest set" per-layer bands — advisory: the dogfood system legitimately
 	// exceeds some, and the rules firing honestly on it is the point).
-	RuleCardManagers    methodcheck.RuleID = "DH-CARD-MANAGERS"
-	RuleCardManagersMin methodcheck.RuleID = "DH-CARD-MANAGERS-MIN"
-	RuleCardEngines     methodcheck.RuleID = "DH-CARD-ENGINES"
-	RuleCardRA          methodcheck.RuleID = "DH-CARD-RA"
-	RuleCardResource    methodcheck.RuleID = "DH-CARD-RESOURCE"
-	RuleCardRAResources methodcheck.RuleID = "DH-CARD-RA-RESOURCES"
-	RuleCardUtilities   methodcheck.RuleID = "DH-CARD-UTILITIES"
-	RuleCardCoreUC      methodcheck.RuleID = "DH-CARD-COREUC"
-	RuleCardVolatility  methodcheck.RuleID = "DH-CARD-VOLATILITY"
+	ruleCardManagers    methodcheck.RuleID = "DH-CARD-MANAGERS"
+	ruleCardManagersMin methodcheck.RuleID = "DH-CARD-MANAGERS-MIN"
+	ruleCardEngines     methodcheck.RuleID = "DH-CARD-ENGINES"
+	ruleCardRA          methodcheck.RuleID = "DH-CARD-RA"
+	ruleCardResource    methodcheck.RuleID = "DH-CARD-RESOURCE"
+	ruleCardRAResources methodcheck.RuleID = "DH-CARD-RA-RESOURCES"
+	ruleCardUtilities   methodcheck.RuleID = "DH-CARD-UTILITIES"
+	ruleCardCoreUC      methodcheck.RuleID = "DH-CARD-COREUC"
+	ruleCardVolatility  methodcheck.RuleID = "DH-CARD-VOLATILITY"
 
 	// Graph (closed-architecture directives + guidelines over the relationships).
-	RuleGraphUpcall       methodcheck.RuleID = "DH-GRAPH-UPCALL"
-	RuleGraphSidewaysSync methodcheck.RuleID = "DH-GRAPH-SIDEWAYS-SYNC"
-	RuleGraphClientEntry  methodcheck.RuleID = "DH-GRAPH-CLIENT-ENTRY"
-	RuleGraphQueuedTarget methodcheck.RuleID = "DH-GRAPH-QUEUED-TARGET"
-	RuleGraphEngineIO     methodcheck.RuleID = "DH-GRAPH-ENGINE-IO"
-	RuleGraphUtilReach    methodcheck.RuleID = "DH-GRAPH-UTIL-REACHABLE"
-	RuleGraphMgrEmpty     methodcheck.RuleID = "DH-GRAPH-MANAGER-EMPTY"
+	ruleGraphUpcall       methodcheck.RuleID = "DH-GRAPH-UPCALL"
+	ruleGraphSidewaysSync methodcheck.RuleID = "DH-GRAPH-SIDEWAYS-SYNC"
+	ruleGraphClientEntry  methodcheck.RuleID = "DH-GRAPH-CLIENT-ENTRY"
+	ruleGraphQueuedTarget methodcheck.RuleID = "DH-GRAPH-QUEUED-TARGET"
+	ruleGraphEngineIO     methodcheck.RuleID = "DH-GRAPH-ENGINE-IO"
+	ruleGraphUtilReach    methodcheck.RuleID = "DH-GRAPH-UTIL-REACHABLE"
+	ruleGraphMgrEmpty     methodcheck.RuleID = "DH-GRAPH-MANAGER-EMPTY"
 
 	// Chains (per-use-case dynamic-view §6 don'ts).
-	RuleChainEntryManager  methodcheck.RuleID = "DH-CHAIN-ENTRY-MANAGER"
-	RuleChainQueuedManager methodcheck.RuleID = "DH-CHAIN-QUEUED-MANAGER"
+	ruleChainEntryManager  methodcheck.RuleID = "DH-CHAIN-ENTRY-MANAGER"
+	ruleChainQueuedManager methodcheck.RuleID = "DH-CHAIN-QUEUED-MANAGER"
 
 	// Coverage / joins.
-	RuleCovUCDynamic     methodcheck.RuleID = "DH-COV-UC-DYNAMIC"
-	RuleUCEssenceMissing methodcheck.RuleID = "DH-UC-ESSENCE-MISSING"
-	RuleVolEncapMissing  methodcheck.RuleID = "DH-VOL-ENCAP-MISSING"
-	RuleVolEncapAmbig    methodcheck.RuleID = "DH-VOL-ENCAP-AMBIGUOUS"
-	RuleVolTrace         methodcheck.RuleID = "DH-VOL-TRACE"
-	RuleCompVolDangling  methodcheck.RuleID = "DH-COMP-VOL-DANGLING"
-	RuleCompNoVolatility methodcheck.RuleID = "DH-COMP-NO-VOLATILITY"
-	RuleObjResolve       methodcheck.RuleID = "DH-OBJ-RESOLVE"
-	RuleObjCoverage      methodcheck.RuleID = "DH-OBJ-COVERAGE"
+	ruleCovUCDynamic     methodcheck.RuleID = "DH-COV-UC-DYNAMIC"
+	ruleUCEssenceMissing methodcheck.RuleID = "DH-UC-ESSENCE-MISSING"
+	ruleVolEncapMissing  methodcheck.RuleID = "DH-VOL-ENCAP-MISSING"
+	ruleVolEncapAmbig    methodcheck.RuleID = "DH-VOL-ENCAP-AMBIGUOUS"
+	ruleVolTrace         methodcheck.RuleID = "DH-VOL-TRACE"
+	ruleCompVolDangling  methodcheck.RuleID = "DH-COMP-VOL-DANGLING"
+	ruleCompNoVolatility methodcheck.RuleID = "DH-COMP-NO-VOLATILITY"
+	ruleObjResolve       methodcheck.RuleID = "DH-OBJ-RESOLVE"
+	ruleObjCoverage      methodcheck.RuleID = "DH-OBJ-COVERAGE"
 
-	// RuleBuildStatusVocabulary fires for a component whose buildStatus is outside the closed
+	// ruleBuildStatusVocabulary fires for a component whose buildStatus is outside the closed
 	// vocabulary the plan derivation understands ("", "planned", "external"). ERROR, not
 	// Warning: this is the one model field that decides whether a component becomes a
 	// dispatchable construction activity, the derivation keys on the exact string, and a
 	// near-miss ("Planned") is a component handed to a build agent by the pump sweep. There
 	// is nothing advisory about it.
-	RuleBuildStatusVocabulary methodcheck.RuleID = "DH-BUILDSTATUS-VOCAB"
+	ruleBuildStatusVocabulary methodcheck.RuleID = "DH-BUILDSTATUS-VOCAB"
 
 	// Contracts.
-	RuleContractOpReject methodcheck.RuleID = "DH-CONTRACT-OPCOUNT-REJECT"
-	RuleContractOpMax    methodcheck.RuleID = "DH-CONTRACT-OPCOUNT-MAX"
-	RuleContractFacet    methodcheck.RuleID = "DH-CONTRACT-FACET"
-	RuleContractDeadOp   methodcheck.RuleID = "DH-CONTRACT-DEADOP"
+	ruleContractOpReject methodcheck.RuleID = "DH-CONTRACT-OPCOUNT-REJECT"
+	ruleContractOpMax    methodcheck.RuleID = "DH-CONTRACT-OPCOUNT-MAX"
+	ruleContractFacet    methodcheck.RuleID = "DH-CONTRACT-FACET"
+	ruleContractDeadOp   methodcheck.RuleID = "DH-CONTRACT-DEADOP"
 
 	// CC-* call-chain correspondence family (2026-07-30 callchain-realization): the
 	// app-side live-tier mirror of framework-go/methodcheck's rules_callchain.go,
@@ -142,19 +144,19 @@ const (
 	// emits, because the webApp's Design Health surface joins on rule id across
 	// both call sites (the authoring-gate seam and this live tier) and a finding
 	// must read identically wherever it renders.
-	RuleCCViewUseCase   methodcheck.RuleID = "CC-VIEW-USECASE"
-	RuleCCStepNode      methodcheck.RuleID = "CC-STEP-NODE"
-	RuleCCStepUnique    methodcheck.RuleID = "CC-STEP-UNIQUE"
-	RuleCCCoverage      methodcheck.RuleID = "CC-COVERAGE"
-	RuleCCStepNonempty  methodcheck.RuleID = "CC-STEP-NONEMPTY"
-	RuleCCEndpoint      methodcheck.RuleID = "CC-ENDPOINT-RESOLVES"
-	RuleCCActorEdge     methodcheck.RuleID = "CC-ACTOR-EDGE"
-	RuleCCActorLane     methodcheck.RuleID = "CC-ACTOR-LANE"
-	RuleCCDecidedBy     methodcheck.RuleID = "CC-DECIDED-BY"
-	RuleCCTriggerEvent  methodcheck.RuleID = "CC-TRIGGER-EVENT"
-	RuleCCPathConnected methodcheck.RuleID = "CC-PATH-CONNECTED"
+	ruleCCViewUseCase   methodcheck.RuleID = "CC-VIEW-USECASE"
+	ruleCCStepNode      methodcheck.RuleID = "CC-STEP-NODE"
+	ruleCCStepUnique    methodcheck.RuleID = "CC-STEP-UNIQUE"
+	ruleCCCoverage      methodcheck.RuleID = "CC-COVERAGE"
+	ruleCCStepNonempty  methodcheck.RuleID = "CC-STEP-NONEMPTY"
+	ruleCCEndpoint      methodcheck.RuleID = "CC-ENDPOINT-RESOLVES"
+	ruleCCActorEdge     methodcheck.RuleID = "CC-ACTOR-EDGE"
+	ruleCCActorLane     methodcheck.RuleID = "CC-ACTOR-LANE"
+	ruleCCDecidedBy     methodcheck.RuleID = "CC-DECIDED-BY"
+	ruleCCTriggerEvent  methodcheck.RuleID = "CC-TRIGGER-EVENT"
+	ruleCCPathConnected methodcheck.RuleID = "CC-PATH-CONNECTED"
 
-	// RuleCUCActorRequired mirrors the platform's CoreUseCases-attributed
+	// ruleCUCActorRequired mirrors the platform's CoreUseCases-attributed
 	// CUC-ACTOR-REQUIRED (rollout rulings 2026-07-31): a clientAction use case
 	// must name who initiates it. It ships alongside CC-DECIDED-BY as the
 	// rollout's other new rule, and lives in rules_callchain.go too, but unlike
@@ -166,14 +168,14 @@ const (
 	// registry can attribute a rule to the CoreUseCases artifact family),
 	// designhealth findings carry no separate artifact-family attribution, so
 	// this is just the rule id + section, like its CC-* siblings.
-	RuleCUCActorRequired methodcheck.RuleID = "CUC-ACTOR-REQUIRED"
+	ruleCUCActorRequired methodcheck.RuleID = "CUC-ACTOR-REQUIRED"
 
 	// STATE-VALIDATION family (stage 4b1, founder rulings R8/R-B): the thirteen
 	// Method conformance rules that used to live in the delivery Manager's
 	// co-author session (coauthorartifact.go's view()-appended kind checks and its
 	// stateValidationFindingGenerators table). They were Method rules in a Manager
 	// — the Manager computed them inline over the DRAFT it held and surfaced them
-	// as DesignArtifactSessionView.Findings. They need no new surface here: EvaluateRaw
+	// as DesignArtifactSessionView.Findings. They need no new surface here: evaluateRaw
 	// reads slots[n].model with NO status filter, and the design rail stages a
 	// draft into its slot before the gate opens, so as ordinary engine rules they
 	// see the same staged draft the session showed and surface through the
@@ -188,37 +190,37 @@ const (
 	// family already is; the four with no platform twin (USECASE-ACTIVITY-MISSING,
 	// DV-TITLE-EMPTY, SYS-VOLATILITY-COVERAGE, SYS-SERVICES-EXPLOSION) would have
 	// been LOST outright had they stayed behind in the Manager.
-	RuleSysRAOrphan          methodcheck.RuleID = "SYS-RA-ORPHAN"
-	RuleSysEncapsulates      methodcheck.RuleID = "SYS-ENCAPSULATES"
-	RuleSysRelDup            methodcheck.RuleID = "SYS-REL-DUP"
-	RuleDVTitleEmpty         methodcheck.RuleID = "DV-TITLE-EMPTY"
-	RuleUCVariationRef       methodcheck.RuleID = "UC-VARIATION-REF"
-	RuleGlossFourQ           methodcheck.RuleID = "GLOSS-FOURQ"
-	RuleSRIDUnique           methodcheck.RuleID = "SR-ID-UNIQUE"
-	RuleOPCTopicCoverage     methodcheck.RuleID = "OPC-TOPIC-COVERAGE"
-	RuleUCActivityMissing    methodcheck.RuleID = "USECASE-ACTIVITY-MISSING"
-	RuleUCDynamicMissing     methodcheck.RuleID = "USECASE-DYNAMIC-MISSING"
-	RuleSysLayerDegenerate   methodcheck.RuleID = "SYSTEM-LAYER-DEGENERATE"
-	RuleVolCoverage          methodcheck.RuleID = "SYS-VOLATILITY-COVERAGE"
-	RuleSysServicesExplosion methodcheck.RuleID = "SYS-SERVICES-EXPLOSION"
+	ruleSysRAOrphan          methodcheck.RuleID = "SYS-RA-ORPHAN"
+	ruleSysEncapsulates      methodcheck.RuleID = "SYS-ENCAPSULATES"
+	ruleSysRelDup            methodcheck.RuleID = "SYS-REL-DUP"
+	ruleDVTitleEmpty         methodcheck.RuleID = "DV-TITLE-EMPTY"
+	ruleUCVariationRef       methodcheck.RuleID = "UC-VARIATION-REF"
+	ruleGlossFourQ           methodcheck.RuleID = "GLOSS-FOURQ"
+	ruleSRIDUnique           methodcheck.RuleID = "SR-ID-UNIQUE"
+	ruleOPCTopicCoverage     methodcheck.RuleID = "OPC-TOPIC-COVERAGE"
+	ruleUCActivityMissing    methodcheck.RuleID = "USECASE-ACTIVITY-MISSING"
+	ruleUCDynamicMissing     methodcheck.RuleID = "USECASE-DYNAMIC-MISSING"
+	ruleSysLayerDegenerate   methodcheck.RuleID = "SYSTEM-LAYER-DEGENERATE"
+	ruleVolCoverage          methodcheck.RuleID = "SYS-VOLATILITY-COVERAGE"
+	ruleSysServicesExplosion methodcheck.RuleID = "SYS-SERVICES-EXPLOSION"
 )
 
-// Input is the decoded, rule-ready view of one project.json: the published
+// input is the decoded, rule-ready view of one project.json: the published
 // projectmodel codegen slice (System + Contracts) plus the tolerant slot subset
 // projectmodel deliberately does not parse (dynamic views, volatilities,
 // objectives, requirements, core use cases). Rules are pure functions of an
-// Input, which makes both the green fixture and the per-rule negative fixtures
+// input, which makes both the green fixture and the per-rule negative fixtures
 // trivial to construct.
-type Input struct {
+type input struct {
 	Model *projectmodel.Model
 	Slots slotData
 }
 
-// Evaluate runs every live-tier rule over in and returns the findings in a
+// evaluate runs every live-tier rule over in and returns the findings in a
 // stable family order (cardinality, graph, chains, coverage, call-chain,
 // contracts). It never returns an error: a rule with nothing to say returns no
 // findings.
-func Evaluate(in Input) []methodcheck.Finding {
+func evaluate(in input) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	out = append(out, cardinalityFindings(in)...)
 	out = append(out, graphFindings(in)...)
@@ -230,85 +232,58 @@ func Evaluate(in Input) []methodcheck.Finding {
 	return out
 }
 
-// Engine is this component's Engine port — the one operation a
-// Manager calls: judge a project's design against the live Method rule set and
-// return the findings. It is the code that BACKS the modeled
-// SystemDesignManager → DesignHealthEngine relationship
+// EvaluateDesignHealth is this component's one contract operation (the generated
+// DesignHealthEngine port, serviceContracts.designHealthEngine): judge a project's
+// design against the live Method rule set and return the findings. It BACKS the
+// modeled DeliveryManager → DesignHealthEngine relationship
 // ("EvaluateDesignHealth(project, systemModel) → findings"), an ordinary downward
-// M→E call on the Strategy plane.
+// M→E call on the Strategy plane, drawn in execute-a-project-activity
+// (commit-artifact: the gate of a design artifact) and add-a-use-case (revalidate).
 //
-// Hand-written rather than generated: the component carries no service contract
-// (contractKey null) because nothing outside the Manager consumes it and its
-// argument is the raw project.json byte stream, not a schema-first data contract.
+// The findings cross the contract in the contract's own Finding shape, not the
+// platform's methodcheck.Finding: the port is schema-first like every other Engine's.
 //
 // The error result is part of the Engine calling convention (every Engine op
 // returns one) and is ALWAYS nil today: evaluation is pure computation with no
 // I/O and no failure mode of its own. A document that will not parse is a
 // STRUCTURAL failure owned by the framework gate, which runs on the same bytes at
 // every seam — this engine stays silent rather than double-reporting it, and
-// returns no findings.
-// DeriveDeploymentEdges is the engine's second operation: the deployment view's
-// DERIVED relationships, keyed by deployment-profile wire name.
-//
-// A deployment view's application edges — the SPA calling the server, the server
-// reading its database — are already stated in the committed System model as
-// component relationships. Restating them in the deployment slot would be
-// duplication that drifts, so they are derived by mapping each System
-// relationship through container membership onto the elements that host its
-// endpoints. Only the edges whose endpoints are NOT System components (the
-// person, the browser, the gateway, the identity provider) stay authored.
-//
-// This is deliberately the SAME computation the DEP-EDGE-* rules judge, reached
-// through the same platform function: an edge rule that ignored derived edges
-// would force every server-to-database relationship to be hand-authored purely
-// to satisfy it, and a picture computed separately from the gate would show
-// edges the gate does not count.
-type Engine interface {
-	EvaluateDesignHealth(rc fweng.Context, raw []byte) ([]methodcheck.Finding, error)
-	DeriveDeploymentEdges(rc fweng.Context, system methodcheck.System, topology methodcheck.DeploymentTopology) (map[string][]methodcheck.DeploymentRelationship, error)
-}
-
-// designHealthEngine is the concrete engine. Engines are pure, so it carries no
-// fields; it delegates to the package's own EvaluateRaw, which the composition
-// root's authoring-gate seam also drives directly (cmd is outside the layer scan).
-type designHealthEngine struct{}
-
-// NewEngine returns the production design-health Engine.
-func NewEngine() Engine { return designHealthEngine{} }
-
-var _ Engine = designHealthEngine{}
-
-// EvaluateDesignHealth implements the port over EvaluateRaw. The call Context is
-// accepted for calling-convention uniformity and carries nothing this pure
-// computation needs.
-func (designHealthEngine) EvaluateDesignHealth(_ fweng.Context, raw []byte) ([]methodcheck.Finding, error) {
-	return EvaluateRaw(raw), nil
-}
-
-// DeriveDeploymentEdges implements the port over the platform's derivation, one
-// environment at a time, keyed by profile. Like EvaluateDesignHealth it is pure
-// computation with no failure mode of its own, so the error is always nil; it is
-// present for Engine calling-convention uniformity.
-//
-// An environment that derives no edges is returned as an ABSENT key rather than
-// an empty slice, so a caller writing the result into a served model does not
-// stamp an empty computed block onto profiles that have nothing computed.
-func (designHealthEngine) DeriveDeploymentEdges(_ fweng.Context, system methodcheck.System, topology methodcheck.DeploymentTopology) (map[string][]methodcheck.DeploymentRelationship, error) {
-	out := make(map[string][]methodcheck.DeploymentRelationship, len(topology.Environments))
-	for _, env := range topology.Environments {
-		if derived := methodcheck.DeriveDeploymentRelationships(env, topology.Containers, system); len(derived) > 0 {
-			out[env.Profile] = derived
+// returns no findings. The call Context carries nothing this pure computation needs.
+func (DesignHealthEngineImpl) EvaluateDesignHealth(_ fweng.Context, project string) ([]Finding, error) {
+	live := evaluateRaw([]byte(project))
+	out := make([]Finding, 0, len(live))
+	for _, f := range live {
+		fc := Finding{RuleID: RuleID(f.RuleID), Severity: severityOf(f.Severity), Message: f.Message}
+		if f.Location != nil {
+			fc.Location = &Location{Ordinal: int64(f.Location.Ordinal), Section: f.Location.Section}
 		}
+		out = append(out, fc)
 	}
 	return out, nil
 }
 
-// EvaluateRaw is the single evaluation entry point every call site funnels
-// through (the port above, and the composition root's authoring-gate + CI seams).
-// It parses raw (the committed or drafted project.json bytes) into an Input and
-// evaluates it. A document that will not parse under the published projectmodel
-// codegen parser yields no findings — see the port's doc comment.
-func EvaluateRaw(raw []byte) []methodcheck.Finding {
+// severityOf renders a methodcheck severity ordinal as the contract's Severity
+// string; an ordinal outside the three known ones reads as info (advisory), never
+// as an error that would fail a gate.
+func severityOf(s methodcheck.Severity) Severity {
+	switch s {
+	case methodcheck.SeverityError:
+		return SeverityError
+	case methodcheck.SeverityWarning:
+		return SeverityWarning
+	case methodcheck.SeverityInfo:
+		return SeverityInfo
+	default:
+		return SeverityInfo
+	}
+}
+
+// evaluateRaw is the single evaluation entry point: EvaluateDesignHealth, which
+// every caller reaches through the contract, is a mapping over it. It parses raw
+// (the committed or drafted project.json bytes) into an input and evaluates it. A
+// document that will not parse under the published projectmodel codegen parser
+// yields no findings — see the port's doc comment.
+func evaluateRaw(raw []byte) []methodcheck.Finding {
 	model, err := projectmodel.Load(raw)
 	if err != nil {
 		return nil
@@ -317,11 +292,11 @@ func EvaluateRaw(raw []byte) []methodcheck.Finding {
 	if err != nil {
 		return nil
 	}
-	return Evaluate(Input{Model: model, Slots: slots})
+	return evaluate(input{Model: model, Slots: slots})
 }
 
 // componentIndex indexes the System components by id for the graph/chain joins.
-func (in Input) componentIndex() map[string]projectmodel.SystemComponent {
+func (in input) componentIndex() map[string]projectmodel.SystemComponent {
 	idx := map[string]projectmodel.SystemComponent{}
 	if in.Model == nil || in.Model.System == nil {
 		return idx
@@ -667,7 +642,7 @@ type rawSlot struct {
 
 // parseSlots decodes the slot subset the rules need. It is tolerant: a missing or
 // empty slot yields an empty section rather than an error. It returns an error
-// only when the top-level document itself is not JSON (which EvaluateRaw treats as
+// only when the top-level document itself is not JSON (which evaluateRaw treats as
 // a structural failure the framework gate owns).
 func parseSlots(raw []byte) (slotData, error) {
 	var top rawProject
@@ -967,7 +942,7 @@ var ccMayHaveStep = map[string]bool{
 // owning use case's activity diagram: the dangling-join-key guard, coverage,
 // endpoint resolution, actor legality, trigger alignment, and per-path chain
 // connectivity.
-func callChainFindings(in Input) []methodcheck.Finding {
+func callChainFindings(in input) []methodcheck.Finding {
 	idx := in.componentIndex()
 	ucByID := useCaseIndex(in.Slots.CoreUseCases)
 	var out []methodcheck.Finding
@@ -978,7 +953,7 @@ func callChainFindings(in Input) []methodcheck.Finding {
 			// CC-VIEW-USECASE. A view whose UseCaseID resolves to NOTHING silently
 			// disables every other CC-* rule for it, and no other rule notices —
 			// report the dangling join key rather than no-op'ing the whole family.
-			out = append(out, ccFinding(RuleCCViewUseCase, i, "dynamicView "+ccViewLabel(dv),
+			out = append(out, ccFinding(ruleCCViewUseCase, i, "dynamicView "+ccViewLabel(dv),
 				"dynamic view %q references useCaseId %q, which resolves to no use case in the committed set; the call chain cannot be checked against any activity diagram until the join key is fixed",
 				ccViewLabel(dv), dv.UseCaseID))
 			continue
@@ -1012,7 +987,7 @@ func actorRequiredFindings(ucs []coreUseCase) []methodcheck.Finding {
 		if uc.Trigger != "clientAction" || len(uc.Actors) > 0 {
 			continue
 		}
-		out = append(out, ccFinding(RuleCUCActorRequired, i, "useCase "+uc.ID,
+		out = append(out, ccFinding(ruleCUCActorRequired, i, "useCase "+uc.ID,
 			"use case %q is clientAction-triggered but declares no actors; a client-initiated use case must name who initiates it (and its call chain needs that actor as its root)",
 			uc.ID))
 	}
@@ -1125,12 +1100,12 @@ func (cc ccContext) stepIdentity() []methodcheck.Finding {
 	seen := make(map[string]bool, len(cc.dv.Steps))
 	for _, st := range cc.dv.Steps {
 		if _, ok := cc.nodes[st.ActivityNodeID]; !ok {
-			out = append(out, ccFinding(RuleCCStepNode, cc.ordinal, cc.stepLoc(st.ActivityNodeID),
+			out = append(out, ccFinding(ruleCCStepNode, cc.ordinal, cc.stepLoc(st.ActivityNodeID),
 				"dynamic view %q has a step keyed on %q, which is not a node of use case %s's activity diagram; every step must realize a declared activity node",
 				ccViewLabel(cc.dv), st.ActivityNodeID, cc.uc.ID))
 		}
 		if seen[st.ActivityNodeID] {
-			out = append(out, ccFinding(RuleCCStepUnique, cc.ordinal, cc.stepLoc(st.ActivityNodeID),
+			out = append(out, ccFinding(ruleCCStepUnique, cc.ordinal, cc.stepLoc(st.ActivityNodeID),
 				"dynamic view %q realizes activity node %q with more than one step; a node's calls belong to exactly one step",
 				ccViewLabel(cc.dv), st.ActivityNodeID))
 		}
@@ -1154,7 +1129,7 @@ func (cc ccContext) coverage() []methodcheck.Finding {
 		if _, ok := cc.steps[n.ID]; ok {
 			continue
 		}
-		out = append(out, ccFinding(RuleCCCoverage, cc.ordinal, cc.ucLoc(),
+		out = append(out, ccFinding(ruleCCCoverage, cc.ordinal, cc.ucLoc(),
 			"activity node %q (%s) of use case %s is realized by no step of dynamic view %q; every action/timeEvent/acceptEvent node must say which calls it makes",
 			n.ID, n.Kind, cc.uc.ID, ccViewLabel(cc.dv)))
 	}
@@ -1163,7 +1138,7 @@ func (cc ccContext) coverage() []methodcheck.Finding {
 		if !ok || ccMustHaveStep[n.Kind] || ccMayHaveStep[n.Kind] {
 			continue
 		}
-		out = append(out, ccFinding(RuleCCCoverage, cc.ordinal, cc.ucLoc(),
+		out = append(out, ccFinding(ruleCCCoverage, cc.ordinal, cc.ucLoc(),
 			"dynamic view %q attaches a step to %s node %q; only action/timeEvent/acceptEvent nodes carry calls (decision/switch may), every other node is pure control flow",
 			ccViewLabel(cc.dv), n.Kind, n.ID))
 	}
@@ -1180,7 +1155,7 @@ func (cc ccContext) stepNonempty() []methodcheck.Finding {
 		if len(st.Calls) > 0 {
 			continue
 		}
-		out = append(out, ccFinding(RuleCCStepNonempty, cc.ordinal, cc.stepLoc(st.ActivityNodeID),
+		out = append(out, ccFinding(ruleCCStepNonempty, cc.ordinal, cc.stepLoc(st.ActivityNodeID),
 			"dynamic view %q step %q makes no call; a realized step must carry at least one call (drop the step if the node makes none)",
 			ccViewLabel(cc.dv), st.ActivityNodeID))
 	}
@@ -1225,11 +1200,11 @@ func (cc ccContext) endpointFinding(id, nodeID string) (methodcheck.Finding, boo
 	isActor := cc.actors[id]
 	switch {
 	case isComponent && isActor:
-		return ccFinding(RuleCCEndpoint, cc.ordinal, cc.stepLoc(nodeID),
+		return ccFinding(ruleCCEndpoint, cc.ordinal, cc.stepLoc(nodeID),
 			"dynamic view %q names endpoint %q, which resolves to BOTH a System Component and an actor of use case %s; an endpoint id must denote exactly one of them",
 			ccViewLabel(cc.dv), id, cc.uc.ID), true
 	case !isComponent && !isActor:
-		return ccFinding(RuleCCEndpoint, cc.ordinal, cc.stepLoc(nodeID),
+		return ccFinding(ruleCCEndpoint, cc.ordinal, cc.stepLoc(nodeID),
 			"dynamic view %q names endpoint %q, which is neither a System Component nor an actor of use case %s",
 			ccViewLabel(cc.dv), id, cc.uc.ID), true
 	}
@@ -1258,7 +1233,7 @@ func (cc ccContext) actorEdgeFindings(call viewEdge, nodeID string) []methodchec
 	}
 	section := cc.stepLoc(nodeID)
 	if fromActor && toActor {
-		return []methodcheck.Finding{ccFinding(RuleCCActorEdge, cc.ordinal, section,
+		return []methodcheck.Finding{ccFinding(ruleCCActorEdge, cc.ordinal, section,
 			"dynamic view %q step %q draws actor %s → actor %s; an actor edge models a person entering the system through a Client, not two people interacting",
 			ccViewLabel(cc.dv), nodeID, call.From, call.To)}
 	}
@@ -1268,12 +1243,12 @@ func (cc ccContext) actorEdgeFindings(call viewEdge, nodeID string) []methodchec
 	}
 	var out []methodcheck.Finding
 	if c, ok := cc.idx[component]; !ok || c.Kind != "client" {
-		out = append(out, ccFinding(RuleCCActorEdge, cc.ordinal, section,
+		out = append(out, ccFinding(ruleCCActorEdge, cc.ordinal, section,
 			"dynamic view %q step %q draws actor edge %s→%s, whose non-actor end %s is not a Client component; an actor enters the system only through a Client",
 			ccViewLabel(cc.dv), nodeID, call.From, call.To, component))
 	}
 	if call.Mode != "sync" {
-		out = append(out, ccFinding(RuleCCActorEdge, cc.ordinal, section,
+		out = append(out, ccFinding(ruleCCActorEdge, cc.ordinal, section,
 			"dynamic view %q step %q draws actor edge %s→%s with mode %q; an actor interaction is always synchronous",
 			ccViewLabel(cc.dv), nodeID, call.From, call.To, call.Mode))
 	}
@@ -1296,7 +1271,7 @@ func (cc ccContext) actorLane() []methodcheck.Finding {
 		if !ok || stepTouches(st, n.LinkedActorID) {
 			continue
 		}
-		out = append(out, ccFinding(RuleCCActorLane, cc.ordinal, cc.stepLoc(n.ID),
+		out = append(out, ccFinding(ruleCCActorLane, cc.ordinal, cc.stepLoc(n.ID),
 			"activity node %q is laned to actor %s, but dynamic view %q's step for it touches that actor in no call; realize the actor's participation or drop the lane link",
 			n.ID, n.LinkedActorID, ccViewLabel(cc.dv)))
 	}
@@ -1335,7 +1310,7 @@ func (cc ccContext) decidedBy() []methodcheck.Finding {
 			continue
 		}
 		if !ccResolvesBranch(n.Kind) {
-			out = append(out, ccFinding(RuleCCDecidedBy, cc.ordinal, cc.ucLoc(),
+			out = append(out, ccFinding(ruleCCDecidedBy, cc.ordinal, cc.ucLoc(),
 				"activity node %q (%s) of use case %s carries decidedBy %q; only a decision/switch node resolves a branch, so only those kinds may name who resolves it",
 				n.ID, n.Kind, cc.uc.ID, n.DecidedBy))
 			continue
@@ -1362,11 +1337,11 @@ func (cc ccContext) decidedByResolution(n activityNode) (methodcheck.Finding, bo
 	isActor := cc.actors[n.DecidedBy]
 	switch {
 	case isComponent && isActor:
-		return ccFinding(RuleCCDecidedBy, cc.ordinal, cc.ucLoc(),
+		return ccFinding(ruleCCDecidedBy, cc.ordinal, cc.ucLoc(),
 			"activity node %q of use case %s is decidedBy %q, which resolves to BOTH a System Component and an actor of that use case; a decider id must denote exactly one of them",
 			n.ID, cc.uc.ID, n.DecidedBy), true
 	case !isComponent && !isActor:
-		return ccFinding(RuleCCDecidedBy, cc.ordinal, cc.ucLoc(),
+		return ccFinding(ruleCCDecidedBy, cc.ordinal, cc.ucLoc(),
 			"activity node %q of use case %s is decidedBy %q, which is neither a System Component nor an actor of that use case; name the component or the person who resolves the branch",
 			n.ID, cc.uc.ID, n.DecidedBy), true
 	}
@@ -1384,19 +1359,19 @@ func (cc ccContext) triggerEvent() []methodcheck.Finding {
 	switch cc.uc.Trigger {
 	case "timer":
 		if !hasTimeEntry {
-			return []methodcheck.Finding{ccFinding(RuleCCTriggerEvent, cc.ordinal, cc.ucLoc(),
+			return []methodcheck.Finding{ccFinding(ruleCCTriggerEvent, cc.ordinal, cc.ucLoc(),
 				"use case %s is timer-triggered but its activity diagram declares no timeEvent entry node; a scheduled use case enters on the timer that fires it",
 				cc.uc.ID)}
 		}
 	case "busMessage":
 		if !hasAcceptEntry {
-			return []methodcheck.Finding{ccFinding(RuleCCTriggerEvent, cc.ordinal, cc.ucLoc(),
+			return []methodcheck.Finding{ccFinding(ruleCCTriggerEvent, cc.ordinal, cc.ucLoc(),
 				"use case %s is busMessage-triggered but its activity diagram declares no acceptEvent entry node; a message-driven use case enters on the signal it accepts",
 				cc.uc.ID)}
 		}
 	case "clientAction":
 		if hasTimeEntry || hasAcceptEntry {
-			return []methodcheck.Finding{ccFinding(RuleCCTriggerEvent, cc.ordinal, cc.ucLoc(),
+			return []methodcheck.Finding{ccFinding(ruleCCTriggerEvent, cc.ordinal, cc.ucLoc(),
 				"use case %s is clientAction-triggered but its activity diagram enters on a UML event node; a client-initiated use case enters at a start node — reclassify the trigger as timer/busMessage or remove the event entry",
 				cc.uc.ID)}
 		}
@@ -1520,7 +1495,7 @@ func (cc ccContext) disconnectFinding(call viewEdge, nodeID string, entry pathEn
 		return methodcheck.Finding{}, false
 	}
 	reported[key] = true
-	return ccFinding(RuleCCPathConnected, cc.ordinal, cc.stepLoc(nodeID),
+	return ccFinding(ruleCCPathConnected, cc.ordinal, cc.stepLoc(nodeID),
 		"dynamic view %q step %q calls %s→%s, but %s is not reached by any earlier call on the activity path entered at %q, and the call is not a legal chain root (actor→Client, or the entry's own root shape)",
 		ccViewLabel(cc.dv), nodeID, call.From, call.To, call.From, entry.NodeID), true
 }
@@ -1932,7 +1907,7 @@ func unionVisited(a, b map[int]bool) map[int]bool {
 // a project can legitimately sit at the edge. The bounds are deliberately generous
 // (the App-C "~10" is treated as an over-bound alarm at >12) so a healthy design
 // stays quiet and only a real inventory blow-out surfaces.
-func cardinalityFindings(in Input) []methodcheck.Finding {
+func cardinalityFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil {
 		return nil
 	}
@@ -1952,40 +1927,40 @@ func componentCardinalityFindings(counts map[string]int, total int) []methodchec
 	var out []methodcheck.Finding
 	// §2a: at most ~5 Managers — more than 5 usually means a missing subsystem cut.
 	if n := counts["manager"]; n > 5 {
-		out = append(out, finding(RuleCardManagers, methodcheck.SeverityWarning, n, "components",
+		out = append(out, finding(ruleCardManagers, methodcheck.SeverityWarning, n, "components",
 			fmt.Sprintf("%d Manager components — The Method keeps Managers few (≈5); more usually signals a use-case explosion or a missing subsystem partition", n)))
 	}
 	// ch. 4 smallest-set band starts at 2 Managers: a single-Manager system cannot be
 	// validated against the other use cases (there is nothing to swap or compare).
 	// Skipped entirely on a zero-component system — mid-draft, nothing to judge yet.
 	if total > 0 && counts["manager"] == 1 {
-		out = append(out, finding(RuleCardManagersMin, methodcheck.SeverityInfo, 1, "components",
+		out = append(out, finding(ruleCardManagersMin, methodcheck.SeverityInfo, 1, "components",
 			"1 Manager component — ch. 4's smallest-set band starts at 2 Managers; a single-Manager system is unvalidatable (no sibling use-case family to validate the decomposition against). Check for a missed family of use cases"))
 	}
 	// ch. 4 smallest-set band: 2–3 Engines.
 	if n := counts["engine"]; n > 3 {
-		out = append(out, finding(RuleCardEngines, methodcheck.SeverityWarning, n, "components",
+		out = append(out, finding(ruleCardEngines, methodcheck.SeverityWarning, n, "components",
 			fmt.Sprintf("%d Engine components — past the ch. 4 smallest-set band of 2–3 Engines; check for functional decomposition wearing an Engine costume, or fold activities that are not genuinely volatile business rules", n)))
 	}
 	// §2f: ResourceAccess ≈10 — flag a clear over-bound.
 	if n := counts["resourceAccess"]; n > 12 {
-		out = append(out, finding(RuleCardRA, methodcheck.SeverityWarning, n, "components",
+		out = append(out, finding(ruleCardRA, methodcheck.SeverityWarning, n, "components",
 			fmt.Sprintf("%d ResourceAccess components — well past the ≈10 guideline; consider folding facet-duplicate access components", n)))
 	}
 	// §2g: Resources ≈10 — flag a clear over-bound.
 	if n := counts["resource"]; n > 12 {
-		out = append(out, finding(RuleCardResource, methodcheck.SeverityWarning, n, "components",
+		out = append(out, finding(ruleCardResource, methodcheck.SeverityWarning, n, "components",
 			fmt.Sprintf("%d Resource components — well past the ≈10 guideline", n)))
 	}
 	// ch. 4 bounds ResourceAccess + Resources TOGETHER at 3–8 (the individual >12
 	// alarms above stay as the blow-out backstop).
 	if n := counts["resourceAccess"] + counts["resource"]; n > 8 {
-		out = append(out, finding(RuleCardRAResources, methodcheck.SeverityWarning, n, "components",
+		out = append(out, finding(ruleCardRAResources, methodcheck.SeverityWarning, n, "components",
 			fmt.Sprintf("%d combined ResourceAccess + Resource components — past the ch. 4 smallest-set band of 3–8 for the two storage layers together; consider folding facet-duplicate access components or consolidating storage", n)))
 	}
 	// ch. 4: "a half-dozen Utilities" — informational once past 6.
 	if n := counts["utility"]; n > 6 {
-		out = append(out, finding(RuleCardUtilities, methodcheck.SeverityInfo, n, "components",
+		out = append(out, finding(ruleCardUtilities, methodcheck.SeverityInfo, n, "components",
 			fmt.Sprintf("%d Utility components — past ch. 4's half-dozen; informational, but check whether any Utility is really a mislabeled business component or duplicated cross-cutting concern", n)))
 	}
 	return out
@@ -1994,7 +1969,7 @@ func componentCardinalityFindings(counts map[string]int, total int) []methodchec
 // selectionCardinalityFindings walks the counts that come from the SELECTION
 // artifacts rather than the component graph: the core use cases and the
 // identified volatilities.
-func selectionCardinalityFindings(in Input) []methodcheck.Finding {
+func selectionCardinalityFindings(in input) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	// §2: core use case count in [2,6].
 	core := 0
@@ -2004,12 +1979,12 @@ func selectionCardinalityFindings(in Input) []methodcheck.Finding {
 		}
 	}
 	if core > 0 && (core < 2 || core > 6) {
-		out = append(out, finding(RuleCardCoreUC, methodcheck.SeverityWarning, core, "coreUseCases",
+		out = append(out, finding(ruleCardCoreUC, methodcheck.SeverityWarning, core, "coreUseCases",
 			fmt.Sprintf("%d core use cases — The Method targets 2–6 core use cases as the architecture's load-bearing set", core)))
 	}
 	// §2h: volatility count is informational — waiver-backed, never blocking.
 	if n := len(in.Slots.Volatilities); n > 0 {
-		out = append(out, finding(RuleCardVolatility, methodcheck.SeverityInfo, n, "volatilities",
+		out = append(out, finding(ruleCardVolatility, methodcheck.SeverityInfo, n, "volatilities",
 			fmt.Sprintf("%d volatilities identified — informational; the count is waiver-backed, not bounded", n)))
 	}
 	return out
@@ -2041,7 +2016,7 @@ func componentsByKind(sys *projectmodel.System, kind string) []projectmodel.Syst
 // worth a reviewer's eye, not an authoring-gate block. Endpoints that name no
 // System component (external actors like a git repo or a human role) are ignored —
 // only component participants carry a layer.
-func chainFindings(in Input) []methodcheck.Finding {
+func chainFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil {
 		return nil
 	}
@@ -2069,13 +2044,13 @@ func chainFindings(in Input) []methodcheck.Finding {
 			}
 		}
 		if len(entryManagers) > 1 {
-			out = append(out, finding(RuleChainEntryManager, methodcheck.SeverityWarning, i, section,
+			out = append(out, finding(ruleChainEntryManager, methodcheck.SeverityWarning, i, section,
 				fmt.Sprintf("chain %q has %d distinct client-entry Managers (%s) — a use-case chain should be driven by exactly one entry Manager; downstream Managers must be reached by a queued hop, not a second client entry",
 					dvLabel(dv), len(entryManagers), sortedKeys(entryManagers))))
 		}
 		// §6b — at most one queued Manager→Manager hop per chain.
 		if queuedManagerHops > 1 {
-			out = append(out, finding(RuleChainQueuedManager, methodcheck.SeverityWarning, i, section,
+			out = append(out, finding(ruleChainQueuedManager, methodcheck.SeverityWarning, i, section,
 				fmt.Sprintf("chain %q has %d queued Manager hops — The Method permits at most one queued Manager→Manager handoff per use-case chain",
 					dvLabel(dv), queuedManagerHops)))
 		}
@@ -2111,7 +2086,7 @@ func dvLabel(dv dynamicView) string {
 //	DH-CONTRACT-DEADOP         (Warning) the same operation name published by two
 //	                                     contracts of one facet group (the D1-D4
 //	                                     duplicate class).
-func contractFindings(in Input) []methodcheck.Finding {
+func contractFindings(in input) []methodcheck.Finding {
 	if in.Model == nil {
 		return nil
 	}
@@ -2133,10 +2108,10 @@ func opCountFindings(model *projectmodel.Model) []methodcheck.Finding {
 		n := len(c.Doc.Interface.Operations)
 		switch {
 		case n >= 20:
-			out = append(out, finding(RuleContractOpReject, methodcheck.SeverityError, i, "contract "+key,
+			out = append(out, finding(ruleContractOpReject, methodcheck.SeverityError, i, "contract "+key,
 				fmt.Sprintf("contract %q has %d operations — App-C rejects a contract at ≥20 ops (a god interface); split it by cohesion", key, n)))
 		case n > 12:
-			out = append(out, finding(RuleContractOpMax, methodcheck.SeverityWarning, i, "contract "+key,
+			out = append(out, finding(ruleContractOpMax, methodcheck.SeverityWarning, i, "contract "+key,
 				fmt.Sprintf("contract %q has %d operations — past the App-C max of 12 (sweet spot 3–5); factor down or sideways", key, n)))
 		}
 	}
@@ -2159,12 +2134,12 @@ func facetJoinFindings(model *projectmodel.Model) []methodcheck.Finding {
 		}
 		owner, ok := model.System.ComponentByContractKey(c.Component)
 		if !ok {
-			out = append(out, finding(RuleContractFacet, methodcheck.SeverityError, i, "contract "+key,
+			out = append(out, finding(ruleContractFacet, methodcheck.SeverityError, i, "contract "+key,
 				fmt.Sprintf("service contract %q resolves to no component: its key is not a component contract key and its component field %q names no component — a stale/fossil entry", key, c.Component)))
 			continue
 		}
 		if !strings.EqualFold(c.Layer, owner.Layer) {
-			out = append(out, finding(RuleContractFacet, methodcheck.SeverityError, i, "contract "+key,
+			out = append(out, finding(ruleContractFacet, methodcheck.SeverityError, i, "contract "+key,
 				fmt.Sprintf("contract facet %q declares layer %q but its owning component %q is layer %q — a facet must share its owner's layer", key, c.Layer, owner.ID, owner.Layer)))
 		}
 	}
@@ -2248,10 +2223,10 @@ func deadOpFindings(model *projectmodel.Model) []methodcheck.Finding {
 			}
 			sort.Strings(publishers)
 			if len(sigSet) == 1 {
-				out = append(out, finding(RuleContractDeadOp, methodcheck.SeverityError, ordinal, "facet "+owner,
+				out = append(out, finding(ruleContractDeadOp, methodcheck.SeverityError, ordinal, "facet "+owner,
 					fmt.Sprintf("operation %q is published with the SAME signature by %d contracts of the %q facet group (%s) — an exact duplicate; the facets share one Go method set, so collapse it to a single facet", name, len(contractSet), owner, strings.Join(publishers, ", "))))
 			} else {
-				out = append(out, finding(RuleContractDeadOp, methodcheck.SeverityWarning, ordinal, "facet "+owner,
+				out = append(out, finding(ruleContractDeadOp, methodcheck.SeverityWarning, ordinal, "facet "+owner,
 					fmt.Sprintf("operation %q is published by %d contracts of the %q facet group (%s) with DIFFERING param signatures — a name collision, not a proven dead op; a distinct-signature variant may legitimately coexist, so verify call-site liveness before pruning either", name, len(contractSet), owner, strings.Join(publishers, ", "))))
 			}
 			ordinal++
@@ -2292,7 +2267,7 @@ func sortedContractKeys(model *projectmodel.Model) []string {
 // dangling reference is a real defect (SeverityError); a coverage gap is
 // advisory (SeverityWarning at most — it flags an orphaned business need
 // without blocking the gate).
-func coverageFindings(in Input) []methodcheck.Finding {
+func coverageFindings(in input) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	out = append(out, useCaseDynamicViewFindings(in)...)
 	out = append(out, useCaseEssenceFindings(in)...)
@@ -2307,7 +2282,7 @@ func coverageFindings(in Input) []methodcheck.Finding {
 
 // useCaseDynamicViewFindings — Req 1e: every CORE use case has a dynamic view. A
 // core use case with no chain is unarchitected. SeverityError.
-func useCaseDynamicViewFindings(in Input) []methodcheck.Finding {
+func useCaseDynamicViewFindings(in input) []methodcheck.Finding {
 	viewed := map[string]bool{}
 	for _, dv := range in.Slots.DynamicViews {
 		if dv.UseCaseID != "" {
@@ -2320,7 +2295,7 @@ func useCaseDynamicViewFindings(in Input) []methodcheck.Finding {
 			continue
 		}
 		if !viewed[uc.ID] {
-			out = append(out, finding(RuleCovUCDynamic, methodcheck.SeverityError, i, "useCase "+uc.ID,
+			out = append(out, finding(ruleCovUCDynamic, methodcheck.SeverityError, i, "useCase "+uc.ID,
 				fmt.Sprintf("core use case %q has no dynamic view — every core use case must be realized by an architecture call chain (Req 1e)", uc.ID)))
 		}
 	}
@@ -2334,7 +2309,7 @@ func useCaseDynamicViewFindings(in Input) []methodcheck.Finding {
 // whitespace-only all count as missing. Skipped while the coreUseCases slot is
 // empty/uncommitted — nothing classified yet. SeverityWarning (advisory: the gap
 // is an unargued classification, not a broken join).
-func useCaseEssenceFindings(in Input) []methodcheck.Finding {
+func useCaseEssenceFindings(in input) []methodcheck.Finding {
 	if len(in.Slots.CoreUseCases) == 0 {
 		return nil
 	}
@@ -2344,7 +2319,7 @@ func useCaseEssenceFindings(in Input) []methodcheck.Finding {
 			continue
 		}
 		if uc.EssenceRationale == nil || strings.TrimSpace(*uc.EssenceRationale) == "" {
-			out = append(out, finding(RuleUCEssenceMissing, methodcheck.SeverityWarning, i, "useCase "+uc.ID,
+			out = append(out, finding(ruleUCEssenceMissing, methodcheck.SeverityWarning, i, "useCase "+uc.ID,
 				fmt.Sprintf("core use case %q carries no essenceRationale — every core classification must argue WHY the use case is the essence of the business (the symmetric twin of the nonCore rejectionReason)", uc.ID)))
 		}
 	}
@@ -2369,7 +2344,7 @@ func useCaseEssenceFindings(in Input) []methodcheck.Finding {
 // (SeverityError); a name that matches several blurbs is the known imprecision of
 // the substring join over facet groups (SeverityInfo, DH-VOL-ENCAP-AMBIGUOUS)
 // rather than a false "duplicate owner".
-func volatilityEncapsulationFindings(in Input) []methodcheck.Finding {
+func volatilityEncapsulationFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil {
 		return nil
 	}
@@ -2393,11 +2368,11 @@ func volatilityEncapsulationFindings(in Input) []methodcheck.Finding {
 		}
 		switch {
 		case len(matches) == 0:
-			out = append(out, finding(RuleVolEncapMissing, methodcheck.SeverityError, i, "volatility "+v.Name,
+			out = append(out, finding(ruleVolEncapMissing, methodcheck.SeverityError, i, "volatility "+v.Name,
 				fmt.Sprintf("volatility %q is encapsulated by no component — every volatility must be owned by exactly one component (or a ratified facet group)", v.Name)))
 		case len(matches) > 1:
 			sort.Strings(matches)
-			out = append(out, finding(RuleVolEncapAmbig, methodcheck.SeverityInfo, i, "volatility "+v.Name,
+			out = append(out, finding(ruleVolEncapAmbig, methodcheck.SeverityInfo, i, "volatility "+v.Name,
 				fmt.Sprintf("volatility %q matches %d component blurbs (%v) under the interim name-in-blurb join — resolve to a single owner or a ratified facet group via the typed encapsulatesVolatilities field", v.Name, len(matches), matches)))
 		}
 	}
@@ -2408,7 +2383,7 @@ func volatilityEncapsulationFindings(in Input) []methodcheck.Finding {
 // volatilityEncapsulationFindings: exact-name ownership over the union of every
 // component's typed list. Shared owners are legitimate; only a volatility NO typed
 // list names is a gap.
-func typedEncapsulationFindings(in Input) []methodcheck.Finding {
+func typedEncapsulationFindings(in input) []methodcheck.Finding {
 	owned := map[string]bool{}
 	for _, list := range in.Slots.encapsulatesVolatilities {
 		for _, name := range list {
@@ -2420,7 +2395,7 @@ func typedEncapsulationFindings(in Input) []methodcheck.Finding {
 		if v.Name == "" || owned[v.Name] {
 			continue
 		}
-		out = append(out, finding(RuleVolEncapMissing, methodcheck.SeverityError, i, "volatility "+v.Name,
+		out = append(out, finding(ruleVolEncapMissing, methodcheck.SeverityError, i, "volatility "+v.Name,
 			fmt.Sprintf("volatility %q appears in no component's encapsulatesVolatilities — every volatility must be owned by at least one component (a shared component/facet group is legitimate)", v.Name)))
 	}
 	return out
@@ -2431,7 +2406,7 @@ func typedEncapsulationFindings(in Input) []methodcheck.Finding {
 // volatility name; a miss is a dangling reference (stale residue of a volatility
 // rename/removal). Skipped while the volatilities slot is empty/uncommitted —
 // nothing to join against yet (the same posture as the other joins). SeverityError.
-func componentVolatilityDanglingFindings(in Input) []methodcheck.Finding {
+func componentVolatilityDanglingFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil {
 		return nil
 	}
@@ -2443,7 +2418,7 @@ func componentVolatilityDanglingFindings(in Input) []methodcheck.Finding {
 	for i, c := range in.Model.System.Components {
 		for _, ref := range in.Slots.encapsulatesVolatilities[c.ID] {
 			if !names[ref] {
-				out = append(out, finding(RuleCompVolDangling, methodcheck.SeverityError, i, "component "+c.ID,
+				out = append(out, finding(ruleCompVolDangling, methodcheck.SeverityError, i, "component "+c.ID,
 					fmt.Sprintf("component %q lists %q in encapsulatesVolatilities, which is not a committed volatility name — a dangling reference (stale after a volatility rename/removal)", c.ID, ref)))
 			}
 		}
@@ -2461,7 +2436,7 @@ func componentVolatilityDanglingFindings(in Input) []methodcheck.Finding {
 // list when the typed join is active; under the interim fallback, a blurb mentioning
 // ≥1 committed volatility name (containsFold) counts. Skipped entirely while the
 // volatilities slot is empty/uncommitted. SeverityWarning.
-func componentNoVolatilityFindings(in Input) []methodcheck.Finding {
+func componentNoVolatilityFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil {
 		return nil
 	}
@@ -2490,7 +2465,7 @@ func componentNoVolatilityFindings(in Input) []methodcheck.Finding {
 			}
 		}
 		if !owns {
-			out = append(out, finding(RuleCompNoVolatility, methodcheck.SeverityWarning, i, "component "+c.ID,
+			out = append(out, finding(ruleCompNoVolatility, methodcheck.SeverityWarning, i, "component "+c.ID,
 				fmt.Sprintf("%s component %q encapsulates no volatility — every Manager/Engine/ResourceAccess must encapsulate at least one area of volatility (Righting Software ch. 2: a component owning none is functional decomposition, the siren song)", c.Layer, c.ID)))
 		}
 	}
@@ -2506,7 +2481,7 @@ func componentNoVolatilityFindings(in Input) []methodcheck.Finding {
 // emitted for it, and without this rule nothing else would say so. SeverityError: this
 // is the one field that decides whether a component becomes dispatchable at all, and a
 // near-miss ("Planned") is a component handed to a build agent by the pump sweep.
-func componentBuildStatusVocabularyFindings(in Input) []methodcheck.Finding {
+func componentBuildStatusVocabularyFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil {
 		return nil
 	}
@@ -2517,7 +2492,7 @@ func componentBuildStatusVocabularyFindings(in Input) []methodcheck.Finding {
 		case "", "planned", "external":
 			continue
 		}
-		out = append(out, finding(RuleBuildStatusVocabulary, methodcheck.SeverityError, i, "component "+c.ID,
+		out = append(out, finding(ruleBuildStatusVocabulary, methodcheck.SeverityError, i, "component "+c.ID,
 			fmt.Sprintf("component %s has buildStatus %q, which is not one of \"\", \"planned\", \"external\" — the plan derivation keys on the exact string, so this component derives no activity and no gate would otherwise say so", c.ID, status)))
 	}
 	return out
@@ -2526,7 +2501,7 @@ func componentBuildStatusVocabularyFindings(in Input) []methodcheck.Finding {
 // volatilityTraceFindings — every volatility trace resolves to a requirement id.
 // A dangling trace is a stale reference left by a requirement renumber/removal.
 // SeverityError.
-func volatilityTraceFindings(in Input) []methodcheck.Finding {
+func volatilityTraceFindings(in input) []methodcheck.Finding {
 	reqIDs := in.Slots.requirementIDs()
 	if len(reqIDs) == 0 {
 		return nil // no requirements committed to join against
@@ -2535,7 +2510,7 @@ func volatilityTraceFindings(in Input) []methodcheck.Finding {
 	for i, v := range in.Slots.Volatilities {
 		for _, tr := range v.Traces {
 			if !reqIDs[tr] {
-				out = append(out, finding(RuleVolTrace, methodcheck.SeverityError, i, "volatility "+v.Name,
+				out = append(out, finding(ruleVolTrace, methodcheck.SeverityError, i, "volatility "+v.Name,
 					fmt.Sprintf("volatility %q traces to %q, which is not a committed requirement id — a dangling trace (stale reference after a requirement renumber/removal)", v.Name, tr)))
 			}
 		}
@@ -2557,7 +2532,7 @@ func volatilityTraceFindings(in Input) []methodcheck.Finding {
 // signal (ch. 5: "the alternatives are pointless designs and orphaned business
 // needs") — but it stays advisory (non-blocking), a subject for the review rather
 // than an authoring-gate failure.
-func objectiveFindings(in Input) []methodcheck.Finding {
+func objectiveFindings(in input) []methodcheck.Finding {
 	objNums := in.Slots.objectiveNumbers()
 	if len(objNums) == 0 {
 		return nil
@@ -2568,14 +2543,14 @@ func objectiveFindings(in Input) []methodcheck.Finding {
 	for i, n := range in.Slots.justifyingObjectives {
 		referenced[n] = true
 		if !objNums[n] {
-			out = append(out, finding(RuleObjResolve, methodcheck.SeverityError, i, "justifyingObjective",
+			out = append(out, finding(ruleObjResolve, methodcheck.SeverityError, i, "justifyingObjective",
 				fmt.Sprintf("a decision cites justifyingObjective %d, which is not a declared objective number — a dangling objective reference", n)))
 		}
 	}
 	for i, l := range in.Slots.objectiveLinkRefs {
 		referenced[l.Number] = true
 		if !objNums[l.Number] {
-			out = append(out, finding(RuleObjResolve, methodcheck.SeverityError, i, "objectiveLinks "+l.Knob,
+			out = append(out, finding(ruleObjResolve, methodcheck.SeverityError, i, "objectiveLinks "+l.Knob,
 				fmt.Sprintf("operational knob %q links objective %d, which is not a declared objective number — a dangling objective reference", l.Knob, l.Number)))
 		}
 	}
@@ -2592,7 +2567,7 @@ func objectiveFindings(in Input) []methodcheck.Finding {
 		}
 	}
 	if len(uncovered) > 0 {
-		out = append(out, finding(RuleObjCoverage, methodcheck.SeverityWarning, 0, "objectives",
+		out = append(out, finding(ruleObjCoverage, methodcheck.SeverityWarning, 0, "objectives",
 			fmt.Sprintf("objective(s) %v are referenced by no objectiveLinks entry or justifyingObjective — an unreferenced objective is an orphaned business need (ch. 5); link every objective to at least one operational choice (advisory, non-blocking)", uncovered)))
 	}
 	return out
@@ -2611,7 +2586,7 @@ func objectiveFindings(in Input) []methodcheck.Finding {
 // Utilities are cross-cutting: an edge touching a utility is exempt from the
 // DIRECTION rules (up/sideways/entry/engine-IO) — only the utility-reachability
 // guideline concerns them.
-func graphFindings(in Input) []methodcheck.Finding {
+func graphFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil {
 		return nil
 	}
@@ -2624,7 +2599,7 @@ func graphFindings(in Input) []methodcheck.Finding {
 		to, okT := idx[r.To]
 		if !okF || !okT {
 			// projectmodel.Load already rejects unresolved endpoints before we run;
-			// this guard is belt-and-suspenders for a directly-constructed Input.
+			// this guard is belt-and-suspenders for a directly-constructed input.
 			continue
 		}
 		out = append(out, edgeLayeringFindings(i, r, from.Kind, to.Kind)...)
@@ -2649,23 +2624,23 @@ func edgeLayeringFindings(i int, r projectmodel.Relationship, fk, tk string) []m
 	// §4c.i — no up-calls. An edge whose target sits at a HIGHER layer than its
 	// source inverts the closed architecture. Utilities exempt.
 	if isDirectional(fk, tk) && kindRank(tk) < kindRank(fk) {
-		out = append(out, finding(RuleGraphUpcall, methodcheck.SeverityError, i, section,
+		out = append(out, finding(ruleGraphUpcall, methodcheck.SeverityError, i, section,
 			fmt.Sprintf("up-call: %s (%s) calls %s (%s) — a higher layer; the closed architecture only calls DOWN the layers", r.From, fk, r.To, tk)))
 	}
 	// §4c.ii / §5d — sideways calls only when queued (M→M is the live case).
 	if isDirectional(fk, tk) && kindRank(tk) == kindRank(fk) && r.Mode != "queued" {
-		out = append(out, finding(RuleGraphSidewaysSync, methodcheck.SeverityError, i, section,
+		out = append(out, finding(ruleGraphSidewaysSync, methodcheck.SeverityError, i, section,
 			fmt.Sprintf("sideways sync call: %s→%s are the same layer (%s) but the call is %q — same-layer calls (e.g. Manager→Manager) are permitted only when queued", r.From, r.To, fk, r.Mode)))
 	}
 	// §4c.iii — a Client may enter only at a Manager (or a cross-cutting utility).
 	if fk == "client" && tk != "manager" && tk != "utility" {
-		out = append(out, finding(RuleGraphClientEntry, methodcheck.SeverityError, i, section,
+		out = append(out, finding(ruleGraphClientEntry, methodcheck.SeverityError, i, section,
 			fmt.Sprintf("client %s calls %s (%s) — a Client may enter the system only at a Manager, never at %s directly", r.From, r.To, tk, tk)))
 	}
 	// §6c / §6d — Engines and ResourceAccess receive no QUEUED calls (they are
 	// synchronous, request/response building blocks).
 	if r.Mode == "queued" && (tk == "engine" || tk == "resourceAccess") {
-		out = append(out, finding(RuleGraphQueuedTarget, methodcheck.SeverityError, i, section,
+		out = append(out, finding(ruleGraphQueuedTarget, methodcheck.SeverityError, i, section,
 			fmt.Sprintf("queued call into a %s (%s): Engines and ResourceAccess are synchronous — only Managers receive queued calls", tk, r.To)))
 	}
 	// §5b — Engines do no IO: no Engine→ResourceAccess / Engine→Resource edge
@@ -2673,7 +2648,7 @@ func edgeLayeringFindings(i int, r projectmodel.Relationship, fk, tk string) []m
 	// permit Engine→ResourceAccess, so this is a guideline for the archistrator
 	// "Managers own IO" posture rather than a hard directive.
 	if fk == "engine" && (tk == "resourceAccess" || tk == "resource") {
-		out = append(out, finding(RuleGraphEngineIO, methodcheck.SeverityWarning, i, section,
+		out = append(out, finding(ruleGraphEngineIO, methodcheck.SeverityWarning, i, section,
 			fmt.Sprintf("engine %s calls %s (%s): Engines are pure computation in this architecture — route IO through a Manager", r.From, r.To, tk)))
 	}
 	return out
@@ -2681,7 +2656,7 @@ func edgeLayeringFindings(i int, r projectmodel.Relationship, fk, tk string) []m
 
 // utilityReachabilityFindings — §5a: every declared utility must be reachable
 // (have ≥1 inbound edge); an unreferenced utility is dead architecture.
-func utilityReachabilityFindings(in Input) []methodcheck.Finding {
+func utilityReachabilityFindings(in input) []methodcheck.Finding {
 	sys := in.Model.System
 	inbound := map[string]bool{}
 	for _, r := range sys.Relationships {
@@ -2690,7 +2665,7 @@ func utilityReachabilityFindings(in Input) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	for i, u := range componentsByKind(sys, "utility") {
 		if !inbound[u.ID] {
-			out = append(out, finding(RuleGraphUtilReach, methodcheck.SeverityWarning, i, "utility "+u.ID,
+			out = append(out, finding(ruleGraphUtilReach, methodcheck.SeverityWarning, i, "utility "+u.ID,
 				fmt.Sprintf("utility %q has no inbound edge — it is unreachable/dead in the architecture, or the caller relationships are missing", u.ID)))
 		}
 	}
@@ -2705,7 +2680,7 @@ func utilityReachabilityFindings(in Input) []methodcheck.Finding {
 // IO, which is exactly its job). The real defect this catches is a Manager that
 // orchestrates NOTHING — no Engine and no ResourceAccess edge — i.e. an empty
 // component (missing all its downstream edges, or a mislabeled leaf). SeverityWarning.
-func managerOrchestrationFindings(in Input) []methodcheck.Finding {
+func managerOrchestrationFindings(in input) []methodcheck.Finding {
 	sys := in.Model.System
 	idx := in.componentIndex()
 	orchestrates := map[string]bool{}
@@ -2719,7 +2694,7 @@ func managerOrchestrationFindings(in Input) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	for i, m := range componentsByKind(sys, "manager") {
 		if !orchestrates[m.ID] {
-			out = append(out, finding(RuleGraphMgrEmpty, methodcheck.SeverityWarning, i, "manager "+m.ID,
+			out = append(out, finding(ruleGraphMgrEmpty, methodcheck.SeverityWarning, i, "manager "+m.ID,
 				fmt.Sprintf("Manager %q has no outbound edge to an Engine or ResourceAccess — a Manager must orchestrate something; one with no downstream edges is empty (missing its edges, or a mislabeled component)", m.ID)))
 		}
 	}
@@ -2780,7 +2755,7 @@ func containsFold(haystack, needle string) bool {
 // stateValidationFindings runs the moved family in the Manager's own order: the
 // eight former stateValidationFindingGenerators entries first, then the five
 // view()-appended kind checks.
-func stateValidationFindings(in Input) []methodcheck.Finding {
+func stateValidationFindings(in input) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	out = append(out, raOrphanFindings(in)...)
 	out = append(out, encapsulatesFindings(in)...)
@@ -2802,7 +2777,7 @@ func stateValidationFindings(in Input) []methodcheck.Finding {
 // least one outbound sync/queued relationship to a Resource (or to a documented external
 // system — an edge target that is not itself a modeled component). A ResourceAccess that
 // reaches no resource encapsulates nothing.
-func raOrphanFindings(in Input) []methodcheck.Finding {
+func raOrphanFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil {
 		return nil
 	}
@@ -2834,7 +2809,7 @@ func raOrphanFindings(in Input) []methodcheck.Finding {
 		}
 		if !reaches {
 			label := componentDisplayLabel(c, i)
-			out = append(out, finding(RuleSysRAOrphan, methodcheck.SeverityError, i, "component "+label,
+			out = append(out, finding(ruleSysRAOrphan, methodcheck.SeverityError, i, "component "+label,
 				fmt.Sprintf("ResourceAccess %q has no outbound sync/queued relationship to a resource (or documented external system); every ResourceAccess must encapsulate at least one resource.", label)))
 		}
 	}
@@ -2867,7 +2842,7 @@ func componentDisplayLabel(c projectmodel.SystemComponent, i int) string {
 // component, because the published projectmodel.SystemComponent carries no
 // encapsulates field — the same posture DH-VOL-ENCAP-MISSING already takes. The map
 // stores only non-empty values, so an absent key IS an empty encapsulates.
-func encapsulatesFindings(in Input) []methodcheck.Finding {
+func encapsulatesFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil {
 		return nil
 	}
@@ -2883,7 +2858,7 @@ func encapsulatesFindings(in Input) []methodcheck.Finding {
 			continue
 		}
 		label := componentDisplayLabel(c, i)
-		out = append(out, finding(RuleSysEncapsulates, methodcheck.SeverityError, i, "component "+label,
+		out = append(out, finding(ruleSysEncapsulates, methodcheck.SeverityError, i, "component "+label,
 			fmt.Sprintf("component %q has an empty encapsulates; a manager, engine, or resource-access must name the volatility it owns.", label)))
 	}
 	return out
@@ -2892,7 +2867,7 @@ func encapsulatesFindings(in Input) []methodcheck.Finding {
 // relDupFindings — SYS-REL-DUP. An EXACT duplicate relationship (same from, to AND mode)
 // is an ERROR (a redundant edge). Two edges on the SAME (from,to) pair that differ (a
 // label-split) are a WARNING suggesting the labels be aggregated with " | " onto one edge.
-func relDupFindings(in Input) []methodcheck.Finding {
+func relDupFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil {
 		return nil
 	}
@@ -2931,10 +2906,10 @@ func relDupFindings(in Input) []methodcheck.Finding {
 		}
 		section := fmt.Sprintf("relationship %s → %s", p.from, p.to)
 		if dup {
-			out = append(out, finding(RuleSysRelDup, methodcheck.SeverityError, 0, section,
+			out = append(out, finding(ruleSysRelDup, methodcheck.SeverityError, 0, section,
 				fmt.Sprintf("relationship %s → %s is declared more than once with the same mode; remove the exact duplicate edge.", p.from, p.to)))
 		} else if len(labels) > 1 {
-			out = append(out, finding(RuleSysRelDup, methodcheck.SeverityWarning, 0, section,
+			out = append(out, finding(ruleSysRelDup, methodcheck.SeverityWarning, 0, section,
 				fmt.Sprintf("relationship %s → %s is split across %d edges with different labels; aggregate them onto one edge with a \" | \"-joined label.", p.from, p.to, len(labels))))
 		}
 	}
@@ -2947,7 +2922,7 @@ func relDupFindings(in Input) []methodcheck.Finding {
 // human name of the call chain at the review panel and in the rendered DSL; an untitled
 // view is unreviewable. It has NO platform methodcheck twin: had it stayed in the
 // Manager it would have been lost outright.
-func dvTitleFindings(in Input) []methodcheck.Finding {
+func dvTitleFindings(in input) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	for i, dv := range in.Slots.DynamicViews {
 		if strings.TrimSpace(dv.Title) != "" {
@@ -2957,7 +2932,7 @@ func dvTitleFindings(in Input) []methodcheck.Finding {
 		if label == "" {
 			label = fmt.Sprintf("dynamic view %d", i+1)
 		}
-		out = append(out, finding(RuleDVTitleEmpty, methodcheck.SeverityError, i, "dynamic view "+label,
+		out = append(out, finding(ruleDVTitleEmpty, methodcheck.SeverityError, i, "dynamic view "+label,
 			fmt.Sprintf("dynamic view %q (use case %q) has an empty title; every dynamic view must carry a human-readable call-chain title.", label, dv.UseCaseID)))
 	}
 	return out
@@ -2967,7 +2942,7 @@ func dvTitleFindings(in Input) []methodcheck.Finding {
 // an existing use-case id whose target is CORE. A nonCore use case must carry a non-empty
 // rejectionReason. A core use case must NOT carry a variationOf (it is the base, not a
 // permutation).
-func variationRefFindings(in Input) []methodcheck.Finding {
+func variationRefFindings(in input) []methodcheck.Finding {
 	coreIDs := map[string]bool{}
 	for _, uc := range in.Slots.CoreUseCases {
 		if uc.Classification == "core" {
@@ -2983,21 +2958,21 @@ func variationRefFindings(in Input) []methodcheck.Finding {
 		section := "use case " + label
 		if uc.Classification == "core" {
 			if uc.VariationOf != nil && strings.TrimSpace(*uc.VariationOf) != "" {
-				out = append(out, finding(RuleUCVariationRef, methodcheck.SeverityError, i, section,
+				out = append(out, finding(ruleUCVariationRef, methodcheck.SeverityError, i, section,
 					fmt.Sprintf("core use case %q declares a variationOf (%q); a core use case is a base, not a variation — clear variationOf or reclassify it nonCore.", label, *uc.VariationOf)))
 			}
 			continue
 		}
 		// nonCore
 		if uc.VariationOf == nil || strings.TrimSpace(*uc.VariationOf) == "" {
-			out = append(out, finding(RuleUCVariationRef, methodcheck.SeverityError, i, section,
+			out = append(out, finding(ruleUCVariationRef, methodcheck.SeverityError, i, section,
 				fmt.Sprintf("nonCore use case %q has no variationOf; a nonCore use case must link to the core use case it permutes.", label)))
 		} else if !coreIDs[*uc.VariationOf] {
-			out = append(out, finding(RuleUCVariationRef, methodcheck.SeverityError, i, section,
+			out = append(out, finding(ruleUCVariationRef, methodcheck.SeverityError, i, section,
 				fmt.Sprintf("nonCore use case %q has variationOf %q, which does not resolve to an existing CORE use case.", label, *uc.VariationOf)))
 		}
 		if strings.TrimSpace(uc.RejectionReason) == "" {
-			out = append(out, finding(RuleUCVariationRef, methodcheck.SeverityError, i, section,
+			out = append(out, finding(ruleUCVariationRef, methodcheck.SeverityError, i, section,
 				fmt.Sprintf("nonCore use case %q has an empty rejectionReason; state why it is not core.", label)))
 		}
 	}
@@ -3016,7 +2991,7 @@ var canonicalGlossaryCategories = map[string]bool{"Who": true, "What": true, "Ho
 // not four Warnings. Here every state is in hand at once, and an uncommitted glossary
 // must stay silent for the same reason a core-use-case join stays silent before slot 4
 // exists.
-func glossaryFourQFindings(in Input) []methodcheck.Finding {
+func glossaryFourQFindings(in input) []methodcheck.Finding {
 	if len(in.Slots.GlossaryTerms) == 0 {
 		return nil
 	}
@@ -3025,7 +3000,7 @@ func glossaryFourQFindings(in Input) []methodcheck.Finding {
 	for i, it := range in.Slots.GlossaryTerms {
 		cat := strings.TrimSpace(it.Category)
 		if !canonicalGlossaryCategories[cat] {
-			out = append(out, finding(RuleGlossFourQ, methodcheck.SeverityError, i, "glossary term "+it.Term,
+			out = append(out, finding(ruleGlossFourQ, methodcheck.SeverityError, i, "glossary term "+it.Term,
 				fmt.Sprintf("glossary term %q has non-canonical category %q; use one of Who|What|How|Where.", it.Term, it.Category)))
 			continue
 		}
@@ -3033,7 +3008,7 @@ func glossaryFourQFindings(in Input) []methodcheck.Finding {
 	}
 	for _, cat := range []string{"Who", "What", "How", "Where"} {
 		if counts[cat] == 0 {
-			out = append(out, finding(RuleGlossFourQ, methodcheck.SeverityWarning, 0, "glossary",
+			out = append(out, finding(ruleGlossFourQ, methodcheck.SeverityWarning, 0, "glossary",
 				fmt.Sprintf("no glossary term covers the %q question; the Four Questions each want at least one term.", cat)))
 		}
 	}
@@ -3044,7 +3019,7 @@ func glossaryFourQFindings(in Input) []methodcheck.Finding {
 // non-empty, unique id and a non-empty statement. It needs no new absorber: the
 // requirements slot's id/statement pair was already absorbed for DH-VOL-TRACE's
 // resolution join.
-func scrubbedIDFindings(in Input) []methodcheck.Finding {
+func scrubbedIDFindings(in input) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	seen := map[string]bool{}
 	for i, it := range in.Slots.Requirements {
@@ -3052,16 +3027,16 @@ func scrubbedIDFindings(in Input) []methodcheck.Finding {
 		section := fmt.Sprintf("requirement %d", i+1)
 		switch {
 		case id == "":
-			out = append(out, finding(RuleSRIDUnique, methodcheck.SeverityError, i, section,
+			out = append(out, finding(ruleSRIDUnique, methodcheck.SeverityError, i, section,
 				fmt.Sprintf("scrubbed requirement %d has an empty id; every requirement needs a stable non-empty id.", i+1)))
 		case seen[id]:
-			out = append(out, finding(RuleSRIDUnique, methodcheck.SeverityError, i, section,
+			out = append(out, finding(ruleSRIDUnique, methodcheck.SeverityError, i, section,
 				fmt.Sprintf("scrubbed requirement id %q is duplicated; requirement ids must be unique.", id)))
 		default:
 			seen[id] = true
 		}
 		if strings.TrimSpace(it.Statement) == "" {
-			out = append(out, finding(RuleSRIDUnique, methodcheck.SeverityError, i, section,
+			out = append(out, finding(ruleSRIDUnique, methodcheck.SeverityError, i, section,
 				fmt.Sprintf("scrubbed requirement %q has an empty statement.", it.ID)))
 		}
 	}
@@ -3073,12 +3048,12 @@ func scrubbedIDFindings(in Input) []methodcheck.Finding {
 // replaced by required typed fields (deploymentScenario, constructionVenue, scaling/infra
 // blocks, trust summaries) that the schema itself enforces — there is nothing left to
 // nudge. It arrives here INERT (it returned no findings in the Manager either) so the
-// rule inventory this move carries across is complete and RuleOPCTopicCoverage keeps its
+// rule inventory this move carries across is complete and ruleOPCTopicCoverage keeps its
 // id reserved; a typed-model successor is a later design-health concern, not this seam.
 // TestOPCTopicCoverageIsInert pins the emptiness so it is a stated fact rather than a
 // rule that quietly went dead, and the parity test's mutant loop skips it BY NAME for
 // the same reason: a rule that cannot fire has no red mutant.
-func opcTopicFindings(_ Input) []methodcheck.Finding {
+func opcTopicFindings(_ input) []methodcheck.Finding {
 	return nil
 }
 
@@ -3092,7 +3067,7 @@ func opcTopicFindings(_ Input) []methodcheck.Finding {
 // shipped core use cases with "activity": null), and it has NO platform methodcheck
 // twin of its own, so this is the surface that flags a diagram-less use case. It
 // classifies the defect only — full UML well-formedness stays the Action's CI concern.
-func useCaseActivityFindings(in Input) []methodcheck.Finding {
+func useCaseActivityFindings(in input) []methodcheck.Finding {
 	var out []methodcheck.Finding
 	for i, uc := range in.Slots.CoreUseCases {
 		reason := activityDefect(uc.Activity)
@@ -3103,7 +3078,7 @@ func useCaseActivityFindings(in Input) []methodcheck.Finding {
 		if label == "" {
 			label = fmt.Sprintf("use case %d", i+1)
 		}
-		out = append(out, finding(RuleUCActivityMissing, methodcheck.SeverityError, i, "use case "+label,
+		out = append(out, finding(ruleUCActivityMissing, methodcheck.SeverityError, i, "use case "+label,
 			fmt.Sprintf("Use case %q %s; every use case (core AND supporting) must carry a non-empty activity diagram with an entry (a start node, or an edge-less timeEvent/acceptEvent) and at least one action step.", label, reason)))
 	}
 	return out
@@ -3162,7 +3137,7 @@ func activityDefect(a *activityDiagram) string {
 // because the session held only the System draft it was judging; here slotData carries
 // every slot at once, so the join needs no parameter — the structural reason this move
 // is a simplification and not a port.
-func useCaseDynamicFindings(in Input) []methodcheck.Finding {
+func useCaseDynamicFindings(in input) []methodcheck.Finding {
 	if len(in.Slots.CoreUseCases) == 0 {
 		return nil
 	}
@@ -3183,7 +3158,7 @@ func useCaseDynamicFindings(in Input) []methodcheck.Finding {
 		if uc.Classification != "core" {
 			kindWord = "nonCore use-case variation"
 		}
-		out = append(out, finding(RuleUCDynamicMissing, methodcheck.SeverityError, i, "use case "+label,
+		out = append(out, finding(ruleUCDynamicMissing, methodcheck.SeverityError, i, "use case "+label,
 			fmt.Sprintf("Use case %q has no dynamic view in the System; every %s (core AND nonCore variation) must carry its own call chain.", label, kindWord)))
 	}
 	return out
@@ -3205,7 +3180,7 @@ func useCaseDynamicFindings(in Input) []methodcheck.Finding {
 // project whose architecture is not drafted yet — the Manager only ran it when a System
 // draft was in hand, and the engine reaches the same posture by guarding on the
 // component inventory.
-func systemLayerDegenerateFindings(in Input) []methodcheck.Finding {
+func systemLayerDegenerateFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil || len(in.Model.System.Components) == 0 {
 		return nil
 	}
@@ -3221,11 +3196,11 @@ func systemLayerDegenerateFindings(in Input) []methodcheck.Finding {
 		}
 	}
 	if managers == 0 {
-		out = append(out, finding(RuleSysLayerDegenerate, methodcheck.SeverityError, 0, "system layers",
+		out = append(out, finding(ruleSysLayerDegenerate, methodcheck.SeverityError, 0, "system layers",
 			"the System has zero Managers; a Method system must encapsulate at least one workflow in a Manager (an all-client architecture is the F81 corruption where every component's layer was omitted and defaulted to \"client\")"))
 	}
 	if resourceAccess == 0 {
-		out = append(out, finding(RuleSysLayerDegenerate, methodcheck.SeverityError, 0, "system layers",
+		out = append(out, finding(ruleSysLayerDegenerate, methodcheck.SeverityError, 0, "system layers",
 			"the System has zero ResourceAccess components; a Method system must encapsulate at least one resource behind a ResourceAccess (an all-client architecture is the F81 corruption where every component's layer was omitted and defaulted to \"client\")"))
 	}
 	for i, c := range comps {
@@ -3234,7 +3209,7 @@ func systemLayerDegenerateFindings(in Input) []methodcheck.Finding {
 			if label == "" {
 				label = fmt.Sprintf("component %d", i+1)
 			}
-			out = append(out, finding(RuleSysLayerDegenerate, methodcheck.SeverityError, i, "component "+label,
+			out = append(out, finding(ruleSysLayerDegenerate, methodcheck.SeverityError, i, "component "+label,
 				fmt.Sprintf("component %q ends in %q but declares layer %q instead of %q; a component's name stereotype and its layer must agree (a mismatch is the fingerprint of an omitted, defaulted layer)", label, suffix, c.Layer, want)))
 		}
 	}
@@ -3288,7 +3263,7 @@ func nameLayerMismatch(name, layer string) (string, string, bool) {
 // other. Like its two siblings above, it took the committed counterpart as a third
 // parameter in the Manager and needs none here — slotData carries every slot at once.
 // It stays silent while no System is drafted, exactly as the Manager did.
-func volatilityCoverageFindings(in Input) []methodcheck.Finding {
+func volatilityCoverageFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil || len(in.Model.System.Components) == 0 {
 		return nil
 	}
@@ -3314,7 +3289,7 @@ func volatilityCoverageFindings(in Input) []methodcheck.Finding {
 		if mentioned {
 			continue
 		}
-		out = append(out, finding(RuleVolCoverage, methodcheck.SeverityError, i, "volatility "+v.Name,
+		out = append(out, finding(ruleVolCoverage, methodcheck.SeverityError, i, "volatility "+v.Name,
 			fmt.Sprintf("committed volatility %q is claimed by no component's encapsulates and carries no disposition note; encapsulate it in a component, or record an explicit disposition (e.g. \"%s: deferred — <why>\") in the owning component's encapsulates prose.", v.Name, v.Name)))
 	}
 	return out
@@ -3329,7 +3304,7 @@ func volatilityCoverageFindings(in Input) []methodcheck.Finding {
 // land on equal counts, so the name-mirroring threshold gates the signal. It is the
 // third and last of the rules the Manager handed a committed counterpart as a
 // parameter; slotData carries it here.
-func servicesExplosionFindings(in Input) []methodcheck.Finding {
+func servicesExplosionFindings(in input) []methodcheck.Finding {
 	if in.Model == nil || in.Model.System == nil || len(in.Slots.CoreUseCases) == 0 {
 		return nil
 	}
@@ -3357,7 +3332,7 @@ func servicesExplosionFindings(in Input) []methodcheck.Finding {
 	if mirrored*100 < 60*managers {
 		return nil
 	}
-	return []methodcheck.Finding{finding(RuleSysServicesExplosion, methodcheck.SeverityWarning, 0, "system managers",
+	return []methodcheck.Finding{finding(ruleSysServicesExplosion, methodcheck.SeverityWarning, 0, "system managers",
 		fmt.Sprintf(
 			"the System declares exactly one Manager per committed core use case (%d each) and %d of %d Manager names mirror a core use case (%s); this is the services-explosion fingerprint — a Manager encapsulates a VOLATILITY for a family of use cases, not a single use case. Re-examine the decomposition axis.",
 			managers, mirrored, managers, strings.Join(mirroredNames, ", ")))}

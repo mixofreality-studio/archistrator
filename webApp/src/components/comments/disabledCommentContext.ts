@@ -1,6 +1,6 @@
 /**
- * Extracted disabled CommentCtx for use in both CommentContext.tsx (React)
- * and commentContext.test.ts (node:test, which cannot import .tsx files).
+ * The disabled CommentCtx, in a plain module of its own (CommentContext.tsx is
+ * React).
  *
  * A fully-disabled default: every mutator is a no-op, every accessor reads
  * empty/zero. Returned by {@link useComments} when no {@link CommentProvider}

@@ -4,9 +4,10 @@
 package billingstate
 
 import (
+	"context"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"time"
 )
 
 type Billing struct {
@@ -17,30 +18,47 @@ type Billing struct {
 	Terms        BillingTerms `json:"Terms"`
 }
 
+type BillingCycle struct {
+	Cycle   string         `json:"Cycle"`
+	Settled bool           `json:"Settled"`
+	Outcome BillingOutcome `json:"Outcome"`
+}
+
 type BillingOutcome struct {
-	Net       Money            `json:"Net"`
-	Directive RoutingDirective `json:"Directive"`
-	Escalated bool             `json:"Escalated"`
+	Net        Money            `json:"Net"`
+	Directive  RoutingDirective `json:"Directive"`
+	Declined   bool             `json:"Declined"`
+	Escalated  bool             `json:"Escalated"`
+	Attempts   int64            `json:"Attempts"`
+	SweepsAged int64            `json:"SweepsAged"`
 }
 
 type BillingTerms struct {
-	ComputeCostKind int64 `json:"ComputeCostKind"`
-	ScheduleKind    int64 `json:"ScheduleKind"`
-	BillingKind     int64 `json:"BillingKind"`
+	ComputeCostKind      int64   `json:"ComputeCostKind"`
+	ComputeMarkupPercent float64 `json:"ComputeMarkupPercent"`
+	ScheduleKind         int64   `json:"ScheduleKind"`
+	Currency             string  `json:"Currency"`
 }
 
-type CustomerProfile map[string]interface{}
+type CustomerProfile struct {
+	ProjectID string       `json:"ProjectID"`
+	Terms     BillingTerms `json:"Terms"`
+}
 
 type CustomerSummary struct {
 	ID               uuid.UUID `json:"ID"`
 	PauseNotWithdraw bool      `json:"PauseNotWithdraw"`
 }
 
+type DeclinedCycle struct {
+	CustomerID uuid.UUID      `json:"CustomerID"`
+	Cycle      string         `json:"Cycle"`
+	Outcome    BillingOutcome `json:"Outcome"`
+}
+
 type DelinquencyScope struct {
 	ProjectID string `json:"ProjectID"`
 }
-
-type EntryRef string
 
 type GatewayBinding struct {
 	GatewayCustomerRef string `json:"GatewayCustomerRef"`
@@ -49,31 +67,6 @@ type GatewayBinding struct {
 type Money struct {
 	MinorUnits int64  `json:"MinorUnits"`
 	Currency   string `json:"Currency"`
-}
-
-type RevenueEntry struct {
-	CustomerID     uuid.UUID   `json:"CustomerID"`
-	CycleID        string      `json:"CycleID"`
-	Kind           RevenueKind `json:"Kind"`
-	Amount         Money       `json:"Amount"`
-	GatewayEventID string      `json:"GatewayEventID"`
-	OccurredAt     time.Time   `json:"OccurredAt"`
-}
-
-type RevenueKind int
-
-const (
-	RevenueKindInbound  RevenueKind = 0
-	RevenueKindReversal RevenueKind = 1
-)
-
-type ReversalEntry struct {
-	CustomerID             uuid.UUID `json:"CustomerID"`
-	CycleID                string    `json:"CycleID"`
-	Amount                 Money     `json:"Amount"`
-	GatewayEventID         string    `json:"GatewayEventID"`
-	ReversesGatewayEventID string    `json:"ReversesGatewayEventID"`
-	OccurredAt             time.Time `json:"OccurredAt"`
 }
 
 type RoutingDirective int
@@ -88,57 +81,18 @@ type Version uint64
 // BillingStateAccess is the generated service-contract interface for this component.
 type BillingStateAccess interface {
 	BindGatewayLive(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, binding GatewayBinding, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	ReadPersistentlyDelinquentCustomers(rc fwra.Context, scope DelinquencyScope) ([]CustomerSummary, error)
 	ReadBilling(rc fwra.Context, customerID uuid.UUID) (Billing, error)
+	ReadCycle(rc fwra.Context, customerID uuid.UUID, cycle string) (BillingCycle, error)
+	ReadDeclinedCycles(rc fwra.Context, scope DelinquencyScope) ([]DeclinedCycle, error)
+	ReadPersistentlyDelinquentCustomers(rc fwra.Context, scope DelinquencyScope) ([]CustomerSummary, error)
 	RegisterCustomer(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, profile CustomerProfile, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ResettleCycle(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, cycle string, correction BillingOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SettleCycle(rc fwra.Context, customerID uuid.UUID, expectedVersion Version, cycle string, outcome BillingOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
-// stubBillingStateAccess is the generated not-implemented BillingStateAccess. The component is contracted
-// but not yet built, so every method returns a not-implemented error; the bodies
-// are replaced when the component is constructed.
-type stubBillingStateAccess struct{}
-
-// NewBillingStateAccess returns the not-implemented BillingStateAccess. It takes no arguments
-// (the component has no infrastructure binding yet).
-func NewBillingStateAccess() BillingStateAccess { return &stubBillingStateAccess{} }
-
-var _ BillingStateAccess = (*stubBillingStateAccess)(nil)
-
-func (*stubBillingStateAccess) BindGatewayLive(_ fwra.Context, _ uuid.UUID, _ Version, _ GatewayBinding, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) ReadPersistentlyDelinquentCustomers(_ fwra.Context, _ DelinquencyScope) ([]CustomerSummary, error) {
-	var zero []CustomerSummary
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) ReadBilling(_ fwra.Context, _ uuid.UUID) (Billing, error) {
-	var zero Billing
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) RegisterCustomer(_ fwra.Context, _ uuid.UUID, _ Version, _ CustomerProfile, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) ResettleCycle(_ fwra.Context, _ uuid.UUID, _ Version, _ string, _ BillingOutcome, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubBillingStateAccess) SettleCycle(_ fwra.Context, _ uuid.UUID, _ Version, _ string, _ BillingOutcome, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-// RevenueLedgerAccess is the generated service-contract interface for this component.
-type RevenueLedgerAccess interface {
-	RecordInboundRevenue(rc fwra.Context, entry RevenueEntry) (EntryRef, error)
-	RecordReversal(rc fwra.Context, reversal ReversalEntry) (EntryRef, error)
-	ReadRange(rc fwra.Context, customerID uuid.UUID, cycleID string) ([]RevenueEntry, error)
+// NewPostgresBillingStateAccess constructs the Postgres-backed BillingStateAccess, delegating to the hand-written,
+// unexported builder newPostgresBillingStateAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewPostgresBillingStateAccess(ctx context.Context, pool *pgxpool.Pool) (BillingStateAccess, error) {
+	return newPostgresBillingStateAccess(ctx, pool)
 }

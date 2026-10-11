@@ -843,9 +843,11 @@ function MarginDraftCard({
           bgcolor: t.paper,
         }}
       >
+        {/* The id rides on the textarea itself, so a black-box `fill` lands on the
+            editable element rather than InputBase's wrapper div. */}
         <InputBase
           multiline
-          data-testid={UI_IDENTIFIERS.Chat.INPUT}
+          inputProps={{ 'data-testid': UI_IDENTIFIERS.Chat.INPUT }}
           inputRef={inputRef}
           maxRows={8}
           placeholder={

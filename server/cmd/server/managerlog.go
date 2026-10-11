@@ -1,4 +1,4 @@
-// managerlog.go is the composition-root logging SEAM over the two web/MCP-exposed
+// managerlog.go is the composition-root logging SEAM over the three web/MCP-exposed
 // Managers. Each Manager is an interface consumed by BOTH the generated REST Handler
 // (internal/client/web) and the generated MCP tool Handler (internal/client/mcp); both
 // Handlers are handed the SAME wrapped instance, so wrapping once here is the single
@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 )
@@ -159,4 +160,31 @@ func (m loggingOperationsManager) RegisterOperatedApp(rc fwmanager.Context, oper
 func (m loggingOperationsManager) WithdrawSystem(rc fwmanager.Context, operatedAppID uuid.UUID, changeID string, reason operations.WithdrawReason) (operations.WithdrawResult, error) {
 	v, err := m.inner.WithdrawSystem(rc, operatedAppID, changeID, reason)
 	return v, logInfraError(m.log, "Operations.WithdrawSystem", operatedAppID.String(), err)
+}
+
+// --- Billing ---------------------------------------------------------------
+
+// loggingBillingManager wraps the three billing ops a client reaches (GetBillingCycle,
+// OnboardPaymentIntegration, RegisterCustomer — cmd/clientgen exposedManagers). The
+// scheduler-driven ops are never on a client surface; they pass through the embedded
+// Manager unwrapped.
+type loggingBillingManager struct {
+	billing.BillingManager
+	log *slog.Logger
+}
+
+func (m loggingBillingManager) GetBillingCycle(rc fwmanager.Context, customerID uuid.UUID, cycleID string) (billing.BillingCycleView, error) {
+	// A billing cycle is customer-scoped: the customer id rides in the projectId slot.
+	v, err := m.BillingManager.GetBillingCycle(rc, customerID, cycleID)
+	return v, logInfraError(m.log, "Billing.GetBillingCycle", customerID.String(), err)
+}
+
+func (m loggingBillingManager) OnboardPaymentIntegration(rc fwmanager.Context, deployedAppID uuid.UUID) (billing.BillingRef, error) {
+	v, err := m.BillingManager.OnboardPaymentIntegration(rc, deployedAppID)
+	return v, logInfraError(m.log, "Billing.OnboardPaymentIntegration", deployedAppID.String(), err)
+}
+
+func (m loggingBillingManager) RegisterCustomer(rc fwmanager.Context, customerID uuid.UUID, projectID string) (billing.BillingRef, error) {
+	v, err := m.BillingManager.RegisterCustomer(rc, customerID, projectID)
+	return v, logInfraError(m.log, "Billing.RegisterCustomer", customerID.String(), err)
 }

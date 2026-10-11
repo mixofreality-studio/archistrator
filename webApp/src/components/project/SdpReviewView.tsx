@@ -175,20 +175,26 @@ export function SdpReviewView({
    */
   readOnly?: boolean;
   onCommit: (optionId: string) => void;
-  onRejectAll: (feedback: string) => void;
+  /**
+   * Reject every option, with the required feedback. OMITTED where the surface offers
+   * no reject-all (a read-only history; a chooser whose host has no op for it): the
+   * Reject all button and its composer are then not rendered at all.
+   */
+  onRejectAll?: ((feedback: string) => void) | undefined;
   /**
    * WHERE the decision is made. `'own'` (the default) is today's terminal gate —
    * choose an option, Commit & unlock Phase 3, Reject all — exactly as the
    * Project Design experience has always rendered it, and every existing caller
    * is untouched.
    *
-   * `'chooser'` keeps the option radiogroup and DROPS both verbs, for a surface
-   * that owns the decision itself: the Activity Experience routes every review
-   * verb through ONE SubmitBar (spec §7.2), and the M0 gate has no send-back at
-   * all (spec R7) — so a second Commit button and a live Reject all would be
-   * both a duplicate verb and a verb that does not exist here. The standing
-   * choice is reported through {@link onChoose} instead. The Phase-2 twin of
-   * `SubmitBar.allowSendBack` (RULING R11).
+   * `'chooser'` keeps the option radiogroup and DROPS the Commit verb, for a
+   * surface that owns the approval itself: the Activity Experience routes approve
+   * through ONE SubmitBar (spec §7.2), so a second Commit button would be a
+   * duplicate verb. Reject all is NOT a send-back (spec §12 B7): it declines the
+   * plan with a reason and returns no artifact for a redraft, so it stays here
+   * whenever the host hands {@link onRejectAll}. The standing choice is reported
+   * through {@link onChoose}. The Phase-2 twin of `SubmitBar.allowSendBack`
+   * (RULING R11).
    */
   decision?: 'own' | 'chooser';
   /**
@@ -541,7 +547,7 @@ export function SdpReviewView({
         </Box>
 
         <Box sx={{ p: 2.5 }}>
-          {rejecting && !readOnly && decision === 'own' ? (
+          {rejecting && !readOnly && onRejectAll !== undefined ? (
             <RejectAll
               feedback={feedback}
               pending={pending}
@@ -551,7 +557,7 @@ export function SdpReviewView({
               }}
               onChange={setFeedback}
               onReject={() => {
-                onRejectAll(feedback);
+                onRejectAll(feedback.trim());
               }}
             />
           ) : (
@@ -623,34 +629,34 @@ export function SdpReviewView({
                   </Typography>
                 </Box>
                 <Box sx={{ flexGrow: 1 }} />
+                {onRejectAll !== undefined && !readOnly ? (
+                  <Button
+                    color="inherit"
+                    data-testid={UI_IDENTIFIERS.SdpReview.REJECT_ALL}
+                    disabled={pending}
+                    startIcon={<ReplayIcon />}
+                    sx={{ color: t.muted }}
+                    variant="text"
+                    onClick={() => {
+                      setRejecting(true);
+                    }}
+                  >
+                    Reject all
+                  </Button>
+                ) : null}
                 {decision === 'own' ? (
-                  <>
-                    <Button
-                      color="inherit"
-                      data-testid={UI_IDENTIFIERS.SdpReview.REJECT_ALL}
-                      disabled={pending || readOnly}
-                      startIcon={<ReplayIcon />}
-                      sx={{ color: t.muted }}
-                      variant="text"
-                      onClick={() => {
-                        setRejecting(true);
-                      }}
-                    >
-                      Reject all
-                    </Button>
-                    <Button
-                      color="primary"
-                      data-testid={UI_IDENTIFIERS.SdpReview.COMMIT}
-                      disabled={pending || readOnly || selected.length === 0}
-                      startIcon={<CheckIcon />}
-                      variant="contained"
-                      onClick={() => {
-                        onCommit(selected);
-                      }}
-                    >
-                      Commit &amp; unlock Phase 3
-                    </Button>
-                  </>
+                  <Button
+                    color="primary"
+                    data-testid={UI_IDENTIFIERS.SdpReview.COMMIT}
+                    disabled={pending || readOnly || selected.length === 0}
+                    startIcon={<CheckIcon />}
+                    variant="contained"
+                    onClick={() => {
+                      onCommit(selected);
+                    }}
+                  >
+                    Commit &amp; unlock Phase 3
+                  </Button>
                 ) : null}
               </Box>
             </>
@@ -776,9 +782,10 @@ function RejectAll({
       <TextField
         fullWidth
         multiline
-        data-testid={UI_IDENTIFIERS.SdpReview.REJECT_FEEDBACK}
         minRows={3}
         placeholder="Required: why none of the options work, and what the re-assembly should change."
+        // On the textarea itself, so a black-box `fill` lands on the field it names.
+        slotProps={{ htmlInput: { 'data-testid': UI_IDENTIFIERS.SdpReview.REJECT_FEEDBACK } }}
         sx={{ mb: 2 }}
         value={feedback}
         onChange={(e) => {

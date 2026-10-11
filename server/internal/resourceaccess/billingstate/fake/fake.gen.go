@@ -13,8 +13,10 @@ import (
 // a test needs; calling a method whose Fn is unset panics.
 type FakeBillingStateAccess struct {
 	BindGatewayLiveFn                     func(rc fwra.Context, customerID uuid.UUID, expectedVersion billingstate.Version, binding billingstate.GatewayBinding, idempotencyKey fwra.IdempotencyKey) (billingstate.Version, error)
-	ReadPersistentlyDelinquentCustomersFn func(rc fwra.Context, scope billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error)
 	ReadBillingFn                         func(rc fwra.Context, customerID uuid.UUID) (billingstate.Billing, error)
+	ReadCycleFn                           func(rc fwra.Context, customerID uuid.UUID, cycle string) (billingstate.BillingCycle, error)
+	ReadDeclinedCyclesFn                  func(rc fwra.Context, scope billingstate.DelinquencyScope) ([]billingstate.DeclinedCycle, error)
+	ReadPersistentlyDelinquentCustomersFn func(rc fwra.Context, scope billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error)
 	RegisterCustomerFn                    func(rc fwra.Context, customerID uuid.UUID, expectedVersion billingstate.Version, profile billingstate.CustomerProfile, idempotencyKey fwra.IdempotencyKey) (billingstate.Version, error)
 	ResettleCycleFn                       func(rc fwra.Context, customerID uuid.UUID, expectedVersion billingstate.Version, cycle string, correction billingstate.BillingOutcome, idempotencyKey fwra.IdempotencyKey) (billingstate.Version, error)
 	SettleCycleFn                         func(rc fwra.Context, customerID uuid.UUID, expectedVersion billingstate.Version, cycle string, outcome billingstate.BillingOutcome, idempotencyKey fwra.IdempotencyKey) (billingstate.Version, error)
@@ -27,18 +29,32 @@ func (f *FakeBillingStateAccess) BindGatewayLive(rc fwra.Context, customerID uui
 	return f.BindGatewayLiveFn(rc, customerID, expectedVersion, binding, idempotencyKey)
 }
 
-func (f *FakeBillingStateAccess) ReadPersistentlyDelinquentCustomers(rc fwra.Context, scope billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error) {
-	if f.ReadPersistentlyDelinquentCustomersFn == nil {
-		panic("FakeBillingStateAccess.ReadPersistentlyDelinquentCustomersFn not set")
-	}
-	return f.ReadPersistentlyDelinquentCustomersFn(rc, scope)
-}
-
 func (f *FakeBillingStateAccess) ReadBilling(rc fwra.Context, customerID uuid.UUID) (billingstate.Billing, error) {
 	if f.ReadBillingFn == nil {
 		panic("FakeBillingStateAccess.ReadBillingFn not set")
 	}
 	return f.ReadBillingFn(rc, customerID)
+}
+
+func (f *FakeBillingStateAccess) ReadCycle(rc fwra.Context, customerID uuid.UUID, cycle string) (billingstate.BillingCycle, error) {
+	if f.ReadCycleFn == nil {
+		panic("FakeBillingStateAccess.ReadCycleFn not set")
+	}
+	return f.ReadCycleFn(rc, customerID, cycle)
+}
+
+func (f *FakeBillingStateAccess) ReadDeclinedCycles(rc fwra.Context, scope billingstate.DelinquencyScope) ([]billingstate.DeclinedCycle, error) {
+	if f.ReadDeclinedCyclesFn == nil {
+		panic("FakeBillingStateAccess.ReadDeclinedCyclesFn not set")
+	}
+	return f.ReadDeclinedCyclesFn(rc, scope)
+}
+
+func (f *FakeBillingStateAccess) ReadPersistentlyDelinquentCustomers(rc fwra.Context, scope billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error) {
+	if f.ReadPersistentlyDelinquentCustomersFn == nil {
+		panic("FakeBillingStateAccess.ReadPersistentlyDelinquentCustomersFn not set")
+	}
+	return f.ReadPersistentlyDelinquentCustomersFn(rc, scope)
 }
 
 func (f *FakeBillingStateAccess) RegisterCustomer(rc fwra.Context, customerID uuid.UUID, expectedVersion billingstate.Version, profile billingstate.CustomerProfile, idempotencyKey fwra.IdempotencyKey) (billingstate.Version, error) {
@@ -63,34 +79,3 @@ func (f *FakeBillingStateAccess) SettleCycle(rc fwra.Context, customerID uuid.UU
 }
 
 var _ billingstate.BillingStateAccess = (*FakeBillingStateAccess)(nil)
-
-// FakeRevenueLedgerAccess is a generated test double for billingstate.RevenueLedgerAccess: set the Fn field(s)
-// a test needs; calling a method whose Fn is unset panics.
-type FakeRevenueLedgerAccess struct {
-	RecordInboundRevenueFn func(rc fwra.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error)
-	RecordReversalFn       func(rc fwra.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error)
-	ReadRangeFn            func(rc fwra.Context, customerID uuid.UUID, cycleID string) ([]billingstate.RevenueEntry, error)
-}
-
-func (f *FakeRevenueLedgerAccess) RecordInboundRevenue(rc fwra.Context, entry billingstate.RevenueEntry) (billingstate.EntryRef, error) {
-	if f.RecordInboundRevenueFn == nil {
-		panic("FakeRevenueLedgerAccess.RecordInboundRevenueFn not set")
-	}
-	return f.RecordInboundRevenueFn(rc, entry)
-}
-
-func (f *FakeRevenueLedgerAccess) RecordReversal(rc fwra.Context, reversal billingstate.ReversalEntry) (billingstate.EntryRef, error) {
-	if f.RecordReversalFn == nil {
-		panic("FakeRevenueLedgerAccess.RecordReversalFn not set")
-	}
-	return f.RecordReversalFn(rc, reversal)
-}
-
-func (f *FakeRevenueLedgerAccess) ReadRange(rc fwra.Context, customerID uuid.UUID, cycleID string) ([]billingstate.RevenueEntry, error) {
-	if f.ReadRangeFn == nil {
-		panic("FakeRevenueLedgerAccess.ReadRangeFn not set")
-	}
-	return f.ReadRangeFn(rc, customerID, cycleID)
-}
-
-var _ billingstate.RevenueLedgerAccess = (*FakeRevenueLedgerAccess)(nil)

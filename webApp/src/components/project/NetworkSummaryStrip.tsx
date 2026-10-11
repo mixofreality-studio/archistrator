@@ -26,7 +26,7 @@ function Metric({
   unit: string;
   label: string;
   /** The critical-path figure: the ONE critical colour (criticalFg), never the
-   *  accent, which means selection (palette ruling; bandRamp.test.ts source pin). */
+   *  accent, which means selection (palette ruling). */
   critical?: boolean;
 }): ReactNode {
   return (

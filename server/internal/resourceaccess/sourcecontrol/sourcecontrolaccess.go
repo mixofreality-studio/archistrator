@@ -13,7 +13,7 @@
 //     (installation_token, ghs_…, installation id, App JWT, owner/repo,
 //     workflow_dispatch, /pulls, /merge, required_status_checks). The opaque
 //     value types (AccountRef, RepoAdoptionSpec, ManagedFile,
-//     Installation, RepoRef, RepoCredential, CommitRef,
+//     RepoRef, RepoCredential, CommitRef,
 //     BranchName/Ref, PullRequestSpec/Ref/Status, MergeResult, ReviewSubmission)
 //     wrap the vendor ids; callers never parse them. ALL GitHub vocabulary lives
 //     inside the framework-go-infrastructure-github satellite and this package's
@@ -66,6 +66,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -77,6 +78,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -109,13 +114,23 @@ const claudePathPrefix = ".claude/"
 //
 // .golangci.yml is the shared lint baseline the seated go-checks workflow runs
 // against (method-assets scaffold, 2026-07-19); it seats at birth and is server-owned
-// policy, so it also rides the sync (see managedSyncFiles).
+// policy, so it also rides the sync (see managedSyncFiles). Makefile.scenarios.mk
+// is the same case (method-assets v0.10.0, deterministic component testing): the
+// gen-tests / gen-tests-check / test-scenarios targets the construction commands
+// and the local venue call, server-owned with no app-local edits, so it seats at
+// birth AND rides the sync.
 var scaffoldRootPaths = map[string]bool{
 	"go.mod":                true,
 	"aiarch_method_test.go": true,
 	"internal/.gitkeep":     true,
 	".golangci.yml":         true,
+	scenarioMakefilePath:    true,
 }
+
+// scenarioMakefilePath is the scaffold's scenario-test make include, rendered
+// module-root-relative by method-assets (the seated app module lives at the repo
+// root, beside go.mod).
+const scenarioMakefilePath = "Makefile.scenarios.mk"
 
 // isManagedFilePath reports whether p is on the managed-file allowlist: under
 // .github/workflows/, a clean path under .claude/ (the methodassets prompt surface),
@@ -214,7 +229,6 @@ type githubClient interface {
 	GetPullStatus(ctx context.Context, fullName string, number int, instToken string) (fwgithub.PullStatus, error)
 	PostReview(ctx context.Context, fullName string, number int, event, body, instToken string) error
 	MergePullRequest(ctx context.Context, fullName string, number int, instToken string) (commit string, alreadyMerged bool, err error)
-	ConfigureBranchProtection(ctx context.Context, fullName, branch, appSlug, instToken string) error
 }
 
 // *fwgithub.AppClient satisfies githubClient directly (method names + signatures
@@ -234,8 +248,9 @@ type access struct {
 	// discovered. Provider-opaque to callers (it rides inside AccountRef/RepoRef);
 	// the composition root supplies it.
 	defaultAccount string
-	// appSlug is the App's slug, used as the merge-restriction + bypass actor in
-	// ConfigureBranchProtection. A C-SC wiring detail off the contract surface.
+	// appSlug is the App's slug: the Bot actor the seated design workflow allows
+	// (AppSlug) and the managed scaffold renders. A C-SC wiring detail off the
+	// contract surface.
 	appSlug string
 	// repoPrivate selects repo visibility on provision (a provider hint, not a
 	// contract field).
@@ -330,25 +345,6 @@ func (a *access) AppSlug() string {
 // ---------------------------------------------------------------------------
 // Contract #1 — ISourceControlLifecycle.
 // ---------------------------------------------------------------------------
-
-// InstallAuthorizeApp discovers/confirms the installation for `account`. NotFound
-// (the contract's NotInstalled) surfaces from the satellite when the App is not
-// installed. Idempotent on account (pure discovery).
-func (a *access) InstallAuthorizeApp(rc fwra.Context, account AccountRef) (Installation, error) {
-	// The cross-cutting ctx (and the optional IdempotencyKey, carried for traceability)
-	// now ride the ResourceAccess call Context. fwra.Context embeds context.Context;
-	// this verb is idempotent on the account, so it reads only ctx here.
-	ctx := rc.Context
-	acct := a.resolveAccount(account)
-	if acct == "" {
-		return "", fwra.New(fwra.ContractMisuse, "InstallAuthorizeApp: empty account")
-	}
-	id, err := a.client.FindInstallation(ctx, acct)
-	if err != nil {
-		return "", err
-	}
-	return Installation(itoa64(id)), nil
-}
 
 // AdoptProjectRepo verifies the user's EXISTING repo (spec.RepoName under
 // spec.Account) is reachable under the App installation, then BEST-EFFORT tags it
@@ -603,31 +599,34 @@ func (a *access) SyncManagedFiles(ctx context.Context, repo RepoRef, files []Man
 	return a.putManagedFiles(ctx, repo, files, message, cred)
 }
 
-// ReadManagedFile is the hand-written auxiliary MANAGED-FILE READ surface (B4
-// sync fast-path), OFF the frozen contract like SyncManagedFiles / AppSlug: read one
-// aiarch-managed file's bytes off the repo's default branch. A missing file is
-// found=false (not an error). The SAME allowlist gatekeeper as the write path guards
-// it, so this can never become a "read any file" smell. Reached via the
-// sourcecontrol.SyncManagedScaffold package helper (managedFileReader), which reads
-// the seated .claude/.method-assets-manifest.json to fingerprint the seated .claude
-// tree by version instead of converging ~100 files on every design dispatch.
-func (a *access) ReadManagedFile(ctx context.Context, repo RepoRef, p string, cred RepoCredential) ([]byte, bool, error) {
+// ReadManagedFile reads one aiarch-managed file's bytes off the repo's default branch
+// (spec §12 B6, A7-5: the managed-file read is a contract op). A missing file is
+// Found=false, not an error. The SAME allowlist gatekeeper as the write path guards
+// it, so this can never become a "read any file" smell. The SyncManagedScaffold
+// helper reads the seated .claude/.method-assets-manifest.json through it to
+// fingerprint the seated .claude tree by version instead of converging ~100 files on
+// every design dispatch.
+func (a *access) ReadManagedFile(rc fwra.Context, repo RepoRef, p string, cred RepoCredential) (ManagedFileRead, error) {
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
-		return nil, false, err
+		return ManagedFileRead{}, err
 	}
 	if !isManagedFilePath(p) {
-		return nil, false, fwra.New(fwra.ContractMisuse,
+		return ManagedFileRead{}, fwra.New(fwra.ContractMisuse,
 			"ReadManagedFile: path "+p+" is not an aiarch-managed file")
 	}
-	return a.client.GetRepoContentsFile(ctx, fullName, p, credStr(cred))
+	content, found, err := a.client.GetRepoContentsFile(rc.Context, fullName, p, credStr(cred))
+	if err != nil {
+		return ManagedFileRead{}, err
+	}
+	return ManagedFileRead{Content: content, Found: found}, nil
 }
 
 // ManagedScaffoldSynced / RecordManagedScaffoldSynced implement the managedSyncMemo
 // auxiliary surface (F-QA2-36): the per-process record of which repos this access has
 // proven current by a FULL sync-set converge, keyed by repo and methodassets version
 // (a server upgrade naturally invalidates every entry). Same off-contract discovery
-// pattern as SyncManagedFiles / ReadManagedFile / AppSlug.
+// pattern as SyncManagedFiles / AppSlug.
 func (a *access) ManagedScaffoldSynced(repo RepoRef, version string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -642,7 +641,7 @@ func (a *access) RecordManagedScaffoldSynced(repo RepoRef, version string) {
 
 // managedScaffoldBranch is the branch the managed-scaffold seat/sync converges —
 // "main", the rail-wide default-branch assumption this RA already bakes into
-// OpenBranch (cuts from main) and ConfigureBranchProtection (protects main).
+// OpenBranch (cuts from main).
 const managedScaffoldBranch = "main"
 
 // putManagedFiles is the SHARED seat/sync write behind CommitManagedFiles (the frozen
@@ -978,16 +977,6 @@ func (a *access) MergePullRequest(rc fwra.Context, repo RepoRef, pr PullRequestR
 	return MergeResult{Commit: commit, Merged: true}, nil
 }
 
-// ConfigureBranchProtection provisions the App-only-merger backstop on main.
-func (a *access) ConfigureBranchProtection(rc fwra.Context, repo RepoRef, cred RepoCredential) error {
-	ctx := rc.Context
-	_, fullName, err := a.requireRepoCred(repo, cred)
-	if err != nil {
-		return err
-	}
-	return a.client.ConfigureBranchProtection(ctx, fullName, "main", a.appSlug, credStr(cred))
-}
-
 // ---------------------------------------------------------------------------
 // Internal helpers.
 // ---------------------------------------------------------------------------
@@ -1072,8 +1061,7 @@ func prNumber(pr PullRequestRef) (int, error) {
 	return n, nil
 }
 
-func itoa(n int) string     { return strconv.Itoa(n) }
-func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
+func itoa(n int) string { return strconv.Itoa(n) }
 
 // agenticdesign.go supplies the aiarch-MANAGED project scaffold archistrator-server
 // seats into each user project repo at project birth (CommitManagedFiles). Since the
@@ -1349,7 +1337,8 @@ func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 }
 
 // managedSyncFiles returns the SYNC-SCOPED subset of the managed scaffold — the
-// seated workflows plus the .golangci.yml lint baseline. go.mod /
+// seated workflows plus the server-owned policy roots (.golangci.yml lint
+// baseline, Makefile.scenarios.mk scenario-test targets). go.mod /
 // aiarch_method_test.go / internal/.gitkeep are BIRTH-ONLY: go.mod is
 // user-evolved after birth (their requires) and re-seating it would destroy
 // user content, so the sync never touches those roots. .golangci.yml is the
@@ -1366,7 +1355,7 @@ func managedSyncFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 	}
 	out := make([]ManagedFile, 0, len(all))
 	for _, f := range all {
-		if strings.HasPrefix(f.Path, workflowPathPrefix) || f.Path == ".golangci.yml" {
+		if strings.HasPrefix(f.Path, workflowPathPrefix) || f.Path == ".golangci.yml" || f.Path == scenarioMakefilePath {
 			out = append(out, f)
 		}
 	}
@@ -1392,20 +1381,11 @@ type managedFileSyncer interface {
 	SyncManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, message string, cred RepoCredential) (CommitRef, bool, error)
 }
 
-// managedFileReader is the OPTIONAL hand-written auxiliary read surface a concrete
-// SourceControlAccess may expose (the GitHub-backed access does — see
-// (*access).ReadManagedFile): read one managed file's bytes off the default branch,
-// found=false on a missing file. Same discovery pattern as managedFileSyncer; a rail
-// without it (a test fake) simply never takes the sync fast-path.
-type managedFileReader interface {
-	ReadManagedFile(ctx context.Context, repo RepoRef, path string, cred RepoCredential) ([]byte, bool, error)
-}
-
 // managedSyncMemo is the OPTIONAL per-process sync-verification memo a concrete
 // SourceControlAccess may expose (the GitHub-backed access does — see
 // (*access).ManagedScaffoldSynced): has THIS process already converged the FULL
 // sync-scoped set for repo at this methodassets version? Same discovery pattern as
-// managedFileSyncer / managedFileReader.
+// managedFileSyncer.
 //
 // WHY (F-QA2-36, torn-state belt-and-braces): the seat manifest carries a version
 // and a files list but NO per-file content hashes — so a manifest whose version
@@ -1468,7 +1448,7 @@ func recordScaffoldSynced(rail SourceControlAccess, repo RepoRef) {
 //     lies (the gtdapp incident: manifest written first, loop died mid-tree, every
 //     version-only fast-path thereafter trusted it and the tear never self-healed);
 //     AND
-//  2. the seated .claude/.method-assets-manifest.json (managedFileReader) carries
+//  2. the seated .claude/.method-assets-manifest.json (ReadManagedFile) carries
 //     exactly this server's methodassets pin — VERSION ONLY, never the files list
 //     (a materializer-written manifest may transiently carry retained orphans) —
 //     which catches cross-process drift the in-process memo cannot see. Since
@@ -1479,8 +1459,8 @@ func recordScaffoldSynced(rail SourceControlAccess, repo RepoRef) {
 // On both proofs the sync converges ONLY the two workflow files: their rendering
 // also carries the SERVER-owned (ldflags-stampable) StateMcpModulePin, which the
 // module version cannot fingerprint, so the workflows are always converged. Anything
-// less — first sync of a process, absent/unreadable/mismatched manifest, or a rail
-// without the read surface — takes the FULL seat: every sync-scoped file through the
+// less — first sync of a process, or an absent/unreadable/mismatched manifest — takes
+// the FULL seat: every sync-scoped file through the
 // same putManagedFiles converge (a current file costs a read, never a commit).
 //
 // Either way the write is ONE tree-read compare + ONE atomic commit (trees-API
@@ -1540,23 +1520,19 @@ func SyncManagedScaffold(ctx context.Context, rail SourceControlAccess, repo Rep
 
 // seatedManifestVersionCurrent reports whether the SEATED scaffold manifest can be
 // read AND carries exactly this server's methodassets version. Any failure to prove
-// currency — a rail without the read surface, a read error, a missing manifest
-// (pre-B4 repos), or a corrupt/mismatched document — answers false, and the caller
-// converges the full sync set instead (which is always correct, just slower). The
-// comparison is VERSION ONLY by design; see SyncManagedScaffold.
+// currency — a read error, a missing manifest (pre-B4 repos), or a
+// corrupt/mismatched document — answers false, and the caller converges the full
+// sync set instead (which is always correct, just slower). The comparison is
+// VERSION ONLY by design; see SyncManagedScaffold.
 func seatedManifestVersionCurrent(ctx context.Context, rail SourceControlAccess, repo RepoRef, cred RepoCredential) bool {
-	r, ok := rail.(managedFileReader)
-	if !ok {
-		return false
-	}
-	b, found, err := r.ReadManagedFile(ctx, repo, scaffoldManifestPath, cred)
-	if err != nil || !found {
+	read, err := rail.ReadManagedFile(fwra.Context{Context: ctx}, repo, scaffoldManifestPath, cred)
+	if err != nil || !read.Found {
 		return false
 	}
 	var m struct {
 		Version string `json:"version"`
 	}
-	if json.Unmarshal(b, &m) != nil {
+	if json.Unmarshal(read.Content, &m) != nil {
 		return false
 	}
 	return m.Version != "" && m.Version == methodassets.Version()
@@ -1581,24 +1557,12 @@ func RailAppSlug(rail SourceControlAccess) string {
 // value type → generated scalar + free functions" pattern (same as
 // durableexecution's ExecutionHandle/ExecutionStatus and agenticjob's
 // PipelineHandle/PipelinePhase/RepoTarget). The opaque-handle value types
-// (Installation, RepoRef, CommitRef, BranchRef, PullRequestRef) are generated as
+// (RepoRef, CommitRef, BranchRef, PullRequestRef) are generated as
 // $def named scalars (contract.gen.go); the RepoCredential struct + the CheckState
 // enum are generated as a struct / enum. Their methods would not survive codegen,
 // so they live here as free functions the impl + callers call. The opaque token
 // the impl packs IS the string value, so the handle behaviour is a thin, parse-free
 // pass over that value.
-
-// ---------------------------------------------------------------------------
-// Installation behaviour (free functions over the generated named scalar).
-// ---------------------------------------------------------------------------
-
-// InstallationString returns the canonical printable form (logs, audit). Replaces
-// the former Installation.String() method.
-func InstallationString(i Installation) string { return string(i) }
-
-// InstallationIsZero reports whether the handle addresses no installation. Replaces
-// the former Installation.IsZero() method.
-func InstallationIsZero(i Installation) bool { return i == "" }
 
 // ---------------------------------------------------------------------------
 // RepoRef behaviour (free functions over the generated named scalar).
@@ -1798,9 +1762,9 @@ func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug string,
 //     NOTHING pushed (the manager's F80c reconcile + re-approve path then applies).
 //   - SyncManagedScaffold → (false, nil) no-op (the local executor seats .claude itself).
 //   - Birth ops (CreateProject, rail non-nil): AdoptProjectRepo returns the deterministic
-//     local RepoRef (the shared repo already exists); CommitManagedFiles /
-//     ConfigureBranchProtection are no-ops; InstallAuthorizeApp is unreachable
-//     (ContractMisuse) — there is no GitHub App funnel locally.
+//     local RepoRef (the shared repo already exists); CommitManagedFiles seats the managed
+//     files onto main in one commit (idempotent: a converged bundle writes nothing), so a
+//     ReadManagedFile reads back what the birth seated, as on GitHub.
 //
 // DUPLICATED GIT HELPERS: the tiny `git` subprocess plumbing below is deliberately
 // re-implemented rather than shared with agenticjob (an RA may not import a
@@ -1823,10 +1787,6 @@ const (
 	// GetInstallationToken returns. It is never presented to any real service — local git
 	// auth is the filesystem — but must be non-empty so RepoCredentialIsZero is false.
 	gitLocalCredentialToken = "local"
-	// gitLocalScaffoldSentinel is the sentinel CommitRef CommitManagedFiles returns: the
-	// local executor seats the managed scaffold (.claude) itself, so there is nothing to
-	// commit here, but the contract wants a non-zero CommitRef.
-	gitLocalScaffoldSentinel = "local-scaffold-noop"
 )
 
 // gitLocalFarExpiry is the ExpiresAt on the dummy credential — deliberately far in the
@@ -1894,29 +1854,120 @@ func (a *gitLocalAccess) AdoptProjectRepo(_ fwra.Context, spec RepoAdoptionSpec)
 	return GitLocalRepoRefForProject(ProjectID(name)), nil
 }
 
-// CommitManagedFiles is a no-op success returning a sentinel CommitRef. The managed
-// scaffold (.claude prompt surface) is seated by the agenticjob local executor at
-// dispatch time, not committed to the repo, so there is nothing to commit here.
-func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, _ []ManagedFile, _ RepoCredential) (CommitRef, error) {
+// CommitManagedFiles seats the managed files onto the shared repo's main in ONE commit
+// (throwaway clone + commit + push) — the local twin of the GitHub realisation's atomic
+// trees-API seat, honouring the same contract: the same allowlist gatekeeper rejects the
+// whole bundle before any write, the commit carries the same birth-seat message, and a
+// bundle already byte-identical on main writes nothing and returns main's tip (an
+// idempotent re-seat). The returned CommitRef is the resulting (or converged) tip SHA.
+//
+// The writes go through an os.Root over the clone, so a path that rides the allowlist's
+// .github/workflows/ prefix with a ".." segment cannot escape the working tree. A push
+// rejected because main moved under the clone is the seam's one retryable Conflict
+// (retry re-reads main), exactly as the GitHub ref race is.
+func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, files []ManagedFile, _ RepoCredential) (CommitRef, error) {
 	if RepoRefIsZero(repo) {
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal CommitManagedFiles: zero RepoRef")
 	}
-	return CommitRef(gitLocalScaffoldSentinel), nil
+	if len(files) == 0 {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal CommitManagedFiles: empty fileset")
+	}
+	if err := validateManagedFileSet(files); err != nil {
+		return "", err
+	}
+	a.gitMu.Lock()
+	defer a.gitMu.Unlock()
+	cloneDir, cleanup, err := a.cloneMain()
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+
+	if err := writeManagedFiles(cloneDir, files); err != nil {
+		return "", err
+	}
+	// The paths reach `git add` as a NUL-separated pathspec file, never as argv: no
+	// caller-supplied path is ever parsed by git as an option.
+	pathspec := make([]byte, 0, len(files)*32)
+	for _, f := range files {
+		pathspec = append(pathspec, f.Path...)
+		pathspec = append(pathspec, 0)
+	}
+	if err := writeGitLocalScratch(cloneDir, gitLocalPathspecFile, pathspec); err != nil {
+		return "", err
+	}
+	if out, aerr := gitLocalExec(cloneDir, exec.Command("git", "add", "--pathspec-from-file="+gitLocalPathspecFile, "--pathspec-file-nul")); aerr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, aerr, "gitlocal CommitManagedFiles: stage failed: "+strings.TrimSpace(out))
+	}
+	// Converged: nothing staged differs from main → no commit; main's tip is the handle.
+	if _, derr := gitLocalExec(cloneDir, exec.Command("git", "diff", "--cached", "--quiet")); derr == nil {
+		sha, herr := gitLocalHeadSHA(cloneDir)
+		return CommitRef(sha), herr
+	}
+	if out, cerr := gitLocalExec(cloneDir, exec.Command("git", "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"commit", "-m", ManagedCommitMessage)); cerr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, cerr, "gitlocal CommitManagedFiles: commit failed: "+strings.TrimSpace(out))
+	}
+	if out, perr := gitLocalExec(cloneDir, exec.Command("git", "push", "origin", gitLocalMainBranch)); perr != nil {
+		if strings.Contains(out, "[rejected]") {
+			fe := fwra.New(fwra.Conflict, "gitlocal CommitManagedFiles: "+gitLocalMainBranch+" moved during the seat; nothing pushed")
+			fe.Retryable = true
+			return "", fe
+		}
+		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal CommitManagedFiles: push failed: "+strings.TrimSpace(out))
+	}
+	sha, err := gitLocalHeadSHA(cloneDir)
+	return CommitRef(sha), err
 }
 
-// ConfigureBranchProtection is a no-op success: there is no hosted branch-protection to
-// provision on a local repo (the App-only-merger backstop is a GitHub construct).
-func (a *gitLocalAccess) ConfigureBranchProtection(_ fwra.Context, repo RepoRef, _ RepoCredential) error {
-	if RepoRefIsZero(repo) {
-		return fwra.New(fwra.ContractMisuse, "gitlocal ConfigureBranchProtection: zero RepoRef")
+// writeManagedFiles writes every allowlist-validated managed file into the clone,
+// confined to it by an os.Root.
+func writeManagedFiles(cloneDir string, files []ManagedFile) error {
+	root, err := os.OpenRoot(cloneDir)
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "gitlocal CommitManagedFiles: open clone")
+	}
+	defer func() { _ = root.Close() }()
+	for _, f := range files {
+		if dir := path.Dir(f.Path); dir != "." {
+			if err := root.MkdirAll(dir, 0o750); err != nil {
+				return fwra.Wrap(fwra.ContractMisuse, err, "gitlocal CommitManagedFiles: "+f.Path)
+			}
+		}
+		if err := root.WriteFile(f.Path, f.Content, 0o600); err != nil {
+			return fwra.Wrap(fwra.ContractMisuse, err, "gitlocal CommitManagedFiles: "+f.Path)
+		}
 	}
 	return nil
 }
 
-// InstallAuthorizeApp is unreachable on the local profile: the App-installation funnel is a
-// GitHub-only onboarding step. Reaching it is a wiring bug, surfaced as ContractMisuse.
-func (a *gitLocalAccess) InstallAuthorizeApp(_ fwra.Context, _ AccountRef) (Installation, error) {
-	return "", fwra.New(fwra.ContractMisuse, "gitlocal InstallAuthorizeApp: unreachable on the local profile (no GitHub App funnel)")
+// ReadManagedFile reads one aiarch-managed file off the shared repo's main, in a
+// throwaway clone. A file nothing seated (the local executor materialises the .claude
+// prompt surface into its worktree, never onto main) is Found=false, not an error. The
+// same allowlist gatekeeper as the GitHub variant guards the path.
+func (a *gitLocalAccess) ReadManagedFile(_ fwra.Context, repo RepoRef, p string, _ RepoCredential) (ManagedFileRead, error) {
+	if RepoRefIsZero(repo) {
+		return ManagedFileRead{}, fwra.New(fwra.ContractMisuse, "gitlocal ReadManagedFile: zero RepoRef")
+	}
+	if !isManagedFilePath(p) {
+		return ManagedFileRead{}, fwra.New(fwra.ContractMisuse,
+			"gitlocal ReadManagedFile: path "+p+" is not an aiarch-managed file")
+	}
+	a.gitMu.Lock()
+	defer a.gitMu.Unlock()
+	cloneDir, cleanup, err := a.cloneMain()
+	if err != nil {
+		return ManagedFileRead{}, err
+	}
+	defer cleanup()
+	content, rerr := fs.ReadFile(os.DirFS(cloneDir), p)
+	if errors.Is(rerr, fs.ErrNotExist) {
+		return ManagedFileRead{Found: false}, nil
+	}
+	if rerr != nil {
+		return ManagedFileRead{}, fwra.Wrap(fwra.Infrastructure, rerr, "gitlocal ReadManagedFile: read "+p)
+	}
+	return ManagedFileRead{Content: content, Found: true}, nil
 }
 
 // SyncManagedScaffold is a no-op reporting NO drift/commit: the local executor materialises
@@ -1945,6 +1996,9 @@ func (a *gitLocalAccess) OpenBranch(_ fwra.Context, repo RepoRef, branch BranchN
 	if b == "" {
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenBranch: empty branch")
 	}
+	if !gitLocalValidBranch(b) {
+		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenBranch: "+b+" is not a valid branch name")
+	}
 	a.gitMu.Lock()
 	defer a.gitMu.Unlock()
 
@@ -1953,14 +2007,21 @@ func (a *gitLocalAccess) OpenBranch(_ fwra.Context, repo RepoRef, branch BranchN
 		return "", err
 	}
 	defer cleanup()
+	clone, err := openGitLocalClone(cloneDir)
+	if err != nil {
+		return "", err
+	}
 
 	// Idempotent: the branch already exists in the shared repo → no-op success.
-	if _, verr := gitLocalRun(cloneDir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+b); verr == nil {
+	if _, found, rerr := gitLocalRemoteBranch(clone, b); rerr != nil {
+		return "", rerr
+	} else if found {
 		return BranchRef(b), nil
 	}
-	// Create off main: the clone's HEAD is origin/main's tip; push it to the new ref.
-	if out, perr := gitLocalRun(cloneDir, "push", "origin", "HEAD:refs/heads/"+b); perr != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal OpenBranch: create branch "+b+" failed: "+strings.TrimSpace(out))
+	// Create off main: the clone's main is origin/main's tip; push it to the new ref.
+	refspec := gitconfig.RefSpec(plumbing.NewBranchReferenceName(gitLocalMainBranch) + ":" + plumbing.NewBranchReferenceName(b))
+	if perr := gitLocalPush(clone, refspec); perr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal OpenBranch: create branch "+b+" failed")
 	}
 	return BranchRef(b), nil
 }
@@ -2050,21 +2111,167 @@ func (a *gitLocalAccess) MergePullRequest(_ fwra.Context, repo RepoRef, pr PullR
 // mirrors agenticjob.mergeActivityBranch's style).
 // ---------------------------------------------------------------------------
 
-// cloneMain clones the shared repo's main into a throwaway temp dir and returns the clone
-// dir + a cleanup func removing the whole temp tree. A clone failure (repo absent / no
-// main) is an Infrastructure error.
+// gitLocalMergeRef is the fixed ref a merge reads the PR's head through: the head's tip
+// is pinned here (go-git, from the clone's remote-tracking ref) before any `git merge`,
+// so the branch name — caller-derived — never reaches git's argv.
+const gitLocalMergeRef = "refs/aiarch/merge-head"
+
+// gitLocalRemote is the throwaway clone's name for the shared repo.
+const gitLocalRemote = "origin"
+
+// gitLocalPathspecFile and gitLocalMergeMsgFile are clone-relative scratch files that
+// carry caller-derived values (managed-file paths, the merge message naming the head) to
+// git as file content rather than argv. Both live under the clone's .git, so neither is
+// ever part of the working tree a commit stages.
+const (
+	gitLocalPathspecFile = ".git/AIARCH_PATHSPEC"
+	gitLocalMergeMsgFile = ".git/AIARCH_MERGE_MSG"
+)
+
+// cloneMain materialises the shared repo's main in a throwaway temp dir and returns the
+// clone dir + a cleanup func removing the whole temp tree. The clone is assembled rather
+// than `git clone`d so the repo URL is configured through go-git, never git's argv: an
+// empty repo, an origin remote fetching every branch to refs/remotes/origin/*, a fetch,
+// and main checked out at origin/main. Any failure (repo absent / no main) is an
+// Infrastructure error.
 func (a *gitLocalAccess) cloneMain() (cloneDir string, cleanup func(), err error) {
+	remoteURL, uerr := gitLocalRemoteURL(a.repoURL)
+	if uerr != nil {
+		return "", func() {}, uerr
+	}
 	parentDir, mkErr := os.MkdirTemp("", "aiarch-scm-*")
 	if mkErr != nil {
 		return "", func() {}, fwra.Wrap(fwra.Infrastructure, mkErr, "gitlocal: create work dir")
 	}
 	cleanup = func() { _ = os.RemoveAll(parentDir) }
 	cloneDir = filepath.Join(parentDir, "clone")
-	if out, cErr := gitLocalRun("", "clone", "--branch", gitLocalMainBranch, a.repoURL, cloneDir); cErr != nil {
+	if err := os.Mkdir(cloneDir, 0o700); err != nil {
 		cleanup()
-		return "", func() {}, fwra.Wrap(fwra.Infrastructure, cErr, "gitlocal: clone failed: "+strings.TrimSpace(out))
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, err, "gitlocal: create clone dir")
+	}
+	if out, ierr := gitLocalExec(cloneDir, exec.Command("git", "init", "--quiet")); ierr != nil {
+		cleanup()
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, ierr, "gitlocal: init clone failed: "+strings.TrimSpace(out))
+	}
+	repo, err := openGitLocalClone(cloneDir)
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if _, rerr := repo.CreateRemote(&gitconfig.RemoteConfig{Name: gitLocalRemote, URLs: []string{remoteURL}}); rerr != nil {
+		cleanup()
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, rerr, "gitlocal: configure origin")
+	}
+	if out, ferr := gitLocalExec(cloneDir, exec.Command("git", "fetch", "--quiet", gitLocalRemote)); ferr != nil {
+		cleanup()
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, ferr, "gitlocal: clone failed: "+strings.TrimSpace(out))
+	}
+	if out, cerr := gitLocalExec(cloneDir, exec.Command("git", "checkout", "--quiet", "-B", gitLocalMainBranch,
+		"refs/remotes/"+gitLocalRemote+"/"+gitLocalMainBranch)); cerr != nil {
+		cleanup()
+		return "", func() {}, fwra.Wrap(fwra.Infrastructure, cerr, "gitlocal: clone failed: no "+gitLocalMainBranch+": "+strings.TrimSpace(out))
 	}
 	return cloneDir, cleanup, nil
+}
+
+// gitLocalRemoteURL resolves the configured repo URL into the form the clone's origin
+// carries. A URL (scheme://…) or an absolute path is used as is; a relative plain path
+// is anchored to the process's working directory, the directory the composition root
+// configured it against (the clone's own directory is not).
+func gitLocalRemoteURL(repoURL string) (string, error) {
+	if strings.Contains(repoURL, "://") || filepath.IsAbs(repoURL) {
+		return repoURL, nil
+	}
+	abs, err := filepath.Abs(repoURL)
+	if err != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, err, "gitlocal: resolve repo path "+repoURL)
+	}
+	return abs, nil
+}
+
+// openGitLocalClone opens a throwaway clone through go-git, for the reads and writes that
+// name a caller-derived ref.
+func openGitLocalClone(cloneDir string) (*git.Repository, error) {
+	repo, err := git.PlainOpen(cloneDir)
+	if err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "gitlocal: open clone")
+	}
+	return repo, nil
+}
+
+// gitLocalRemoteBranch reports the shared repo's tip of branch, read from the clone's
+// remote-tracking ref (refs/remotes/origin/<branch>); found=false when the branch does
+// not exist there.
+func gitLocalRemoteBranch(repo *git.Repository, branch string) (plumbing.Hash, bool, error) {
+	ref, err := repo.Reference(plumbing.NewRemoteReferenceName(gitLocalRemote, branch), true)
+	if errors.Is(err, plumbing.ErrReferenceNotFound) {
+		return plumbing.ZeroHash, false, nil
+	}
+	if err != nil {
+		return plumbing.ZeroHash, false, fwra.Wrap(fwra.Infrastructure, err, "gitlocal: resolve "+branch)
+	}
+	return ref.Hash(), true, nil
+}
+
+// gitLocalPush pushes one refspec to the shared repo through go-git. A push with nothing
+// to update is success.
+func gitLocalPush(repo *git.Repository, refspec gitconfig.RefSpec) error {
+	err := repo.Push(&git.PushOptions{RemoteName: gitLocalRemote, RefSpecs: []gitconfig.RefSpec{refspec}})
+	if errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return nil
+	}
+	return err
+}
+
+// gitLocalDeleteBranch deletes branch from the shared repo.
+func gitLocalDeleteBranch(repo *git.Repository, branch string) error {
+	return gitLocalPush(repo, gitconfig.RefSpec(":"+plumbing.NewBranchReferenceName(branch)))
+}
+
+// gitLocalValidBranch reports whether name is a branch name git accepts
+// (check-ref-format's rules for refs/heads/<name>, including no leading "-").
+func gitLocalValidBranch(name string) bool {
+	return plumbing.NewBranchReferenceName(name).Validate() == nil
+}
+
+// pinGitLocalMergeHead resolves head on the shared repo and pins its tip at
+// gitLocalMergeRef in the clone; found=false when the head branch does not exist (merged
+// and deleted, or never created).
+func pinGitLocalMergeHead(cloneDir, head string) (bool, error) {
+	repo, err := openGitLocalClone(cloneDir)
+	if err != nil {
+		return false, err
+	}
+	hash, found, err := gitLocalRemoteBranch(repo, head)
+	if err != nil || !found {
+		return false, err
+	}
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(gitLocalMergeRef, hash)); err != nil {
+		return false, fwra.Wrap(fwra.Infrastructure, err, "gitlocal: pin "+head)
+	}
+	return true, nil
+}
+
+// gitLocalMergeHeadIsAncestor reports whether the pinned head is already contained in
+// the clone's main.
+func gitLocalMergeHeadIsAncestor(cloneDir string) bool {
+	_, err := gitLocalExec(cloneDir, exec.Command("git", "merge-base", "--is-ancestor", gitLocalMergeRef, "HEAD"))
+	return err == nil
+}
+
+// gitLocalAbortMerge abandons an in-progress merge, best-effort: the clone is thrown
+// away regardless.
+func gitLocalAbortMerge(cloneDir string) {
+	_, _ = gitLocalExec(cloneDir, exec.Command("git", "merge", "--abort"))
+}
+
+// writeGitLocalScratch writes one of the clone's .git scratch files (name is
+// clone-relative, e.g. gitLocalMergeMsgFile).
+func writeGitLocalScratch(cloneDir, name string, content []byte) error {
+	if err := os.WriteFile(filepath.Join(cloneDir, filepath.FromSlash(name)), content, 0o600); err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "gitlocal: write "+name)
+	}
+	return nil
 }
 
 // trialMerge reports whether head merges cleanly into main, computed by a --no-commit
@@ -2079,16 +2286,19 @@ func (a *gitLocalAccess) trialMerge(head string) (bool, error) {
 	}
 	defer cleanup()
 
-	remoteHead := "refs/remotes/origin/" + head
-	if _, verr := gitLocalRun(cloneDir, "rev-parse", "--verify", "--quiet", remoteHead); verr != nil {
+	found, err := pinGitLocalMergeHead(cloneDir, head)
+	if err != nil {
+		return false, err
+	}
+	if !found {
 		return false, nil // head gone → nothing to merge
 	}
-	if _, anc := gitLocalRun(cloneDir, "merge-base", "--is-ancestor", remoteHead, "HEAD"); anc == nil {
+	if gitLocalMergeHeadIsAncestor(cloneDir) {
 		return true, nil // already merged → trivially mergeable
 	}
-	_, mErr := gitLocalRun(cloneDir, "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
-		"merge", "--no-commit", "--no-ff", remoteHead)
-	_, _ = gitLocalRun(cloneDir, "merge", "--abort") // best-effort; the clone is thrown away regardless
+	_, mErr := gitLocalExec(cloneDir, exec.Command("git", "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"merge", "--no-commit", "--no-ff", gitLocalMergeRef))
+	gitLocalAbortMerge(cloneDir)
 	return mErr == nil, nil
 }
 
@@ -2103,10 +2313,9 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 	}
 	defer cleanup()
 
-	remoteHead := "refs/remotes/origin/" + head
-	headExists := false
-	if _, verr := gitLocalRun(cloneDir, "rev-parse", "--verify", "--quiet", remoteHead); verr == nil {
-		headExists = true
+	headExists, err := pinGitLocalMergeHead(cloneDir, head)
+	if err != nil {
+		return "", err
 	}
 
 	// Idempotent re-entry: the head was merged AND deleted by a prior successful call —
@@ -2114,12 +2323,16 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 	if !headExists {
 		return gitLocalHeadSHA(cloneDir)
 	}
+	repo, err := openGitLocalClone(cloneDir)
+	if err != nil {
+		return "", err
+	}
 
 	// Already merged but the branch survived (a prior attempt merged then crashed before
 	// the delete) → skip straight to the branch delete, no second merge commit.
-	if _, anc := gitLocalRun(cloneDir, "merge-base", "--is-ancestor", remoteHead, "HEAD"); anc == nil {
-		if out, derr := gitLocalRun(cloneDir, "push", "origin", "--delete", head); derr != nil {
-			return "", fwra.Wrap(fwra.Infrastructure, derr, "gitlocal merge: already merged but branch delete failed: "+strings.TrimSpace(out))
+	if gitLocalMergeHeadIsAncestor(cloneDir) {
+		if derr := gitLocalDeleteBranch(repo, head); derr != nil {
+			return "", fwra.Wrap(fwra.Infrastructure, derr, "gitlocal merge: already merged but branch delete failed")
 		}
 		return gitLocalHeadSHA(cloneDir)
 	}
@@ -2143,17 +2356,21 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 	// imported from here either — same NoSideways rule — so this realisation carries both
 	// defects until the shared home exists. Off the paid path for the same reason.
 	//
-	// Real --no-ff merge with a pinned author identity (independent of host git config).
-	mergeOut, mErr := gitLocalRun(cloneDir, "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
-		"merge", "--no-ff", "-m", "aiarch: merge "+head, remoteHead)
+	// Real --no-ff merge with a pinned author identity (independent of host git config);
+	// the message names the head, so it is read from a scratch file.
+	if err := writeGitLocalScratch(cloneDir, gitLocalMergeMsgFile, []byte("aiarch: merge "+head+"\n")); err != nil {
+		return "", err
+	}
+	mergeOut, mErr := gitLocalExec(cloneDir, exec.Command("git", "-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"merge", "--no-ff", "-F", gitLocalMergeMsgFile, gitLocalMergeRef))
 	if mErr != nil {
-		_, _ = gitLocalRun(cloneDir, "merge", "--abort") // best-effort; clone is throwaway
+		gitLocalAbortMerge(cloneDir)
 		if strings.Contains(mergeOut, "CONFLICT") {
 			return "", fwra.New(fwra.Conflict, "gitlocal merge: conflict merging "+head+" into "+gitLocalMainBranch+"; nothing pushed")
 		}
 		return "", fwra.Wrap(fwra.Infrastructure, mErr, "gitlocal merge: merge of "+head+" failed: "+strings.TrimSpace(mergeOut))
 	}
-	if out, perr := gitLocalRun(cloneDir, "push", "origin", gitLocalMainBranch); perr != nil {
+	if out, perr := gitLocalExec(cloneDir, exec.Command("git", "push", gitLocalRemote, gitLocalMainBranch)); perr != nil {
 		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal merge: push of merged "+gitLocalMainBranch+" failed: "+strings.TrimSpace(out))
 	}
 	sha, err := gitLocalHeadSHA(cloneDir)
@@ -2162,8 +2379,8 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 	}
 	// The merge IS landed; a delete failure is recoverable — a retry takes the
 	// already-merged delete-only path above.
-	if out, derr := gitLocalRun(cloneDir, "push", "origin", "--delete", head); derr != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, derr, "gitlocal merge: merged but branch "+head+" could not be deleted: "+strings.TrimSpace(out))
+	if derr := gitLocalDeleteBranch(repo, head); derr != nil {
+		return "", fwra.Wrap(fwra.Infrastructure, derr, "gitlocal merge: merged but branch "+head+" could not be deleted")
 	}
 	return sha, nil
 }
@@ -2171,7 +2388,7 @@ func (a *gitLocalAccess) mergeHeadIntoMain(head string) (string, error) {
 // gitLocalHeadSHA resolves the clone's current HEAD tip SHA (the landed merge commit, or
 // main's tip on an idempotent re-entry).
 func gitLocalHeadSHA(cloneDir string) (string, error) {
-	out, err := gitLocalRun(cloneDir, "rev-parse", "HEAD")
+	out, err := gitLocalExec(cloneDir, exec.Command("git", "rev-parse", "HEAD"))
 	if err != nil {
 		return "", fwra.Wrap(fwra.Infrastructure, err, "gitlocal: rev-parse HEAD")
 	}
@@ -2179,26 +2396,26 @@ func gitLocalHeadSHA(cloneDir string) (string, error) {
 }
 
 // gitLocalPRHead decodes the head branch from a local PullRequestRef ("local#<head>"). A
-// ref that is not local-shaped / empty is a caller pre-condition violation.
+// ref that is not local-shaped, empty, or not a valid branch name is a caller
+// pre-condition violation.
 func gitLocalPRHead(pr PullRequestRef) (string, error) {
 	head, ok := strings.CutPrefix(PullRequestRefString(pr), gitLocalPRPrefix)
-	if !ok || strings.TrimSpace(head) == "" {
+	if !ok || strings.TrimSpace(head) == "" || !gitLocalValidBranch(head) {
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal: malformed local PullRequestRef "+PullRequestRefString(pr))
 	}
 	return head, nil
 }
 
-// gitLocalRun runs `git <args...>` with the given working dir (ignored when empty — used
-// for the initial clone) and wraps combined output into the error on failure, for a
-// debuggable diagnostic. Mirrors agenticjob.runGit.
-func gitLocalRun(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...) //nolint:gosec // fixed trusted binary, internally-derived args (repo URL / branch names)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+// gitLocalExec runs one git invocation in dir and wraps its combined output into the
+// error on failure, for a debuggable diagnostic. Every invocation's argv is fixed at its
+// call site: each caller-derived value (the repo URL, a branch name, a path, a message
+// naming a branch) reaches git through go-git, the pinned gitLocalMergeRef, or a .git
+// scratch file — never as an argument git could parse as an option.
+func gitLocalExec(dir string, cmd *exec.Cmd) (string, error) {
+	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return string(out), fmt.Errorf("%s: %w: %s", strings.Join(cmd.Args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
 }

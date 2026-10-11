@@ -3,19 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Black-box, browser-driven end-to-end tests for the archistrator SPA. The UI sibling of ../systemtests: it links zero webApp behavior (only the published data-testid table, no components/hooks/business-logic) and drives the real running SPA over the wire, selecting only by published data-testid.",
+  "description": "Generated scenario tests for the archistrator SPA's client components (deterministic component testing). testgen emits generated/<component>/{<scenario>.spec.gen.ts,playwright.config.gen.ts,reporter.gen.ts} from the committed per-component test plan, plus a once-emitted hooks.ts the construction agent fills; nothing here is hand-written.",
   "scripts": {
-    "test": "playwright test",
-    "test:ui": "playwright test --ui",
-    "test:construction": "playwright test construction- artifact-systemtest meta/use-case-coverage episodes-panel",
-    "seed:construction-state": "bash scripts/seed-construction-state.sh",
-    "test:report": "playwright show-report",
-    "list": "playwright test --list",
+    "test": "npm run test:scenarios",
+    "test:scenarios": "set -e; for c in generated/*/playwright.config.gen.ts; do playwright test -c \"$c\"; done",
     "install:browsers": "playwright install --with-deps chromium",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit -p .",
-    "regen:core-use-cases-fixture": "cd ../server && GOWORK=off go run ./cmd/gen-uitests-fixtures -repo .. -fixture ../uitests/testdata/coreUseCasesProject.json -project archistrator",
-    "check:core-use-cases-fixture": "npm run regen:core-use-cases-fixture && git diff --exit-code -- testdata/coreUseCasesProject.json"
+    "typecheck": "tsc --noEmit -p ."
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

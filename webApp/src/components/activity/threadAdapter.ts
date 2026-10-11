@@ -4,8 +4,8 @@
  * rail's `ReviewCommentView`; the unified rail serves
  * `ConstructionReviewThreadComment`, whose members are parallel but not
  * identical (`anchorText` and `addressee` are optional on the wire and
- * required in the view; the view carries a deprecated `response` nothing
- * reads). Adapting is a dozen lines; rewriting the margin is not.
+ * required in the view). Adapting is a dozen lines; rewriting the margin is
+ * not.
  */
 import type { components } from '../../contracts/schema.ts';
 import type { ReviewCommentView, ReviewCommentReply } from '../../contracts/types.ts';

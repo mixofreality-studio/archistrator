@@ -11,16 +11,8 @@ import (
 // FakeAgenticJobAccess is a generated test double for agenticjob.AgenticJobAccess: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeAgenticJobAccess struct {
-	CancelAgenticJobFn  func(rc fwra.Context, handle agenticjob.PipelineHandle) error
 	ObserveAgenticJobFn func(rc fwra.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error)
 	SubmitAgenticJobFn  func(rc fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error)
-}
-
-func (f *FakeAgenticJobAccess) CancelAgenticJob(rc fwra.Context, handle agenticjob.PipelineHandle) error {
-	if f.CancelAgenticJobFn == nil {
-		panic("FakeAgenticJobAccess.CancelAgenticJobFn not set")
-	}
-	return f.CancelAgenticJobFn(rc, handle)
 }
 
 func (f *FakeAgenticJobAccess) ObserveAgenticJob(rc fwra.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {

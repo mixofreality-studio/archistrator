@@ -2,11 +2,11 @@
  * The typed UC1 API client (openapi-fetch over the generated schema), and the REST
  * OpsClient over it. This is the sole IO surface of the browser SPA: main.tsx
  * hands `restOps` to <OpsClientProvider>, and every call, the composition routes
- * included, goes through that OpsClient. No hook touches `apiClient`
- * (api/opsSeam.test.ts): a raw call would skip the MCP and fixture transports
+ * included, goes through that OpsClient. No hook touches `apiClient`: a raw call
+ * would skip the MCP and fixture transports
  * too (preview P1b). Error contracts live in `contracts/errors`.
  *
- * The composition-root routes (capabilities, the operated-app id, /api/userinfo)
+ * The composition-root routes (the operated-app id, /api/userinfo)
  * used to be raw fetches here and in utilities/auth/UserContext.tsx. They are now
  * bound in OP_BINDINGS (scripts/composition-routes.mjs), so no request bypasses
  * the OpsClient seam and the preview build's fixture transport can answer all of

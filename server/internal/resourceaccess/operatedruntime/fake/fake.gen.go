@@ -17,7 +17,7 @@ type FakeOperatedRuntimeAccess struct {
 	GetSloStatusFn                func(rc fwra.Context, appID uuid.UUID) (operatedruntime.SloStatus, error)
 	PublishDesiredStateFn         func(rc fwra.Context, appID uuid.UUID, desired operatedruntime.RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error
 	ReadComputeAttributionFn      func(rc fwra.Context, appID uuid.UUID, window operatedruntime.AttributionWindow) (operatedruntime.ComputeAttribution, error)
-	WirePaymentConfigFn           func(rc fwra.Context, deployedAppID uuid.UUID, binding operatedruntime.GatewayBinding, idempotencyKey fwra.IdempotencyKey) error
+	ReadWorkloadTelemetryFn       func(rc fwra.Context, appID uuid.UUID) (operatedruntime.WorkloadTelemetry, error)
 	WithdrawFn                    func(rc fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error
 }
 
@@ -56,11 +56,11 @@ func (f *FakeOperatedRuntimeAccess) ReadComputeAttribution(rc fwra.Context, appI
 	return f.ReadComputeAttributionFn(rc, appID, window)
 }
 
-func (f *FakeOperatedRuntimeAccess) WirePaymentConfig(rc fwra.Context, deployedAppID uuid.UUID, binding operatedruntime.GatewayBinding, idempotencyKey fwra.IdempotencyKey) error {
-	if f.WirePaymentConfigFn == nil {
-		panic("FakeOperatedRuntimeAccess.WirePaymentConfigFn not set")
+func (f *FakeOperatedRuntimeAccess) ReadWorkloadTelemetry(rc fwra.Context, appID uuid.UUID) (operatedruntime.WorkloadTelemetry, error) {
+	if f.ReadWorkloadTelemetryFn == nil {
+		panic("FakeOperatedRuntimeAccess.ReadWorkloadTelemetryFn not set")
 	}
-	return f.WirePaymentConfigFn(rc, deployedAppID, binding, idempotencyKey)
+	return f.ReadWorkloadTelemetryFn(rc, appID)
 }
 
 func (f *FakeOperatedRuntimeAccess) Withdraw(rc fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error {

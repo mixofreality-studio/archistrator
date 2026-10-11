@@ -8,6 +8,8 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -65,12 +67,35 @@ func newPostgresOperatedSystemStateAccess(ctx context.Context, pool *pgxpool.Poo
 // ---------------------------------------------------------------------------
 
 const selectOperatedSystemSQL = `
-SELECT operated_app_id, version, status, in_flight, deployable_bundle_ref
+SELECT operated_app_id, COALESCE(customer_id, '00000000-0000-0000-0000-000000000000'::uuid),
+       version, status, in_flight, deployable_bundle_ref, project_ref,
+       ` + scaleColumns + `
 FROM operated_system
 WHERE operated_app_id = $1`
 
-// ReadOperatedSystem returns the whole head-state for one operated app (§2). A missing
-// row is fwra.NotFound (via the pg error mapper).
+// scaleColumns are the DesiredScale columns, in scanScale's order; scaled_at reads as
+// the zero time until the first publish.
+const scaleColumns = `scale_replicas, scale_min_replicas, scale_max_replicas, scale_target_util_pct, scale_to_zero,
+       COALESCE(scaled_at, '0001-01-01T00:00:00Z'::timestamptz)`
+
+// scaleDest is the Scan destination list for scaleColumns.
+func scaleDest(d *DesiredScale) []any {
+	return []any{&d.Replicas, &d.MinReplicas, &d.MaxReplicas, &d.TargetUtilizationPct, &d.ScaleToZero, &d.ScaledAt}
+}
+
+// normalizeScaledAt reports scaled_at in UTC, and the zero time as Go's zero time.
+func normalizeScaledAt(d *DesiredScale) {
+	if d.ScaledAt.Year() <= 1 {
+		d.ScaledAt = time.Time{}
+		return
+	}
+	d.ScaledAt = d.ScaledAt.UTC()
+}
+
+// ReadOperatedSystem returns the whole head-state for one operated app (§2), including
+// the onboarding columns RegisterOperatedSystem wrote (customer, project, deployable
+// bundle). A row created by a version-0 PublishDesiredState carries no customer, which
+// reads as the zero UUID. A missing row is fwra.NotFound (via the pg error mapper).
 func (s *postgresOperatedSystemStateAccess) ReadOperatedSystem(rc fwra.Context, operatedAppID uuid.UUID) (OperatedSystem, error) {
 	const op = "operatedsystemstate.ReadOperatedSystem"
 	if operatedAppID == uuid.Nil {
@@ -80,12 +105,13 @@ func (s *postgresOperatedSystemStateAccess) ReadOperatedSystem(rc fwra.Context, 
 		out    OperatedSystem
 		status int16
 	)
-	err := s.pool.QueryRow(rc.Context, selectOperatedSystemSQL, operatedAppID).
-		Scan(&out.ID, &out.Version, &status, &out.InFlight, &out.DeployableBundleRef)
-	if err != nil {
+	dest := append([]any{&out.ID, &out.CustomerID, &out.Version, &status, &out.InFlight, &out.DeployableBundleRef, &out.ProjectRef},
+		scaleDest(&out.Scale)...)
+	if err := s.pool.QueryRow(rc.Context, selectOperatedSystemSQL, operatedAppID).Scan(dest...); err != nil {
 		return OperatedSystem{}, fwpg.MapError(err, op)
 	}
 	out.Status = RuntimeStatus(status)
+	normalizeScaledAt(&out.Scale)
 	return out, nil
 }
 
@@ -112,7 +138,7 @@ func (s *postgresOperatedSystemStateAccess) ReadInFlightOperatedApps(rc fwra.Con
 	}
 
 	const q = `
-SELECT operated_app_id, version, status
+SELECT operated_app_id, version, status, ` + scaleColumns + `
 FROM operated_system
 WHERE in_flight
   AND ($1::uuid[] IS NULL OR operated_app_id = ANY($1))
@@ -131,10 +157,11 @@ ORDER BY operated_app_id`
 			sum    OperatedSystemSummary
 			status int16
 		)
-		if scanErr := rows.Scan(&sum.ID, &sum.Version, &status); scanErr != nil {
+		if scanErr := rows.Scan(append([]any{&sum.ID, &sum.Version, &status}, scaleDest(&sum.Scale)...)...); scanErr != nil {
 			return nil, fwpg.MapError(scanErr, op+": scan row")
 		}
 		sum.Status = RuntimeStatus(status)
+		normalizeScaledAt(&sum.Scale)
 		out = append(out, sum)
 	}
 	if rErr := rows.Err(); rErr != nil {
@@ -158,8 +185,8 @@ const existsSQL = `SELECT true FROM operated_system WHERE operated_app_id = $1`
 const insertOperatedSystemSQL = `
 INSERT INTO operated_system
     (operated_app_id, version, status, in_flight, last_reason,
-     decision_action, decision_delta, decision_to_baseline)
-VALUES ($1, 1, $2, true, $3, $4, $5, $6)
+     scale_replicas, scale_min_replicas, scale_max_replicas, scale_target_util_pct, scale_to_zero, scaled_at)
+VALUES ($1, 1, $2, true, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (operated_app_id) DO NOTHING
 RETURNING version`
 
@@ -202,23 +229,30 @@ func (s *postgresOperatedSystemStateAccess) RegisterOperatedSystem(
 	})
 }
 
-// PublishDesiredState records the head-state desired-state transition (§2). With
-// expectedVersion 0 it CREATES the head-state row (version 1, status Pending, in-flight)
-// — the create seam a version-0 caller uses; with a positive expectedVersion it applies a
-// version-guarded republish (in-flight, reason, optional autoscale decision) WITHOUT
-// touching the observed status. Stale expectation ⇒ Conflict; missing app on a positive
-// expectation ⇒ NotFound.
-func (s *postgresOperatedSystemStateAccess) PublishDesiredState(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion Version, reason DesiredStateReason, decision *AutoscaleDecision, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+// PublishDesiredState records the head-state desired-state transition (§2): the reason
+// and the desired scale the publication carried (the server replicas published and the
+// scaling policy they were published under), which the autoscaler reads back as the
+// current desired state. With expectedVersion 0 it CREATES the head-state row (version 1,
+// status Pending, in-flight) — the create seam a version-0 caller uses; with a positive
+// expectedVersion it applies a version-guarded republish (in-flight, reason, scale)
+// WITHOUT touching the observed status. A scale whose replicas fall outside its own
+// [MinReplicas, MaxReplicas] (or below one without ScaleToZero) is ContractMisuse; a
+// stale expectation is Conflict; a missing app on a positive expectation is NotFound.
+func (s *postgresOperatedSystemStateAccess) PublishDesiredState(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion Version, reason DesiredStateReason, scale DesiredScale, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	const op = "operatedsystemstate.PublishDesiredState"
-	var da, dd, db any // NULL unless an autoscale decision is carried
-	if decision != nil {
-		da, dd, db = int(decision.Action), decision.Delta, decision.ToBaseline
+	if err := checkScale(op, scale); err != nil {
+		return 0, err
 	}
+	var scaledAt any
+	if !scale.ScaledAt.IsZero() {
+		scaledAt = scale.ScaledAt.UTC()
+	}
+	args := []any{scale.Replicas, scale.MinReplicas, scale.MaxReplicas, scale.TargetUtilizationPct, scale.ScaleToZero, scaledAt}
 	return s.mutate(rc, op, operatedAppID, idempotencyKey, func(ctx context.Context, tx pgx.Tx) (Version, error) {
 		if expectedVersion == 0 {
 			var v uint64
 			err := tx.QueryRow(ctx, insertOperatedSystemSQL,
-				operatedAppID, int(RuntimeStatusPending), int(reason), da, dd, db).Scan(&v)
+				append([]any{operatedAppID, int(RuntimeStatusPending), int(reason)}, args...)...).Scan(&v)
 			if errors.Is(err, pgx.ErrNoRows) {
 				// A row already exists: a version-0 create expectation is stale.
 				return 0, fwra.New(fwra.Conflict, op+": operated system already exists (expectedVersion 0)")
@@ -231,10 +265,27 @@ func (s *postgresOperatedSystemStateAccess) PublishDesiredState(rc fwra.Context,
 		return s.versionedUpdate(ctx, tx, op, operatedAppID, expectedVersion, `
 UPDATE operated_system
 SET version = version + 1, in_flight = true, last_reason = $3,
-    decision_action = $4, decision_delta = $5, decision_to_baseline = $6, updated_at = now()
+    scale_replicas = $4, scale_min_replicas = $5, scale_max_replicas = $6,
+    scale_target_util_pct = $7, scale_to_zero = $8, scaled_at = $9, updated_at = now()
 WHERE operated_app_id = $1 AND version = $2
-RETURNING version`, operatedAppID, uint64(expectedVersion), int(reason), da, dd, db)
+RETURNING version`, append([]any{operatedAppID, uint64(expectedVersion), int(reason)}, args...)...)
 	})
+}
+
+// checkScale refuses a desired scale that contradicts its own policy: replicas outside
+// [MinReplicas, MaxReplicas], a negative bound, or zero replicas without ScaleToZero.
+func checkScale(op string, d DesiredScale) error {
+	switch {
+	case d.MinReplicas < 0 || d.MaxReplicas < d.MinReplicas:
+		return fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: scale bounds [%d, %d] are not a range", op, d.MinReplicas, d.MaxReplicas))
+	case d.Replicas < d.MinReplicas || d.Replicas > d.MaxReplicas:
+		return fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: scale replicas %d outside [%d, %d]", op, d.Replicas, d.MinReplicas, d.MaxReplicas))
+	case d.Replicas == 0 && !d.ScaleToZero:
+		return fwra.New(fwra.ContractMisuse, op+": zero replicas under a policy that does not scale to zero")
+	case d.TargetUtilizationPct < 0 || d.TargetUtilizationPct > 100:
+		return fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: target utilization %d%% is not a percentage", op, d.TargetUtilizationPct))
+	}
+	return nil
 }
 
 // RecordRuntimeStatusChange records an observed runtime-status transition (§2),
@@ -350,123 +401,6 @@ func (s *postgresOperatedSystemStateAccess) mutate(
 		return 0, fwpg.MapError(cerr, op+": commit")
 	}
 	return newV, nil
-}
-
-// noopOperatedSystemStateAccess is the permanent LOCAL-PROFILE no-op
-// OperatedSystemStateAccess (operational-concepts.md's local environment:
-// "operatedSystemState=no-op" — local-first-init-funnel Task 2b; the init-funnel
-// target has no Postgres, and operations/deploy is a cloud-only, paid-tier concern
-// per the canonical deployment-scenario decision: "Local-first is the free
-// acquisition funnel (design + construction on the user's own subscription); hosted
-// deploy/operate is the paid tier"). It mirrors usage.noopUsageAccess's documented
-// stance: NO persistence. Every read behaves as though no operated app has ever
-// existed (ReadOperatedSystem -> NotFound, matching the real store's own "missing row
-// is NotFound" contract; ReadInFlightOperatedApps -> empty). Every write trivially
-// "succeeds" (a fixed placeholder Version(1), echoing the real store's fresh-create
-// shape) without persisting anything — a write here is not a promise of durability,
-// exactly like usageAccess's dropped RecordComputeUsage batch. Caller-misuse
-// preconditions (zero operatedAppID, empty idempotencyKey) are still enforced
-// identically to the Postgres impl, so callers observe the SAME contract-level errors
-// in both profiles. Do not add any behind this type; a future real local head-state
-// store is a new, separate implementation, not this one grown up (mirrors
-// usage.noopUsageAccess's and revenueledger.noopRevenueLedgerAccess's documented
-// stance).
-type noopOperatedSystemStateAccess struct{}
-
-// NewNoOpOperatedSystemStateAccess returns the permanent no-op OperatedSystemStateAccess
-// for the local profile. It takes no arguments — there is no infrastructure binding
-// (the local deployment binding declares infra: [] for this variant).
-func NewNoOpOperatedSystemStateAccess() OperatedSystemStateAccess {
-	return noopOperatedSystemStateAccess{}
-}
-
-var _ OperatedSystemStateAccess = noopOperatedSystemStateAccess{}
-
-// noopPlaceholderVersion is the fixed Version every no-op write "succeeds" with. It is
-// NOT a real, incrementing head-state version — nothing is persisted to increment — and
-// is chosen to echo the real store's fresh-create shape (a first PublishDesiredState
-// creates version 1) rather than the zero value, which this component's real impl
-// reserves as a caller-misuse marker ("zero expectedVersion for an update").
-const noopPlaceholderVersion Version = 1
-
-// ReadOperatedSystem always reports NotFound — nothing is ever persisted locally, so
-// every operated app "doesn't exist" (mirrors the real store's own missing-row
-// contract, just unconditionally).
-func (noopOperatedSystemStateAccess) ReadOperatedSystem(_ fwra.Context, operatedAppID uuid.UUID) (OperatedSystem, error) {
-	const op = "operatedsystemstate.ReadOperatedSystem"
-	if operatedAppID == uuid.Nil {
-		return OperatedSystem{}, fwra.New(fwra.ContractMisuse, op+": zero operatedAppID")
-	}
-	return OperatedSystem{}, fwra.New(fwra.NotFound, op+": no operated system (local profile: operatedSystemStateAccess is no-op)")
-}
-
-// ReadInFlightOperatedApps always reports no in-flight apps — an empty (non-nil)
-// slice, never NotFound, matching the real store's own empty-result contract.
-func (noopOperatedSystemStateAccess) ReadInFlightOperatedApps(_ fwra.Context, scope InFlightScope) ([]OperatedSystemSummary, error) {
-	const op = "operatedsystemstate.ReadInFlightOperatedApps"
-	if scope.CustomerID != nil && *scope.CustomerID == uuid.Nil {
-		return nil, fwra.New(fwra.ContractMisuse, op+": CustomerID set but zero (use nil for all in-flight apps)")
-	}
-	return []OperatedSystemSummary{}, nil
-}
-
-// RegisterOperatedSystem trivially "succeeds" (local no-op); nothing is persisted, so a
-// subsequent ReadOperatedSystem for the same app still reports NotFound.
-func (noopOperatedSystemStateAccess) RegisterOperatedSystem(_ fwra.Context, operatedAppID uuid.UUID, _ uuid.UUID, _ string, _ string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if err := checkMutateMisuse("operatedsystemstate.RegisterOperatedSystem", operatedAppID, idempotencyKey); err != nil {
-		return 0, err
-	}
-	return noopPlaceholderVersion, nil
-}
-
-// PublishDesiredState trivially "succeeds" (local no-op): nothing is persisted, so a
-// subsequent ReadOperatedSystem for the same app still reports NotFound.
-func (noopOperatedSystemStateAccess) PublishDesiredState(_ fwra.Context, operatedAppID uuid.UUID, _ Version, _ DesiredStateReason, _ *AutoscaleDecision, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if err := checkMutateMisuse("operatedsystemstate.PublishDesiredState", operatedAppID, idempotencyKey); err != nil {
-		return 0, err
-	}
-	return noopPlaceholderVersion, nil
-}
-
-// RecordRuntimeStatusChange trivially "succeeds" (local no-op); nothing is persisted.
-func (noopOperatedSystemStateAccess) RecordRuntimeStatusChange(_ fwra.Context, operatedAppID uuid.UUID, _ Version, _ RuntimeStatus, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if err := checkMutateMisuse("operatedsystemstate.RecordRuntimeStatusChange", operatedAppID, idempotencyKey); err != nil {
-		return 0, err
-	}
-	return noopPlaceholderVersion, nil
-}
-
-// WithdrawSystem trivially "succeeds" (local no-op); nothing is persisted.
-func (noopOperatedSystemStateAccess) WithdrawSystem(_ fwra.Context, operatedAppID uuid.UUID, _ Version, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if err := checkMutateMisuse("operatedsystemstate.WithdrawSystem", operatedAppID, idempotencyKey); err != nil {
-		return 0, err
-	}
-	return noopPlaceholderVersion, nil
-}
-
-// RecordDelinquencyAction trivially "succeeds" (local no-op); nothing is persisted.
-// Unlike the Postgres impl, an unknown DelinquencyAction is NOT distinguished — there
-// is no write to route, so every action (including DelinquencyActionUnknown) shares
-// the same trivial-success reply; the real store's action-routing switch has nothing
-// to bridge to here.
-func (noopOperatedSystemStateAccess) RecordDelinquencyAction(_ fwra.Context, operatedAppID uuid.UUID, _ Version, _ DelinquencyAction, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if err := checkMutateMisuse("operatedsystemstate.RecordDelinquencyAction", operatedAppID, idempotencyKey); err != nil {
-		return 0, err
-	}
-	return noopPlaceholderVersion, nil
-}
-
-// checkMutateMisuse enforces the SAME caller-misuse preconditions the Postgres impl's
-// mutate() applies (zero operatedAppID, empty idempotencyKey) so callers observe
-// identical contract-level errors in both profiles.
-func checkMutateMisuse(op string, operatedAppID uuid.UUID, key fwra.IdempotencyKey) error {
-	if operatedAppID == uuid.Nil {
-		return fwra.New(fwra.ContractMisuse, op+": zero operatedAppID")
-	}
-	if key == "" {
-		return fwra.New(fwra.ContractMisuse, op+": empty idempotencyKey")
-	}
-	return nil
 }
 
 // versionedUpdate runs an UPDATE … WHERE operated_app_id = $1 AND version = $2 …

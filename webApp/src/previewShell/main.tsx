@@ -43,7 +43,6 @@ import '../index.css';
 import App from '../App';
 import { fixtureOpsClient } from '../api/fixtureOps';
 import { OpsClientProvider } from '../api/opsContext';
-import { fetchCapabilities } from '../hooks/useCapabilities';
 import { createAppRouter } from '../routes/router';
 import { PreviewAlarm } from './PreviewAlarm';
 import { PreviewErrorPage } from './PreviewErrorPage';
@@ -77,9 +76,7 @@ if (resolution.kind !== 'ok') {
       raisePreviewIncident({ kind: 'fixture-miss', detail: miss.detail });
     },
   });
-  const router = createAppRouter(createMemoryHistory({ initialEntries: [fixture.route] }), {
-    fetchCapabilities: () => fetchCapabilities(ops),
-  });
+  const router = createAppRouter(createMemoryHistory({ initialEntries: [fixture.route] }));
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { staleTime: 1000 * 30, retry: false, refetchOnWindowFocus: false },

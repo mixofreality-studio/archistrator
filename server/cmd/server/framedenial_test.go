@@ -40,8 +40,10 @@ func TestExtraMounts_DeniesFramingOnEveryResponse(t *testing.T) {
 		// The generated API: a nil validator denies, proving the real generated
 		// auth boundary answered.
 		{http.MethodGet, "/api/v1/systems", http.StatusUnauthorized, "unauthorized"},
+		// Every profile serves the generated operations routes (DCT §12 B16).
+		{http.MethodGet, "/api/v1/operations/query-operated-system-view/x", http.StatusUnauthorized, "unauthorized"},
 		// Composition-root API routes (dev mode injects a principal).
-		{http.MethodGet, "/api/v1/capabilities", http.StatusOK, `"operations"`},
+		{http.MethodGet, "/api/v1/projects/x/operated-app-id", http.StatusOK, `"operatedAppId"`},
 		{http.MethodGet, "/api/userinfo", http.StatusOK, ""},
 		{http.MethodGet, "/healthz", http.StatusOK, `"status":"ok"`},
 		{http.MethodGet, "/readyz", http.StatusOK, `"status":"ok"`},
@@ -59,7 +61,6 @@ func TestExtraMounts_DeniesFramingOnEveryResponse(t *testing.T) {
 			{http.MethodGet, "/project/x/home", http.StatusOK, "spa-shell"},
 			{http.MethodGet, "/assets/app.js", http.StatusOK, "spa-bundle"},
 			{http.MethodGet, "/favicon.ico", http.StatusOK, "ico-bytes"},
-			{http.MethodGet, "/api/v1/operations/query-operated-system-view/x", http.StatusNotFound, ""},
 		}, common...)},
 		{"cloud profile (API only)", false, append([]probe{
 			{http.MethodGet, "/", http.StatusNotFound, ""},

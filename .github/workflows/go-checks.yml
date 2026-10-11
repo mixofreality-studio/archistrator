@@ -95,6 +95,11 @@ jobs:
         with:
           version: v2.12
 
+      # -p 1: every package's scenario host serves the one persistent Temporal
+      # SQLite file (.temporal/aiarch-test.db) and ends, at boot, whatever it finds
+      # running there — packages run one at a time against it (server/Makefile `test`).
+      # -timeout 90m: one scenario package outlasts go test's 10m default
+      # (server/Makefile GO_TEST_TIMEOUT).
       - name: Test
         if: steps.gomod.outputs.present == 'true'
-        run: go test ./...
+        run: go test -p 1 -timeout 90m ./...

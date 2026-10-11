@@ -25,11 +25,14 @@ const (
 
 type CommitRef string
 
-type Installation string
-
 type ManagedFile struct {
 	Path    string `json:"Path"`
 	Content []byte `json:"Content"`
+}
+
+type ManagedFileRead struct {
+	Content []byte `json:"Content"`
+	Found   bool   `json:"Found"`
 }
 
 type MergeResult struct {
@@ -86,15 +89,14 @@ const (
 type SourceControlAccess interface {
 	AdoptProjectRepo(rc fwra.Context, spec RepoAdoptionSpec) (RepoRef, error)
 	CommitManagedFiles(rc fwra.Context, repo RepoRef, files []ManagedFile, cred RepoCredential) (CommitRef, error)
-	ConfigureBranchProtection(rc fwra.Context, repo RepoRef, cred RepoCredential) error
 	GetInstallationToken(rc fwra.Context, repo RepoRef) (RepoCredential, error)
 	GetPullRequestStatus(rc fwra.Context, repo RepoRef, pr PullRequestRef, cred RepoCredential) (PullRequestStatus, error)
-	InstallAuthorizeApp(rc fwra.Context, account AccountRef) (Installation, error)
 	MergePullRequest(rc fwra.Context, repo RepoRef, pr PullRequestRef, cred RepoCredential) (MergeResult, error)
 	OpenBranch(rc fwra.Context, repo RepoRef, branch BranchName, cred RepoCredential) (BranchRef, error)
 	OpenPullRequest(rc fwra.Context, repo RepoRef, spec PullRequestSpec, cred RepoCredential) (PullRequestRef, error)
 	PostReview(rc fwra.Context, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential) error
 	SyncManagedScaffold(rc fwra.Context, repo RepoRef, cred RepoCredential) (bool, error)
+	ReadManagedFile(rc fwra.Context, repo RepoRef, path string, cred RepoCredential) (ManagedFileRead, error)
 }
 
 // NewGitHubSourceControlAccess constructs the GitHub-backed SourceControlAccess, delegating to the hand-written,

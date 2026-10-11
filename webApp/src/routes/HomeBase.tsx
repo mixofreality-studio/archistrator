@@ -33,16 +33,14 @@ import { StaleBasisMarker } from '../components/design/StaleBasisChip';
 import { ApiError } from '../contracts/errors';
 import { useDesignHealth } from '../hooks/useDeliveryQueries';
 import { useProject } from '../hooks/useDeliveryQueries';
-import { useCapabilities } from '../hooks/useCapabilities';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
-import { operationsEnabled } from '../utilities/capabilities';
 import { useSetProjectExecutionPolicy, useStartProject } from '../hooks/useDeliveryMutations';
 import { useUser } from '../utilities/auth/UserContext';
 import { currentPhaseOf, toArtifactTableOfContents } from '../contracts/adapters';
 import type { ProjectStateWithGit } from '../contracts/types';
 import { PHASE1_ORDER } from '../contracts/methodMetadata';
-import { PLAN_PATH, planSearch } from '../contracts/routePaths';
+import { PLAN_PATH, planSearch, STATE_HISTORY_PATH } from '../contracts/routePaths';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
@@ -216,14 +214,11 @@ function HomeBaseBody({
   const { data: designHealth } = useDesignHealth(projectId);
   // The ArtifactPane's Architecture Deployment lens' live health tint (see
   // DeploymentHealthProvider below) — the same dormant-by-default arrangement the
-  // two design containers use: nothing fires unless the operations capability is
-  // on (D9) and the derived operated-app id has landed, and an absent overlay
+  // two design containers use: nothing fires until the derived operated-app id has
+  // landed, and an absent overlay
   // renders the diagram untinted, never red.
   const operatedAppId = useOperatedAppId(projectId);
-  const { data: deploymentHealth } = useDeploymentHealth(
-    operatedAppId ?? '',
-    operationsEnabled(useCapabilities())
-  );
+  const { data: deploymentHealth } = useDeploymentHealth(operatedAppId ?? '');
 
   // SYSTEM-DESIGN ONLY — the Phase-1 artifacts still in the drafting sequence
   // (PHASE1_ORDER), in Method order. The retired-in-place kinds are filtered out by
@@ -286,10 +281,7 @@ function HomeBaseBody({
           the same fact the top-right button already names — so the card says
           where the project is and opens the one surface that shows it. */}
       <Box sx={{ mb: 3, mt: 3 }}>
-        <Paper
-          data-testid={UI_IDENTIFIERS.HomeBase.OPEN_PLAN}
-          sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}
-        >
+        <Paper sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
             <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.muted }}>
               {`PHASE ${String(currentPhase.index)} · ${currentPhase.title.toUpperCase()}`}
@@ -301,8 +293,24 @@ function HomeBaseBody({
               {currentPhase.subtitle}
             </Typography>
           </Box>
-          <Button endIcon={<ArrowForwardIcon />} variant="outlined" onClick={openPlan}>
+          {/* The id names the ACTION (open the plan), so it sits on the control that
+              performs it — a click on the card's body opens nothing. */}
+          <Button
+            data-testid={UI_IDENTIFIERS.HomeBase.OPEN_PLAN}
+            endIcon={<ArrowForwardIcon />}
+            variant="outlined"
+            onClick={openPlan}
+          >
             Open plan
+          </Button>
+          {/* The project's recorded changes (use case view-the-project-state-log). */}
+          <Button
+            data-testid={UI_IDENTIFIERS.HomeBase.OPEN_STATE_HISTORY}
+            sx={{ color: t.muted }}
+            variant="text"
+            onClick={() => void navigate({ to: STATE_HISTORY_PATH, params: { projectId } })}
+          >
+            State history
           </Button>
         </Paper>
       </Box>

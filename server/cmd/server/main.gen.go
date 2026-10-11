@@ -3,7 +3,7 @@
 package main
 
 // Web-exposed managers are DRIVER-CONFIGURED (Config.WebExposedManagers),
-// NOT derived from System relationships: deliveryManager, operationsManager.
+// NOT derived from System relationships: billingManager, deliveryManager, operationsManager.
 
 import (
 	"context"
@@ -22,10 +22,12 @@ import (
 	security "github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	telemetry "github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/telemetry"
 	web "github.com/mixofreality-studio/archistrator/server/internal/client/web"
+	billingweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/billing"
 	deliveryweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/delivery"
 	operationsweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	enginebilling "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
@@ -59,6 +61,7 @@ const serviceName = "archistrator-server"
 // WebManagers is the typed bundle of web-exposed managers the composition
 // root threads through the logging wrap and into the transports.
 type WebManagers struct {
+	BillingManager    managerbilling.BillingManager
 	DeliveryManager   delivery.DeliveryManager
 	OperationsManager operations.OperationsManager
 }
@@ -119,19 +122,7 @@ type Hooks interface {
 	// arguments the deployment model cannot express (composition-root ports /
 	// typed values). Read from cfg; the returned tuple is spread into the
 	// generated variant constructor call.
-	ArtifactAccessGitHubCloudArgs(cfg *Config) (string, string, string, string, string, int64)
-
-	// ConstructionTransitionAccessGitHubArgs supplies the constructionTransitionAccess GitHub variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	ConstructionTransitionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter)
-
-	// ConstructionTransitionAccessGitLocalArgs supplies the constructionTransitionAccess GitLocal variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	ConstructionTransitionAccessGitLocalArgs(cfg *Config) string
+	ArtifactAccessGitHubCloudArgs(cfg *Config) (*github.AppClient, string, string, int64)
 
 	// DesignSessionAccessGitHubArgs supplies the designSessionAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
@@ -211,12 +202,6 @@ type Hooks interface {
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeBillingStateAccess(cfg *Config, v billingstate.BillingStateAccess) billingstate.BillingStateAccess
 
-	// FinalizeConstructionTransitionAccess is called immediately after constructionTransitionAccess's construction
-	// (presence required). Return v unchanged unless
-	// composition policy needs to swap or wrap it (e.g. a construction
-	// dry-run stub swap-in) — the identity implementation is always correct.
-	FinalizeConstructionTransitionAccess(cfg *Config, v projectstate.ConstructionTransitionAccess) projectstate.ConstructionTransitionAccess
-
 	// FinalizeDesignSessionAccess is called immediately after designSessionAccess's construction
 	// (presence required). Return v unchanged unless
 	// composition policy needs to swap or wrap it (e.g. a construction
@@ -264,12 +249,6 @@ type Hooks interface {
 	// composition policy needs to swap or wrap it (e.g. a construction
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeProjectStateAccess(cfg *Config, v projectstate.ProjectStateAccess) projectstate.ProjectStateAccess
-
-	// FinalizeRevenueLedgerAccess is called immediately after revenueLedgerAccess's construction
-	// (presence required). Return v unchanged unless
-	// composition policy needs to swap or wrap it (e.g. a construction
-	// dry-run stub swap-in) — the identity implementation is always correct.
-	FinalizeRevenueLedgerAccess(cfg *Config, v billingstate.RevenueLedgerAccess) billingstate.RevenueLedgerAccess
 
 	// FinalizeSourceControlAccess is called immediately after sourceControlAccess's construction
 	// (presence optional-dormant). Return v unchanged unless
@@ -373,7 +352,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	// Gated on the resolved profile: infra["postgres"].profiles does not
 	// cover every profile, so profiles outside it never dial it.
 	var pool *pgxpool.Pool
-	if profile == "cloud" {
+	if profile == "cloud" || profile == "local" {
 		var err error
 		pool, err = postgresinfra.NewPool(ctx, cfg.PostgresURL)
 		if err != nil {
@@ -424,25 +403,26 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		logger.Info("artifactAccess (GitLocal) ready")
 	}
 	artifactAccess = hooks.FinalizeArtifactAccess(cfg, artifactAccess)
-	billingStateAccess := billingstate.NewBillingStateAccess()
-	logger.Info("billingStateAccess (stub) ready")
-	billingStateAccess = hooks.FinalizeBillingStateAccess(cfg, billingStateAccess)
-	var constructionTransitionAccess projectstate.ConstructionTransitionAccess
+	var billingStateAccess billingstate.BillingStateAccess
 	switch profile {
 	case "cloud":
-		v, err := projectstate.NewGitHubConstructionTransitionAccess(hooks.ConstructionTransitionAccessGitHubArgs(cfg))
+		v, err := billingstate.NewPostgresBillingStateAccess(ctx, pool)
 		if err != nil {
 			return err
 		}
-		constructionTransitionAccess = v
-		logger.Info("constructionTransitionAccess (GitHub) ready")
+		billingStateAccess = v
+		logger.Info("billingStateAccess (Postgres) ready")
 	case "local":
-		constructionTransitionAccess = projectstate.NewGitLocalConstructionTransitionAccess(hooks.ConstructionTransitionAccessGitLocalArgs(cfg))
-		logger.Info("constructionTransitionAccess (GitLocal) ready")
+		v, err := billingstate.NewPostgresBillingStateAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		billingStateAccess = v
+		logger.Info("billingStateAccess (Postgres) ready")
 	default:
-		return errors.New("constructionTransitionAccess: no ResourceAccess variant for the active profile")
+		return errors.New("billingStateAccess: no ResourceAccess variant for the active profile")
 	}
-	constructionTransitionAccess = hooks.FinalizeConstructionTransitionAccess(cfg, constructionTransitionAccess)
+	billingStateAccess = hooks.FinalizeBillingStateAccess(cfg, billingStateAccess)
 	var designSessionAccess projectstate.DesignSessionAccess
 	switch profile {
 	case "cloud":
@@ -487,8 +467,25 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return errors.New("gitActivityStatusAccess: no ResourceAccess variant for the active profile")
 	}
 	gitActivityStatusAccess = hooks.FinalizeGitActivityStatusAccess(cfg, gitActivityStatusAccess)
-	merchantGatewayAccess := merchantgateway.NewMerchantGatewayAccess()
-	logger.Info("merchantGatewayAccess (stub) ready")
+	var merchantGatewayAccess merchantgateway.MerchantGatewayAccess
+	switch profile {
+	case "cloud":
+		v, err := merchantgateway.NewPostgresMerchantGatewayAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		merchantGatewayAccess = v
+		logger.Info("merchantGatewayAccess (Postgres) ready")
+	case "local":
+		v, err := merchantgateway.NewPostgresMerchantGatewayAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		merchantGatewayAccess = v
+		logger.Info("merchantGatewayAccess (Postgres) ready")
+	default:
+		return errors.New("merchantGatewayAccess: no ResourceAccess variant for the active profile")
+	}
 	merchantGatewayAccess = hooks.FinalizeMerchantGatewayAccess(cfg, merchantGatewayAccess)
 	var messageBus messagebus.MessageBus
 	switch profile {
@@ -524,8 +521,12 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		operatedSystemStateAccess = v
 		logger.Info("operatedSystemStateAccess (Postgres) ready")
 	case "local":
-		operatedSystemStateAccess = operatedsystemstate.NewNoOpOperatedSystemStateAccess()
-		logger.Info("operatedSystemStateAccess (NoOp) ready")
+		v, err := operatedsystemstate.NewPostgresOperatedSystemStateAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		operatedSystemStateAccess = v
+		logger.Info("operatedSystemStateAccess (Postgres) ready")
 	default:
 		return errors.New("operatedSystemStateAccess: no ResourceAccess variant for the active profile")
 	}
@@ -546,9 +547,6 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return errors.New("projectStateAccess: no ResourceAccess variant for the active profile")
 	}
 	projectStateAccess = hooks.FinalizeProjectStateAccess(cfg, projectStateAccess)
-	revenueLedgerAccess := billingstate.NewRevenueLedgerAccess()
-	logger.Info("revenueLedgerAccess (stub) ready")
-	revenueLedgerAccess = hooks.FinalizeRevenueLedgerAccess(cfg, revenueLedgerAccess)
 	var sourceControlAccess sourcecontrol.SourceControlAccess
 	switch profile {
 	case "cloud":
@@ -573,8 +571,12 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		usageAccess = v
 		logger.Info("usageAccess (Postgres) ready")
 	case "local":
-		usageAccess = usage.NewNoOpUsageAccess()
-		logger.Info("usageAccess (NoOp) ready")
+		v, err := usage.NewPostgresUsageAccess(ctx, pool)
+		if err != nil {
+			return err
+		}
+		usageAccess = v
+		logger.Info("usageAccess (Postgres) ready")
 	default:
 		return errors.New("usageAccess: no ResourceAccess variant for the active profile")
 	}
@@ -583,13 +585,14 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	// Engines — pure, deterministic, dependency-free.
 	autoscalerEngine := autoscaler.NewAutoscalerEngine()
 	billingEngine := enginebilling.NewBillingEngine()
+	designHealthEngine := designhealth.NewDesignHealthEngine()
 	estimationEngine := estimation.NewEstimationEngine()
 	interventionEngine := intervention.NewInterventionEngine()
 	operationEstimationEngine := operationestimation.NewOperationEstimationEngine()
 	reviewEngine := review.NewReviewEngine()
 
 	// Managers — generated DI constructors + one embedded Worker each.
-	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, messageBus, billingEngine, interventionEngine, revenueLedgerAccess)
+	billingManager := managerbilling.NewBillingManager(tc, billingStateAccess, usageAccess, merchantGatewayAccess, messageBus, billingEngine, interventionEngine, projectStateAccess)
 	wBillingManager := worker.New(tc, managerbilling.TaskQueue, worker.Options{})
 	managerbilling.RegisterManagerWorker(wBillingManager, billingManager)
 	if err := wBillingManager.Start(); err != nil {
@@ -601,7 +604,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("billingManager Temporal Schedules registered")
-	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, hooks.DeliveryManagerEscalationWaitTimeout(), hooks.DeliveryManagerInterventionMode(), hooks.DeliveryManagerRepo(), hooks.DeliveryManagerRepoBase())
+	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, designHealthEngine, agenticJobAccess, sourceControlAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, hooks.DeliveryManagerEscalationWaitTimeout(), hooks.DeliveryManagerInterventionMode(), hooks.DeliveryManagerRepo(), hooks.DeliveryManagerRepoBase())
 	if hooks.RegisterDeliveryManagerWorker(cfg) {
 		wDeliveryManager := worker.New(tc, delivery.TaskQueue, worker.Options{})
 		delivery.RegisterManagerWorker(wDeliveryManager, deliveryManager)
@@ -643,12 +646,14 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	dev := hooks.DevConfig(cfg)
 
 	webManagers := WebManagers{
+		BillingManager:    billingManager,
 		DeliveryManager:   deliveryManager,
 		OperationsManager: operationsManager,
 	}
 	webManagers = hooks.WrapManagers(webManagers)
 
 	genServer := web.NewServer(dev, validator,
+		&billingweb.Handler{Manager: webManagers.BillingManager, Security: sec},
 		&deliveryweb.Handler{Manager: webManagers.DeliveryManager, Security: sec},
 		&operationsweb.Handler{Manager: webManagers.OperationsManager, Security: sec},
 	)

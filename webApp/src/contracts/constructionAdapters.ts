@@ -174,18 +174,16 @@ export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus
  *
  *   1. constructionRowFor(id) — PRIMARY: the per-activity construction head-state
  *      aggregate (integrated / in-review / in-construction / failed). When present this
- *      WINS over all other sources except the live session override (see §3) — unless
+ *      WINS over all other sources except the live session override (see §2) — unless
  *      the row asserts no status at all (classified with no build evidence), in which
- *      case it is skipped and §4 answers instead.
- *   2. gitFor(id)?.merged === true — SECONDARY/COMPATIBLE: the PR landing on main
- *      is also treated as integrated. Used when constructionRowFor returns nothing.
- *   3. liveActiveStatus — the ONE activity currently in-flight (from the session).
+ *      case it is skipped and §3 answers instead.
+ *   2. liveActiveStatus — the ONE activity currently in-flight (from the session).
  *      Applies only when the pump is live and overrides even the constructionRow for
  *      that activity (the pump is the ground truth while running).
- *   4. eligible / blocked — derived from the predecessor graph. Crucially, the
- *      "done" set used for eligibility cascade is the UNION of constructionRows-
- *      integrated + git-merged, so eligibility propagates correctly off the real
- *      integrated set (not just the git-merged subset).
+ *   3. eligible / blocked — derived from the predecessor graph off the integrated set.
+ *
+ * The construction row is the SINGLE source of "integrated" (dct4 deleted the git row's
+ * Merged mirror and the secondary fallback that read it).
  *
  * The map contains every activity id that appears in the network's dependency
  * rows (as `activity` or inside any `dependsOn` array), EXCLUDING milestone ids
@@ -199,13 +197,11 @@ export function buildStatusForConstructionRow(row: ConstructionRow): BuildStatus
  * see that function for the recursive-satisfaction rule, which mirrors the
  * server's resolveDependencySatisfied.
  *
- * When `constructionRowFor` is undefined (no construction data at all), behaviour
- * is identical to the pre-constructionRows derivation (git-merged → integrated,
- * network-derived eligible/blocked).
+ * When `constructionRowFor` is undefined (no construction data at all), nothing is
+ * integrated and the network-derived eligible/blocked statuses answer alone.
  */
 export function computeActivityStatuses(
   network: NetworkModel,
-  gitFor: (id: string) => { merged: boolean } | undefined,
   liveActiveId: string | undefined,
   liveActiveStatus: BuildStatus,
   constructionRowFor?: (id: string) => ConstructionRow | undefined
@@ -237,16 +233,11 @@ export function computeActivityStatuses(
     }
   }
 
-  // Pass 1: compute the done (integrated) set.
-  // Primary source: constructionRows with status === 'integrated'.
-  // Secondary source: git merged PR.
-  // Both contribute to the "done" set used for eligibility cascade.
+  // Pass 1: compute the done (integrated) set — the construction rows that say so.
   const done = new Set<string>();
   for (const id of allIds) {
     const constructionRow = constructionRowFor !== undefined ? constructionRowFor(id) : undefined;
     if (constructionRow?.status === 'integrated') {
-      done.add(id);
-    } else if (gitFor(id)?.merged === true) {
       done.add(id);
     }
   }
@@ -255,7 +246,7 @@ export function computeActivityStatuses(
   const result = new Map<string, BuildStatus>();
   for (const id of allIds) {
     if (done.has(id)) {
-      // integrated — either constructionRows or git-merged
+      // integrated — the construction row says so
       result.set(id, 'integrated');
     } else if (liveActiveId !== undefined && id === liveActiveId) {
       // Live session override: the pump is actively supervising this activity.

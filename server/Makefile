@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-lifecycles gen-lifecycles-check claude-assets derived-plan-check derived-plan-write construction-state-reset
+.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-config gen-config-check gen-lifecycles gen-lifecycles-check gen-tests gen-tests-check test-scenarios claude-assets derived-plan-check derived-plan-write construction-state-reset
 
 # claude-assets — materialize the .claude method prompt surface (agents/commands/
 # skills) into the repo root from the method-assets lib pinned in go.mod. The
@@ -23,6 +23,7 @@ claude-assets:
 #                 (<goPackage>/fake/fake.gen.go). Alias of gen-models — same
 #                 cmd/modelgen run emits both outputs.
 #   gen         — steady-state regen (idempotent); gen-models + gen-fakes + …
+#                 + gen-tests (the scenario tests; Makefile.scenarios.mk)
 gen-models:
 	GOWORK=off go run ./cmd/modelgen
 
@@ -78,63 +79,49 @@ gen-internal-tools:
 gen-internal-tools-check: gen-internal-tools
 	git diff --exit-code -- internal/resourceaccess/projectstate/toolcatalog.gen.go
 
-gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-sdk gen-config gen-lifecycles
+gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-config gen-lifecycles gen-tests
 
 # gen-temporal — ONE appgen run (cmd/appgen, driving framework-go-app-generator's
-# temporalgen + transportgen + configgen) that emits, from a single project.json
+# temporalgen + configgen + composegen) that emits, from a single project.json
 # read:
 #   1. the per-manager Temporal layer (activities/invokers/worker .gen.go) for
 #      the 5 managers,
-#   2. the stdlib-only client SDK into ../systemtests/internal/sdk (gen-sdk),
-#   3. the archistrator-server container config (cmd/server/config.gen.go) + the
-#      systemtests harness env-name consts (gen-config).
-# gen-sdk and gen-config are therefore ALIASES sharing this prerequisite rather
+#   2. the archistrator-server container config (cmd/server/config.gen.go)
+#      (gen-config),
+#   3. the archistrator-server composition root (cmd/server/main.gen.go)
+#      (gen-main).
+# gen-config and gen-main are therefore ALIASES sharing this prerequisite rather
 # than invoking appgen again; the three -check targets keep their distinct diff
 # scopes. Release-backed and GOWORK=off like the other gen targets:
 # framework-go-app-generator + framework-go-projectmodel are published platform
 # tags pinned in go.mod, so cmd/appgen builds from the module cache with no
 # build tag and no ../archistrator-platform workspace checkout. Folded into the
 # `gen` aggregate so `make gen` regenerates the whole codegen surface.
+# (The stdlib-only client SDK appgen once emitted into a sibling systemtests
+# module went with that module — deterministic component testing, spec §7.)
 gen-temporal:
 	GOWORK=off go run ./cmd/appgen
 
 # gen-temporal-check — drift gate for the generated Temporal layer, same shape
-# as systemtests' `gen-check` (regenerate, then fail on any diff). Now
+# as the other gen-*-check gates (regenerate, then fail on any diff). Now
 # GOWORK=off-safe (see gen-temporal above), so it runs in CI (server-checks.yml).
 gen-temporal-check: gen-temporal
 	git diff --exit-code -- 'internal/manager/**/*.gen.go'
 
-# gen-sdk — the generated client SDK (cmd/appgen, driving
-# framework-go-app-generator/transportgen): a self-contained, stdlib-only Go
-# client (HTTP + MCP) for the 5 managers, emitted into the SIBLING systemtests
-# module at ../systemtests/internal/sdk with prune-stale + content-hash
-# discipline. cmd/appgen emits it in the SAME run as the Temporal layer (one
-# project.json read), so gen-sdk shares the gen-temporal prerequisite rather
-# than invoking appgen a second time.
-gen-sdk: gen-temporal
-
-# gen-sdk-check — drift gate for the generated SDK in the sibling systemtests
-# module, same regenerate-then-diff shape as the other gen-*-check gates. The
-# path is repo-relative so `git diff` works from the server working directory
-# (server-checks.yml).
-gen-sdk-check: gen-temporal
-	git diff --exit-code -- ../systemtests/internal/sdk
-
 # gen-config — the archistrator-server container config (cmd/server/config.gen.go)
-# + the systemtests harness env-name consts (../systemtests/internal/harness/
-# envnames.gen.go) from project.json's deployment model (cmd/appgen, driving the
-# published framework-go-app-generator/configgen — v0.4.0 shipped it, so the
-# former workspace-only cmd/configgen bridge is folded into cmd/appgen tag-free
-# and this is GOWORK=off like every other gen target). cmd/appgen emits it in the
-# SAME run as the Temporal layer (one project.json read), so gen-config shares
-# the gen-temporal prerequisite rather than invoking appgen a second time.
+# from project.json's deployment model (cmd/appgen, driving the published
+# framework-go-app-generator/configgen — v0.4.0 shipped it, so the former
+# workspace-only cmd/configgen bridge is folded into cmd/appgen tag-free and this
+# is GOWORK=off like every other gen target). cmd/appgen emits it in the SAME run
+# as the Temporal layer (one project.json read), so gen-config shares the
+# gen-temporal prerequisite rather than invoking appgen a second time.
 gen-config: gen-temporal
 
-# gen-config-check — drift gate for the generated config + harness env-names,
-# same regenerate-then-diff shape as the other gen-*-check gates. GOWORK=off-safe
+# gen-config-check — drift gate for the generated config, same
+# regenerate-then-diff shape as the other gen-*-check gates. GOWORK=off-safe
 # (see gen-config), so it runs in CI (server-checks.yml).
 gen-config-check: gen-temporal
-	git diff --exit-code -- cmd/server/config.gen.go ../systemtests/internal/harness/envnames.gen.go
+	git diff --exit-code -- cmd/server/config.gen.go
 
 # gen-main — the archistrator-server composition root (cmd/server/main.gen.go)
 # from project.json's deployment model + service contracts (cmd/appgen, driving
@@ -174,15 +161,31 @@ gen-lifecycles-check: gen-lifecycles
 # Depends on claude-assets: several tests read the .claude prompt surface, which
 # is materialized from the method-assets lib (not vendored), so it must be
 # present before the suite runs.
+# -p 1: every scenario package's TestMain boots the scenario host, whose Temporal
+# dev server (framework-go-infrastructure-temporal testinfra.StartDevServer) opens
+# ONE fixed SQLite file, .temporal/aiarch-test.db. Two test binaries running at
+# once both open it and one dies with SQLITE_BUSY ("database is locked") before
+# any scenario runs, so packages must run one at a time. Measured 2026-10-04 with
+# 16 scenario packages: parallel = 88 of 158 scenarios red, -p 1 = all green, the
+# whole -short suite in ~2.5 min.
+# GO_TEST_TIMEOUT: go test's per-binary default (10m) is shorter than one scenario
+# package takes. Measured 2026-10-11 on the integrated head: deliveryManager's 37
+# scenarios and mcpClient's 37 (internal/client/mcp/delivery, 51m alone) each panic
+# with "test timed out after 10m0s" mid-suite, so `make test-scenarios` went red
+# with no scenario failing. The bound covers the slowest package with headroom; it
+# relaxes no assertion.
+GO_TEST_TIMEOUT ?= 90m
+
 test: claude-assets
-	GOWORK=off go test ./...
+	GOWORK=off go test -p 1 -timeout $(GO_TEST_TIMEOUT) ./...
 
 # CI quality gate. `-short` makes the model-gated integration tests' TestMain
 # skip (they require a live Ollama worker); everything else — including the
 # fake-backed workflow gating tests — still runs. Depends on claude-assets (see
 # `test`): the prompt-surface tests need the materialized .claude tree.
+# -p 1: see `test`.
 test-short: claude-assets
-	GOWORK=off go test -short ./...
+	GOWORK=off go test -short -p 1 -timeout $(GO_TEST_TIMEOUT) ./...
 
 fmt:
 	gofmt -w .
@@ -222,9 +225,12 @@ sumtype-check:
 # (../.aiarch/state/project.json), so a green run would otherwise cache and a
 # later project.json edit would never re-run. This is the FULL gate — layer
 # rules + design rules + alignment/conformance — and it is CI-enforced (see
-# the "Method conformance gate" step in server-checks.yml).
+# the "Method conformance gate" step in server-checks.yml). It also runs the
+# app-side activity-record rules (REC-*, cmd/aiarch-state-mcp/activityrecords.go,
+# TestMethodActivityRecords): the activity execution ledger against what this
+# checkout has built and the TestRuns it recorded.
 method-check:
-	GOWORK=off go test -tags methoddesign ./internal/... -run TestMethod -count=1 -v
+	GOWORK=off go test -tags methoddesign ./internal/... ./cmd/aiarch-state-mcp/ -run TestMethod -count=1 -v
 
 # ENCAPSULATION GATE. Enforces that the ONLY exported symbols in the
 # engine/resourceaccess/manager packages are the generated contract surface
@@ -276,3 +282,8 @@ derived-plan-write:
 # activities it no longer holds.
 construction-state-reset:
 	CONSTRUCTION_STATE_RESET=1 GOWORK=off go test $(DERIVED_PLAN_PKG) -run '^TestResetConstructionState$$' -count=1 -v
+
+# gen-tests / gen-tests-check / test-scenarios: the generated per-component
+# scenario tests (deterministic component testing, spec 2026-10-02 §4.3, §5.3).
+# Included LAST so none of its targets becomes the default goal.
+include Makefile.scenarios.mk

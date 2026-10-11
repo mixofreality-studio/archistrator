@@ -1,9 +1,11 @@
 /**
  * A React-Flow node for the activity diagrams. Renders a real UML shape per kind:
  * start = filled dot, end = ringed final node, action/loop/goto/interruptEdge/
- * acceptEvent = rounded card (acceptEvent notched into a flag), decision/switch =
- * diamond, merge = smaller diamond, fork/join = synchronization bar, note =
- * sticky note, timeEvent = hourglass. Lane-colored. Selecting a node reveals
+ * acceptEvent = rounded card (acceptEvent notched into a flag), sendSignal =
+ * the flag pointing OUT (convex right edge), objectNode = a square card with
+ * its `[state]` under the label, decision/switch = diamond, merge = smaller
+ * diamond, fork/join = synchronization bar, note = sticky note, timeEvent =
+ * hourglass. Lane-colored. Selecting a node reveals
  * a toolbar that arms an activity-node comment anchor
  * (`$.decisions[uc].useCase.activity.nodes[id=…]`).
  */
@@ -24,6 +26,8 @@ export interface ActivityNodeData {
   label: string;
   lane: string;
   kind: ActivityNodeKind;
+  /** An objectNode's `[state]` (spec §2.2); absent for every other kind. */
+  inState?: string;
   color: string;
   source: string;
   jsonPath: string;
@@ -215,10 +219,22 @@ function Hourglass(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode
   );
 }
 
-function Pentagon(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
+function Pentagon(
+  t: Tokens,
+  d: ActivityNodeData,
+  selected: boolean,
+  variant: 'accept' | 'send' = 'accept'
+): ReactNode {
   const dim = NODE_DIMS.acceptEvent;
-  // Concave "flag" left edge — a notch pointing in at mid-height.
-  const clip = 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 18px 50%)';
+  // accept: concave "flag" left edge — a notch pointing in at mid-height.
+  // send:   the UML send-signal glyph — the right edge comes to a point.
+  const clip =
+    variant === 'accept'
+      ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 18px 50%)'
+      : 'polygon(0 0, calc(100% - 18px) 0, 100% 50%, calc(100% - 18px) 100%, 0 100%)';
+  // The label clears the notch (accept) or the point (send).
+  const pl = variant === 'accept' ? '26px' : 1.75;
+  const pr = variant === 'accept' ? 1.75 : '26px';
   return (
     <Box sx={{ position: 'relative' }}>
       {selected ? (
@@ -235,8 +251,8 @@ function Pentagon(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode 
           m: '3px',
           width: dim.w - 6,
           minHeight: dim.h - 6,
-          pl: '26px',
-          pr: 1.75,
+          pl,
+          pr,
           py: 1.1,
           display: 'flex',
           alignItems: 'center',
@@ -253,6 +269,42 @@ function Pentagon(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode 
             {d.lane}
           </Typography>
         </Box>
+      </Box>
+    </Box>
+  );
+}
+
+/** An object node: a SQUARE-cornered card (UML's object rectangle) with its
+ *  `[state]` beneath the label — the expected state a scenario proves. */
+function ObjectCard(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
+  return (
+    <Box
+      sx={{
+        width: NODE_DIMS.objectNode.w,
+        minHeight: NODE_DIMS.objectNode.h,
+        px: 1.75,
+        py: 1.1,
+        display: 'flex',
+        alignItems: 'center',
+        bgcolor: t.paper,
+        color: t.ink,
+        border: `1.5px solid ${selected ? t.accent : d.color}`,
+        borderRadius: 0,
+        boxShadow: selected ? `0 0 0 2px ${t.accent}` : 'none',
+      }}
+    >
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontFamily: t.body, fontWeight: 600, fontSize: 13, lineHeight: 1.25 }}>
+          {d.label}
+        </Typography>
+        {d.inState !== undefined && d.inState.length > 0 ? (
+          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink, opacity: 0.9 }}>
+            {d.inState}
+          </Typography>
+        ) : null}
+        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, opacity: 0.85 }}>
+          {d.lane}
+        </Typography>
       </Box>
     </Box>
   );
@@ -339,6 +391,12 @@ export function ActivityNode({ data, selected }: NodeProps): ReactNode {
       break;
     case 'acceptEvent':
       shape = Pentagon(t, d, isSelected);
+      break;
+    case 'sendSignal':
+      shape = Pentagon(t, d, isSelected, 'send');
+      break;
+    case 'objectNode':
+      shape = ObjectCard(t, d, isSelected);
       break;
     case 'action':
     case 'loop':

@@ -42,6 +42,7 @@ import (
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 )
 
@@ -310,15 +311,6 @@ func (s *GitStore) ReconcileBranchFromMain(ctx context.Context, projectID Projec
 	})
 }
 
-// CommitArtifact flips a reviewed slot to Committed on main, without PM-P2-4
-// provenance (the provenance-carrying variant is CommitArtifactWithProvenance).
-func (s *GitStore) CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	// commitTransition (F38) flips to Committed AND bumps Revisions + clears this slot's
-	// StaleBasis + flags downstream committed slots stale — all in one atomic commit on main.
-	// nil prov: this plain path records no PM-P2-4 provenance.
-	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, nil))
-}
-
 // CommitArtifactWithProvenance is the provenance-recording Commit (PM-P2-4): the SAME atomic
 // commit-on-main as CommitArtifact, plus it stamps a Provenance record onto the committed
 // slot — committedAt server-resolved from the store clock (RA code, time.Now() is fine),
@@ -330,21 +322,6 @@ func (s *GitStore) CommitArtifactWithProvenance(ctx context.Context, projectID P
 		DraftedBy:   draftedBy,
 	}
 	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, prov))
-}
-
-// WithdrawArtifactOnBranch is the branch-aware Withdraw the design Managers use during the
-// AwaitingReview window (I-DESIGN-DISPATCH §2a) — the symmetric counterpart of
-// RejectArtifactOnBranch. The Withdrawn status flip + notes ride over the SESSION BRANCH
-// the draft was staged on, where the staged model exists and the session-branch version
-// matches (main trails and carries no staged model until an approved draft merges). An
-// EMPTY branch behaves EXACTLY as WithdrawArtifact (the default/main) — zero perturbation
-// to every existing caller.
-func (s *GitStore) WithdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.withdrawArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
-}
-
-func (s *GitStore) withdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutationOnBranch(ctx, "WithdrawArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, statusTransition("WithdrawArtifact", kind, ReviewWithdrawn, notes))
 }
 
 // ---------------------------------------------------------------------------
@@ -421,63 +398,6 @@ func acknowledgeStaleBasisTransition(kind ArtifactKind, note string) func(p *Pro
 // staleAckAuthorRole is the reviewer role stamped on a staleAck audit entry. At the design
 // review gate the reviewer who acknowledges staleness is the architect.
 const staleAckAuthorRole = "architect"
-
-// RejectArtifactOnBranchWithComments is the review-ledger extension of RejectArtifactOnBranch:
-// it records the architect's Reject AND appends the reviewer's comments to the slot's durable
-// ReviewThread in ONE atomic commit (review-ledger §2). Folding the status flip and the
-// ledger append into a single mutation makes the reject crash-safe (no partial state) and
-// idempotent under Temporal retry (the deterministic per-(round,index) ids dedup — see
-// appendReviewComments). Each comment supplies Anchor / AnchorText / Text / AuthorRole; the
-// id / round / open status are server-minted here. branch=="" behaves exactly as the main-path
-// reject (the dormant-rail fallback), still appending the comments.
-//
-// replies carries the other half of the SAME submitted batch: utterances answering threads
-// that already exist on this slot (design §3.7). The reviewer's "still vague" belongs INSIDE
-// the thread it was written against, not in a brand-new one, so the two halves land in the
-// one atomic commit — see ApplyReviewBatch, which owns both appends.
-func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
-		if err := statusTransition("RejectArtifact", kind, ReviewRejected, notes)(p); err != nil {
-			return err
-		}
-		slot, ok := slotPtr(p, kind)
-		if !ok {
-			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.RejectArtifact: unknown kind %s", kind))
-		}
-		updated, err := ApplyReviewBatch(slot.ReviewThread, round, comments, replies)
-		if err != nil {
-			return err
-		}
-		slot.ReviewThread = updated
-		return nil
-	})
-}
-
-// SetReviewCommentStatusOnBranch applies a HUMAN status transition (open->waived to dismiss,
-// addressed->open to reopen) to a single ledger entry on the session branch during the
-// AwaitingReview window (review-ledger §4). The transition legality + reopen-clears-response
-// rule live in applyReviewCommentStatus (reviewthread.go). branch=="" behaves exactly as the
-// main path. An unknown id surfaces NotFound; an illegal transition surfaces ContractMisuse.
-func (s *GitStore) SetReviewCommentStatusOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if !validReviewCommentStatus(status) {
-		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: unknown status %q", status))
-	}
-	return s.applyMutationOnBranch(ctx, "SetReviewCommentStatus", projectID, expectedVersion, branch, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		slot, ok := slotPtr(p, kind)
-		if !ok {
-			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: unknown kind %s", kind))
-		}
-		if slot.Status == ReviewNone || slot.Model == nil {
-			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: slot %s is unpopulated", kind))
-		}
-		updated, err := applyReviewCommentStatus(slot.ReviewThread, commentID, status)
-		if err != nil {
-			return err
-		}
-		slot.ReviewThread = updated
-		return nil
-	})
-}
 
 // SetOperatingModel records the project-level WHO-OPERATES choice (founder ruling
 // 2026-07-05). Like SetResearchInput it is a Method-INPUT head-state write, NOT a
@@ -886,10 +806,9 @@ func applyHeadState(summary *ProjectSummary, p Project, docUpdatedAt time.Time) 
 // an activity the plan no longer holds veto completion. A listed activity with no row
 // has not started. A row that is merely Done-but-not-integrated (the Skipped/TakenOver
 // shape RecordActivityExited leaves) or still Running/Failed keeps the project
-// incomplete: Phase alone is not sufficient. The fixture corpus at
-// testdata/operating_fixtures.json is shared byte-identically with the webApp TS side
-// (contracts/operating.ts deriveOperating), which applies the same list-driven rule
-// over the view-model's already-resolved rows. Unexported: only ListProjects (same
+// incomplete: Phase alone is not sufficient. The webApp TS side
+// (contracts/operating.ts deriveOperating) applies the same list-driven rule over the
+// view-model's already-resolved rows. Unexported: only ListProjects (same
 // package) calls it today.
 //
 // THE PHASE CLAUSE IS NOW THE ONLY GUARD, and that is worth saying out loud. "has a
@@ -1350,6 +1269,11 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		// policy stops looping and routes it to the human recovery gate.
 		return Project{}, false, fwra.Wrap(fwra.ContractMisuse, err, "projectstate: decode project.json")
 	}
+	// The caller's projectID is the identity (the repo the document lives in); a
+	// caller that has none — a tool reading a checkout — takes the document's own id.
+	if projectID == "" {
+		projectID = ProjectID(doc.ID)
+	}
 	p := Project{
 		ID:       projectID,
 		Version:  Version(doc.Version),
@@ -1381,6 +1305,7 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		OperatorPaused:       doc.OperatorPaused,
 		PauseReason:          doc.PauseReason,
 		ReviewPolicy:         doc.ReviewPolicy,
+		UpdatedAt:            doc.UpdatedAt,
 	}
 	if err := checkActivityExecutionKeys(p.ActivityExecution); err != nil {
 		return Project{}, false, err
@@ -1536,11 +1461,13 @@ func isAuth(err error) bool {
 }
 
 // encodeProjectDoc serializes the Project aggregate to its on-infrastructure JSON.
-// updatedAt is the server-resolved mutation timestamp; pass the zero time to
-// preserve whatever updatedAt is already present in the doc (the decode will not
-// have threaded it through to Project, so callers that do not need to stamp a
-// fresh time pass time.Time{}). The non-zero value is always preferred.
+// updatedAt is the server-resolved mutation timestamp; the zero time keeps the
+// Project's own UpdatedAt (the decoded document's), so a caller that does not stamp
+// a fresh time round-trips the committed one.
 func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
+	if updatedAt.IsZero() {
+		updatedAt = p.UpdatedAt
+	}
 	slots, err := encodeSlotsMap(p)
 	if err != nil {
 		return nil, err
@@ -1655,53 +1582,34 @@ func NewGitHubProjectStateAccess(webHost, account string, catalog ProjectCatalog
 	return &projectStateGitAdapter{store: store, minter: minter}, nil
 }
 
-// GitConstructionPorts type-asserts a ProjectStateAccess built by the Git* variants back to
-// the construction-transition + git-activity-status ports its backing *GitStore serves
-// (the construction Manager shares the design head-state store; status cascade live). ok is
-// false for a non-git ProjectStateAccess. This encapsulates the composition root's former
-// private-field type-assertion so the adapter stays unexported.
-func GitConstructionPorts(psa ProjectStateAccess) (ConstructionTransitionAccess, GitActivityStatusAccess, bool) {
+// GitActivityStatusPort type-asserts a ProjectStateAccess built by the Git* variants back to
+// the git-activity-status port its backing *GitStore serves (the delivery Manager shares the
+// design head-state store; status cascade live). ok is false for a non-git
+// ProjectStateAccess. This encapsulates the composition root's former private-field
+// type-assertion so the adapter stays unexported.
+func GitActivityStatusPort(psa ProjectStateAccess) (GitActivityStatusAccess, bool) {
 	if a, ok := psa.(*projectStateGitAdapter); ok {
-		return a.store, a.store, true
+		return a.store, true
 	}
-	return nil, nil, false
+	return nil, false
 }
 
 // ---------------------------------------------------------------------------
-// constructionTransitionAccess / gitActivityStatusAccess VARIANT CONSTRUCTORS
-// (B6). These are composegen DI entry points for the two secondary contracts
-// promoted off the SAME git substrate as projectStateAccess (B2/B3) — each
-// builds its OWN *GitStore via the identical Git* projectStateAccess
-// constructor (a second, functionally-equivalent instance addressing the same
-// repo; GitStore holds no mutable connection state, so this mirrors the
-// composition root's pre-existing "SEPARATE instance, consistent because both
-// address the same git repo" pattern, formerly in cmd/server/hooks.go) and
-// narrows it via GitConstructionPorts.
+// gitActivityStatusAccess VARIANT CONSTRUCTORS (B6). These are composegen DI entry
+// points for the secondary contract promoted off the SAME git substrate as
+// projectStateAccess (B2/B3) — each builds its OWN *GitStore via the identical Git*
+// projectStateAccess constructor (a second, functionally-equivalent instance addressing
+// the same repo; GitStore holds no mutable connection state, so this mirrors the
+// composition root's pre-existing "SEPARATE instance, consistent because both address
+// the same git repo" pattern, formerly in cmd/server/hooks.go) and narrows it via
+// GitActivityStatusPort.
 // ---------------------------------------------------------------------------
-
-// NewGitLocalConstructionTransitionAccess builds the LOCAL git
-// constructionTransitionAccess port (composegen variant token GitLocal).
-func NewGitLocalConstructionTransitionAccess(repoURL string) ConstructionTransitionAccess {
-	t, _, _ := GitConstructionPorts(NewGitLocalProjectStateAccess(repoURL))
-	return t
-}
 
 // NewGitLocalGitActivityStatusAccess builds the LOCAL git gitActivityStatusAccess
 // port (composegen variant token GitLocal).
 func NewGitLocalGitActivityStatusAccess(repoURL string) GitActivityStatusAccess {
-	_, s, _ := GitConstructionPorts(NewGitLocalProjectStateAccess(repoURL))
+	s, _ := GitActivityStatusPort(NewGitLocalProjectStateAccess(repoURL))
 	return s
-}
-
-// NewGitHubConstructionTransitionAccess builds the CLOUD git
-// constructionTransitionAccess port (composegen variant token GitHub).
-func NewGitHubConstructionTransitionAccess(webHost, account string, catalog ProjectCatalog, minter CredentialMinter) (ConstructionTransitionAccess, error) {
-	psa, err := NewGitHubProjectStateAccess(webHost, account, catalog, minter)
-	if err != nil {
-		return nil, err
-	}
-	t, _, _ := GitConstructionPorts(psa)
-	return t, nil
 }
 
 // NewGitHubGitActivityStatusAccess builds the CLOUD git gitActivityStatusAccess
@@ -1711,7 +1619,7 @@ func NewGitHubGitActivityStatusAccess(webHost, account string, catalog ProjectCa
 	if err != nil {
 		return nil, err
 	}
-	_, s, _ := GitConstructionPorts(psa)
+	s, _ := GitActivityStatusPort(psa)
 	return s, nil
 }
 
@@ -1800,19 +1708,9 @@ func (a *projectStateGitAdapter) catalogCredential(ctx context.Context) (RepoCre
 	return a.minter.CatalogCredential(ctx)
 }
 
-func (a *projectStateGitAdapter) CommitArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.CommitArtifact(ctx, projectID, expectedVersion, kind, cred, rc.IdempotencyKey)
-}
-
-// Compile-time proof the git adapter also serves the commit-provenance capability
-// (PM-P2-4): the design Managers record committedAt/approvedBy/draftedBy atomically with
-// the commit.
-var _ provenanceCommitter = (*projectStateGitAdapter)(nil)
+// Compile-time proof the git adapter serves every verb the design-session facet forwards
+// to, commit provenance (PM-P2-4) included.
+var _ designSessionBase = (*projectStateGitAdapter)(nil)
 
 // CommitArtifactWithProvenance is the provenance-recording Commit (PM-P2-4): the cred is
 // minted just-in-time, exactly like the no-cred CommitArtifact, and the acting/rail identity
@@ -1899,32 +1797,6 @@ func (a *projectStateGitAdapter) StageArtifactForReviewOnBranch(rc fwra.Context,
 	return a.store.StageArtifactForReviewOnBranch(ctx, projectID, expectedVersion, branch, model, cred, idempotencyKey)
 }
 
-// WithdrawArtifactOnBranch is the branch-aware Withdraw (I-DESIGN-DISPATCH §2a): an empty
-// branch behaves exactly as WithdrawArtifact (main); a non-empty branch lands the Withdrawn
-// status flip + notes on the session branch the draft was staged on. The cred is minted
-// just-in-time.
-func (a *projectStateGitAdapter) WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.WithdrawArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
-}
-
-// RejectArtifactOnBranchWithComments is the review-ledger Reject: it lands the Rejected
-// status flip + notes AND appends the reviewer's comments to the slot's durable ReviewThread
-// in one atomic commit on the session branch (empty branch ⇒ main). The cred is minted
-// just-in-time.
-func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	ctx := rc.Context
-	cred, err := a.minter.CredentialFor(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return a.store.RejectArtifactOnBranchWithComments(ctx, projectID, expectedVersion, branch, kind, notes, round, comments, replies, cred, idempotencyKey)
-}
-
 // SeedReviewCommentsOnBranch is the F38 amendment ledger-seed (append open comments, no
 // status change). The cred is minted just-in-time, exactly like the other ledger verbs.
 func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
@@ -1936,15 +1808,59 @@ func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(rc fwra.Context, pro
 	return a.store.SeedReviewCommentsOnBranch(ctx, projectID, expectedVersion, branch, kind, round, comments, replies, cred, idempotencyKey)
 }
 
-// SetReviewCommentStatusOnBranch applies a human status transition to one ledger entry on
-// the session branch (empty branch ⇒ main). The cred is minted just-in-time.
-func (a *projectStateGitAdapter) SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+// RecordOperatorPaused records the operator-paused head-state transition: OperatorPaused
+// true and PauseReason set. One of the three PROJECT-SCOPED records that moved here from the
+// deleted constructionTransitionAccess (dct Plan 4 Task 3); like every op on this facet it
+// takes no credential — the cred is minted just-in-time.
+func (a *projectStateGitAdapter) RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.SetReviewCommentStatusOnBranch(ctx, projectID, expectedVersion, branch, kind, commentID, status, cred, idempotencyKey)
+	return a.store.recordOperatorPaused(rc, projectID, expectedVersion, reason, cred, idempotencyKey)
+}
+
+// RecordSdpReviewOutcome records an M0 reject-all or grace-window revoke (see
+// GitStore.recordSdpReviewOutcome). The cred is minted just-in-time.
+func (a *projectStateGitAdapter) RecordSdpReviewOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, outcome ArtifactReviewStatus, feedback string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	cred, err := a.minter.CredentialFor(rc.Context, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordSdpReviewOutcome(rc, projectID, expectedVersion, outcome, feedback, cred, idempotencyKey)
+}
+
+// RecordTrackingPoint records one week's tracking point (see
+// GitStore.recordTrackingPoint). The cred is minted just-in-time.
+func (a *projectStateGitAdapter) RecordTrackingPoint(rc fwra.Context, projectID ProjectID, expectedVersion Version, point EvPoint, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	cred, err := a.minter.CredentialFor(rc.Context, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordTrackingPoint(rc, projectID, expectedVersion, point, cred, idempotencyKey)
+}
+
+// RecordOperatorResumed clears the recorded pause (plan B1.7). The cred is minted
+// just-in-time.
+func (a *projectStateGitAdapter) RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
+	cred, err := a.minter.CredentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordOperatorResumed(rc, projectID, expectedVersion, cred, idempotencyKey)
+}
+
+// RecordReviewPolicy persists the per-project ReviewPolicy. The cred is minted
+// just-in-time.
+func (a *projectStateGitAdapter) RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	ctx := rc.Context
+	cred, err := a.minter.CredentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.recordReviewPolicy(rc, projectID, expectedVersion, policy, cred, idempotencyKey)
 }
 
 // AcknowledgeStaleBasis clears a committed slot's StaleBasis + records the reviewer's
@@ -2067,21 +1983,12 @@ func (c localProjectCatalog) ListProjectRepos(ctx context.Context, _ OwnerScope,
 	return []ProjectCatalogRef{{ProjectID: ProjectID(doc.ID), Title: doc.Name}}, nil
 }
 
-// gitconstruction.go is the git-substrate realization of the additive Phase-3
-// construction-transition verbs (constructionManager.md §5.3; see construction.go
-// for the Postgres-era port + rationale). The git GitStore satisfies the SAME
-// ConstructionTransitionAccess facet — re-cut with the Manager-threaded
-// `cred RepoCredential` (REWORK.4) the substrate swap forces, exactly as the
-// Phase-1/2 verbs are. v1 records the transition through the shared ref-CAS +
-// in-repo-dedup applyMutation path so it is durable and replay-idempotent; the
-// richer per-activity head-state status aggregate is populated from Task 4.
-
 // PhaseArtifactPayload is a tagged union of all phase artifact types.
-// Exactly one field should be set. RecordPhaseArtifactProduced inspects which
+// Exactly one field should be set. ApplyPhaseArtifactPayload inspects which
 // field is non-zero and routes it to the right map in PhaseArtifacts or
 // TestingState. mapKey is the component/surface/resource/doc name used as the
 // map key for PhaseArtifacts fields; it is unused for pointer-scalar TestingState
-// fields (SystemTestPlan, HarnessModule, PerfHarness, QualityAuditReport).
+// fields (HarnessModule, PerfHarness, QualityAuditReport).
 // Convention: exactly one field per call. This is NOT enforced at runtime (multiple
 // set fields will route all of them). A typed sum type would enforce the invariant,
 // which now may be feasible since cs.Type/cs.Variant are populated by seed-construction.
@@ -2096,60 +2003,16 @@ type PhaseArtifactPayload struct {
 	DeployNote       *DeployNoteRecord
 	DocOutline       *DocOutlineRecord
 	DocNote          *DocNoteRecord
-	// TestingState fields (project-level singletons / slices)
-	SystemTestPlan *SystemTestPlan
-	HarnessModule  *HarnessModule
-	PerfHarness    *PerfHarness
-	QualityGate    *QualityGate
-	TestRun        *TestRun
-	Defect         *DefectRecord
+	// TestingState fields (project-level singletons / slices). TestRun REPLACES a
+	// recorded run with the same ID (the venue re-records a run it re-ran) and appends
+	// otherwise.
+	HarnessModule *HarnessModule
+	PerfHarness   *PerfHarness
+	QualityGate   *QualityGate
+	TestRun       *TestRun
+	Defect        *DefectRecord
 	// QualityAuditReport replaces the string in TestingState when non-empty.
 	QualityAuditReport string
-}
-
-// RecordChangeReviewed records that activityID's change went to review.
-//
-// Retired in place (stage 3, task 3): the review is a ReviewRound on the execution
-// ledger now, and the coarse build status this used to stamp is DERIVED from that ledger
-// (spec §5.3's dispositions — a derived field that is also stored is two answers to one
-// question). The verb survives task 4 unchanged in NAME, signature and Temporal activity
-// type because five of the thirteen replay fixtures record it; it now only BIRTHS the row
-// it used to stamp, so a history that replays it still lands the same commit. Stage 4
-// deletes it once the fixtures it appears in are retired.
-func (s *GitStore) RecordChangeReviewed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordChangeReviewed: empty activityID")
-	}
-	return s.applyMutation(rc.Context, "RecordChangeReviewed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(*ActivityExecution) {})
-		return nil
-	})
-}
-
-// RecordActivityExited records the binary activity exit for activityID: CompletedAt,
-// server-resolved and WRITE-ONCE.
-//
-// The outcome is no longer stamped as a coarse build status, because it is not a fact
-// SEPARATE from the ledgers: an activity that completed is one whose every lifecycle-phase
-// gate passed, and one that was skipped or taken over is one that exited without them.
-// CoarseBuildStatusFor reads exactly that off the resolved phase set, so the stored status
-// and the ledger can no longer disagree about the same exit (spec §5.3).
-func (s *GitStore) RecordActivityExited(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityExited: empty activityID")
-	}
-	switch outcome {
-	case ActivityOutcomeCompleted, ActivityOutcomeSkipped, ActivityOutcomeTakenOver, ActivityOutcomeUnknown:
-		// Every member exits the same way; the vocabulary is named in full rather than
-		// absorbed by a default arm so a new member is a gate failure, not a silent exit.
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordActivityExited", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			stampExit(cs, now)
-		})
-		return nil
-	})
 }
 
 // stampExit writes the one terminal head fact an exit leaves: the completion clock, once.
@@ -2161,68 +2024,6 @@ func stampExit(cs *ActivityExecution, now time.Time) {
 		t := now
 		cs.CompletedAt = &t
 	}
-}
-
-// RecordActivityFailed records the TERMINAL-FAILURE binary exit for activityID. It
-// MIRRORS RecordActivityExited exactly (same applyMutation + idempotency ledger +
-// ref-CAS pattern) but lands a distinct terminal: CompletedAt server-resolved, plus the
-// FailureReason + FailureDetail that say WHY the activity is no longer pending. Those two
-// stay STORED (spec §5.3) precisely because they are not a roll-up of anything: they are
-// what makes the failure STICKY, so a late phase completion can never recompute a failed
-// activity back to running. This is what stops a cancelled/failed/timed-out GH-Actions run
-// (or an exhausted variance budget / unanswered escalation) from leaving the activity
-// stuck Running forever.
-func (s *GitStore) RecordActivityFailed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityFailed: empty activityID")
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordActivityFailed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			stampExit(cs, now)
-			cs.FailureReason = reason
-			cs.FailureDetail = detail
-		})
-		return nil
-	})
-}
-
-// RecordOperatorNote appends an operator's note to activityID's construction row
-// (plan B1.1), stamping RecordedAt from the server clock. NoteID is the caller's
-// deterministic id: recording the same id again with identical content appends nothing
-// (the version still advances, as it does for every applied mutation), and with
-// different content it is refused as ContractMisuse, because one id names one note.
-// Also ContractMisuse: an empty activityID or noteId, blank text, or a kind outside the
-// closed vocabulary. The row is upserted, like RecordActivityFailed's.
-func (s *GitStore) RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, note OperatorNoteInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if err := validateOperatorNoteInput(activityID, note); err != nil {
-		return 0, err
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordOperatorNote", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		var refused error
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			for _, n := range cs.OperatorNotes {
-				if n.NoteID != note.NoteID {
-					continue
-				}
-				if !sameOperatorNote(n, note) {
-					refused = fwra.New(fwra.ContractMisuse, fmt.Sprintf(
-						"projectstate.RecordOperatorNote: note %q is already recorded on %s with different content; one id names one note", note.NoteID, activityID))
-				}
-				return
-			}
-			cs.OperatorNotes = append(cs.OperatorNotes, OperatorNote{
-				NoteID:     note.NoteID,
-				Kind:       note.Kind,
-				Gate:       note.Gate,
-				Text:       note.Text,
-				Comments:   slices.Clone(note.Comments),
-				RecordedAt: now,
-			})
-		})
-		return refused
-	})
 }
 
 // validateOperatorNoteInput is RecordOperatorNote's ContractMisuse gate.
@@ -2250,57 +2051,9 @@ func sameOperatorNote(n OperatorNote, in OperatorNoteInput) bool {
 	return n.Kind == in.Kind && n.Gate == in.Gate && n.Text == in.Text && slices.Equal(n.Comments, in.Comments)
 }
 
-// RecordOperatorNoteDelivered stamps the note noteID on activityID's row as delivered to
-// the agent dispatch attemptID (projectstate.AttemptID), with DeliveredAt from the server
-// clock. A note is delivered once: re-stamping the same attempt is a no-op, and stamping
-// a different one is refused as ContractMisuse. No such row or note is NotFound; an empty
-// activityID, noteID or attemptID is ContractMisuse.
-func (s *GitStore) RecordOperatorNoteDelivered(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, noteID string, attemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	switch {
-	case activityID == "":
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNoteDelivered: empty activityID")
-	case noteID == "":
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNoteDelivered: empty noteID")
-	case attemptID == "":
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNoteDelivered: empty attemptID")
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordOperatorNoteDelivered", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		if _, ok := p.ActivityExecution[activityID]; !ok {
-			return fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.RecordOperatorNoteDelivered: no construction row for %s", activityID))
-		}
-		// Routed through the upsert rather than writing the map key directly: this was the
-		// ONE writer that bypassed it, and a row whose delivery stamp moved without its
-		// version moving is a row the other rail could interleave with unseen.
-		var outcome error
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			for i := range cs.OperatorNotes {
-				n := &cs.OperatorNotes[i]
-				if n.NoteID != noteID {
-					continue
-				}
-				switch n.DeliveredToAttemptID {
-				case attemptID:
-					return
-				case "":
-					t := now
-					n.DeliveredToAttemptID, n.DeliveredAt = attemptID, &t
-					return
-				default:
-					outcome = fwra.New(fwra.ContractMisuse, fmt.Sprintf(
-						"projectstate.RecordOperatorNoteDelivered: note %q on %s was already delivered to %s; a note is delivered once", noteID, activityID, n.DeliveredToAttemptID))
-					return
-				}
-			}
-			outcome = fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.RecordOperatorNoteDelivered: no note %q on %s", noteID, activityID))
-		})
-		return outcome
-	})
-}
-
-// RecordOperatorPaused records the operator-paused head-state transition by
+// recordOperatorPaused records the operator-paused head-state transition by
 // setting Project.OperatorPaused = true and Project.PauseReason = reason.
-func (s *GitStore) RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) recordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(rc.Context, "RecordOperatorPaused", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.OperatorPaused = true
 		p.PauseReason = reason
@@ -2308,12 +2061,100 @@ func (s *GitStore) RecordOperatorPaused(rc fwra.Context, projectID ProjectID, ex
 	})
 }
 
-// RecordOperatorResumed records the operator-resumed head-state transition (plan B1.7):
+// recordSdpReviewOutcome records the M0 gate's two NON-commit outcomes on the SDP review
+// slot (use case commit-to-a-project-option; DCT §12 B7 — the use case stands):
+//
+//   - ReviewRejected (reject-all + feedback): no presented option is acceptable; the slot
+//     reads rejected with the feedback on its review thread, and the project stays in (or
+//     returns to) project design for a fresh set of options. Feedback is required.
+//   - ReviewWithdrawn (the grace-window revoke): a COMMITTED option is withdrawn; the slot
+//     reads withdrawn and the project returns to project design to await a new decision
+//     (construction rows already opened stay as history; the pump's M0 fence holds them).
+//
+// A commit is NOT recorded here — it is CommitArtifactWithProvenance + AdvancePhase. Any
+// other outcome, a reject without feedback, a reject of an SDP review not awaiting review,
+// and a revoke of one not committed are ContractMisuse. Whether a revoke is still inside
+// its grace window is the Manager's policy, not this store's.
+func (s *GitStore) recordSdpReviewOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, outcome ArtifactReviewStatus, feedback string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	const verb = "projectstate.RecordSdpReviewOutcome"
+	switch outcome {
+	case ReviewRejected:
+		if strings.TrimSpace(feedback) == "" {
+			return 0, fwra.New(fwra.ContractMisuse, verb+": a reject-all carries the architect's feedback; got none")
+		}
+	case ReviewWithdrawn:
+	case ReviewNone, ReviewAwaitingReview, ReviewCommitted:
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: outcome %d is not an M0 outcome this verb records (rejected or withdrawn; a commit is CommitArtifactWithProvenance)", verb, int(outcome)))
+	default:
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: unknown outcome %d", verb, int(outcome)))
+	}
+	return s.applyMutation(rc.Context, "RecordSdpReviewOutcome", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		slot, ok := slotPtr(p, KindSdpReview)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, verb+": the project has no SDP review slot")
+		}
+		switch outcome {
+		case ReviewRejected:
+			if slot.Status != ReviewAwaitingReview {
+				return fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: reject-all needs an SDP review awaiting review; it is %d", verb, int(slot.Status)))
+			}
+		case ReviewWithdrawn:
+			if slot.Status != ReviewCommitted {
+				return fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: only a committed SDP review can be revoked; it is %d", verb, int(slot.Status)))
+			}
+		case ReviewNone, ReviewAwaitingReview, ReviewCommitted:
+			// refused above
+		}
+		slot.Status = outcome
+		p.Phase = PhaseProjectDesign
+		if strings.TrimSpace(feedback) != "" {
+			round := max(slot.Revisions, 1)
+			slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, []ReviewComment{{
+				Text: feedback, AuthorRole: gateReviewerRole, Type: ReviewCommentTypeChangeRequest,
+			}})
+		}
+		return nil
+	})
+}
+
+// gateReviewerRole is the author of an M0 gate's feedback: the human at the gate. It is
+// not an agent role (isReviewerRole), so the feedback reads as the reviewer's.
+const gateReviewerRole = "operator"
+
+// recordTrackingPoint records one week's point on the durable construction progress
+// record (use case track-weekly-project-progress, Righting Software Appendix A): the
+// earned-value and planned-value percentages of that week, and its note — "no trend"
+// before four points exist, or the corrective-action / replan-trigger note. One point per
+// week: re-recording a week (the corrective note recorded after the point) replaces it;
+// points stay in week order. A week below 1, or a project with no construction progress
+// record (not in construction), is ContractMisuse.
+func (s *GitStore) recordTrackingPoint(rc fwra.Context, projectID ProjectID, expectedVersion Version, point EvPoint, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	const verb = "projectstate.RecordTrackingPoint"
+	if point.Week < 1 {
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: week %d; tracking weeks start at 1", verb, point.Week))
+	}
+	return s.applyMutation(rc.Context, "RecordTrackingPoint", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		if p.ConstructionProgress == nil {
+			return fwra.New(fwra.ContractMisuse, verb+": the project has no construction progress record; it is not in construction")
+		}
+		pts := p.ConstructionProgress.Points
+		i := sort.Search(len(pts), func(i int) bool { return pts[i].Week >= point.Week })
+		if i < len(pts) && pts[i].Week == point.Week {
+			pts[i] = point
+		} else {
+			pts = slices.Insert(pts, i, point)
+		}
+		p.ConstructionProgress.Points = pts
+		return nil
+	})
+}
+
+// recordOperatorResumed records the operator-resumed head-state transition (plan B1.7):
 // it clears Project.OperatorPaused and Project.PauseReason, so the project reads — and
 // encodes, both fields being omitempty — exactly as one that was never paused. Resuming a
 // project that is not paused changes no field: the construction Manager's façade owns the
 // "not paused" precondition, so the RA stays an idempotent writer of the cleared state.
-func (s *GitStore) RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) recordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(rc.Context, "RecordOperatorResumed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.OperatorPaused = false
 		p.PauseReason = ""
@@ -2321,145 +2162,21 @@ func (s *GitStore) RecordOperatorResumed(rc fwra.Context, projectID ProjectID, e
 	})
 }
 
-// RecordReviewPolicy persists the per-project ReviewPolicy by setting
+// recordReviewPolicy persists the per-project ReviewPolicy by setting
 // Project.ReviewPolicy = policy.
-func (s *GitStore) RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) recordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(rc.Context, "RecordReviewPolicy", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.ReviewPolicy = policy
 		return nil
 	})
 }
 
-// RecordPhaseStarted records that activityID's construction agent has entered the given
-// lifecycle phase.
-//
-// Retired in place (stage 3, task 3). It used to seed the stored phase set and stamp
-// the coarse roll-up; both are DERIVED now (spec §5.3), and an entry is not a fact the
-// ledgers are missing — the attempt RecordAttemptOutcome opens is. It keeps its name,
-// signature, guards and Temporal activity type because the replay fixtures record them,
-// and it still BIRTHS the row the phase-completion below writes into.
-func (s *GitStore) RecordPhaseStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseStarted: empty activityID")
-	}
-	if phase == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseStarted: empty phase")
-	}
-	return s.applyMutation(rc.Context, "RecordPhaseStarted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(*ActivityExecution) {})
-		return nil
-	})
-}
-
-// RecordPhaseCompleted records that activityID's given lifecycle phase is complete.
-//
-// The phase-completion SLICE it used to mark is gone (spec §5.3: a lifecycle phase is
-// complete iff its GATE task's latest attempt passed, so a stored boolean beside the
-// ledger was a second answer to one question). The verb is not retired with it, because
-// the FACT is real and the old construction rail is still the one recording it until task
-// 5 moves the child workflow onto RecordAttemptOutcome: it writes that fact where the
-// derivation reads it, as a PASSED gate attempt on the append-only ledger.
-//
-// A phase with no gate task in the row's lifecycle records nothing — there is no attempt
-// to name — and a gate whose latest attempt already passed records nothing either, so a
-// Temporal retry of the same completion converges instead of growing the ledger.
-func (s *GitStore) RecordPhaseCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseCompleted: empty activityID")
-	}
-	if phase == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseCompleted: empty phase")
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordPhaseCompleted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			applyPhaseCompletion(cs, phase, artifactRef, now)
-		})
-		return nil
-	})
-}
-
-// applyPhaseCompletion records a lifecycle phase's completion the ONE way the read path
-// recognises: a PASSED attempt at that phase's gate task, appended to the ledger with the
-// canonical AttemptID and the artifact the phase produced as its evidence.
-//
-// It is deliberately NOT a second representation of the same fact. The sticky-terminal
-// guard it used to carry is gone with the stored coarse roll-up it guarded: a failure now
-// lives in FailureReason, which CoarsePhaseFor short-circuits on, so a late completion can
-// no longer resurrect a failed activity even in principle.
-func applyPhaseCompletion(cs *ActivityExecution, phase ActivityMethodPhase, artifactRef string, now time.Time) {
-	gate := GateTaskFor(phase)
-	if gate == "" {
-		return
-	}
-	if latest, ok := latestAttempt(cs.Attempts, gate); ok && latest.Outcome == OutcomePassed {
-		return // already recorded: a retry of the same completion is not a second attempt
-	}
-	n := 1
-	for _, a := range cs.Attempts {
-		if a.Task == gate && a.Attempt >= n {
-			n = a.Attempt + 1
-		}
-	}
-	t := now
-	cs.Attempts = append(cs.Attempts, TaskAttempt{
-		AttemptID: AttemptID(cs.ActivityID, gate, n),
-		Task:      gate,
-		Phase:     phase,
-		Attempt:   n,
-		// The agent, matching what cmd/backfill-attempts stamps on every attempt it writes
-		// (gate and work alike) — the construction rail dispatches its reviews to agents,
-		// and a blank actor would render as "nobody did this".
-		Actor:     ActorAgent,
-		StartedAt: &t,
-		EndedAt:   &t,
-		Outcome:   OutcomePassed,
-		Evidence:  EvidenceRef{Kind: EvidenceArtifact, Ref: artifactRef},
-		// OBSERVED, not backfilled: this is not a reconstruction from evidence recorded
-		// elsewhere. The caller is the construction workflow telling the store, live, that
-		// the phase just completed — the same class of record RecordAttemptOutcome writes.
-		// Only the REPRESENTATION moved; the observation is first-hand either way.
-		Provenance: AttemptProvenance{Origin: OriginObserved, GeneratedAt: &t},
-	})
-}
-
-// RecordServiceContractProduced writes the typed ServiceContract for component
-// into Project.ServiceContracts, lazy-allocating the map on first write.
-func (s *GitStore) RecordServiceContractProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if component == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordServiceContractProduced: empty component")
-	}
-	return s.applyMutation(rc.Context, "RecordServiceContractProduced", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		if p.ServiceContracts == nil {
-			p.ServiceContracts = make(map[string]ServiceContract)
-		}
-		p.ServiceContracts[component] = contract
-		return nil
-	})
-}
-
-// RecordPhaseArtifactProduced writes the typed artifact carried in payload into
-// the correct PhaseArtifacts / TestingState slot of the Project aggregate.
-// mapKey is used as the per-component/surface/resource/doc map key for
-// PhaseArtifacts fields; it is unused for singleton TestingState fields.
-// Exactly one payload field should be set; if none is set the verb is a no-op
-// (idempotent empty payload is tolerated — the ledger dedup will still fire).
-func (s *GitStore) RecordPhaseArtifactProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseArtifactProduced: empty activityID")
-	}
-	return s.applyMutation(rc.Context, "RecordPhaseArtifactProduced", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		applyPhaseArtifactPayload(p, mapKey, payload)
-		return nil
-	})
-}
-
 // ApplyPhaseArtifactPayload routes a phase-artifact / testing-state payload into the
-// Project aggregate — the pure, I/O-free core of RecordPhaseArtifactProduced, exported
-// so the aiarch-state MCP construction verbs (cmd/aiarch-state-mcp) reuse the SAME
-// routing the server RA uses. One source of truth for which payload field lands in
-// which PhaseArtifacts / TestingState slot; the caller validates the mutated aggregate
-// through the codec + methodcheck exactly as the server does.
+// Project aggregate, exported so the aiarch-state MCP construction verbs
+// (cmd/aiarch-state-mcp) reuse the SAME routing as the server. One source of truth for
+// which payload field lands in which PhaseArtifacts / TestingState slot; the caller
+// validates the mutated aggregate through the codec + methodcheck exactly as the server
+// does.
 func ApplyPhaseArtifactPayload(p *Project, mapKey string, payload PhaseArtifactPayload) {
 	applyPhaseArtifactPayload(p, mapKey, payload)
 }
@@ -2472,11 +2189,18 @@ func applyPhaseArtifactPayload(p *Project, mapKey string, payload PhaseArtifactP
 }
 
 // applyPhaseArtifactsPayload routes the PhaseArtifacts-group fields (keyed by
-// mapKey) from the payload into p.PhaseArtifacts, lazy-allocating as needed.
-// Split into two halves to keep each helper under the funlen threshold.
+// mapKey) from the payload into p.PhaseArtifacts, lazy-allocating as needed. Each
+// field is one putPhaseRecord: a nil payload field leaves its map untouched.
 func applyPhaseArtifactsPayload(p *Project, mapKey string, payload PhaseArtifactPayload) {
-	applyPhaseArtifactsSpecDesign(p, mapKey, payload)
-	applyPhaseArtifactsDeployDoc(p, mapKey, payload)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]SRSRecord { return &pa.SRS }, mapKey, payload.SRS)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]TestPlanRecord { return &pa.TestPlan }, mapKey, payload.TestPlan)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]IntegrationNoteRecord { return &pa.IntegrationNote }, mapKey, payload.IntegrationNote)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]UXRequirementsRecord { return &pa.UXRequirements }, mapKey, payload.UXRequirements)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]UIDesignRecord { return &pa.UIDesign }, mapKey, payload.UIDesign)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]ProvisioningSpecRecord { return &pa.ProvisioningSpec }, mapKey, payload.ProvisioningSpec)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DeployNoteRecord { return &pa.DeployNote }, mapKey, payload.DeployNote)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DocOutlineRecord { return &pa.DocOutline }, mapKey, payload.DocOutline)
+	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DocNoteRecord { return &pa.DocNote }, mapKey, payload.DocNote)
 }
 
 // ensurePhaseArtifacts lazy-inits p.PhaseArtifacts and returns it.
@@ -2487,77 +2211,18 @@ func ensurePhaseArtifacts(p *Project) *PhaseArtifacts {
 	return p.PhaseArtifacts
 }
 
-// applyPhaseArtifactsSpecDesign handles the spec/design half of PhaseArtifacts
-// fields: SRS, TestPlan, IntegrationNote, UXRequirements, UIDesign.
-func applyPhaseArtifactsSpecDesign(p *Project, mapKey string, payload PhaseArtifactPayload) { //nolint:gocyclo // exhaustive nil-check per phase artifact field
-	if payload.SRS != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.SRS == nil {
-			pa.SRS = make(map[string]SRSRecord)
-		}
-		pa.SRS[mapKey] = *payload.SRS
+// putPhaseRecord stores rec under mapKey in the PhaseArtifacts map field selects,
+// lazy-allocating PhaseArtifacts and the map. A nil rec is a no-op (the payload did
+// not carry that artifact).
+func putPhaseRecord[T any](p *Project, field func(*PhaseArtifacts) *map[string]T, mapKey string, rec *T) {
+	if rec == nil {
+		return
 	}
-	if payload.TestPlan != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.TestPlan == nil {
-			pa.TestPlan = make(map[string]TestPlanRecord)
-		}
-		pa.TestPlan[mapKey] = *payload.TestPlan
+	m := field(ensurePhaseArtifacts(p))
+	if *m == nil {
+		*m = make(map[string]T)
 	}
-	if payload.IntegrationNote != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.IntegrationNote == nil {
-			pa.IntegrationNote = make(map[string]IntegrationNoteRecord)
-		}
-		pa.IntegrationNote[mapKey] = *payload.IntegrationNote
-	}
-	if payload.UXRequirements != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.UXRequirements == nil {
-			pa.UXRequirements = make(map[string]UXRequirementsRecord)
-		}
-		pa.UXRequirements[mapKey] = *payload.UXRequirements
-	}
-	if payload.UIDesign != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.UIDesign == nil {
-			pa.UIDesign = make(map[string]UIDesignRecord)
-		}
-		pa.UIDesign[mapKey] = *payload.UIDesign
-	}
-}
-
-// applyPhaseArtifactsDeployDoc handles the infra/doc half of PhaseArtifacts
-// fields: ProvisioningSpec, DeployNote, DocOutline, DocNote.
-func applyPhaseArtifactsDeployDoc(p *Project, mapKey string, payload PhaseArtifactPayload) {
-	if payload.ProvisioningSpec != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.ProvisioningSpec == nil {
-			pa.ProvisioningSpec = make(map[string]ProvisioningSpecRecord)
-		}
-		pa.ProvisioningSpec[mapKey] = *payload.ProvisioningSpec
-	}
-	if payload.DeployNote != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.DeployNote == nil {
-			pa.DeployNote = make(map[string]DeployNoteRecord)
-		}
-		pa.DeployNote[mapKey] = *payload.DeployNote
-	}
-	if payload.DocOutline != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.DocOutline == nil {
-			pa.DocOutline = make(map[string]DocOutlineRecord)
-		}
-		pa.DocOutline[mapKey] = *payload.DocOutline
-	}
-	if payload.DocNote != nil {
-		pa := ensurePhaseArtifacts(p)
-		if pa.DocNote == nil {
-			pa.DocNote = make(map[string]DocNoteRecord)
-		}
-		pa.DocNote[mapKey] = *payload.DocNote
-	}
+	(*m)[mapKey] = *rec
 }
 
 // applyTestingStatePayload routes the TestingState-group fields (project-level
@@ -2569,9 +2234,6 @@ func applyTestingStatePayload(p *Project, payload PhaseArtifactPayload) {
 			p.TestingState = &TestingState{}
 		}
 		return p.TestingState
-	}
-	if payload.SystemTestPlan != nil {
-		ensureTestingState().SystemTestPlan = payload.SystemTestPlan
 	}
 	if payload.HarnessModule != nil {
 		ensureTestingState().HarnessModule = payload.HarnessModule
@@ -2585,7 +2247,16 @@ func applyTestingStatePayload(p *Project, payload PhaseArtifactPayload) {
 	}
 	if payload.TestRun != nil {
 		ts := ensureTestingState()
-		ts.TestRuns = append(ts.TestRuns, *payload.TestRun)
+		replaced := false
+		for i := range ts.TestRuns {
+			if ts.TestRuns[i].ID == payload.TestRun.ID {
+				ts.TestRuns[i] = *payload.TestRun
+				replaced = true
+			}
+		}
+		if !replaced {
+			ts.TestRuns = append(ts.TestRuns, *payload.TestRun)
+		}
 	}
 	if payload.Defect != nil {
 		ts := ensureTestingState()
@@ -2595,9 +2266,6 @@ func applyTestingStatePayload(p *Project, payload PhaseArtifactPayload) {
 		ensureTestingState().QualityAuditReport = payload.QualityAuditReport
 	}
 }
-
-// The Phase-3 construction-transition surface is ConstructionTransitionAccess,
-// satisfied by the git store (gitconstruction.go).
 
 // String returns the canonical name for the outcome.
 func (o ActivityOutcome) String() string {
@@ -3205,10 +2873,7 @@ func LocalRepoCredential() RepoCredential { return RepoCredential{Bytes: []byte(
 //
 // The branch/ledger/reconcile/stale-ack verbs are REQUIRED members of the generated
 // ProjectStateAccess contract (project.json), so every method below is a direct
-// forward — no capability assert, no fallback. CommitArtifactWithProvenance is the
-// one exception: it is not a session/branch verb (commit-time provenance stamping
-// is a git-substrate concern), so it keeps a narrow capability check against the
-// unexported provenanceCommitter interface below.
+// forward — no capability assert, no fallback, CommitArtifactWithProvenance included.
 type designSessionAccess struct {
 	base designSessionBase
 }
@@ -3224,27 +2889,17 @@ type designSessionBase interface {
 	ProjectStateAccess
 	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (Project, error)
 	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string) (Version, error)
 	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 var _ DesignSessionAccess = (*designSessionAccess)(nil)
 
-// provenanceCommitter is the ONE remaining optional capability designSessionAccess
-// checks for: CommitArtifactWithProvenance was never folded into the generated
-// ProjectStateAccess contract (see the C2 fold note on designSessionAccess above), so a
-// base that doesn't stamp provenance is a legitimate (if currently unexercised in
-// production) case, and the plain CommitArtifact fallback stays meaningful.
-type provenanceCommitter interface {
-	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string) (Version, error)
-}
-
-// NewDesignSessionAccess wraps base. Every folded verb forwards straight to base (the
-// generated ProjectStateAccess contract now requires all of them); CommitArtifactWithProvenance
-// alone still checks base's optional provenanceCommitter capability.
+// NewDesignSessionAccess wraps base. Every folded verb forwards straight to base,
+// CommitArtifactWithProvenance included: the provenance-less CommitArtifact fallback was
+// deleted in dct4 (every production base stamps provenance, so the fallback was
+// unreachable), which makes provenance stamping a REQUIRED member of designSessionBase.
 func NewDesignSessionAccess(base ProjectStateAccess) DesignSessionAccess {
 	// The design-session facet REQUIRES a base that also implements the on-branch verbs
 	// (see designSessionBase). Every production ProjectStateAccess is a *GitStore adapter
@@ -3259,8 +2914,8 @@ func NewDesignSessionAccess(base ProjectStateAccess) DesignSessionAccess {
 // NewGitLocalDesignSessionAccess builds the LOCAL git designSessionAccess port
 // (composegen variant token GitLocal, B6) by wrapping its OWN LOCAL
 // projectStateAccess instance — a second, functionally-equivalent *GitStore
-// addressing the same repo, mirroring the constructionTransitionAccess /
-// gitActivityStatusAccess variant constructors (gitadapter.go).
+// addressing the same repo, mirroring the gitActivityStatusAccess variant
+// constructors (gitadapter.go).
 func NewGitLocalDesignSessionAccess(repoURL string) DesignSessionAccess {
 	return NewDesignSessionAccess(NewGitLocalProjectStateAccess(repoURL))
 }
@@ -3301,7 +2956,7 @@ func (s *designSessionAccess) ReadProjectOnBranch(rc fwra.Context, projectID Pro
 // activity surfaced: fwmanager.MapError passes non-layer errors through untagged, so
 // the Temporal error type/retryability is unchanged.
 func (s *designSessionAccess) StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ModelEnvelope, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	decoded, err := model.Decode()
+	decoded, err := requireStagedModel("StageArtifactForReview", model)
 	if err != nil {
 		return 0, err
 	}
@@ -3309,29 +2964,9 @@ func (s *designSessionAccess) StageArtifactForReviewOnBranch(rc fwra.Context, pr
 }
 
 // CommitArtifactWithProvenance records commit provenance (committedAt/approvedBy/
-// draftedBy) atomically with the commit when base implements the optional
-// provenanceCommitter capability; otherwise falls back to the plain commit (absent
-// provenance is allowed). This is the ONE folded verb that stayed a genuine capability
-// check post-C2 (see the designSessionAccess doc comment above) — CommitArtifactWithProvenance
-// was never added to the generated ProjectStateAccess contract.
+// draftedBy) atomically with the commit. Absent provenance is allowed (empty strings).
 func (s *designSessionAccess) CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string) (Version, error) {
-	if pc, ok := s.base.(provenanceCommitter); ok {
-		return pc.CommitArtifactWithProvenance(rc, projectID, expectedVersion, kind, approvedBy, draftedBy)
-	}
-	return s.base.CommitArtifact(rc, projectID, expectedVersion, kind)
-}
-
-// RejectArtifactOnBranchWithComments forwards straight to base: it lands the Rejected
-// status flip + notes AND appends the reviewer's comments to the slot's durable
-// ReviewThread in one atomic commit.
-func (s *designSessionAccess) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.RejectArtifactOnBranchWithComments(rc, projectID, expectedVersion, branch, kind, notes, round, comments, replies, idempotencyKey)
-}
-
-// WithdrawArtifactOnBranch forwards straight to base (branch=="" withdraws on the
-// default/main).
-func (s *designSessionAccess) WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.WithdrawArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, idempotencyKey)
+	return s.base.CommitArtifactWithProvenance(rc, projectID, expectedVersion, kind, approvedBy, draftedBy)
 }
 
 // ReconcileBranchFromMain overlays main's every slot except the preserved ones onto the
@@ -3349,12 +2984,6 @@ func (s *designSessionAccess) WithdrawArtifactOnBranch(rc fwra.Context, projectI
 // case (Test_ReconcileBranchFromMain_EmptySetAdoptsMainEntirely pins it).
 func (s *designSessionAccess) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.base.ReconcileBranchFromMain(rc, projectID, expectedVersion, branch, kinds, idempotencyKey)
-}
-
-// SetReviewCommentStatusOnBranch applies a human review-ledger transition (waive/
-// reopen) on the session branch. Forwards straight to base.
-func (s *designSessionAccess) SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.SetReviewCommentStatusOnBranch(rc, projectID, expectedVersion, branch, kind, commentID, status, idempotencyKey)
 }
 
 // SeedReviewCommentsOnBranch appends the F38 amendment reopening feedback as OPEN
@@ -3442,15 +3071,45 @@ func EncodeModel(model ArtifactModel) (ModelEnvelope, error) {
 	return ModelEnvelope{Kind: model.Kind(), Model: raw}, nil
 }
 
-// Decode reconstructs the concrete typed model from its envelope.
+// HasModel reports whether the envelope carries a model. An empty payload IS the
+// documented "no model yet" state (a slot that has never been drafted); callers that
+// accept that state ask HasModel first and keep a nil model, and Decode refuses it.
+func (e ModelEnvelope) HasModel() bool {
+	return len(e.Model) > 0
+}
+
+// requireStagedModel is the stage writes' half of the read-back-parity invariant: a
+// model staged on a branch must satisfy the SAME required-field strictness the branch's
+// read-back (decodeSlotsMap) applies, or the stage succeeds and every later read of that
+// branch fails to decode — the write and the read disagreeing about what a valid model
+// is. A refusal is ContractMisuse: the caller sent a model its own reader would reject.
+func requireStagedModel(verb string, model ModelEnvelope) (ArtifactModel, error) {
+	if !model.HasModel() {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": empty model envelope")
+	}
+	if err := RequireModelFields(model.Kind, model.Model); err != nil {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": "+err.Error())
+	}
+	decoded, err := model.Decode()
+	if err != nil {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": undecodable model envelope: "+err.Error())
+	}
+	return decoded, nil
+}
+
+// Decode reconstructs the concrete typed model from its envelope. An empty envelope
+// is an error (ask HasModel first where "no model yet" is a legitimate value).
+//
+// Decode is STRUCTURAL only. It runs inside workflow code (ProjectEnvelope.Decode on a
+// read activity's result), so a semantic rule here would change what an already
+// recorded history decodes to the day the rule changes — a replay break — and would
+// refuse documents the read activity already accepted. Required-field strictness
+// (RequireModelFields) lives at the boundaries that must agree byte-for-byte: the
+// stage writes (requireStagedModel), putDraftModel, and the read-back codec
+// (decodeSlotsMap).
 func (e ModelEnvelope) Decode() (ArtifactModel, error) {
-	if len(e.Model) == 0 {
-		// Not an error: an empty payload IS the documented "no model yet" state
-		// (e.g. a slot that has never been drafted). Every call site checks err
-		// first, then uses a nil model as a legitimate value — a typed sentinel
-		// error would force every caller to unwrap-and-ignore it, which is exactly
-		// what returning a plain nil model already achieves.
-		return nil, nil //nolint:nilnil // (nil model, nil err) is the documented "no model yet" value; see the block comment above.
+	if !e.HasModel() {
+		return nil, fmt.Errorf("decode model %s: empty envelope (no model)", e.Kind)
 	}
 	model, ok := NewModelForKind(e.Kind)
 	if !ok {
@@ -3556,10 +3215,12 @@ func (s ArtifactSlot) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// decodeArtifactModelWireField decodes artifactSlotWire.Model's raw bytes into an
-// ArtifactModel, distinguishing three cases: (1) absent/JSON-null — no model yet,
-// (nil, nil); (2) a well-formed {"kind":...,"model":...} envelope — decoded via
-// ModelEnvelope.Decode; (3) anything else (a bare/flattened object with no "kind"
+// parseArtifactModelWireField parses artifactSlotWire.Model's raw bytes into its
+// {kind, model} ModelEnvelope, distinguishing three cases: (1) absent/JSON-null — the
+// zero envelope, whose HasModel is false ("no model yet"); (2) a well-formed
+// {"kind":...,"model":...} envelope — returned for ModelEnvelope.Decode (an envelope
+// with a kind but no model, which is how MarshalJSON writes a nil model, also has
+// HasModel false); (3) anything else (a bare/flattened object with no "kind"
 // discriminator, e.g. a producer that wrote json.Marshal(concreteModel) directly
 // instead of through EncodeModel) — an explicit error rather than silently
 // discarding the model (review finding: silent data loss is the wrong failure
@@ -3568,37 +3229,46 @@ func (s ArtifactSlot) MarshalJSON() ([]byte, error) {
 // the DECODED Kind value, because ArtifactKind's zero value (KindMission) is a
 // real kind — an absent key and a genuine Mission envelope are NOT
 // distinguishable after decoding into ModelEnvelope, only before.
-func decodeArtifactModelWireField(raw json.RawMessage) (ArtifactModel, error) {
+func parseArtifactModelWireField(raw json.RawMessage) (ModelEnvelope, error) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil //nolint:nilnil // absent/null IS the documented "no model yet" value.
+		return ModelEnvelope{}, nil
 	}
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &probe); err != nil {
-		return nil, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
+		return ModelEnvelope{}, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
 	}
 	if _, hasKind := probe["kind"]; !hasKind {
-		return nil, fmt.Errorf("decode ArtifactSlot.Model: present but not a {kind,model} envelope (no \"kind\" discriminator) — refusing to silently drop it")
+		return ModelEnvelope{}, fmt.Errorf("decode ArtifactSlot.Model: present but not a {kind,model} envelope (no \"kind\" discriminator) — refusing to silently drop it")
 	}
 	var env ModelEnvelope
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
+		return ModelEnvelope{}, fmt.Errorf("decode ArtifactSlot.Model: %w", err)
 	}
-	return env.Decode()
+	return env, nil
 }
 
 // UnmarshalJSON is MarshalJSON's inverse: decode into the wire shadow, then
 // reconstruct the concrete ArtifactModel from its raw Model bytes
-// (decodeArtifactModelWireField, which dispatches on the envelope's own Kind —
-// the same NewModelForKind lookup decodeSlotsMap uses, just driven by the
-// envelope's kind field instead of an out-of-band map key).
+// (parseArtifactModelWireField + ModelEnvelope.Decode, which dispatches on the
+// envelope's own Kind — the same NewModelForKind lookup decodeSlotsMap uses, just
+// driven by the envelope's kind field instead of an out-of-band map key). An
+// envelope without a model leaves Model nil ("no model yet").
 func (s *ArtifactSlot) UnmarshalJSON(data []byte) error {
 	var w artifactSlotWire
 	if err := json.Unmarshal(data, &w); err != nil {
 		return err
 	}
-	model, err := decodeArtifactModelWireField(w.Model)
+	env, err := parseArtifactModelWireField(w.Model)
 	if err != nil {
 		return err
+	}
+	var model ArtifactModel
+	if env.HasModel() {
+		decoded, err := env.Decode()
+		if err != nil {
+			return err
+		}
+		model = decoded
 	}
 	s.Status = w.Status
 	s.Model = model
@@ -3736,6 +3406,13 @@ type ProjectEnvelope struct {
 	LegacyActivityConstruction map[string]LegacyActivityConstructionRow `json:"activityConstruction,omitempty"`
 	ServiceContracts           map[string]ServiceContract               `json:"serviceContracts,omitempty"`
 	ReviewPolicy               *ReviewPolicy                            `json:"reviewPolicy,omitempty"`
+	// TestingState is the fourth construction-fidelity section (deterministic component
+	// testing, §6.5): the venue's recorded runs (.testingState.testRuns) live on the
+	// ACTIVITY BRANCH until finalizeWalk merges it, and the testing gate reads them across
+	// this boundary — readProjectOnBranch is the one branch-aware read a workflow has, and
+	// without this member it decoded a project with no runs on it. omitempty keeps every
+	// payload without a testing state byte-identical to before.
+	TestingState *TestingState `json:"testingState,omitempty"`
 
 	// OperatorPaused / PauseReason carry the operator's RECORDED pause
 	// (RecordOperatorPaused) across the boundary: the construction pump's
@@ -3758,6 +3435,7 @@ func EncodeProject(p Project) (ProjectEnvelope, error) {
 	// (omitempty), so non-construction payloads are byte-identical to before.
 	out.ActivityExecution = p.ActivityExecution
 	out.ServiceContracts = p.ServiceContracts
+	out.TestingState = p.TestingState
 	out.OperatorPaused = p.OperatorPaused
 	out.PauseReason = p.PauseReason
 	if len(p.ReviewPolicy.GatedPhasesByType) != 0 || p.ReviewPolicy.Preset != nil {
@@ -3795,15 +3473,20 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 	// decode to nil/zero, exactly the pre-construction Project state.
 	p.ActivityExecution = activityExecutionOrLegacy(e.ActivityExecution, e.LegacyActivityConstruction)
 	p.ServiceContracts = e.ServiceContracts
+	p.TestingState = e.TestingState
 	p.OperatorPaused = e.OperatorPaused
 	p.PauseReason = e.PauseReason
 	if e.ReviewPolicy != nil {
 		p.ReviewPolicy = *e.ReviewPolicy
 	}
 	for kind, se := range e.Slots {
-		model, err := se.Model.Decode()
-		if err != nil {
-			return Project{}, err
+		var model ArtifactModel
+		if se.Model.HasModel() {
+			decoded, err := se.Model.Decode()
+			if err != nil {
+				return Project{}, err
+			}
+			model = decoded
 		}
 		slot, ok := slotPtr(&p, kind)
 		if !ok {
@@ -3823,10 +3506,7 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 
 // gitactivity.go holds the ADDITIVE per-activity git-forward Record* verbs
 // (projectStateAccess.md §GIT-HEAD-STATE / GIT.2, D-PA-GIT, FROZEN 2026-06-12).
-// They JOIN the existing additive construction-transition verbs
-// (RecordChangeReviewed/RecordActivityExited/RecordOperatorPaused, gitconstruction.go)
-// on the SAME additive facet — NOT the core ProjectStateAccess (Phase-1/2)
-// interface, which is unchanged. Each carries the Manager-threaded
+// They live on their own additive facet — NOT the core ProjectStateAccess interface. Each carries the Manager-threaded
 // `cred RepoCredential` (REWORK.4), `expectedVersion` + `idempotencyKey`, and
 // `activityID`, and routes through the identical applyMutation ref-CAS + dedup-first
 // path with modeRequireExisting (OQ-mode RULED: the project row exists by Phase 3 —
@@ -3845,9 +3525,7 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 // (contract.gen.go, contract.gitActivityStatusAccess.schema.json) covering the
 // §GIT-HEAD-STATE branch/CI/+1/merge verbs plus the started/completed
 // construction-status verbs, as ONE 6-op contract. Kept off the core
-// ProjectStateAccess (Phase-1/2) interface, which is unchanged; the concrete
-// GitStore satisfies this plus the cred-threaded construction-transition verbs
-// (RecordChangeReviewed / RecordActivityExited / RecordActivityFailed / etc., below).
+// ProjectStateAccess (Phase-1/2) interface; the concrete GitStore satisfies it.
 
 // Compile-time proof the concrete GitStore satisfies the generated git-status facet.
 var _ GitActivityStatusAccess = (*GitStore)(nil)
@@ -3920,33 +3598,6 @@ func (s *GitStore) RecordActivityCIObserved(rc fwra.Context, projectID ProjectID
 	})
 }
 
-// RecordActivityArchApproved marks the architect's PR approval on the
-// activity's git-status row.
-func (s *GitStore) RecordActivityArchApproved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityArchApproved: empty activityID")
-	}
-	return s.applyMutation(rc.Context, "RecordActivityArchApproved", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		s.upsertActivity(p, activityID, func(g *ActivityGitStatus) {
-			g.ArchApproved = true
-		})
-		return nil
-	})
-}
-
-// RecordActivityMerged marks the activity's PR as merged on its git-status row.
-func (s *GitStore) RecordActivityMerged(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityMerged: empty activityID")
-	}
-	return s.applyMutation(rc.Context, "RecordActivityMerged", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		s.upsertActivity(p, activityID, func(g *ActivityGitStatus) {
-			g.Merged = true
-		})
-		return nil
-	})
-}
-
 // gitactivityconstruction.go holds the per-activity construction status Record* verbs.
 // They mirror the gitactivity.go pattern exactly: modeRequireExisting, optimistic-version
 // CAS via applyMutation, idempotency dedup via the in-repo ledger, and partial map-key
@@ -3985,58 +3636,6 @@ func upsertActivityExecution(p *Project, activityID string, mutate func(s *Activ
 	mutate(&s)
 	s.Version++
 	p.ActivityExecution[activityID] = s
-}
-
-// RecordActivityStarted records that activityID's construction agent has been dispatched
-// (Phase → Running, StartedAt server-resolved). Uses modeRequireExisting (project row
-// exists by Phase 3, same as gitactivity.go verbs).
-//
-// typ/variant are the pair the DISPATCHER classified (ClassifyActivity) and is about to
-// walk. Stamping them here is load-bearing, not decorative: the row's type selects the
-// lifecycle profile every read-time derivation resolves against (ResolveConstructionRow),
-// so leaving Type at its zero value reads the 5-phase SERVICE profile for every live
-// activity — including correctly-dispatched testing ones — and earned value silently
-// diverges from the lifecycle the workflow actually walks.
-func (s *GitStore) RecordActivityStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, typ ActivityType, variant TestingVariant, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityStarted: empty activityID")
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordActivityStarted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			cs.Type = typ
-			cs.Variant = variant
-			// StartedAt is the whole of "this row is running": with the coarse roll-up
-			// derived, an open activity is one with a start stamp and no terminal, and
-			// PumpWroteRow asks exactly that question. Write-once for the same reason the
-			// exit stamp is — a re-dispatch must not re-date the run it resumes.
-			if cs.StartedAt == nil {
-				t := now
-				cs.StartedAt = &t
-			}
-		})
-		return nil
-	})
-}
-
-// RecordActivityCompleted records that activityID's construction agent has finished
-// (CompletedAt server-resolved, write-once). Uses modeRequireExisting.
-//
-// The build status it used to advance to Integrated is DERIVED now: a completed activity
-// is integrated iff every lifecycle phase's gate passed, which CoarseBuildStatusFor reads
-// off the ledger. That is what adds the activity to the SPA's done-set and unblocks its
-// dependents, and it can no longer claim integration over a lifecycle that did not finish.
-func (s *GitStore) RecordActivityCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if activityID == "" {
-		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityCompleted: empty activityID")
-	}
-	now := s.now()
-	return s.applyMutation(rc.Context, "RecordActivityCompleted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
-			stampExit(cs, now)
-		})
-		return nil
-	})
 }
 
 // gitactivitystatus.go holds the per-activity git-forward head-state types
@@ -4116,33 +3715,6 @@ func (c CICheckState) String() string {
 
 // UpdatedAt is the last Record* touch — SERVER-RESOLVED at commit, never
 // caller-minted.
-
-// ConstructionTransitionAccess (contract.gen.go) is the Port interface for the
-// Phase-3 construction transition verbs (App-C §6 adjudicated: 10 ops ≤ 12 cap,
-// per conformance gate lifecycle-2 T3 analysis). The interface itself is
-// GENERATED from project.json's .serviceContracts.constructionTransitionAccess
-// entry (authored via contract.constructionTransitionAccess.schema.json), so
-// like the sibling ProjectStateAccess it takes the RA-layer call context
-// (rc fwra.Context) as every op's first parameter.
-//
-// WARNING — ReadProject (the 10th op) is IN-PROCESS-ONLY (B8-follow-up ruling): it
-// returns the raw Project aggregate, whose ArtifactSlots carry the SEALED
-// ArtifactModel interface that Temporal's default JSON data converter cannot decode
-// across an Activity boundary. The op nevertheless has a generated Temporal activity
-// ("constructionTransitionAccess.readProject", activities.gen.go/worker.gen.go —
-// codegen emits one per contract op unconditionally) and a generated invoker
-// (genInvokers.ConstructionTransitionReadProject) — DO NOT invoke either from a
-// workflow: the result would decode with every slot's Model silently nil-ed/mangled.
-// Workflows needing the whole aggregate must read through
-// designSessionAccess.readProjectOnBranch, which returns the codec-safe
-// ProjectEnvelope (envelope.go). The op is KEPT on the contract because it has a live
-// in-process consumer: constructionManager.UpdateReviewPolicy
-// (internal/manager/construction/constructionmanager.go) reads the current head
-// Version through it before RecordReviewPolicy — a façade-side direct call that
-// never crosses Temporal.
-
-// Compile-time assertion: GitStore must satisfy the full 10-op port.
-var _ ConstructionTransitionAccess = (*GitStore)(nil)
 
 // ---- MissionStatement — ch. 5 business alignment ----
 
@@ -4789,6 +4361,10 @@ func NewSystem(components []Component, relationships []Relationship, dynamicView
 // UML-general
 // UML-general, a UML time event (an elapsed-timer entry point)
 // UML-general, a UML accept-event action (a bus/queue-message entry point)
+// UML-general, a UML send-signal action: the paper's OUTPUT event; LinkedActorID names
+//   the receiving actor (deterministic component testing, spec §2.2)
+// UML-general, a UML 2.5 §15.4 ObjectNode: Label is the object, InState its expected
+//   observable state at that point on the path (deterministic component testing, §2.2)
 
 // BookEnumerated reports whether a node kind is in the book's closed set (vs UML-general).
 // WARNING: the iota ordering is load-bearing — book-enumerated node kinds must be
@@ -4813,6 +4389,11 @@ func (k ActivityNodeKind) BookEnumerated() bool { return k <= NodeNote }
 // a Component.ID or the owning use case's Actor.ID. Illegal placement (any other
 // kind) or a value resolving to neither is CC-DECIDED-BY (methodcheck/designhealth,
 // not enforced by this write-path shape validator — see requireActivityNodes).
+//
+// InState / Anchor (deterministic component testing, spec §2.2): InState is the
+// expected observable state of a NodeObjectNode ("[paid]"), required on that kind and
+// meaningless on every other; Anchor is the id of the path node a NodeNote rides along
+// with (its text becomes a scenario hint), optional and legal only on notes.
 type ActivityNode struct {
 	ID    string           `json:"id"`
 	Kind  ActivityNodeKind `json:"kind"`
@@ -4822,6 +4403,9 @@ type ActivityNode struct {
 	LinkedActorID *string `json:"linkedActorId"`
 	// DecidedBy: see doc comment above.
 	DecidedBy *string `json:"decidedBy,omitempty"`
+	// InState / Anchor: see doc comment above.
+	InState string `json:"inState,omitempty"`
+	Anchor  string `json:"anchor,omitempty"`
 }
 
 // EdgeKind is the closed set of activity-edge kinds. (projectStateAccess.md §3.4)
@@ -5219,9 +4803,10 @@ type ContractParam struct {
 
 // SRSRecord is the Requirements phase artifact for a service or deployment activity.
 
-// TestPlanRecord is the TestPlan phase artifact (per-service/frontend slice).
-// Author per Correction 1: the constructing developer (junior under senior hand-off),
-// NOT the test-engineer. System-level test activities use TestingState.SystemTestPlan.
+// TestPlanRecord is the TestPlan phase artifact (per-service/frontend slice): the
+// typed bindings of every scenario projected onto the component (spec §3), authored by
+// the test engineer against listComponentScenarios. There is no system-level test plan
+// any more (spec §7).
 
 // IntegrationNoteRecord is the Integration phase artifact produced when the
 // senior-developer integrates the component and merges the integration PR.
@@ -5257,7 +4842,7 @@ type ContractParam struct {
 // "before" | "after" | "onReviewFail"
 // "escalate" | "takeover"
 
-// DefectRecord is one defect filed during system testing (N-IT / §1c).
+// DefectRecord is one defect recorded in TestingState (§1c).
 type DefectRecord struct {
 	ID         string     `json:"id"`
 	Title      string     `json:"title"`
@@ -5267,88 +4852,13 @@ type DefectRecord struct {
 	Note       string     `json:"note,omitempty"`
 }
 
-// TestRun is one system-test execution record (N-IT / §1c).
-type TestRun struct {
-	ID        string     `json:"id"`
-	StartedAt *time.Time `json:"startedAt,omitempty"`
-	EndedAt   *time.Time `json:"endedAt,omitempty"`
-	Passed    int        `json:"passed"`
-	Failed    int        `json:"failed"`
-	Note      string     `json:"note,omitempty"`
-}
-
-// TestArg is one concrete input argument to a step's operation call: the param
-// name, a concrete VALUE (JSON-encoded text, so the N-STH harness generator can emit
-// runnable code), and an optional schemaRef naming the contract param's type.
-type TestArg struct {
-	Name      string `json:"name"`
-	Value     string `json:"value"`               // concrete value as JSON/text, e.g. "\"approve\""
-	SchemaRef string `json:"schemaRef,omitempty"` // contract param type name ($def), optional
-}
-
-// TestExpect is the expected outcome of a step: either an expected result value
-// (Result, JSON/text) OR an expected error (ErrorExpected + ErrorCode). A negative
-// case asserts the system produces the specific failure; a happy step asserts the
-// result. Per Righting Software App A: cover "every parameter, condition, and
-// error-handling path".
-type TestExpect struct {
-	Result        string `json:"result,omitempty"`    // expected result value/shape (empty when error-expected)
-	ErrorExpected bool   `json:"errorExpected"`       // true → the call is expected to fail
-	ErrorCode     string `json:"errorCode,omitempty"` // expected error code / type
-}
-
-// TestStep is one black-box step in a system-test case: a single manager operation
-// call with its concrete inputs and expected outcome. It is TRANSPORT-AGNOSTIC — it
-// names the {component, operation} (the manager method), NOT an HTTP route, because
-// the REST/MCP/(future) gRPC clients are all generated bindings of the same manager
-// operation. The N-STH harness generator turns these steps into per-transport code.
-type TestStep struct {
-	Seq       int        `json:"seq"`                 // 1-based order within the case
-	Component string     `json:"component"`           // manager/component that owns the operation
-	Operation string     `json:"operation"`           // manager method name (e.g. "startSystemDesign")
-	Status    string     `json:"status,omitempty"`    // last-run result: "" | "red" (failing) | "green" (passing)
-	Inputs    []TestArg  `json:"inputs,omitempty"`    // concrete input arguments
-	Expect    TestExpect `json:"expect"`              // expected result or expected error
-	Assertion string     `json:"assertion,omitempty"` // human-readable assertion
-}
-
-// TestCase is one falsification attempt within a scenario: an ordered sequence of
-// manager-operation calls asserting a specific expected outcome — a happy path, a
-// negative (error-path) case, or a boundary case. Per Righting Software ch.14 the
-// value of the plan is the adversarial coverage ("all the ways to break the system
-// and prove it does not work"), so negative/boundary cases are first-class.
-type TestCase struct {
-	ID    string `json:"id"`
-	Kind  string `json:"kind"` // "happy" | "negative" | "boundary"
-	Title string `json:"title"`
-	// Proves is "what this proves" — the failure mode this case is designed to expose.
-	Proves          string     `json:"proves,omitempty"`
-	ExpectedOutcome string     `json:"expectedOutcome,omitempty"` // overall success OR the specific expected failure
-	Steps           []TestStep `json:"steps,omitempty"`
-}
-
-// TestScenario is one black-box system-test scenario: a core use case and the set of
-// test cases (happy + adversarial) that prove it holds — or catch where it breaks —
-// end-to-end, black-box at the client surface.
-type TestScenario struct {
-	ID      string `json:"id"`
-	UseCase string `json:"useCase"` // the core use case this scenario traces to
-	Title   string `json:"title"`
-	// Description is the "what this proves and why it matters" — the failure modes
-	// the scenario is designed to expose (system-level QC per Righting Software
-	// ch.14: prove the integrated system fails, don't unit-test in isolation).
-	Description string     `json:"description,omitempty"`
-	Cases       []TestCase `json:"cases,omitempty"`
-}
-
-// SystemTestPlan is the output of the N-STP activity (§1c TestVariantPlan).
-type SystemTestPlan struct {
-	UseCaseIndex []string       `json:"useCaseIndex,omitempty"` // traced UC ids
-	Entries      []string       `json:"entries,omitempty"`      // plan entry descriptions
-	Scenarios    []TestScenario `json:"scenarios,omitempty"`    // black-box operation sequences
-	Status       string         `json:"status,omitempty"`       // "" | "approved"
-	ApprovedAt   *time.Time     `json:"approvedAt,omitempty"`
-}
+// TestRun, ScenarioResult, TestArg, TestExpect, Probe, StepBinding, SkipReason and
+// ScenarioBinding are GENERATED from $defs (contract.gen.go) since the deterministic
+// component testing wave (spec §3, §6.1): a TestRun is one venue run of a component's
+// generated scenario tests, recorded by the venue through record-test-run; a
+// TestPlanRecord is the typed set of bindings, one per projected scenario. The former
+// hand-written TestStep/TestCase/TestScenario/SystemTestPlan (the N-STP system test
+// plan) are retired with the activity that authored them (spec §7).
 
 // HarnessModule is the output of the N-STH activity (§1c TestVariantHarness).
 type HarnessModule struct {
@@ -5364,16 +4874,17 @@ type PerfHarness struct {
 	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
 }
 
-// TestingState holds the project-level testing artifacts produced by N-* activities.
-// Additive: nil until the first testing activity produces output.
+// TestingState holds the project-level testing artifacts produced by N-* activities
+// and, since the deterministic component testing wave, the per-component test runs
+// the venue records on the testing task (TestRuns, spec §6.1). Additive: nil until the
+// first testing activity produces output.
 type TestingState struct {
-	SystemTestPlan     *SystemTestPlan `json:"systemTestPlan,omitempty"`
-	HarnessModule      *HarnessModule  `json:"harnessModule,omitempty"`
-	PerfHarness        *PerfHarness    `json:"perfHarness,omitempty"`
-	QualityGates       []QualityGate   `json:"qualityGates,omitempty"`
-	QualityAuditReport string          `json:"qualityAuditReport,omitempty"`
-	TestRuns           []TestRun       `json:"testRuns,omitempty"`
-	Defects            []DefectRecord  `json:"defects,omitempty"`
+	HarnessModule      *HarnessModule `json:"harnessModule,omitempty"`
+	PerfHarness        *PerfHarness   `json:"perfHarness,omitempty"`
+	QualityGates       []QualityGate  `json:"qualityGates,omitempty"`
+	QualityAuditReport string         `json:"qualityAuditReport,omitempty"`
+	TestRuns           []TestRun      `json:"testRuns,omitempty"`
+	Defects            []DefectRecord `json:"defects,omitempty"`
 }
 
 // OperatingModel declares WHO OPERATES the built application — a PROJECT-LEVEL
@@ -5631,6 +5142,12 @@ type Project struct {
 	// phase) pairs require human approval during construction. The zero value gates
 	// nothing — the construction loop behaves as before this feature was introduced.
 	ReviewPolicy ReviewPolicy `json:"reviewPolicy"`
+
+	// UpdatedAt is the document's updatedAt as committed: the server-resolved time of
+	// the last state mutation. The git store stamps a fresh one on every write; a
+	// decode → encode with no fresh stamp (the construct-mode tools, the migrations)
+	// carries it through unchanged, so the round trip loses nothing.
+	UpdatedAt time.Time
 
 	// ---- Phase 1 slots ----
 	Mission              ArtifactSlot // Model is *MissionStatement when populated
@@ -6291,8 +5808,25 @@ func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasEn
 		if e := requireOptionalStringField(obj, "decidedBy", label); e != nil {
 			return false, false, e
 		}
+		if e := requireIOKindShape(obj, nk, label); e != nil {
+			return false, false, e
+		}
 	}
 	return hasEntry, hasAction, nil
+}
+
+// requireIOKindShape is the write-path shape check for the two fields the deterministic
+// component testing wave added to ActivityNode (spec §2.2): an objectNode is an expected
+// observable state, so it MUST say which state (inState); a note's anchor is optional.
+// Both are plain strings on the wire; the codec already refused an unknown kind. Legality
+// beyond shape (anchor only on notes, naming a node on the path) is a methodcheck rule.
+func requireIOKindShape(obj map[string]json.RawMessage, nk ActivityNodeKind, label string) error {
+	if nk == NodeObjectNode {
+		if e := requireNonEmptyString(obj, "inState", label+" (objectNode)"); e != nil {
+			return e
+		}
+	}
+	return requireOptionalStringField(obj, "anchor", label)
 }
 
 // activityIncomingEdgeCounts returns, for each node ID targeted by an edge's "to", the
@@ -6726,20 +6260,7 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 		slot.Notes = entry.Notes
 		slot.CritiqueVerdict = entry.CritiqueVerdict
 		slot.CritiqueNotes = entry.CritiqueNotes
-		// LEGACY-VOCABULARY GRANDFATHER (review-thread status vocabulary, this feature): a
-		// committed slot's ReviewThread may still carry the RETIRED "addressed"/"waived"
-		// statuses (and a bare legacy Response string) from before the reply-thread model
-		// existed. migrateLegacyReviewThread render-on-reads it onto the current vocabulary
-		// — this is the SAME lazy-migration shape as the Revisions grandfather just below:
-		// nothing is written back here, but the in-memory Project this decode produces (and
-		// therefore every write built from it, e.g. the next normalizeReviewThread at a
-		// (re)stage) sees only current values from this point on. No caller-identity or
-		// clock is available in this pure decoder, so draftedBy/at are passed empty;
-		// migrateLegacyReviewThread defaults an empty draftedBy to "architect", and the
-		// empty `at` is unreachable for every entry actually on disk today (F45 staleAck
-		// entries carry no Response, so the reply-synthesis branch that would use `at`
-		// never fires for them).
-		slot.ReviewThread = migrateLegacyReviewThread(entry.ReviewThread, "", "")
+		slot.ReviewThread = entry.ReviewThread
 		slot.Revisions = entry.Revisions
 		// PRE-FIELD GRANDFATHER (F38 follow-up 2026-07-05): a slot committed BEFORE the
 		// Revisions field existed reads back as 0 (the zero-value / omitempty gap), yet a
@@ -7144,6 +6665,8 @@ var activityNodeKindNames = map[ActivityNodeKind]string{
 	NodeInterruptEdge: "interruptEdge",
 	NodeTimeEvent:     "timeEvent",
 	NodeAcceptEvent:   "acceptEvent",
+	NodeSendSignal:    "sendSignal",
+	NodeObjectNode:    "objectNode",
 }
 var activityNodeKindByName = invert(activityNodeKindNames)
 
@@ -7254,8 +6777,6 @@ var activityTypeNames = map[ActivityType]string{
 var activityTypeByName = invert(activityTypeNames)
 
 // MarshalJSON encodes the ActivityType as its canonical wire name.
-// NOTE: ActivityKind is a type alias for ActivityType, so this also handles
-// ActivityKind fields — they share the same underlying type and method set.
 func (t ActivityType) MarshalJSON() ([]byte, error) {
 	return marshalEnum(t, activityTypeNames, "ActivityType")
 }
@@ -7274,12 +6795,19 @@ func (t *ActivityType) UnmarshalJSON(data []byte) error {
 
 // ---- TestingVariant ----
 
+// "plan" (N-STP, ordinal 0) and "systemTest" (N-IT, ordinal 3) are RETIRED
+// (deterministic component testing, spec §7): neither is a testing variant again and
+// ordinal 3 is never reused. Ordinal 0 is the zero value, TestVariantNone: what every
+// non-testing activity carries. It is declared in the contract — the F81 wire-map gate
+// requires the map and the contract to agree — because it has to cross a wire: the
+// construction workflow hands (type, variant) to its Temporal activities as positional
+// arguments, where no `omitempty` hides a zero. "systemTest" is not accepted on decode;
+// a stored "systemTest" is the retired artifact's row and fails loudly.
 var testingVariantNames = map[TestingVariant]string{
-	TestVariantPlan:       "plan",
-	TestVariantHarness:    "harness",
-	TestVariantPerf:       "perf",
-	TestVariantSystemTest: "systemTest",
-	TestVariantQAProcess:  "qaProcess",
+	TestVariantNone:      "none",
+	TestVariantHarness:   "harness",
+	TestVariantPerf:      "perf",
+	TestVariantQAProcess: "qaProcess",
 }
 var testingVariantByName = invert(testingVariantNames)
 
@@ -7436,8 +6964,7 @@ func (r FailureReason) String() string {
 // PhaseCompletion is one App-A internal phase record within an activity's Phases slice.
 // Binary exit (App A §1.1): Completed=true only when the review gate passed. Weight
 // is the fraction of activity progress this phase carries (sums to 100 per type).
-// ArtifactRef is a pointer into phaseArtifacts/serviceContracts/Produced — set by
-// RecordPhaseCompleted.
+// ArtifactRef is a pointer into phaseArtifacts/serviceContracts/Produced.
 type PhaseCompletion struct {
 	Phase       ActivityMethodPhase `json:"phase"`
 	Weight      int                 `json:"weight"`
@@ -7567,7 +7094,57 @@ const (
 	EvidenceArtifact EvidenceKind = "artifact"
 	EvidenceContract EvidenceKind = "contract"
 	EvidenceGit      EvidenceKind = "git"
+	// EvidenceTestRun cites a recorded TestRun by its id (.testingState.testRuns[].id). It is
+	// the ONLY evidence a `testing` pass of a test-planned activity may carry (see
+	// QualifiedAttempts): the testing gate writes it when the run it judged qualified.
+	EvidenceTestRun EvidenceKind = "testRun"
 )
+
+// THE TESTING TASK PASSES ONLY ON A QUALIFYING TEST RUN (spec 2026-10-02 §1 T4, §6.5).
+//
+// A lifecycle that binds a test plan — the service and frontend lifecycles, whose phase set
+// carries MethodPhaseTestPlan — exits its Integration phase through the `testing` review, and
+// T4 says that review passes only on a full green TestRun at the judged revision that
+// renders. The testing gate (the delivery Manager's DeliveryActivityWorkflow) checks all four
+// §6.5 rules before it passes, and records the run it judged as the pass's evidence
+// (EvidenceTestRun). So a `testing` pass that cites no run is a pass nobody judged against a
+// run — the backfill's "assume it is done" rows, a human override of a held gate, a record
+// written before the gate existed — and it does not stand:
+//
+//   - every READ resolves it as not passed (QualifiedAttempts, which ResolvePhaseCompletions
+//     and the delivery Manager's views and walk seed read through), so the activity's
+//     Integration phase stays open and its testing task reads pending review;
+//   - the WRITE refuses it (RecordAttemptOutcome), so the store never records a new one.
+//
+// The test is the citation, not a lookup of the run: the run is published on the activity
+// branch by the venue and reaches main only with the activity's merge, so the row on main
+// cannot be required to sit beside it. The gate that wrote the citation is what checked it.
+
+// testsScenarios reports whether a lifecycle profile binds a test plan, and so whether its
+// `testing` review judges a scenario run (T4).
+func testsScenarios(pr Profile) bool {
+	return slices.ContainsFunc(pr.Phases, func(p ProfilePhase) bool { return p.Phase == MethodPhaseTestPlan })
+}
+
+// testingPassCitesRun reports whether a passed `testing` attempt carries the evidence T4
+// requires: a cited TestRun id.
+func testingPassCitesRun(a TaskAttempt) bool {
+	return a.Evidence.Kind == EvidenceTestRun && a.Evidence.Ref != ""
+}
+
+// QualifiedAttempts is the attempt ledger as every reader must resolve it: when scenarioTested
+// (the activity's lifecycle binds a test plan), each `testing` attempt that PASSED without
+// citing a TestRun is dropped, so the testing task reads as undecided rather than passed. Every
+// other attempt, and every attempt of a lifecycle that binds no test plan, is kept as it is.
+// The input is never modified.
+func QualifiedAttempts(scenarioTested bool, attempts []TaskAttempt) []TaskAttempt {
+	if !scenarioTested {
+		return attempts
+	}
+	return slices.DeleteFunc(slices.Clone(attempts), func(a TaskAttempt) bool {
+		return a.Task == TaskTesting && a.Outcome == OutcomePassed && !testingPassCitesRun(a)
+	})
+}
 
 // EvidenceRef points an attempt at what it produced or reviewed.
 type EvidenceRef struct {
@@ -7759,8 +7336,6 @@ type ActivityExecution struct {
 	// OperatorNote — no roster, no verdicts, no subject, no round number. omitempty keeps
 	// a row without rounds byte-identical to one written before rounds existed.
 	Reviews []ReviewRound `json:"reviews,omitempty"`
-	// Produced is the list of artifacts this activity produced (contracts/code).
-	Produced []ProducedArtifact `json:"produced,omitempty"`
 	// OperatorNotes is the APPEND-ONLY list of notes an operator recorded against this
 	// activity (RecordOperatorNote), in recorded order. NARROWED in stage 3: the new
 	// verbs no longer WRITE a NoteSendBack — a send-back is a ReviewRound now, and a note
@@ -7797,9 +7372,8 @@ type LegacyActivityConstructionRow struct {
 	CurrentPhase  ActivityMethodPhase `json:"currentPhase,omitempty"`
 	StartedAt     *time.Time          `json:"startedAt,omitempty"`
 	CompletedAt   *time.Time          `json:"completedAt,omitempty"`
-	Kind          ActivityKind        `json:"kind,omitempty"`
+	Kind          ActivityType        `json:"kind,omitempty"`
 	BuildStatus   ActivityBuildStatus `json:"buildStatus,omitempty"`
-	Produced      []ProducedArtifact  `json:"produced,omitempty"`
 	FailureReason FailureReason       `json:"failureReason,omitempty"`
 	FailureDetail string              `json:"failureDetail,omitempty"`
 	OperatorNotes []OperatorNote      `json:"operatorNotes,omitempty"`
@@ -7860,7 +7434,6 @@ func (r LegacyActivityConstructionRow) toActivityExecution() ActivityExecution {
 		FailureDetail: r.FailureDetail,
 		Attempts:      r.Attempts,
 		Reviews:       r.Reviews,
-		Produced:      r.Produced,
 		OperatorNotes: r.OperatorNotes,
 		Version:       r.Version,
 	}
@@ -8207,7 +7780,7 @@ func (t ActivityType) String() string {
 	case ActivityTypeProjectDesign:
 		return "projectDesign"
 	case ActivityTypeService:
-		// The zero value (== ActivityKindService, the legacy alias).
+		// The zero value.
 		return "service"
 	}
 	// Unreachable for the ten defined ActivityType values above (the exhaustive
@@ -8216,51 +7789,37 @@ func (t ActivityType) String() string {
 	return "service"
 }
 
-// ActivityKind is a type alias for ActivityType kept for JSON back-compat.
-// Existing project.json entries seeded with Kind use the same integer encoding;
-// the legacy 3 values (0=Service/1=Frontend/2=Testing) decode correctly through
-// ActivityType. New code should use ActivityType; ActivityKind remains valid as
-// a field type so no renaming is required at call sites.
-type ActivityKind = ActivityType
-
-// ActivityKindService / ActivityKindFrontend / ActivityKindTesting are preserved
-// as aliases to the ActivityType constants so existing code referencing the old
-// three-value names continues to compile without modification.
-const (
-	ActivityKindService  = ActivityTypeService
-	ActivityKindFrontend = ActivityTypeFrontend
-	ActivityKindTesting  = ActivityTypeTesting
-)
-
-// TestingVariant discriminates the five N-* testing activity sub-types. Only
+// TestingVariant discriminates the three N-* testing activity sub-types. Only
 // meaningful when ActivityType == ActivityTypeTesting. Variant is chosen from the
-// activity name prefix (N-STP → Plan, N-STH → Harness, N-PERF → Perf,
-// N-IT → SystemTest, N-QA → QAProcess).
+// activity name prefix (N-STH → Harness, N-PERF → Perf, N-QA → QAProcess). The former
+// Plan (N-STP, ordinal 0) and SystemTest (N-IT, ordinal 3) variants are retired with
+// the system test plan (deterministic component testing, spec §7); those ordinals are
+// never reused.
 
-// N-STP: system test plan
 // N-STH: test harness construction
 // N-PERF: performance rig
-// N-IT: system test execution (terminal/critical)
 // N-QA: QA process definition
 
-// String returns the canonical wire name.
+// TestVariantNone (the zero value) is what every non-testing activity carries. It is
+// not a testing variant and it is not the retired ordinal-0 "plan" coming back under
+// another name: a tester-owned id that names no surviving variant does not classify
+// as Testing at all (deriveVariant).
+
+// String returns the canonical wire name, and "" for an out-of-range (retired)
+// ordinal. "none" names no lifecycle: LifecycleKeyFor spells a testing key only for
+// ActivityTypeTesting, and lifecycleFor falls back to service.
 func (v TestingVariant) String() string {
 	switch v {
 	case TestVariantHarness:
 		return "harness"
 	case TestVariantPerf:
 		return "perf"
-	case TestVariantSystemTest:
-		return "systemTest"
 	case TestVariantQAProcess:
 		return "qaProcess"
-	case TestVariantPlan:
-		return "plan"
+	case TestVariantNone:
+		return "none"
 	}
-	// Unreachable for the five defined TestingVariant values above (the exhaustive
-	// linter enforces that every real variant has its own case); kept as a
-	// defensive fallback for an out-of-range ordinal.
-	return "plan"
+	return ""
 }
 
 // ActivityMethodPhase is one App-A internal phase within a construction activity.
@@ -8506,16 +8065,16 @@ type StaleCause struct {
 // *Client / *Manager / *Engine / *Access components and infra/integration) is
 // service, because a Client component exposes a service contract just like any
 // other service-layer component.
-func DeriveKind(activityID, componentName string) ActivityKind {
+func DeriveKind(activityID, componentName string) ActivityType {
 	_ = componentName // caller passes it; classification is id-based only
 	id := strings.ToUpper(activityID)
 	switch {
 	case strings.HasPrefix(id, "U-SPA"):
-		return ActivityKindFrontend
+		return ActivityTypeFrontend
 	case strings.HasPrefix(id, "N-"):
-		return ActivityKindTesting
+		return ActivityTypeTesting
 	default:
-		return ActivityKindService
+		return ActivityTypeService
 	}
 }
 
@@ -8534,24 +8093,21 @@ func DeriveType(activityID string) ActivityType {
 	}
 }
 
-// deriveVariant maps a testing activity id prefix to its TestingVariant. Meaningful
-// only when DeriveType == ActivityTypeTesting; unknown N- ids fall back to Plan.
-// Order matters: N-STH / N-STP share the "N-ST" stem, so match the longer first.
-func deriveVariant(activityID string) TestingVariant {
+// deriveVariant maps a testing activity id prefix to its TestingVariant. ok is false
+// for an id that is no testing variant at all — including N-STP and N-IT, whose
+// variants are retired (spec §7) — and ClassifyActivity then treats the activity as
+// not-Testing and lets the remaining rules classify it.
+func deriveVariant(activityID string) (v TestingVariant, ok bool) {
 	id := strings.ToUpper(activityID)
 	switch {
 	case strings.HasPrefix(id, "N-STH"):
-		return TestVariantHarness
-	case strings.HasPrefix(id, "N-STP"):
-		return TestVariantPlan
+		return TestVariantHarness, true
 	case strings.HasPrefix(id, "N-PERF"):
-		return TestVariantPerf
-	case strings.HasPrefix(id, "N-IT"):
-		return TestVariantSystemTest
+		return TestVariantPerf, true
 	case strings.HasPrefix(id, "N-QA"):
-		return TestVariantQAProcess
+		return TestVariantQAProcess, true
 	default:
-		return TestVariantPlan
+		return TestVariantNone, false
 	}
 }
 
@@ -8604,8 +8160,9 @@ func designActivityType(id string) (ActivityType, bool) {
 //     must be checked FIRST: all three are authored system-architect/coding=false, so
 //     rule 6 would type them Documentation and the pump would resolve a construction
 //     phase profile for a design lifecycle.
-//  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} → Testing, with the
-//     variant read off the id (deriveVariant)
+//  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} AND the id names a
+//     testing variant (deriveVariant ok) → Testing with that variant; an id that names
+//     none (N-STP/N-IT are retired, spec §7) falls through to the rules below
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
 //  3. id prefix U-SPA                 → Frontend
 //  4. id prefix I-                    → Integration
@@ -8622,44 +8179,47 @@ func designActivityType(id string) (ActivityType, bool) {
 // have rendered. `err != nil` is now the whole question.
 //
 // The returned TestingVariant is meaningful only when the type is Testing; it is the
-// zero value (TestVariantPlan) otherwise.
+// zero value (no variant) otherwise.
 func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, TestingVariant, error) {
 	if typ, ok := designActivityType(id); ok {
-		return typ, TestVariantPlan, nil
+		return typ, 0, nil
 	}
 	switch workerClass {
 	case "software-tester", "test-engineer", "qa-engineer":
-		return ActivityTypeTesting, deriveVariant(id), nil
+		if v, ok := deriveVariant(id); ok {
+			return ActivityTypeTesting, v, nil
+		}
 	case "ui-designer":
 		if coding {
-			return ActivityTypeFrontend, TestVariantPlan, nil
+			return ActivityTypeFrontend, 0, nil
 		}
-		return ActivityTypeUIDesign, TestVariantPlan, nil
+		return ActivityTypeUIDesign, 0, nil
 	}
 	upper := strings.ToUpper(id)
 	if strings.HasPrefix(upper, "U-SPA") {
-		return ActivityTypeFrontend, TestVariantPlan, nil
+		return ActivityTypeFrontend, 0, nil
 	}
 	if strings.HasPrefix(upper, "I-") {
-		return ActivityTypeIntegration, TestVariantPlan, nil
+		return ActivityTypeIntegration, 0, nil
 	}
 	if coding {
-		return ActivityTypeService, TestVariantPlan, nil
+		return ActivityTypeService, 0, nil
 	}
 	switch workerClass {
 	case "system-architect", "project-manager", "product-manager":
-		return ActivityTypeDocumentation, TestVariantPlan, nil
+		return ActivityTypeDocumentation, 0, nil
 	case "senior-developer", "junior-developer":
-		return ActivityTypeDeployment, TestVariantPlan, nil
+		return ActivityTypeDeployment, 0, nil
 	}
-	return ActivityTypeService, TestVariantPlan, fmt.Errorf(
+	return ActivityTypeService, 0, fmt.Errorf(
 		"activity %s: workerClass %q with coding=%v matches no classification rule", id, workerClass, coding)
 }
 
-// ClassifyType is the VIEW-MODEL classification lens over ClassifyActivity. It adds the
-// one signal a read-time view has and a dispatch does not: hasServiceContract, a
-// backward-looking corpus observation that an activity DID build a component, which
-// wins over every rule below it.
+// ClassifyType is the VIEW-MODEL classification lens over ClassifyActivity. It adds one
+// signal a dispatch does not have: hasServiceContract, a backward-looking observation that
+// an activity DID build a component, which wins over every rule below it. Only the
+// backfill-attempts migration has such an observation (a legacy row's ContractRef); a
+// live execution row does not, so ResolveConstructionRow passes false.
 //
 // It is STRICT. It used to be lenient — an unclassifiable activity fell back to
 // Deployment so that the row would still render. That fallback silently mistyped 60 of
@@ -8685,23 +8245,6 @@ func ClassifyType(id, workerClass string, coding, hasServiceContract bool) (Acti
 		return ActivityTypeService, false
 	}
 	return typ, true
-}
-
-// rowHasServiceContract reports whether a construction row carries a frozen
-// "service-contract" Produced entry: backward-looking evidence that the activity built
-// a component, which ClassifyType lets win over every id/workerClass rule.
-//
-// DEFENSIVE, NOT A LIVE PATH. No production writer puts a "service-contract" Produced
-// entry on a row today: DeriveProduced, the one function that builds such entries, has
-// no non-test caller. The check stays so that the day a writer does record one, the row
-// reads as Service instead of being re-guessed from its id.
-func rowHasServiceContract(r ActivityExecution) bool {
-	for _, a := range r.Produced {
-		if a.Kind == "service-contract" {
-			return true
-		}
-	}
-	return false
 }
 
 // ResolveConstructionRow resolves everything a reader of ONE stored construction row
@@ -8731,12 +8274,15 @@ func ResolveConstructionRow(
 	if id == "" {
 		id = r.ActivityID
 	}
-	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
+	// hasServiceContract is false: an execution row carries no produced-artifact record
+	// (the list and its only writer, CommitActivityArtifacts, were deleted in dct4), so a
+	// row is typed by the committed plan's item alone.
+	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, false)
 	if !classified {
 		return typ, variant, nil, false
 	}
 	if typ == ActivityTypeTesting {
-		variant = deriveVariant(id)
+		variant, _ = deriveVariant(id)
 	}
 	return typ, variant, ResolvePhaseCompletions(ProfileFor(typ, variant), r.Attempts), true
 }
@@ -8777,6 +8323,8 @@ func ResolvePhaseCompletions(
 	if len(attempts) == 0 {
 		return nil
 	}
+	// T4: an uncited testing pass does not close the Integration phase (QualifiedAttempts).
+	attempts = QualifiedAttempts(testsScenarios(profile), attempts)
 	out := make([]PhaseCompletion, 0, len(profile.Phases))
 	for _, pp := range profile.Phases {
 		// Weight and Label are the profile's: a uiDesign row must render 40/60, not
@@ -9094,8 +8642,8 @@ const (
 // carried the MANAGER they screened as componentId, so the id prefix had to overrule the
 // join. D9 removed them.)
 //
-// A componentless activity (N-STP, N-IT, and any additive — an additive may not carry a
-// componentId) gets NO fake layer and renders in the project-wide band, per this repo's
+// A componentless activity (a testing activity such as N-QA, and any additive — an
+// additive may not carry a componentId) gets NO fake layer and renders in the project-wide band, per this repo's
 // ratified utilities-sidebar convention (a side band, with no lines drawn into the
 // layered stack).
 //
@@ -9120,95 +8668,6 @@ func DeriveBuildStatus(p CorpusPresence) (ActivityBuildStatus, bool) {
 	default:
 		return BuildInConstruction, false
 	}
-}
-
-// DeriveProduced builds the produced-artifact list from corpus evidence, KIND-SPECIFIC
-// by the activity type. A frozen contract is emitted for any component that produced
-// one (a Client exposes one too). The built work-product then differs by type — this is
-// the fix for the "generic code stub" that made frontend/deployment activities render a
-// thin, wrong Artifacts-tab experience:
-//
-//   - Frontend    → a ui-design CONCEPT artifact + a ui-code artifact whose Source
-//     carries the SPA preview ROUTE (a "/project/..." path). The
-//     Artifacts-tab frontend renderer frames that route as a live
-//     same-origin iframe. Source is backfilled with the real route per
-//     surface (seed leaves it empty; the renderer degrades gracefully).
-//   - Deployment  → a single deployment artifact (the applied provisioning change).
-//   - everything  → the generic built-component "code" artifact (unchanged).
-func DeriveProduced(p CorpusPresence, componentName string, typ ActivityType) []ProducedArtifact {
-	var out []ProducedArtifact
-	if p.HasContract {
-		out = append(out, ProducedArtifact{
-			Kind:     "service-contract",
-			Title:    componentName + " — service contract",
-			Source:   p.ContractFile,
-			Produced: true,
-			Note:     "Frozen App-B service contract.",
-		})
-	}
-	if !p.HasLog {
-		return out
-	}
-	switch typ {
-	case ActivityTypeFrontend:
-		out = append(out,
-			ProducedArtifact{
-				Kind:     "ui-design",
-				Title:    componentName + " — UI design concept",
-				Source:   "implementation/log",
-				Produced: true,
-				Note:     "UI-design concept: personas, screens, layout, and flows for this surface.",
-			},
-			ProducedArtifact{
-				Kind:     "ui-code",
-				Title:    componentName + " — built UI",
-				Source:   "", // backfilled with the SPA preview route, e.g. /project/archistrator/design/system
-				Produced: true,
-				Note:     "SPA surface built against the approved design; preview at the route in Source.",
-			},
-		)
-	case ActivityTypeUIDesign:
-		// A UI-design activity stops at the CONCEPT — the ui-code stub belongs to the
-		// Frontend activities that realize it, so emitting one here would advertise a
-		// built surface that this activity never produced.
-		out = append(out, ProducedArtifact{
-			Kind:     "ui-design",
-			Title:    componentName + " — UI design concept",
-			Source:   "implementation/log",
-			Produced: true,
-			Note:     "UI-design concept: personas, screens, layout, and flows for this surface.",
-		})
-	case ActivityTypeDeployment:
-		out = append(out, ProducedArtifact{
-			Kind:     "deployment",
-			Title:    componentName + " — deployment change",
-			Source:   "implementation/log",
-			Produced: true,
-			Note:     "Provisioning/deployment change applied and verified against the target environment.",
-		})
-	case ActivityTypeService, ActivityTypeTesting, ActivityTypeDocumentation, ActivityTypeIntegration:
-		out = append(out, ProducedArtifact{
-			Kind:     "code",
-			Title:    componentName + " — built component",
-			Source:   "implementation/log",
-			Produced: true,
-			Note:     "Construction output recorded in the implementation log.",
-		})
-	case ActivityTypeRequirements, ActivityTypeArchitecture, ActivityTypeProjectDesign:
-		// A design activity's product is a committed artifact SLOT, not a file the
-		// corpus can observe, so it contributes no ProducedArtifact from corpus
-		// evidence. Empty ON PURPOSE: exhaustive wants the arm, and inventing a
-		// produced artifact here would fabricate one.
-	default:
-		out = append(out, ProducedArtifact{
-			Kind:     "code",
-			Title:    componentName + " — built component",
-			Source:   "implementation/log",
-			Produced: true,
-			Note:     "Construction output recorded in the implementation log.",
-		})
-	}
-	return out
 }
 
 // CommandFor returns the .claude slash-command name for a (type, variant, phase) cell:
@@ -9328,16 +8787,6 @@ var conditionalTasks = map[MethodTask]ActivityMethodPhase{
 
 // GateTaskFor returns the task whose success IS the phase's binary exit criterion.
 func GateTaskFor(p ActivityMethodPhase) MethodTask { return lifecyclePhaseTasks[p].gate }
-
-// isGateTask reports whether a task is some lifecycle phase's binary exit criterion.
-func isGateTask(t MethodTask) bool {
-	for _, pair := range lifecyclePhaseTasks {
-		if pair.gate == t {
-			return true
-		}
-	}
-	return false
-}
 
 // AgentTaskFor returns the phase's single AI-WORK task: the task an agent is dispatched
 // to do, which the phase's gate then reviews. "" for a phase outside the vocabulary, for
@@ -9551,18 +9000,8 @@ const (
 	// not a close: only the reviewer resolves (design §3.3).
 	ReviewCommentAnswered = "answered"
 	// ReviewCommentResolved — the reviewer closed the thread. Sticky; normalization
-	// never reconsiders it. Subsumes the retired "waived" (resolving an unanswered
-	// thread IS dismissing it).
+	// never reconsiders it (resolving an unanswered thread IS dismissing it).
 	ReviewCommentResolved = "resolved"
-
-	// ReviewCommentAddressed — DEPRECATED. Retired live status, kept only so a
-	// pre-thread ledger committed to git still decodes via migrateLegacyReviewThread.
-	// Never written by current code.
-	ReviewCommentAddressed = "addressed"
-	// ReviewCommentWaived — DEPRECATED. Retired live status, kept only so a
-	// pre-thread ledger committed to git still decodes via migrateLegacyReviewThread.
-	// Never written by current code.
-	ReviewCommentWaived = "waived"
 )
 
 // ReviewComment.Type wire values — the closed type enum of a ledger entry
@@ -9679,8 +9118,10 @@ func appendReviewComments(thread []ReviewComment, round int64, comments []Review
 			AuthorRole: c.AuthorRole,
 			Round:      round,
 			Status:     ReviewCommentOpen,
-			Replies:    nil,
-			Reopened:   false,
+			// Born with an EMPTY reply list, not a nil one: the contract's ReviewComment
+			// requires "replies" as an array, and nil encodes as JSON null.
+			Replies:  []ReviewCommentReply{},
+			Reopened: false,
 			// Carry the caller-supplied type/addressee (question-comments): a seeded
 			// question keeps its "question" type + addressee; a reject/amendment comment
 			// leaves them "" (a change-request, the migration-safe default).
@@ -9917,35 +9358,6 @@ func appendReviewReply(thread []ReviewComment, id, authorRole, text, at string) 
 	return nil, fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.appendReviewReply: comment %s not found in review thread", id))
 }
 
-// migrateLegacyReviewThread render-on-reads a pre-thread ledger: a non-empty
-// legacy response becomes one synthesized agent reply, and the retired statuses
-// map onto the new vocabulary. Nothing is written back — git history stays as
-// committed (design §3.5).
-//
-// Response is the deprecated, never-written *string kept on the generated
-// ReviewComment (RULING P8: kept as a pointer, not deleted, so a pre-thread
-// ledger committed to git still decodes) — nil-checked here rather than
-// compared against "" directly.
-func migrateLegacyReviewThread(thread []ReviewComment, draftedBy, at string) []ReviewComment {
-	for i := range thread {
-		c := &thread[i]
-		if c.Response != nil && *c.Response != "" && len(c.Replies) == 0 {
-			role := draftedBy
-			if role == "" {
-				role = "architect"
-			}
-			c.Replies = []ReviewCommentReply{{ID: c.ID + "-u1", AuthorRole: role, Text: *c.Response, At: at}}
-		}
-		switch c.Status {
-		case ReviewCommentAddressed:
-			c.Status = ReviewCommentAnswered
-		case ReviewCommentWaived:
-			c.Status = ReviewCommentResolved
-		}
-	}
-	return thread
-}
-
 // ReviewPolicy is the per-project, committed configuration of WHICH phases require a
 // human approval gate. It is the DOCUMENT, not the decision: the reviewEngine
 // (internal/engine/review) computes both WHO reviews and WHETHER a human must sign off,
@@ -10092,14 +9504,9 @@ type Error = fwra.Error
 // `encapsulates`). It is the one staging -> review -> commit verb family for every
 // activity, and the owner of the two append-only per-activity ledgers.
 //
-// ADDITIVE, deliberately. The three facets it supersedes are deprecated IN PLACE
-// rather than deleted, because each of their ops is a registered Temporal activity
-// whose name nine of the thirteen construction replay fixtures already record — five
-// of them pre-* histories that are never re-captured — and the SDK matches a
-// scheduled activity on lastPartOfName(activityType), so retiring a name is a
-// command-sequence change for an execution that is already in flight. Task 5 moves
-// the construction child workflow onto these verbs behind workflow.GetVersion, with
-// the old branch still calling the old ops; the deletion is a post-drain commit.
+// The activity-scoped verbs of the facets it absorbed are deleted (dct Plan 4,
+// spec §11 A5); gitActivityStatusAccess and designSessionAccess keep only the ops
+// with live callers (see their contract notes).
 //
 // NO SEPARATE COMMIT LANE. Spec §5.3 asks for a project-scoped serialized lane
 // ({projectId}:statewrite); it is deliberately NOT built, because
@@ -10164,10 +9571,11 @@ func execMisuse(op, detail string) error {
 }
 
 // NoActivityVersionExpectation is the "I have not read this row" posture. It is NOT a
-// loophole: OpenActivity may BIRTH the row, and a tool or migration that writes history
-// it never read has no number to assert. Every WORKFLOW caller holds the row — it comes
-// back on the readProject the child already makes — so every workflow caller passes a
-// real number, and a stale one is refused.
+// loophole: OpenActivity may BIRTH the row, a tool or migration that writes history it
+// never read has no number to assert, and the pump's blocked verdict fails — and usually
+// births, through RecordActivityOutcome — a row no child holds. Every CHILD-workflow caller
+// holds the row — it comes back on the readProject the child already makes — so every
+// child caller passes a real number, and a stale one is refused.
 //
 // Stage 4a armed this. Before it the guard compared a fabricated zero: the twelve verbs
 // carried the PROJECT version alone, nothing in a workflow read a row's own version, and
@@ -10405,12 +9813,12 @@ func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID Pro
 		return StagedRef{}, execMisuse("StageTaskOutput", "empty activityID")
 	case taskID == "":
 		return StagedRef{}, execMisuse("StageTaskOutput", "empty taskID")
-	case len(model.Model) == 0:
+	case !model.HasModel():
 		return StagedRef{}, execMisuse("StageTaskOutput", "empty model envelope — there is nothing to stage (construction's output is staged on the branch and cited as attempt evidence)")
 	}
-	decoded, err := model.Decode()
+	decoded, err := requireStagedModel("StageTaskOutput", model)
 	if err != nil {
-		return StagedRef{}, execMisuse("StageTaskOutput", "undecodable model envelope: "+err.Error())
+		return StagedRef{}, err
 	}
 	v, err := a.store.stageArtifactForReviewOnBranch(rc.Context, projectID, expectedVersion, branch, decoded, cred, idempotencyKey)
 	if err != nil {
@@ -10426,6 +9834,12 @@ func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID Pro
 // under a DIFFERENT idempotency key resolves it in place, and a call that would give
 // an already-resolved attempt a different terminal is refused. The dedup ledger
 // covers the RETRY; this rule covers the RE-ISSUE, and the ledger needs both.
+//
+// A `testing` PASS on a row whose lifecycle binds a test plan must cite the TestRun the
+// testing gate judged (EvidenceTestRun with the run id), or it is refused: T4 says that task
+// passes only on a qualifying run, and a pass citing none is one no reader would count
+// (QualifiedAttempts). The row's own classified type decides, as it decides every other
+// reading of the row.
 func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, attempt TaskAttemptInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case attempt.AttemptID == "":
@@ -10437,6 +9851,12 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 	}
 	now := a.store.now()
 	return a.onActivity(rc, "RecordAttemptOutcome", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+		if attempt.TaskID == TaskTesting && attempt.Outcome == OutcomePassed && testsScenarios(ProfileFor(cs.Type, cs.Variant)) &&
+			!testingPassCitesRun(TaskAttempt{Evidence: EvidenceRef{Kind: attempt.EvidenceKind, Ref: attempt.EvidenceRef}}) {
+			return execMisuse("RecordAttemptOutcome", fmt.Sprintf(
+				"attempt %s passes the testing task of %s without citing a test run (evidenceKind %q, evidenceRef %q); the testing task passes only on a qualifying TestRun, cited as evidenceKind %q with the run id (spec §1 T4)",
+				attempt.AttemptID, activityID, attempt.EvidenceKind, attempt.EvidenceRef, EvidenceTestRun))
+		}
 		for i := range cs.Attempts {
 			held := &cs.Attempts[i]
 			if held.AttemptID != attempt.AttemptID {
@@ -10629,8 +10049,11 @@ func applyRoundReviewBatch(thread []ReviewComment, round int64, comments []Revie
 			AuthorRole: c.AuthorRole,
 			Round:      round,
 			Status:     ReviewCommentOpen,
-			Type:       c.Type,
-			Addressee:  c.Addressee,
+			// Born with an EMPTY reply list, not a nil one: the contract's ReviewComment
+			// requires "replies" as an array, and nil encodes as JSON null.
+			Replies:   []ReviewCommentReply{},
+			Type:      c.Type,
+			Addressee: c.Addressee,
 		})
 	}
 	for _, r := range replies {
@@ -10749,59 +10172,6 @@ func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID P
 	})
 }
 
-// CommitActivityArtifacts records what the activity produced, once. Re-issuing the
-// same commit appends nothing: an artifact is identified by what it is and where it
-// came from, so the produced list converges under retry exactly as the ledgers do.
-//
-// The commit's provenance (which task, which commit, who drafted and who approved) is
-// written onto each artifact it committed, because an artifact whose provenance lives
-// somewhere else is an artifact whose provenance gets lost.
-func (a *activityExecutionAccess) CommitActivityArtifacts(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, artifacts CommitArtifactsInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	switch {
-	case artifacts.TaskID == "":
-		return 0, execMisuse("CommitActivityArtifacts", "empty taskId")
-	case artifacts.ApprovedBy == "":
-		return 0, execMisuse("CommitActivityArtifacts", "empty approvedBy")
-	case artifacts.DraftedBy == "":
-		return 0, execMisuse("CommitActivityArtifacts", "empty draftedBy")
-	}
-	return a.onActivity(rc, "CommitActivityArtifacts", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
-		for _, in := range artifacts.Artifacts {
-			if producedArtifactPresent(cs.Produced, in) {
-				continue
-			}
-			held := in
-			held.Produced = true
-			if held.Note == "" {
-				held.Note = commitProvenanceNote(artifacts)
-			}
-			cs.Produced = append(cs.Produced, held)
-		}
-		return nil
-	})
-}
-
-// commitProvenanceNote renders the sentence a later reader needs to trace an artifact
-// back to the commit and the pair of people behind it.
-func commitProvenanceNote(in CommitArtifactsInput) string {
-	at := in.Commit
-	if at == "" {
-		at = "(no commit ref)"
-	}
-	return fmt.Sprintf("committed at %s from task %s by %s, approved by %s", at, in.TaskID, in.DraftedBy, in.ApprovedBy)
-}
-
-// producedArtifactPresent identifies an artifact by what it is and where it came
-// from — never by the note, which the store writes.
-func producedArtifactPresent(held []ProducedArtifact, in ProducedArtifact) bool {
-	for _, h := range held {
-		if h.Kind == in.Kind && h.Title == in.Title && h.Source == in.Source {
-			return true
-		}
-	}
-	return false
-}
-
 // RecordActivityOutcome is the fold of the two retired terminals: the ordinary exit
 // and the failure. A non-zero reason IS the failure arm — the closed FailureReason
 // vocabulary is what lets the console explain why an activity is no longer pending
@@ -10825,7 +10195,10 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 		return 0, execMisuse("RecordActivityOutcome", "neither an outcome nor a failure reason — an activity does not exit for no stated cause")
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "RecordActivityOutcome", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	if activityID == "" {
+		return 0, execMisuse("RecordActivityOutcome", "empty activityID")
+	}
+	transition := func(cs *ActivityExecution) error {
 		// THE BROKEN MERGE TAIL. The row already holds a NON-FAILURE terminal, so the walk
 		// COMPLETED ITS WORK; what failed is the tail that had to land it. Recording
 		// VarianceExhausted over that would destroy a fact the walk genuinely established,
@@ -10872,6 +10245,21 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 			// default arm that would silently absorb a future member.
 		}
 		return nil
+	}
+	return a.store.applyMutation(rc.Context, "RecordActivityOutcome", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		// A FAILURE BIRTHS AN UNOPENED ROW (dct Plan 4 Task 3, the fold of the retired
+		// RecordActivityFailed). The pump's blocked verdict fails an activity that was never
+		// opened and never can be — unclassifiable, or blocked on a dependency that does not
+		// resolve, so there is no lifecycle to pin — and the failure must still land as the
+		// sticky red node spec §4.3 requires. Only a failure, and only from a writer holding
+		// NO row version: a completion, or a claim to hold a version of a row this store does
+		// not have, still finds nothing to transition.
+		if _, held := p.ActivityExecution[activityID]; !held && reason != FailureReasonUnknown && expectedActivityVersion == NoActivityVersionExpectation {
+			var err error
+			upsertActivityExecution(p, activityID, func(cs *ActivityExecution) { err = transition(cs) })
+			return err
+		}
+		return withActivityVersion("RecordActivityOutcome", activityID, expectedActivityVersion, transition)(p)
 	})
 }
 
@@ -10879,6 +10267,13 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 // already addressed to an attempt costs ONE commit, not two. deliveredToAttemptID is
 // optional — the ordinary case is a note recorded at a gate for an attempt that does
 // not exist yet, which stays pending until the dispatch that carries it.
+//
+// THAT DISPATCH STAMPS IT BY RE-RECORDING IT (dct Plan 4 Task 3, which deleted the
+// retired pair with constructionTransitionAccess). Re-recording a held note with
+// identical content and a deliveredToAttemptID stamps it delivered to that attempt at the
+// server clock if it was not yet delivered, is a no-op if it was delivered to the same
+// attempt (a retried stamp), and is refused as ContractMisuse if it was delivered to
+// another — a note is delivered once. A re-record without an attempt never un-delivers.
 //
 // A REQUEUE NOTE RE-ARMS A TERMINAL ACTIVITY, and it is the ONE note kind that changes the row
 // (stage 4b1 task 12; see reopenTerminalRow for the whole rule and why it lives here).
@@ -10888,7 +10283,7 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 	}
 	now := a.store.now()
 	return a.onActivity(rc, "RecordOperatorNote", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
-		for _, n := range cs.OperatorNotes {
+		for i, n := range cs.OperatorNotes {
 			if n.NoteID != note.NoteID {
 				continue
 			}
@@ -10896,7 +10291,7 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 				return execMisuse("RecordOperatorNote", fmt.Sprintf(
 					"note %q is already recorded on %s with different content; one id names one note", note.NoteID, activityID))
 			}
-			return nil
+			return stampNoteDelivery(&cs.OperatorNotes[i], activityID, deliveredToAttemptID, now)
 		}
 		// THE DEDUP COMES FIRST, deliberately: a REPLAY of a requeue must be the same no-op
 		// success every other replay is. Re-arming below the dedup would make the second delivery
@@ -10923,6 +10318,29 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 		cs.OperatorNotes = append(cs.OperatorNotes, held)
 		return nil
 	})
+}
+
+// stampNoteDelivery is a re-record's delivery half (see RecordOperatorNote): stamp a held
+// note delivered to attemptID once, treat the same attempt again as the retry it is, and
+// refuse a second, different attempt. An empty attemptID is the plain identical-content
+// re-record and changes nothing.
+func stampNoteDelivery(n *OperatorNote, activityID, attemptID string, now time.Time) error {
+	switch n.DeliveredToAttemptID {
+	case attemptID:
+		return nil
+	case "":
+		if attemptID == "" {
+			return nil
+		}
+		t := now
+		n.DeliveredToAttemptID, n.DeliveredAt = attemptID, &t
+		return nil
+	}
+	if attemptID == "" {
+		return nil
+	}
+	return execMisuse("RecordOperatorNote", fmt.Sprintf(
+		"note %q on %s was already delivered to %s; a note is delivered once", n.NoteID, activityID, n.DeliveredToAttemptID))
 }
 
 // reopenTerminalRow re-arms an activity that has EXITED so the pump can select it again. It is
@@ -10995,31 +10413,6 @@ func reopenTerminalRow(cs *ActivityExecution, activityID string) error {
 		"projectstate.RecordOperatorNote: activity %s has no coarse phase a requeue can reason about", activityID))
 }
 
-// AcknowledgeStaleBasis is the activity-scoped form: the same slot transition the
-// project-scoped verb runs, refused for an activity this store has no row for. That
-// refusal is the whole difference — without it this would be a rename, not a scoping.
-func (a *activityExecutionAccess) AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, kind ArtifactKind, note string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if strings.TrimSpace(note) == "" {
-		return 0, execMisuse("AcknowledgeStaleBasis", "blank note — an acknowledgement with no reason is not an audit entry")
-	}
-	if activityID == "" {
-		return 0, execMisuse("AcknowledgeStaleBasis", "empty activityID")
-	}
-	return a.store.applyMutation(rc.Context, "AcknowledgeStaleBasis", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		if _, ok := p.ActivityExecution[activityID]; !ok {
-			return fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.AcknowledgeStaleBasis: no activity row for %s — open the activity first", activityID))
-		}
-		// CHECKED, NOT STAMPED. The transition below writes the SLOT, so the row's counter
-		// does not advance and this verb is not a competitor for it; the expectation is
-		// still honoured, because a caller acknowledging a stale basis against a row that
-		// has moved under it is asserting about an activity it has not seen.
-		if err := guardActivityVersion("AcknowledgeStaleBasis", p, activityID, expectedActivityVersion); err != nil {
-			return err
-		}
-		return acknowledgeStaleBasisTransition(kind, note)(p)
-	})
-}
-
 // ReadActivityExecution is the NARROW read: one activity's WHOLE execution record —
 // the lifecycle pin and the head facts beside the two ledgers, its produced artifacts,
 // its operator notes and its per-activity version — without the whole aggregate.
@@ -11052,4 +10445,165 @@ func (a *activityExecutionAccess) ReadActivityExecution(rc fwra.Context, project
 	}
 	cs.ActivityID = activityID
 	return cs, nil
+}
+
+// ---- Scenario adapter (deterministic component testing, design §2) ----
+//
+// The server-side mirror of methodcheck.ScenarioInput over the TYPED Project: it
+// projects the committed core use cases (slot 4: one scenario.Diagram per use case
+// that carries an activity diagram, plus every actor), the committed System's dynamic
+// views (slot 5) and the service-contract operation surface onto the adapter-neutral
+// scenario.Input that framework-go/scenario derives from. Node kinds and call modes
+// cross as their WIRE names (activityNodeKindNames / callModeNames), exactly what
+// methodcheck reads off the on-disk document, so the scenario ids a test plan binds
+// (TP-*), the ids the platform's testgen emits against and the ids this server
+// renders are ONE canonical set. The adapter lives in this impl file rather than a
+// file of its own because the file-layout gate admits no second handwritten file in
+// a component package.
+
+// ScenarioInputOf builds the derivation input from p's COMMITTED core use cases
+// (slot 4) and COMMITTED System (slot 5): a slot whose Status is not ReviewCommitted
+// — drafting, awaiting review, rejected (its model is retained as the redraft
+// baseline), withdrawn — contributes nothing, exactly the `Status == committed &&
+// model present` gate methodcheck.ScenarioInput applies through slotByKind. The gate
+// is what keeps the id set canonical on a design branch: with slot 4 rejected,
+// methodcheck's TP-* rules and the platform's testgen derive an empty set, so this
+// adapter must too, or the ids a verb binds split from the ids the rules check. A
+// project without committed use cases yields an empty input, not an error: there is
+// nothing to derive yet, which ForComponent reports as an empty set.
+func ScenarioInputOf(p *Project) (scenario.Input, error) {
+	in := scenario.Input{Actors: map[string]bool{}, Contracts: map[string]scenario.Contract{}}
+	if p == nil {
+		return in, errors.New("projectstate.ScenarioInputOf: nil project")
+	}
+	cu, ok := scenarioCommittedModel[*CoreUseCases](p, KindCoreUseCases)
+	if !ok {
+		return in, nil
+	}
+	scenarioAddUseCases(&in, cu)
+	if sys, ok := scenarioCommittedModel[*System](p, KindSystem); ok {
+		for _, v := range sys.DynamicViews {
+			in.Views = append(in.Views, scenarioViewOf(v))
+		}
+	}
+	for key, sc := range p.ServiceContracts {
+		in.Contracts[key] = scenarioContractOf(key, sc)
+	}
+	return in, nil
+}
+
+// ComponentScenarios derives the project's canonical scenario set and projects it
+// onto component (a serviceContracts key or a slot-5 component id — scenario.Normalize
+// folds kebab and camel spellings together): every scenario with at least one
+// stimulus into the component, with its stimuli filtered to those. A call into a
+// component with several contract facets (projectStateAccess) lands on the facet that
+// declares its op (scenario.Contract.FacetOf), so a facet key projects the calls drawn
+// to its ops.
+func ComponentScenarios(p *Project, component string) ([]scenario.Scenario, error) {
+	if strings.TrimSpace(component) == "" {
+		return nil, errors.New("projectstate.ComponentScenarios: component must not be empty")
+	}
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return nil, err
+	}
+	all, err := scenario.Derive(in)
+	if err != nil {
+		return nil, fmt.Errorf("projectstate.ComponentScenarios: %w", err)
+	}
+	return scenario.ForComponent(all, component), nil
+}
+
+// scenarioCommittedModel returns the slot's model as M only when the slot is
+// ReviewCommitted and holds a non-nil model of that type — the server-side spelling
+// of methodcheck's Slot.committed() (status == committed && len(model) > 0), via the
+// same slotPtr + Status == ReviewCommitted guard the rest of this file applies.
+func scenarioCommittedModel[M interface {
+	ArtifactModel
+	comparable
+}](p *Project, kind ArtifactKind) (M, bool) {
+	var zero M
+	slot, ok := slotPtr(p, kind)
+	if !ok || slot.Status != ReviewCommitted || slot.Model == nil {
+		return zero, false
+	}
+	m, ok := slot.Model.(M)
+	if !ok || m == zero {
+		return zero, false
+	}
+	return m, true
+}
+
+// scenarioAddUseCases records every use case's actors and one Diagram per use case
+// that carries an activity diagram, sorted by use-case id.
+func scenarioAddUseCases(in *scenario.Input, cu *CoreUseCases) {
+	for _, d := range cu.Decisions {
+		uc := d.UseCase
+		for _, a := range uc.Actors {
+			in.Actors[a.ID] = true
+		}
+		if uc.Activity == nil {
+			continue
+		}
+		in.Diagrams = append(in.Diagrams, scenarioDiagramOf(uc))
+	}
+	sort.SliceStable(in.Diagrams, func(i, j int) bool { return in.Diagrams[i].UseCaseID < in.Diagrams[j].UseCaseID })
+}
+
+// scenarioDiagramOf hands a use case's activity diagram through with its node kinds
+// as wire names; the typed model's nil pointers for absent nullable fields become
+// the "" the derivation reads as absent.
+func scenarioDiagramOf(uc UseCase) scenario.Diagram {
+	d := scenario.Diagram{UseCaseID: uc.ID, Title: uc.Name}
+	for _, n := range uc.Activity.Nodes {
+		d.Nodes = append(d.Nodes, scenario.Node{
+			ID: n.ID, Kind: activityNodeKindNames[n.Kind], Label: n.Label, RoleName: n.RoleName,
+			LinkedActorID: derefString(n.LinkedActorID), DecidedBy: derefString(n.DecidedBy),
+			InState: n.InState, Anchor: n.Anchor,
+		})
+	}
+	for _, e := range uc.Activity.Edges {
+		d.Edges = append(d.Edges, scenario.Edge{From: e.From, To: e.To, Guard: e.Guard})
+	}
+	return d
+}
+
+// scenarioViewOf projects one dynamic view step by step, keeping call order.
+func scenarioViewOf(v DynamicView) scenario.View {
+	view := scenario.View{UseCaseID: v.UseCaseID}
+	for _, st := range v.Steps {
+		s := scenario.Step{NodeID: st.ActivityNodeID}
+		for _, c := range st.Calls {
+			s.Calls = append(s.Calls, scenario.Call{From: c.From, To: c.To, Mode: callModeNames[c.Mode], Label: c.Label, Alt: derefString(c.Alt)})
+		}
+		view.Steps = append(view.Steps, s)
+	}
+	return view
+}
+
+// scenarioContractOf keeps a contract's operation surface (op names + param names)
+// under its serviceContracts key, which is what the derivation resolves call labels
+// against. A contract whose `component` names a different component is a facet of it
+// (FacetOf) — methodcheck's contractOf, spelled over the server's types.
+func scenarioContractOf(key string, sc ServiceContract) scenario.Contract {
+	ct := scenario.Contract{Component: key}
+	if sc.Component != "" && scenario.Normalize(sc.Component) != scenario.Normalize(key) {
+		ct.FacetOf = sc.Component
+	}
+	for _, op := range sc.Interface.Operations {
+		o := scenario.Op{Name: op.Name}
+		for _, prm := range op.Params {
+			o.Params = append(o.Params, prm.Name)
+		}
+		ct.Ops = append(ct.Ops, o)
+	}
+	return ct
+}
+
+// derefString is "" for a nil pointer, the pointee otherwise.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

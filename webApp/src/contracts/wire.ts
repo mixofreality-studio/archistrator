@@ -29,7 +29,6 @@ import {
   ARTIFACT_KIND_APP_TO_ORDINAL,
   ARTIFACT_KIND_ORDINAL_TO_APP,
   ARTIFACT_STAGE_ORDINAL_TO_APP,
-  AUTOSCALE_ACTION_ORDINAL_TO_APP,
   CONSTRUCTION_STAGE_ORDINAL_TO_APP,
   DESIRED_STATE_REASON_APP_TO_ORDINAL,
   EPISODE_KIND_ORDINAL_TO_APP,
@@ -78,7 +77,6 @@ import type {
   OverrideKind,
   PhaseDecision,
   PhaseRow,
-  ProducedArtifactRow,
   ProjectArtifactKind,
   ProjectPhase,
   ProjectState,
@@ -103,6 +101,20 @@ import type {
 } from './types';
 import type { EvidenceRefRow, Layer, RecordOriginRow } from './types';
 import type { PendingDependencyReason, PendingResumeRow } from './types';
+import type {
+  ProbeView,
+  ScenarioBindingView,
+  ScenarioOutcomeView,
+  ScenarioResultView,
+  ScenarioView,
+  StepBindingView,
+  TestArgView,
+  TestExpectView,
+  TestRunPanelView,
+  TestRunScenarioView,
+  TestRunView,
+  TestingStateView,
+} from './types';
 import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './types';
 import type { CostProjection, OperationsView } from './operationsTypes';
 import { deriveOperating } from './operating.ts';
@@ -152,11 +164,6 @@ function failureReasonFromOrdinal(ordinal: number): FailureReason {
   return FAILURE_REASON_ORDINAL_TO_APP[ordinal] ?? 'unknown';
 }
 
-/** OperationsAutoscaleAction (0 noChange,1 scaleUp,2 scaleDown,3 pause,4 resume). */
-function autoscaleActionFromOrdinal(ordinal: number): string {
-  return AUTOSCALE_ACTION_ORDINAL_TO_APP[ordinal] ?? 'noChange';
-}
-
 // --- shared -----------------------------------------------------------------
 
 export function mapMoney(w: Schemas['OperationsMoney']): Money {
@@ -194,21 +201,12 @@ export function mapDesignHealth(w: Schemas['DeliveryDesignHealth']): DesignHealt
   };
 }
 
-/**
- * Normalize a wire review-status string into the app union (unknown → 'open').
- *
- * Git-as-DB history is not rewritten, so entries committed before the thread
- * migration still carry the old vocabulary. The server shims them on read, but
- * this mapper is the SPA's own last line: `addressed` was what `answered` is now,
- * and `waived` was what `resolved` is now.
- */
+/** Normalize a wire review-status string into the app union (unknown → 'open'). */
 function reviewStatus(s: string): ReviewCommentStatus {
   switch (s) {
     case 'answered':
-    case 'addressed':
       return 'answered';
     case 'resolved':
-    case 'waived':
       return 'resolved';
     default:
       return 'open';
@@ -245,8 +243,6 @@ function mapReviewComment(w: Schemas['DeliveryReviewCommentView']): ReviewCommen
     authorRole: w.authorRole,
     round: w.round,
     status: reviewStatus(w.status),
-    // DEPRECATED (superseded by `replies`); carried through only when the wire sends it.
-    ...(w.response !== undefined ? { response: w.response } : {}),
     replies: w.replies.map(mapReviewCommentReply),
     reopened: w.reopened,
     type: reviewType(w.type),
@@ -368,16 +364,10 @@ function mapGitRow(w: Schemas['DeliveryActivityGitStatus']): GitRow {
     ...(w.PrNumber > 0 ? { prNumber: w.PrNumber } : {}),
     ...(w.PrURL.length > 0 ? { prUrl: w.PrURL } : {}),
     ciStatus: ciStatusFromOrdinal(w.CICheck),
-    architectureApproved: w.ArchApproved,
-    merged: w.Merged,
     ...(w.CRLabel.length > 0 ? { crLabel: w.CRLabel } : {}),
     ...(w.IsRevert ? { isRevert: w.IsRevert } : {}),
     updatedAt: w.UpdatedAt,
   };
-}
-
-function mapProducedArtifact(w: Schemas['DeliveryProducedArtifact']): ProducedArtifactRow {
-  return { kind: w.Kind, title: w.Title, source: w.Source, produced: w.Produced, note: w.Note };
 }
 
 /**
@@ -464,7 +454,13 @@ export function mapConstructionRow(
   // never decode to `true`.)
   const classified = w.classified;
   const kind = classified ? activityRowKindFromOrdinal(w.Type) : undefined;
-  const variant = kind === 'testing' ? testingVariantFromOrdinal(w.Variant) : undefined;
+  // `Variant` is absent on the wire for the zero value (TestVariantNone: every
+  // non-testing activity, and a testing row minted before the plan/systemTest
+  // variants were retired) — no variant, no lifecycle.
+  const variant =
+    kind === 'testing' && w.Variant !== undefined
+      ? testingVariantFromOrdinal(w.Variant)
+      : undefined;
   // status/currentLifecyclePhase are gated on `classified` for the SAME reason
   // as `kind`: ActivityBuildStatus(0) is the real, named state
   // BuildInConstruction (not omitempty on the wire), so an unclassified row's
@@ -525,7 +521,6 @@ export function mapConstructionRow(
     ...(variant !== undefined ? { variant } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(currentLifecyclePhase !== undefined ? { currentLifecyclePhase } : {}),
-    ...(w.Produced !== null ? { produced: w.Produced.map(mapProducedArtifact) } : {}),
     ...(carriesFailure ? { failureReason } : {}),
     ...(carriesFailure && w.FailureDetail.length > 0 ? { failureDetail: w.FailureDetail } : {}),
     phases: (w.Phases ?? []).map(mapPhaseCompletion),
@@ -769,7 +764,7 @@ export function mapProjectState(w: Schemas['DeliveryProjectState']): ProjectStat
       ? { constructionProgress: mapConstructionProgress(w.constructionProgress) }
       : {}),
     ...(w.reviewPolicy !== undefined ? { reviewPolicy: w.reviewPolicy } : {}),
-    ...(w.testingState !== undefined ? { testingState: w.testingState } : {}),
+    ...(w.testingState !== undefined ? { testingState: mapTestingState(w.testingState) } : {}),
     ...(operating ? { operating: true } : {}),
     // Computed ONCE on the server (constructionStartedFor) and passed through as-is:
     // the SPA never re-derives it from rows or attempts.
@@ -777,6 +772,160 @@ export function mapProjectState(w: Schemas['DeliveryProjectState']): ProjectStat
     // The recorded operator pause (B1.7), passed through as stored.
     operatorPaused: w.operatorPaused,
     ...(w.pauseReason !== undefined && w.pauseReason !== '' ? { pauseReason: w.pauseReason } : {}),
+  };
+}
+
+// ── Deterministic component testing (spec §3, §6) ────────────────────────────
+// Go nil slices arrive as JSON `null`; the app shapes are never-null arrays.
+
+function arr<T>(v: readonly T[] | null | undefined): T[] {
+  return v === null || v === undefined ? [] : [...v];
+}
+
+function mapTestArg(w: Schemas['DeliveryTestArgView']): TestArgView {
+  return { name: w.name, value: w.value, schemaRef: w.schemaRef };
+}
+
+function mapTestExpect(w: Schemas['DeliveryTestExpectView']): TestExpectView {
+  return { result: w.result, errorExpected: w.errorExpected, errorCode: w.errorCode };
+}
+
+function mapProbe(w: Schemas['DeliveryProbeView']): ProbeView {
+  return {
+    for: w.for,
+    component: w.component,
+    operation: w.operation,
+    inputs: arr(w.inputs).map(mapTestArg),
+    expect: mapTestExpect(w.expect),
+  };
+}
+
+function mapStepBinding(w: Schemas['DeliveryStepBindingView']): StepBindingView {
+  return {
+    seq: w.seq,
+    operation: w.operation,
+    inputs: arr(w.inputs).map(mapTestArg),
+    expect: mapTestExpect(w.expect),
+    probes: arr(w.probes).map(mapProbe),
+    unobservable: arr(w.unobservable),
+    hook: w.hook,
+  };
+}
+
+export function mapScenarioBinding(w: Schemas['DeliveryScenarioBindingView']): ScenarioBindingView {
+  return {
+    scenario: w.scenario,
+    steps: arr(w.steps).map(mapStepBinding),
+    ...(w.skip !== undefined ? { skip: { reason: w.skip.reason, until: w.skip.until } } : {}),
+  };
+}
+
+function mapScenarioOutcome(w: Schemas['DeliveryScenarioOutcomeView']): ScenarioOutcomeView {
+  return {
+    expectedOutputs: arr(w.expectedOutputs).map((o) => ({
+      node: o.node,
+      kind: o.kind,
+      to: o.to,
+      label: o.label,
+    })),
+    expectedStates: arr(w.expectedStates).map((st) => ({
+      node: st.node,
+      object: st.object,
+      inState: st.inState,
+    })),
+    hints: arr(w.hints),
+  };
+}
+
+export function mapScenarioView(w: Schemas['DeliveryScenarioView']): ScenarioView {
+  return {
+    id: w.id,
+    useCase: w.useCase,
+    title: w.title,
+    path: arr(w.path),
+    guards: arr(w.guards).map((g) => ({ at: g.at, guard: g.guard })),
+    preconditions: mapScenarioOutcome(w.preconditions),
+    stimuli: arr(w.stimuli).map((st) => ({
+      seq: st.seq,
+      node: st.node,
+      input: {
+        kind: st.input.kind,
+        from: st.input.from,
+        to: st.input.to,
+        op: st.input.op,
+        call: st.input.call,
+        guard: st.input.guard,
+        via: arr(st.input.via),
+      },
+      outcome: mapScenarioOutcome(st.outcome),
+    })),
+    ...(w.binding !== undefined ? { binding: mapScenarioBinding(w.binding) } : {}),
+  };
+}
+
+function mapScenarioResult(w: Schemas['DeliveryScenarioResultView']): ScenarioResultView {
+  return {
+    scenario: w.scenario,
+    status: w.status,
+    durationMs: w.durationMs,
+    videoRef: w.videoRef,
+    traceRef: w.traceRef,
+  };
+}
+
+export function mapTestRun(w: Schemas['DeliveryTestRunView']): TestRunView {
+  return {
+    id: w.id,
+    activity: w.activity,
+    component: w.component,
+    revision: w.revision,
+    artifact: w.artifact,
+    ...(w.startedAt !== undefined && w.startedAt !== null ? { startedAt: w.startedAt } : {}),
+    ...(w.endedAt !== undefined && w.endedAt !== null ? { endedAt: w.endedAt } : {}),
+    scenarios: arr(w.scenarios).map(mapScenarioResult),
+  };
+}
+
+function mapTestRunScenario(w: Schemas['DeliveryTestRunScenarioView']): TestRunScenarioView {
+  return {
+    id: w.id,
+    title: w.title,
+    guards: arr(w.guards).map((g) => ({ at: g.at, guard: g.guard })),
+    status: w.status,
+    durationMs: w.durationMs,
+    videoRef: w.videoRef,
+    traceRef: w.traceRef,
+    outputRef: w.outputRef,
+  };
+}
+
+/**
+ * The `testRun` project view, plus the file-URL builder the hook supplies: the
+ * view names artifact PATHS (videoRef, traceRef, outputRef) and only the caller
+ * knows the endpoint that streams them.
+ */
+export function mapTestRunPanel(
+  w: Schemas['DeliveryDeliveryTestRunView'],
+  fileUrl: (path: string) => string
+): TestRunPanelView {
+  return {
+    run: mapTestRun(w.run),
+    scenarios: arr(w.scenarios).map(mapTestRunScenario),
+    missing: arr(w.missing),
+    unknown: arr(w.unknown),
+    expired: w.expired,
+    artifact: w.artifact,
+    fileUrl,
+  };
+}
+
+export function mapTestingState(w: Schemas['DeliveryTestingStateView']): TestingStateView {
+  return {
+    testRuns: w.testRuns === null ? null : w.testRuns.map(mapTestRun),
+    defects:
+      w.defects === null
+        ? null
+        : w.defects.map((d) => ({ id: d.id, title: d.title, severity: d.severity, note: d.note })),
   };
 }
 
@@ -938,20 +1087,8 @@ export function mapOperationsView(w: Schemas['OperationsOperatedSystemView']): O
       sloMet: s.SloMet,
       healthy: s.Healthy,
     })),
-    recentEvents: (w.RecentEvents ?? []).map((e) => ({
-      at: e.At,
-      from: runtimePhaseFromOrdinal(e.From),
-      to: runtimePhaseFromOrdinal(e.To),
-      note: e.Note,
-    })),
     autoscaler: {
       mode: autoscalerModeFromOrdinal(w.Autoscaler.Mode),
-      decisions: (w.Autoscaler.Decisions ?? []).map((d) => ({
-        at: d.At,
-        action: autoscaleActionFromOrdinal(d.Action),
-        reason: d.Reason,
-        published: d.Published,
-      })),
     },
     currentRunRate: mapMoney(w.CurrentRunRate),
   };

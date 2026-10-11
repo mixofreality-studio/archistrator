@@ -47,6 +47,7 @@ import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { EpisodeTimeline } from './EpisodeTimeline';
+import { episodeRowKey } from './episodeRowKey';
 
 // ---------------------------------------------------------------------------
 // Outcome chip — token-driven, mirrors construction/status.tsx's statusFill.
@@ -80,16 +81,16 @@ const EPISODE_KIND_LABEL: Record<EpisodeKind, string> = {
 function OutcomeChip({
   t,
   outcome,
-  episodeId,
+  rowKey,
 }: {
   t: Tokens;
   outcome: EpisodeOutcome;
-  episodeId: string;
+  rowKey: string;
 }): ReactNode {
   const f = outcomeFill(t, outcome);
   return (
     <Chip
-      data-testid={UI_IDENTIFIERS.Episodes.outcomeChip(episodeId)}
+      data-testid={UI_IDENTIFIERS.Episodes.outcomeChip(rowKey)}
       label={outcome.toUpperCase()}
       size="small"
       sx={{
@@ -202,10 +203,11 @@ function EpisodeRow({
   onToggle: () => void;
 }): ReactNode {
   const subagentCount = episode.subagentSpans?.length ?? 0;
+  const rowKey = episodeRowKey(episode);
 
   return (
     <Box
-      data-testid={UI_IDENTIFIERS.Episodes.episodeRow(episode.episodeId)}
+      data-testid={UI_IDENTIFIERS.Episodes.episodeRow(rowKey)}
       sx={{
         border: `1px solid ${t.line}`,
         borderRadius: 1,
@@ -236,7 +238,7 @@ function EpisodeRow({
           onToggle();
         }}
       >
-        <OutcomeChip episodeId={episode.episodeId} outcome={episode.outcome} t={t} />
+        <OutcomeChip outcome={episode.outcome} rowKey={rowKey} t={t} />
         <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
           {EPISODE_KIND_LABEL[episode.kind]}
         </Typography>

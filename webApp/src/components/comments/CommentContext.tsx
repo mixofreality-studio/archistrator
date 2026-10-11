@@ -67,6 +67,16 @@ export type { Anchor, PostedComment, PostOptions, PendingQuestion, CommentCtx };
 
 const Ctx = createContext<CommentCtx | null>(null);
 
+/**
+ * Commenting OFF for a borrowed view of ANOTHER artifact — the use case's own
+ * activity diagram drawn inside a test-plan review, say. Its affordances would
+ * arm anchors that point into a document this review is not about, so the
+ * subtree reads the disabled context instead of the review's provider.
+ */
+export function CommentsOff({ children }: { children: ReactNode }): ReactNode {
+  return <Ctx.Provider value={DISABLED_COMMENT_CTX}>{children}</Ctx.Provider>;
+}
+
 export function useComments(): CommentCtx {
   const c = useContext(Ctx);
   if (c === null) {
@@ -426,9 +436,21 @@ export function activityConstructionAnchor(activityId: string): string {
 export function contractOpAnchor(component: string, signature: string): string {
   return `$.serviceContracts[component=${component}].ops[signature="${q(signature)}"]`;
 }
-/** A test scenario/case step → `$.scenarios[id=…].cases[id=…].steps[seq]`. */
-export function testScenarioStepAnchor(scenarioId: string, caseId: string, seq: number): string {
-  return `$.scenarios[id=${scenarioId}].cases[id=${caseId}].steps[${String(seq)}]`;
+// Deterministic component testing (spec §3, §6.4).
+/** One scenario's binding in a component's test plan →
+ *  `$.phaseArtifacts.testPlan[<comp>].bindings[scenario=<id>]`. */
+export function testPlanBindingAnchor(component: string, scenarioId: string): string {
+  return `$.phaseArtifacts.testPlan[${component}].bindings[scenario=${scenarioId}]`;
+}
+/** One bound step of that binding, by the stimulus seq → `….steps[seq=<n>]`. */
+export function testPlanStepAnchor(component: string, scenarioId: string, seq: number): string {
+  return `${testPlanBindingAnchor(component, scenarioId)}.steps[seq=${String(seq)}]`;
+}
+/** One scenario's result in a recorded test run →
+ *  `$.testRuns[id=<run>].scenarios[scenario=<id>]` — under the run the testing
+ *  gate's own system comment anchors at (`$.testRuns[id=<run>]`, spec §6.5). */
+export function testRunScenarioAnchor(runId: string, scenarioId: string): string {
+  return `$.testRuns[id=${runId}].scenarios[scenario=${scenarioId}]`;
 }
 
 // Re-export for convenience (extracted to disabledCommentContext.ts so it's testable).

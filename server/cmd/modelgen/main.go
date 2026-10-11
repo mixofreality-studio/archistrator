@@ -6,7 +6,7 @@
 // modelgen turns that document → Go, so project.json is the single source of
 // truth and the Go model (`contract.gen.go`) is a generated output. (The former
 // per-component `contract.schema.json` seed files have been retired — their
-// content now lives in project.json; cmd/schemagen is a deprecated re-seed tool.)
+// content now lives in project.json.)
 //
 // This is a thin CLI shim over the platform library
 // github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen,
@@ -21,7 +21,10 @@
 // For each `.serviceContracts` entry with a non-empty `goPackage` it writes
 // `<goPackage>/contract.gen.go` (e.g. internal/resourceaccess/artifact/
 // contract.gen.go), in a package named after the goPackage's last segment.
-// Entries without a `goPackage` are skipped. An entry flagged `"stub": true` is
+// Entries without a `goPackage` are skipped, and so is every Client-layer entry
+// (modelDocument): a client contract is the test surface of a generated client
+// (spec §12 B1 — the web client's user actions, the MCP client's tools), whose Go
+// is cmd/clientgen's output, not a model. An entry flagged `"stub": true` is
 // CONTRACTED-BUT-UNBUILT: it still carries a goPackage + $defs + interface, and
 // modelgen emits a fully generated not-implemented impl for it.
 //
@@ -37,9 +40,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen"
 )
@@ -66,6 +71,7 @@ var engineImplAllowlist = []string{
 	"operationEstimationEngine",
 	"autoscalerEngine",
 	"estimationEngine",
+	"designHealthEngine",
 }
 
 func main() {
@@ -76,6 +82,11 @@ func main() {
 	raw, err := os.ReadFile(path) // #nosec G703 -- path is the CLI argument to a developer-run codegen tool, no trust boundary
 	if err != nil {
 		fatal("read %s: %v", path, err)
+	}
+
+	raw, err = modelDocument(raw)
+	if err != nil {
+		fatal("modelgen: %v", err)
 	}
 
 	out, err := modelgen.Generate(raw, modelgen.Config{
@@ -130,6 +141,40 @@ func main() {
 		}
 		fmt.Fprintf(os.Stderr, "wrote %s\n", dest)
 	}
+}
+
+// modelDocument is the project document modelgen generates from: every
+// .serviceContracts entry except the Client-layer ones. A client contract names its
+// surface's ops (spec §12 B1) and may name a goPackage — the MCP client's scenario
+// tests are generated into the tools package — but its Go is the client layer
+// cmd/clientgen generates, so it has no model, interface or fake to emit. Every other
+// entry passes through as its raw bytes, so its $defs and param order survive.
+func modelDocument(raw []byte) ([]byte, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return nil, fmt.Errorf("parse project.json: %w", err)
+	}
+	var contracts map[string]json.RawMessage
+	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
+		return nil, fmt.Errorf("parse .serviceContracts: %w", err)
+	}
+	for key, entry := range contracts {
+		var meta struct {
+			Layer string `json:"layer"`
+		}
+		if err := json.Unmarshal(entry, &meta); err != nil {
+			return nil, fmt.Errorf("parse contract %q: %w", key, err)
+		}
+		if strings.EqualFold(meta.Layer, "client") {
+			delete(contracts, key)
+		}
+	}
+	kept, err := json.Marshal(contracts)
+	if err != nil {
+		return nil, err
+	}
+	top["serviceContracts"] = kept
+	return json.Marshal(top)
 }
 
 func fatal(f string, a ...any) {

@@ -2,9 +2,9 @@
 // (internal/client/{web,mcp}) 100% from project.json. It is the single
 // reproducible driver behind `make gen-client`:
 //
-//   - reads the 5 web-exposed manager contracts from
-//     .aiarch/state/project.json .serviceContracts (systemDesign, projectDesign,
-//     project, construction, operations),
+//   - reads the web-exposed manager contracts (exposedManagers: delivery,
+//     operations, and billing's client-facing ops) from
+//     .aiarch/state/project.json .serviceContracts,
 //   - runs the (fixed, standalone-green) framework-go-http-generator to emit per
 //     manager REST handlers (internal/client/web/<pkg>/) plus the single
 //     component-agnostic auth middleware + NewServer wiring (internal/client/web/),
@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -57,13 +58,18 @@ const (
 )
 
 // exposedManagers is the set of web-wired manager contracts to generate the
-// client layer for. Stage 4a collapsed the three design/construction Managers
-// into deliveryManager, so the web-wired set is TWO; billingManager is still
-// deliberately excluded — it is not web-wired (it has a Temporal worker and an
-// SDK, which is why cmd/appgen's `managers` list is a different, larger set).
-var exposedManagers = []string{
-	"deliveryManager",
-	"operationsManager",
+// client layer for, each with the operations that reach it: nil exposes the
+// whole interface. Stage 4a collapsed the three design/construction Managers into
+// deliveryManager. billingManager exposes the three ops a use case draws from a
+// client (spec §12 B7, the onboarding ruling T5-2): GetBillingCycle
+// (view-a-billing-cycle) and OnboardPaymentIntegration + RegisterCustomer
+// (onboard-a-new-customer, web + MCP entries). Its scheduler-driven ops (closing a
+// cycle, the shortfall sweep) run on its Temporal worker and stay off the web and
+// MCP surfaces.
+var exposedManagers = map[string][]string{
+	"billingManager":    {"GetBillingCycle", "OnboardPaymentIntegration", "RegisterCustomer"},
+	"deliveryManager":   nil,
+	"operationsManager": nil,
 }
 
 // contractEntry is the self-describing metadata on a .serviceContracts entry.
@@ -85,7 +91,10 @@ func main() {
 	contracts := parseContracts(path, raw)
 
 	// Deterministic order.
-	keys := append([]string(nil), exposedManagers...)
+	keys := make([]string, 0, len(exposedManagers))
+	for key := range exposedManagers {
+		keys = append(keys, key)
+	}
 	sort.Strings(keys)
 
 	// Accumulate the per-contract OpenAPI docs for the final merge.
@@ -135,9 +144,13 @@ func parseContracts(path string, raw []byte) map[string]json.RawMessage {
 // generateContract emits one manager's REST handlers and MCP tools and returns
 // its OpenAPI document for the final merge (any failure is fatal).
 func generateContract(contracts map[string]json.RawMessage, key string) contractOAS {
-	entry, ok := contracts[key]
+	full, ok := contracts[key]
 	if !ok {
 		fatal("contract %q not found in .serviceContracts", key)
+	}
+	entry, err := exposedContract(full, exposedManagers[key])
+	if err != nil {
+		fatal("contract %q: %v", key, err)
 	}
 	var meta contractEntry
 	if err := json.Unmarshal(entry, &meta); err != nil {
@@ -194,6 +207,102 @@ func generateContract(contracts map[string]json.RawMessage, key string) contract
 
 	fmt.Printf("generated client layer for %s (pkg %s)\n", key, pkg)
 	return contractOAS{prefix: hdoc.ManagerBase(), doc: oasDoc}
+}
+
+// exposedContract is entry with its interface.operations narrowed to ops, in
+// contract order, and its $defs narrowed to the types those ops reach (reachedDefs);
+// every other member is kept verbatim. nil ops returns entry unchanged. An op the
+// contract does not declare is an error, so a rename can never silently shrink the
+// client surface.
+func exposedContract(entry json.RawMessage, ops []string) (json.RawMessage, error) {
+	if ops == nil {
+		return entry, nil
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(entry, &doc); err != nil {
+		return nil, fmt.Errorf("parse contract: %w", err)
+	}
+	var iface map[string]json.RawMessage
+	if err := json.Unmarshal(doc["interface"], &iface); err != nil {
+		return nil, fmt.Errorf("parse interface: %w", err)
+	}
+	var all []json.RawMessage
+	if err := json.Unmarshal(iface["operations"], &all); err != nil {
+		return nil, fmt.Errorf("parse interface.operations: %w", err)
+	}
+	want := map[string]bool{}
+	for _, op := range ops {
+		want[op] = true
+	}
+	kept := make([]json.RawMessage, 0, len(ops))
+	for _, raw := range all {
+		var op struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(raw, &op); err != nil {
+			return nil, fmt.Errorf("parse operation: %w", err)
+		}
+		if want[op.Name] {
+			kept = append(kept, raw)
+			delete(want, op.Name)
+		}
+	}
+	if len(want) > 0 {
+		missing := make([]string, 0, len(want))
+		for op := range want {
+			missing = append(missing, op)
+		}
+		sort.Strings(missing)
+		return nil, fmt.Errorf("exposed ops not on the interface: %s", strings.Join(missing, ", "))
+	}
+	var err error
+	if iface["operations"], err = json.Marshal(kept); err != nil {
+		return nil, err
+	}
+	if doc["interface"], err = json.Marshal(iface); err != nil {
+		return nil, err
+	}
+	if raw, ok := doc["$defs"]; ok {
+		if doc["$defs"], err = reachedDefs(raw, kept); err != nil {
+			return nil, err
+		}
+	}
+	return json.Marshal(doc)
+}
+
+// defRef matches a local "$defs" reference and captures the type name.
+var defRef = regexp.MustCompile(`"#/\$defs/([^"]+)"`)
+
+// reachedDefs keeps the $defs entries the ops reference, directly or through other
+// kept entries.
+func reachedDefs(raw json.RawMessage, ops []json.RawMessage) (json.RawMessage, error) {
+	var defs map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &defs); err != nil {
+		return nil, fmt.Errorf("parse $defs: %w", err)
+	}
+	kept := map[string]json.RawMessage{}
+	var queue []string
+	visit := func(b []byte) {
+		for _, m := range defRef.FindAllSubmatch(b, -1) {
+			name := string(m[1])
+			if _, seen := kept[name]; seen {
+				continue
+			}
+			if def, ok := defs[name]; ok {
+				kept[name] = def
+				queue = append(queue, name)
+			}
+		}
+	}
+	for _, op := range ops {
+		visit(op)
+	}
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		visit(defs[name])
+	}
+	return json.Marshal(kept)
 }
 
 // contractOAS pairs a per-contract OpenAPI document with its manager-base prefix

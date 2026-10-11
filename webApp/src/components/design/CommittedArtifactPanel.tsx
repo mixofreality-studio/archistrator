@@ -215,10 +215,12 @@ export function CommittedArtifactPanel({
           <TextField
             fullWidth
             multiline
-            data-testid={UI_IDENTIFIERS.DesignExperience.AMEND_RATIONALE}
             label="Amendment rationale"
             minRows={3}
             placeholder="What should change, and why?"
+            slotProps={{
+              htmlInput: { 'data-testid': UI_IDENTIFIERS.DesignExperience.AMEND_RATIONALE },
+            }}
             value={rationale}
             onChange={(e) => {
               setRationale(e.target.value);

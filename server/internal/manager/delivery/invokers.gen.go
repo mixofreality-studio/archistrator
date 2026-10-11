@@ -65,13 +65,6 @@ func (i genInvokers) ProjectStateAdvancePhase(ctx workflow.Context, projectID pr
 	return out, err
 }
 
-// ProjectStateCommitArtifact invokes activity "projectStateAccess.commitArtifact".
-func (i genInvokers) ProjectStateCommitArtifact(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.commitArtifact"), "projectStateAccess.commitArtifact", projectID, expectedVersion, kind).Get(ctx, &out)
-	return out, err
-}
-
 // ProjectStateCreateProject invokes activity "projectStateAccess.createProject".
 func (i genInvokers) ProjectStateCreateProject(ctx workflow.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error) {
 	var out projectstate.Version
@@ -100,6 +93,41 @@ func (i genInvokers) ProjectStateReadProjectVersion(ctx workflow.Context, projec
 	return out, err
 }
 
+// ProjectStateRecordOperatorPaused invokes activity "projectStateAccess.recordOperatorPaused".
+func (i genInvokers) ProjectStateRecordOperatorPaused(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordOperatorPaused"), "projectStateAccess.recordOperatorPaused", projectID, expectedVersion, reason).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordOperatorResumed invokes activity "projectStateAccess.recordOperatorResumed".
+func (i genInvokers) ProjectStateRecordOperatorResumed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordOperatorResumed"), "projectStateAccess.recordOperatorResumed", projectID, expectedVersion).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordReviewPolicy invokes activity "projectStateAccess.recordReviewPolicy".
+func (i genInvokers) ProjectStateRecordReviewPolicy(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordReviewPolicy"), "projectStateAccess.recordReviewPolicy", projectID, expectedVersion, policy).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordSdpReviewOutcome invokes activity "projectStateAccess.recordSdpReviewOutcome".
+func (i genInvokers) ProjectStateRecordSdpReviewOutcome(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, outcome projectstate.ArtifactReviewStatus, feedback string) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordSdpReviewOutcome"), "projectStateAccess.recordSdpReviewOutcome", projectID, expectedVersion, outcome, feedback).Get(ctx, &out)
+	return out, err
+}
+
+// ProjectStateRecordTrackingPoint invokes activity "projectStateAccess.recordTrackingPoint".
+func (i genInvokers) ProjectStateRecordTrackingPoint(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, point projectstate.EvPoint) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "projectStateAccess.recordTrackingPoint"), "projectStateAccess.recordTrackingPoint", projectID, expectedVersion, point).Get(ctx, &out)
+	return out, err
+}
+
 // ProjectStateSetOperatingModel invokes activity "projectStateAccess.setOperatingModel".
 func (i genInvokers) ProjectStateSetOperatingModel(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
 	var out projectstate.Version
@@ -114,17 +142,24 @@ func (i genInvokers) ProjectStateSetResearchInput(ctx workflow.Context, projectI
 	return out, err
 }
 
+// ArtifactGetTestRunIndex invokes activity "artifactAccess.getTestRunIndex".
+func (i genInvokers) ArtifactGetTestRunIndex(ctx workflow.Context, run artifact.TestRunRef) (artifact.TestRunIndex, error) {
+	var out artifact.TestRunIndex
+	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.getTestRunIndex"), "artifactAccess.getTestRunIndex", run).Get(ctx, &out)
+	return out, err
+}
+
+// ArtifactReadTestRunFile invokes activity "artifactAccess.readTestRunFile".
+func (i genInvokers) ArtifactReadTestRunFile(ctx workflow.Context, run artifact.TestRunRef, path string) (artifact.ConstructionOutput, error) {
+	var out artifact.ConstructionOutput
+	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.readTestRunFile"), "artifactAccess.readTestRunFile", run, path).Get(ctx, &out)
+	return out, err
+}
+
 // ArtifactRetrieveConstructionOutput invokes activity "artifactAccess.retrieveConstructionOutput".
 func (i genInvokers) ArtifactRetrieveConstructionOutput(ctx workflow.Context, contentAddress string) (artifact.ConstructionOutput, error) {
 	var out artifact.ConstructionOutput
 	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.retrieveConstructionOutput"), "artifactAccess.retrieveConstructionOutput", contentAddress).Get(ctx, &out)
-	return out, err
-}
-
-// ArtifactRetrieveOutputTree invokes activity "artifactAccess.retrieveOutputTree".
-func (i genInvokers) ArtifactRetrieveOutputTree(ctx workflow.Context, contentAddress string) (artifact.OutputTree, error) {
-	var out artifact.OutputTree
-	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.retrieveOutputTree"), "artifactAccess.retrieveOutputTree", contentAddress).Get(ctx, &out)
 	return out, err
 }
 
@@ -133,12 +168,6 @@ func (i genInvokers) ArtifactStoreConstructionOutput(ctx workflow.Context, conte
 	var out string
 	err := workflow.ExecuteActivity(i.options(ctx, "artifactAccess.storeConstructionOutput"), "artifactAccess.storeConstructionOutput", content).Get(ctx, &out)
 	return out, err
-}
-
-// PipelineCancelAgenticJob invokes activity "agenticJobAccess.cancelAgenticJob".
-func (i genInvokers) PipelineCancelAgenticJob(ctx workflow.Context, handle agenticjob.PipelineHandle) error {
-	err := workflow.ExecuteActivity(i.options(ctx, "agenticJobAccess.cancelAgenticJob"), "agenticJobAccess.cancelAgenticJob", handle).Get(ctx, nil)
-	return err
 }
 
 // PipelineObserveAgenticJob invokes activity "agenticJobAccess.observeAgenticJob".
@@ -169,12 +198,6 @@ func (i genInvokers) RailCommitManagedFiles(ctx workflow.Context, repo sourcecon
 	return out, err
 }
 
-// RailConfigureBranchProtection invokes activity "sourceControlAccess.configureBranchProtection".
-func (i genInvokers) RailConfigureBranchProtection(ctx workflow.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) error {
-	err := workflow.ExecuteActivity(i.options(ctx, "sourceControlAccess.configureBranchProtection"), "sourceControlAccess.configureBranchProtection", repo, cred).Get(ctx, nil)
-	return err
-}
-
 // RailGetInstallationToken invokes activity "sourceControlAccess.getInstallationToken".
 func (i genInvokers) RailGetInstallationToken(ctx workflow.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	var out sourcecontrol.RepoCredential
@@ -186,13 +209,6 @@ func (i genInvokers) RailGetInstallationToken(ctx workflow.Context, repo sourcec
 func (i genInvokers) RailGetPullRequestStatus(ctx workflow.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
 	var out sourcecontrol.PullRequestStatus
 	err := workflow.ExecuteActivity(i.options(ctx, "sourceControlAccess.getPullRequestStatus"), "sourceControlAccess.getPullRequestStatus", repo, pr, cred).Get(ctx, &out)
-	return out, err
-}
-
-// RailInstallAuthorizeApp invokes activity "sourceControlAccess.installAuthorizeApp".
-func (i genInvokers) RailInstallAuthorizeApp(ctx workflow.Context, account sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
-	var out sourcecontrol.Installation
-	err := workflow.ExecuteActivity(i.options(ctx, "sourceControlAccess.installAuthorizeApp"), "sourceControlAccess.installAuthorizeApp", account).Get(ctx, &out)
 	return out, err
 }
 
@@ -223,101 +239,17 @@ func (i genInvokers) RailPostReview(ctx workflow.Context, repo sourcecontrol.Rep
 	return err
 }
 
+// RailReadManagedFile invokes activity "sourceControlAccess.readManagedFile".
+func (i genInvokers) RailReadManagedFile(ctx workflow.Context, repo sourcecontrol.RepoRef, path string, cred sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+	var out sourcecontrol.ManagedFileRead
+	err := workflow.ExecuteActivity(i.options(ctx, "sourceControlAccess.readManagedFile"), "sourceControlAccess.readManagedFile", repo, path, cred).Get(ctx, &out)
+	return out, err
+}
+
 // RailSyncManagedScaffold invokes activity "sourceControlAccess.syncManagedScaffold".
 func (i genInvokers) RailSyncManagedScaffold(ctx workflow.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
 	var out bool
 	err := workflow.ExecuteActivity(i.options(ctx, "sourceControlAccess.syncManagedScaffold"), "sourceControlAccess.syncManagedScaffold", repo, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordActivityExited invokes activity "constructionTransitionAccess.recordActivityExited".
-func (i genInvokers) ConstructionTransitionRecordActivityExited(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordActivityExited"), "constructionTransitionAccess.recordActivityExited", projectID, expectedVersion, activityID, outcome, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordActivityFailed invokes activity "constructionTransitionAccess.recordActivityFailed".
-func (i genInvokers) ConstructionTransitionRecordActivityFailed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordActivityFailed"), "constructionTransitionAccess.recordActivityFailed", projectID, expectedVersion, activityID, reason, detail, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordChangeReviewed invokes activity "constructionTransitionAccess.recordChangeReviewed".
-func (i genInvokers) ConstructionTransitionRecordChangeReviewed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordChangeReviewed"), "constructionTransitionAccess.recordChangeReviewed", projectID, expectedVersion, activityID, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordOperatorNote invokes activity "constructionTransitionAccess.recordOperatorNote".
-func (i genInvokers) ConstructionTransitionRecordOperatorNote(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorNote"), "constructionTransitionAccess.recordOperatorNote", projectID, expectedVersion, activityID, note, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordOperatorNoteDelivered invokes activity "constructionTransitionAccess.recordOperatorNoteDelivered".
-func (i genInvokers) ConstructionTransitionRecordOperatorNoteDelivered(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, noteID string, attemptID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorNoteDelivered"), "constructionTransitionAccess.recordOperatorNoteDelivered", projectID, expectedVersion, activityID, noteID, attemptID, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordOperatorPaused invokes activity "constructionTransitionAccess.recordOperatorPaused".
-func (i genInvokers) ConstructionTransitionRecordOperatorPaused(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorPaused"), "constructionTransitionAccess.recordOperatorPaused", projectID, expectedVersion, reason, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordOperatorResumed invokes activity "constructionTransitionAccess.recordOperatorResumed".
-func (i genInvokers) ConstructionTransitionRecordOperatorResumed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorResumed"), "constructionTransitionAccess.recordOperatorResumed", projectID, expectedVersion, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordPhaseArtifactProduced invokes activity "constructionTransitionAccess.recordPhaseArtifactProduced".
-func (i genInvokers) ConstructionTransitionRecordPhaseArtifactProduced(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordPhaseArtifactProduced"), "constructionTransitionAccess.recordPhaseArtifactProduced", projectID, expectedVersion, activityID, mapKey, payload, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordPhaseCompleted invokes activity "constructionTransitionAccess.recordPhaseCompleted".
-func (i genInvokers) ConstructionTransitionRecordPhaseCompleted(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordPhaseCompleted"), "constructionTransitionAccess.recordPhaseCompleted", projectID, expectedVersion, activityID, phase, artifactRef, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordPhaseStarted invokes activity "constructionTransitionAccess.recordPhaseStarted".
-func (i genInvokers) ConstructionTransitionRecordPhaseStarted(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordPhaseStarted"), "constructionTransitionAccess.recordPhaseStarted", projectID, expectedVersion, activityID, phase, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordReviewPolicy invokes activity "constructionTransitionAccess.recordReviewPolicy".
-func (i genInvokers) ConstructionTransitionRecordReviewPolicy(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordReviewPolicy"), "constructionTransitionAccess.recordReviewPolicy", projectID, expectedVersion, policy, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ConstructionTransitionRecordServiceContractProduced invokes activity "constructionTransitionAccess.recordServiceContractProduced".
-func (i genInvokers) ConstructionTransitionRecordServiceContractProduced(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordServiceContractProduced"), "constructionTransitionAccess.recordServiceContractProduced", projectID, expectedVersion, component, contract, cred).Get(ctx, &out)
-	return out, err
-}
-
-// GitStatusRecordActivityArchApproved invokes activity "gitActivityStatusAccess.recordActivityArchApproved".
-func (i genInvokers) GitStatusRecordActivityArchApproved(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "gitActivityStatusAccess.recordActivityArchApproved"), "gitActivityStatusAccess.recordActivityArchApproved", projectID, expectedVersion, activityID, cred).Get(ctx, &out)
 	return out, err
 }
 
@@ -332,27 +264,6 @@ func (i genInvokers) GitStatusRecordActivityBranchOpened(ctx workflow.Context, p
 func (i genInvokers) GitStatusRecordActivityCIObserved(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential) (projectstate.Version, error) {
 	var out projectstate.Version
 	err := workflow.ExecuteActivity(i.options(ctx, "gitActivityStatusAccess.recordActivityCIObserved"), "gitActivityStatusAccess.recordActivityCIObserved", projectID, expectedVersion, activityID, ci, cred).Get(ctx, &out)
-	return out, err
-}
-
-// GitStatusRecordActivityCompleted invokes activity "gitActivityStatusAccess.recordActivityCompleted".
-func (i genInvokers) GitStatusRecordActivityCompleted(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "gitActivityStatusAccess.recordActivityCompleted"), "gitActivityStatusAccess.recordActivityCompleted", projectID, expectedVersion, activityID, cred).Get(ctx, &out)
-	return out, err
-}
-
-// GitStatusRecordActivityMerged invokes activity "gitActivityStatusAccess.recordActivityMerged".
-func (i genInvokers) GitStatusRecordActivityMerged(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "gitActivityStatusAccess.recordActivityMerged"), "gitActivityStatusAccess.recordActivityMerged", projectID, expectedVersion, activityID, cred).Get(ctx, &out)
-	return out, err
-}
-
-// GitStatusRecordActivityStarted invokes activity "gitActivityStatusAccess.recordActivityStarted".
-func (i genInvokers) GitStatusRecordActivityStarted(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "gitActivityStatusAccess.recordActivityStarted"), "gitActivityStatusAccess.recordActivityStarted", projectID, expectedVersion, activityID, typ, variant, cred).Get(ctx, &out)
 	return out, err
 }
 
@@ -377,24 +288,10 @@ func (i genInvokers) DesignSessionReconcileBranchFromMain(ctx workflow.Context, 
 	return out, err
 }
 
-// DesignSessionRejectArtifactOnBranchWithComments invokes activity "designSessionAccess.rejectArtifactOnBranchWithComments".
-func (i genInvokers) DesignSessionRejectArtifactOnBranchWithComments(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.rejectArtifactOnBranchWithComments"), "designSessionAccess.rejectArtifactOnBranchWithComments", projectID, expectedVersion, branch, kind, notes, round, comments, replies).Get(ctx, &out)
-	return out, err
-}
-
 // DesignSessionSeedReviewCommentsOnBranch invokes activity "designSessionAccess.seedReviewCommentsOnBranch".
 func (i genInvokers) DesignSessionSeedReviewCommentsOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply) (projectstate.Version, error) {
 	var out projectstate.Version
 	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.seedReviewCommentsOnBranch"), "designSessionAccess.seedReviewCommentsOnBranch", projectID, expectedVersion, branch, kind, round, comments, replies).Get(ctx, &out)
-	return out, err
-}
-
-// DesignSessionSetReviewCommentStatusOnBranch invokes activity "designSessionAccess.setReviewCommentStatusOnBranch".
-func (i genInvokers) DesignSessionSetReviewCommentStatusOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.setReviewCommentStatusOnBranch"), "designSessionAccess.setReviewCommentStatusOnBranch", projectID, expectedVersion, branch, kind, commentID, status).Get(ctx, &out)
 	return out, err
 }
 
@@ -405,31 +302,10 @@ func (i genInvokers) DesignSessionStageArtifactForReviewOnBranch(ctx workflow.Co
 	return out, err
 }
 
-// DesignSessionWithdrawArtifactOnBranch invokes activity "designSessionAccess.withdrawArtifactOnBranch".
-func (i genInvokers) DesignSessionWithdrawArtifactOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.withdrawArtifactOnBranch"), "designSessionAccess.withdrawArtifactOnBranch", projectID, expectedVersion, branch, kind, notes).Get(ctx, &out)
-	return out, err
-}
-
-// ActivityExecutionAcknowledgeStaleBasis invokes activity "activityExecutionAccess.acknowledgeStaleBasis".
-func (i genInvokers) ActivityExecutionAcknowledgeStaleBasis(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, kind projectstate.ArtifactKind, note string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "activityExecutionAccess.acknowledgeStaleBasis"), "activityExecutionAccess.acknowledgeStaleBasis", projectID, expectedVersion, expectedActivityVersion, activityID, kind, note, cred).Get(ctx, &out)
-	return out, err
-}
-
 // ActivityExecutionAppendReviewVerdict invokes activity "activityExecutionAccess.appendReviewVerdict".
 func (i genInvokers) ActivityExecutionAppendReviewVerdict(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, cred projectstate.RepoCredential) (projectstate.Version, error) {
 	var out projectstate.Version
 	err := workflow.ExecuteActivity(i.options(ctx, "activityExecutionAccess.appendReviewVerdict"), "activityExecutionAccess.appendReviewVerdict", projectID, expectedVersion, expectedActivityVersion, activityID, roundID, verdict, comments, replies, cred).Get(ctx, &out)
-	return out, err
-}
-
-// ActivityExecutionCommitActivityArtifacts invokes activity "activityExecutionAccess.commitActivityArtifacts".
-func (i genInvokers) ActivityExecutionCommitActivityArtifacts(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, artifacts projectstate.CommitArtifactsInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "activityExecutionAccess.commitActivityArtifacts"), "activityExecutionAccess.commitActivityArtifacts", projectID, expectedVersion, expectedActivityVersion, activityID, artifacts, cred).Get(ctx, &out)
 	return out, err
 }
 
@@ -497,9 +373,16 @@ func (i genInvokers) ActivityExecutionStageTaskOutput(ctx workflow.Context, proj
 }
 
 // MessageBusDeliverSignal invokes activity "messageBus.deliverSignal".
-func (i genInvokers) MessageBusDeliverSignal(ctx workflow.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
-	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.deliverSignal"), "messageBus.deliverSignal", targetExecutionID, signalName, payload).Get(ctx, nil)
+func (i genInvokers) MessageBusDeliverSignal(ctx workflow.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload, start *messagebus.ExecutionStart) error {
+	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.deliverSignal"), "messageBus.deliverSignal", targetExecutionID, signalName, payload, start).Get(ctx, nil)
 	return err
+}
+
+// MessageBusDescribeSchedule invokes activity "messageBus.describeSchedule".
+func (i genInvokers) MessageBusDescribeSchedule(ctx workflow.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	var out messagebus.ScheduleDescription
+	err := workflow.ExecuteActivity(i.options(ctx, "messageBus.describeSchedule"), "messageBus.describeSchedule", scheduleID).Get(ctx, &out)
+	return out, err
 }
 
 // MessageBusRegisterSchedule invokes activity "messageBus.registerSchedule".

@@ -11,15 +11,16 @@ import (
 // FakeMessageBus is a generated test double for messagebus.MessageBus: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeMessageBus struct {
-	DeliverSignalFn    func(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error
+	DeliverSignalFn    func(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload, start *messagebus.ExecutionStart) error
 	RegisterScheduleFn func(rc fwra.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error
+	DescribeScheduleFn func(rc fwra.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error)
 }
 
-func (f *FakeMessageBus) DeliverSignal(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+func (f *FakeMessageBus) DeliverSignal(rc fwra.Context, targetExecutionID messagebus.ExecutionID, signalName messagebus.SignalName, payload messagebus.ExecutionPayload, start *messagebus.ExecutionStart) error {
 	if f.DeliverSignalFn == nil {
 		panic("FakeMessageBus.DeliverSignalFn not set")
 	}
-	return f.DeliverSignalFn(rc, targetExecutionID, signalName, payload)
+	return f.DeliverSignalFn(rc, targetExecutionID, signalName, payload, start)
 }
 
 func (f *FakeMessageBus) RegisterSchedule(rc fwra.Context, scheduleID messagebus.ScheduleID, spec messagebus.ScheduleSpec) error {
@@ -27,6 +28,13 @@ func (f *FakeMessageBus) RegisterSchedule(rc fwra.Context, scheduleID messagebus
 		panic("FakeMessageBus.RegisterScheduleFn not set")
 	}
 	return f.RegisterScheduleFn(rc, scheduleID, spec)
+}
+
+func (f *FakeMessageBus) DescribeSchedule(rc fwra.Context, scheduleID messagebus.ScheduleID) (messagebus.ScheduleDescription, error) {
+	if f.DescribeScheduleFn == nil {
+		panic("FakeMessageBus.DescribeScheduleFn not set")
+	}
+	return f.DescribeScheduleFn(rc, scheduleID)
 }
 
 var _ messagebus.MessageBus = (*FakeMessageBus)(nil)

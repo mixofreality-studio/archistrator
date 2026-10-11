@@ -21,8 +21,6 @@ var migratedAt = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 
 // ---- fixtures ---------------------------------------------------------------------
 
-func strp(s string) *string { return &s }
-
 // committedSlot is a sealed slot holding a model, a thread and a critique.
 func committedSlot(m projectstate.ArtifactModel, thread []projectstate.ReviewComment) projectstate.ArtifactSlot {
 	return projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: m, ReviewThread: thread, Revisions: int64(len(thread))}
@@ -32,7 +30,6 @@ func comment(id string, round int64, role, text string) projectstate.ReviewComme
 	return projectstate.ReviewComment{
 		ID: id, Text: text, AuthorRole: role, Round: round,
 		Status: projectstate.ReviewCommentAnswered, Type: projectstate.ReviewCommentTypeChangeRequest,
-		Response: strp(""),
 	}
 }
 
@@ -259,7 +256,7 @@ func TestMigrate_TheRealStateKeepsEveryRowAndEveryAttempt(t *testing.T) {
 		if !reflect.DeepEqual(was.Attempts, now.Attempts) {
 			t.Fatalf("row %s: the attempt ledger changed", id)
 		}
-		if !reflect.DeepEqual(was.OperatorNotes, now.OperatorNotes) || was.Produced != nil && !reflect.DeepEqual(was.Produced, now.Produced) {
+		if !reflect.DeepEqual(was.OperatorNotes, now.OperatorNotes) {
 			t.Fatalf("row %s: a carried member changed", id)
 		}
 	}

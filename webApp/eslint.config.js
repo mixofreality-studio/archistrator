@@ -20,4 +20,20 @@ export default [
     files: ['src/**/*.{ts,tsx}'],
     rules: { 'react-hooks/exhaustive-deps': 'error' },
   },
+  {
+    // Scenario tests only (deterministic component testing, spec T2): the
+    // webApp is tested by the scenario specs generated from its committed test
+    // plan (uitests/generated/webClient), so a hand-written test file is refused.
+    files: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Program',
+          message:
+            'scenario tests only; see docs/superpowers/specs/2026-10-02-deterministic-component-testing-design.md (T2). Hand-written test files are not added; the generated scenario specs replace them.',
+        },
+      ],
+    },
+  },
 ];

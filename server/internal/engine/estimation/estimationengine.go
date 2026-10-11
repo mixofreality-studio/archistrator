@@ -567,7 +567,7 @@ func topoOrder(idSet map[string]struct{}, predecessors map[string][]string) []st
 
 // maxCalendarStretch caps the calendar stretch factor so a pathological
 // CalendarDaysPerWeek (e.g. fractional days/week) cannot inflate the duration
-// without bound. 5 d/wk → 1.0; 1 d/wk → 5.0; capped at 7.0.
+// without bound. 7 d/wk → 1.0; 5 d/wk → 1.4; 1 d/wk → 7.0 (the cap).
 const maxCalendarStretch = 7.0
 
 // RiskScore is exposed as a decomposition (Criticality + ActivityRisk, not folded
@@ -622,8 +622,8 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 	onCP := criticalSet(activities, deps, milestones, staffCap)
 	solveActs := speedUpCritical(activities, onCP, speedup)
 
-	// --- Duration: resource-constrained (resource-leveled) schedule length in sim-days
-	// PLUS the decompression buffer, then calendar-stretched. The engine runs its OWN CPM
+	// --- Duration: resource-constrained (resource-leveled) schedule length in working
+	// days PLUS the decompression buffer, then stretched to CALENDAR days. The engine runs its OWN CPM
 	// + resource solve over the option's dependency graph honoring the staffing cap; it no
 	// longer sums authored on-critical-path efforts (Phase-2 rework F1/F3/F4). ---
 	sched := resourceLevelSchedule(solveActs, deps, milestones, staffCap, option.BufferDays)
@@ -841,15 +841,17 @@ func activityRiskOf(acts []leveledActivity) float64 {
 	return clamp01(1.0 - sumFloat/(float64(n)*maxFloat))
 }
 
-// calendarStretch maps the option's working days/week to a duration multiplier:
-// 5.0 / max(CalendarDaysPerWeek, 1), capped at maxCalendarStretch. A 5 d/wk team
-// is the 1.0 baseline; a 2 d/wk team stretches by 2.5×.
+// calendarStretch maps the option's working days/week to the calendar days one
+// working day spans: 7.0 / max(CalendarDaysPerWeek, 1), capped at
+// maxCalendarStretch. DurationDays is CALENDAR days (the unit the indirect daily
+// rate accrues in): a 7 d/wk team is the 1.0 baseline, a 5 d/wk team takes 1.4
+// calendar days per working day, a 2 d/wk team 3.5.
 func calendarStretch(calendarDaysPerWeek float64) float64 {
 	d := calendarDaysPerWeek
 	if d < 1 {
 		d = 1
 	}
-	s := 5.0 / d
+	s := 7.0 / d
 	if s > maxCalendarStretch {
 		s = maxCalendarStretch
 	}
@@ -1319,7 +1321,7 @@ func (EstimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, delta
 		// A project before its architecture is committed still owes its design: the
 		// prefix and M0 are not a function of the System, they are what produces it. The
 		// construction half of the plan — the component activities, the layer-completion
-		// milestones M1-M3 and the sink/source rules — is what an empty System has
+		// milestones M1-M3 and the source rule — is what an empty System has
 		// nothing to say about.
 		return DerivedPlan{
 			Activities:   designPrefixActivities(),
@@ -1340,31 +1342,23 @@ func (EstimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, delta
 //
 // The derivation emits exactly three prefixes through it: C (code a component) and U
 // (build a client app) go to the junior developer, R (provision a vendor resource) to
-// the senior developer. The always-emit noncoding inventory takes its classes from
-// noncodingInventoryClass instead.
+// the senior developer. The design prefix carries its own class (system-architect) and
+// is not routed through here.
+//
+// There is no always-emit noncoding inventory any more. The system test plan (N-STP,
+// test-engineer) and system testing (N-IT, software-tester) were derived for every
+// project until deterministic component testing (spec 2026-10-02 §7, T5): every
+// component's test plan is now derived from the dynamic views and bound inside that
+// component's own stp task, and the testing task's gate replaces the terminal system
+// test. Löwy ch. 9's three quality roles are not collapsed by this — the test engineer
+// and software tester simply own no derived activity; the QA engineer never did (a
+// ROLE booked as indirect cost).
 func workerClassFor(prefix string) string {
 	switch prefix {
 	case "C", "U":
 		return "junior-developer" // junior builds components and the SPA
 	default: // "R"
 		return "senior-developer" // senior owns vendor provisioning
-	}
-}
-
-// noncodingInventoryClass returns the fixed worker class for a member of the always-emit
-// noncoding inventory. Löwy ch. 9 keeps three DISTINCT quality roles — the test engineer
-// (writes the system test plan, code to break the system), the software tester (runs
-// system testing), and the QA engineer (senior, process: "what will it take to assure
-// quality?"). Do not collapse them. The QA engineer is a ROLE booked as indirect cost,
-// not an activity, so it owns no member of this inventory.
-func noncodingInventoryClass(name string) string {
-	switch name {
-	case "N-STP":
-		return "test-engineer"
-	case "N-IT":
-		return "software-tester"
-	default:
-		return "senior-developer"
 	}
 }
 
@@ -1420,29 +1414,6 @@ func defaultRiskFor(effortDays float64) int64 {
 	}
 }
 
-// alwaysEmitNoncoding is the noncoding inventory emitted for EVERY project — exactly the
-// noncoding activities Löwy's Table 11-1 gives the construction plan: the system test
-// plan (#4) and system testing (#21). The rest of that table's noncoding list is either
-// emitted elsewhere or not ours to plan: the design activities (#1-3) are the design
-// prefix (designPrefixActivities), emitted for every system rather than only for one
-// with a committed architecture; the test harness (#5) is platform-generated
-// from the system test plan. Build/smoke automation is platform infrastructure,
-// performance testing is not in Table 11-1 (a project that needs it adds a justified
-// additive), and QA is a role booked as indirect cost, not an activity. Fixed efforts —
-// these do not scale with the architecture.
-var alwaysEmitNoncoding = []struct {
-	Name   string
-	Title  string
-	Effort float64
-}{
-	{"N-STP", "System test plan (all core use cases)", 15},
-	{"N-IT", "System testing (terminal gate)", 30},
-}
-
-// systemTestingActivity is the terminal activity of every plan (Table 11-1 #21): the
-// sink rule feeds it every activity nothing else depends on.
-const systemTestingActivity = "N-IT"
-
 // sdpReviewMilestone is M0, the SDP review (ch. 11 "About Milestones": "none of the
 // construction activities should start before the SDP review"). The source rule hangs
 // every activity with no other predecessor off it.
@@ -1457,10 +1428,18 @@ const (
 	managersMilestone       = "M3"
 )
 
+// projectEndMilestone is the network's one sink (spec 2026-10-02 §7): every terminal
+// activity of the plan feeds it directly (see projectEndMilestoneFor). Its id is not the
+// next number in the M-sequence on purpose — M4 is retired and M5 is the conventional id of
+// the additive "v1 Production Live" — and it sorts after every numbered milestone, so the
+// sink also reads last in the milestone list.
+const projectEndMilestone = "MEND"
+
 // milestoneNames is the DERIVATION'S OWN name for every milestone it emits (2026-10-02).
 //
-// WHY THE DERIVATION AND NOT THE DRAFT. M0-M3 are Method-FIXED events — the SDP review,
-// then provisioning, engines and managers complete — not per-project choices, so there was
+// WHY THE DERIVATION AND NOT THE DRAFT. M0-M3 and the project end are Method-FIXED events —
+// the SDP review, then provisioning, engines and managers complete, then the end of the
+// network — not per-project choices, so there was
 // never anything for a project to author. Treating the name as an authored decoration was
 // the wrong contract, and it WEDGED the platform: the Manager's materializeNetwork
 // hard-refuses a milestone with no name, it reads its decorations from the COMMITTED slot
@@ -1469,9 +1448,9 @@ const (
 // started. The one project that worked (this repo's own) worked because its slot 10 had
 // been hand-backfilled, which is also why every gate stayed green over it.
 //
-// These four strings are therefore the SAME strings that repo's slot 10 already holds; the
-// derived-plan drift gate (TestDerivedPlanMatchesCommittedState) compares the two and is
-// what keeps them from parting.
+// These strings are therefore the SAME strings that repo's slot 10 holds; the derived-plan
+// drift gate (TestDerivedPlanMatchesCommittedState) compares the two and is what keeps them
+// from parting.
 //
 // An id with no entry here yields a NAMELESS milestone (Name nil, not ""), which is a
 // distinct, meaningful state — see nameOf — and is refused LOUDLY by the Manager if nothing
@@ -1482,6 +1461,7 @@ var milestoneNames = map[string]string{
 	infrastructureMilestone: "Infrastructure Provisioned",
 	enginesMilestone:        "Engines Complete",
 	managersMilestone:       "Managers Complete",
+	projectEndMilestone:     "Project End",
 }
 
 // nameOf returns the derivation's name for a milestone id, or nil when it has none.
@@ -1538,8 +1518,8 @@ const (
 // designPrefixActivities emits the three design activities, in Table 11-1 order. They
 // are componentless (no architecture produces them — they produce the architecture),
 // noncoding, and owned by the system architect, who drives Phases 1 and 2 end to end.
-// Unlike alwaysEmitNoncoding they are emitted for EVERY system including the empty one:
-// a project with no committed architecture still owes the work that produces it.
+// They are emitted for EVERY system including the empty one: a project with no
+// committed architecture still owes the work that produces it.
 func designPrefixActivities() []DerivedActivity {
 	prefix := []struct {
 		Name   string
@@ -1764,19 +1744,6 @@ func spacedName(name string) string {
 	return b.String()
 }
 
-// noncodingInventoryActivities emits the always-emit testing / QA inventory.
-func noncodingInventoryActivities() []DerivedActivity {
-	out := make([]DerivedActivity, 0, len(alwaysEmitNoncoding))
-	for _, n := range alwaysEmitNoncoding {
-		out = append(out, DerivedActivity{
-			Name: n.Name, Title: n.Title,
-			EffortDays: n.Effort, RiskBucket: defaultRiskFor(n.Effort),
-			WorkerClass: noncodingInventoryClass(n.Name), Coding: false, Derived: true,
-		})
-	}
-	return out
-}
-
 // deriveActivities emits the full derived activity set for the System, in plan order
 // (planOrderLess). It is Löwy's Table 11-1 applied to the architecture.
 //
@@ -1798,12 +1765,18 @@ func noncodingInventoryActivities() []DerivedActivity {
 //	U-SPA-<client>  one per client with a UI surface (Table 11-1 #19, "Client App")
 //	(none)          no I-* integration activity — App A makes integration a PHASE of
 //	                every activity's own lifecycle, so a separate I-* would charge the
-//	                same work twice; System Testing (N-IT) is the one activity Table
-//	                11-1 gives integration.
-//	N-STP, N-IT     the always-emit noncoding inventory (Table 11-1 #4 and #21)
+//	                same work twice.
+//	(none)          no N-STP / N-IT (Table 11-1 #4 and #21) — deterministic component
+//	                testing (spec 2026-10-02 §7) derives every component's test plan from
+//	                the dynamic views inside that component's own lifecycle, and the
+//	                testing task's gate replaces the terminal system test. The rest of
+//	                the table's noncoding list is not ours to plan either: the harness
+//	                (#5) is platform-generated, build/smoke automation is platform
+//	                infrastructure, performance testing is not in Table 11-1 (a
+//	                justified additive), and QA is a role booked as indirect cost.
 func deriveActivities(system SystemView) []DerivedActivity {
 	prefix := designPrefixActivities()
-	out := make([]DerivedActivity, 0, len(prefix)+len(system.Components)+len(alwaysEmitNoncoding))
+	out := make([]DerivedActivity, 0, len(prefix)+len(system.Components))
 	out = append(out, prefix...)
 
 	for _, c := range system.Components {
@@ -1817,8 +1790,6 @@ func deriveActivities(system SystemView) []DerivedActivity {
 			out = append(out, a)
 		}
 	}
-
-	out = append(out, noncodingInventoryActivities()...)
 
 	sort.Slice(out, func(i, j int) bool { return planOrderLess(out[i].Name, out[j].Name) })
 	return out
@@ -1919,46 +1890,72 @@ func architectureEdges(system SystemView, byComponent map[string]string) map[str
 	return raw
 }
 
-// addSinkEdges is the SINK rule: system testing depends on every activity that nothing
-// else depends on. It is Table 11-1 #21 (System Testing) → 5, 19, 20 stated generally —
-// the ends of every chain through the architecture, plus any activity no relationship
-// reaches (the test plan, a vendor resource no component fronts). A headless system
-// needs no special case: with no client activity, its managers are the sinks.
+// THE SINK IS THE PROJECT-END MILESTONE (spec 2026-10-02 §7). Until deterministic
+// component testing, system testing (N-IT) depended on every activity nothing else
+// depended on — Table 11-1 #21 → 5, 19, 20 stated generally — so every plan ended in one
+// ACTIVITY fan-in. N-IT is no longer derived, so that fan-in moves onto a zero-duration
+// milestone instead: every terminal activity — the end of each chain through the
+// architecture, plus any activity no relationship reaches (a vendor resource no component
+// fronts) — feeds projectEndMilestone directly. No activity depends on it, so it adds no
+// dependency edge, and being zero-duration it changes no activity's float: ComputeNetwork
+// already takes the project duration as the maximum finish over all nodes, so the
+// milestone simply lands at that duration, on the critical path through whichever
+// terminal is critical.
 //
-// It runs on the REDUCED graph, so it never adds a redundant edge: a sink has no
-// successor, so no sink is reachable from another. N-IT itself is always among acts:
-// deriveActivities emits the always-emit noncoding inventory for every system.
-func addSinkEdges(reduced map[string][]string, acts []DerivedActivity) {
-	hasSuccessor := map[string]bool{}
-	for _, preds := range reduced {
-		for _, p := range preds {
-			hasSuccessor[p] = true
+// It is computed in applyDeltas, AFTER the additives, because the terminal set is the
+// whole plan's: an additive that follows a derived terminal replaces it in the fan-in.
+
+// projectEndMilestoneFor builds the project-end milestone over the plan's terminal
+// activities (networkTerminals).
+func projectEndMilestoneFor(acts []DerivedActivity, deps []NetworkDependency, ms []NetworkMilestone) NetworkMilestone {
+	return namedMilestone(projectEndMilestone, networkTerminals(acts, deps, ms))
+}
+
+// networkTerminals returns, sorted, the activities nothing in the network comes after: no
+// activity depends on them, directly or through a milestone some activity depends on. The
+// milestone pass-through is what keeps projectDesign out of the set on a plan with
+// construction work (its only successor is M0, which every root construction activity
+// depends on) and puts it IN the set when the architecture derives no construction work at
+// all — then the design prefix genuinely is where the project ends. A milestone no activity
+// depends on (M1-M3, an additive release marker) passes nothing through, so a vendor
+// resource that only feeds M1 is still terminal.
+func networkTerminals(acts []DerivedActivity, deps []NetworkDependency, ms []NetworkMilestone) []string {
+	milestonePreds := make(map[string][]string, len(ms))
+	for _, m := range ms {
+		milestonePreds[m.Id] = m.DependsOn
+	}
+	followed := map[string]bool{}
+	var follow func(id string)
+	follow = func(id string) {
+		if followed[id] {
+			return
+		}
+		followed[id] = true
+		for _, p := range milestonePreds[id] {
+			follow(p)
 		}
 	}
-	var sinks []string
+	for _, d := range deps {
+		for _, p := range d.DependsOn {
+			follow(p)
+		}
+	}
+	var out []string
 	for _, a := range acts {
-		// The design prefix is exempt: its successor is M0, a milestone, which
-		// hasSuccessor cannot see — without this skip projectDesign (and, on an empty
-		// system, all three) would feed N-IT and the plan would say system testing waits
-		// on the SDP review.
-		if isDesignPrefix(a.Name) {
-			continue
-		}
-		if a.Name != systemTestingActivity && !hasSuccessor[a.Name] {
-			sinks = append(sinks, a.Name)
+		if !followed[a.Name] {
+			out = append(out, a.Name)
 		}
 	}
-	if len(sinks) > 0 {
-		reduced[systemTestingActivity] = append(reduced[systemTestingActivity], sinks...)
-	}
+	sort.Strings(out)
+	return out
 }
 
 // addSourceEdges is the SOURCE rule: every activity with no other predecessor depends on
 // M0, the SDP review. It is Table 11-1 #4, #9, #10 → 3 stated generally, and it puts
 // every activity on an edge: buildNodeUniverse walks EDGES, not the activity list, so an
 // activity with no incident edge silently gets no CPM node — no ES/EF/float, no
-// critical-path membership (C2, 2026-08-10). With the sink rule, every activity now
-// lies on a path from M0 to N-IT; no island workaround is needed.
+// critical-path membership (C2, 2026-08-10). Every activity therefore lies on a path
+// from M0, and a terminal one is a legitimate end of the network, not an island.
 func addSourceEdges(reduced map[string][]string, acts []DerivedActivity) {
 	for _, a := range acts {
 		// The design prefix is exempt: requirements is the plan's true root, and hanging
@@ -1974,17 +1971,16 @@ func addSourceEdges(reduced map[string][]string, acts []DerivedActivity) {
 }
 
 // deriveDependencies builds the network edges: the transitively reduced architecture
-// edges, then the two general rules no relationship expresses — the sink rule (N-IT
-// after every activity nothing else depends on) and the source rule (every activity with
-// no other predecessor after M0). The sink rule runs first, so N-IT is never a root.
+// edges, then the one general rule no relationship expresses — the source rule (every
+// activity with no other predecessor after M0). There is no sink EDGE any more: the
+// network's sink is the project-end milestone, which every terminal activity feeds (see
+// the note above projectEndMilestoneFor), so it adds no activity dependency.
 //
-// The design prefix's own chain is appended AFTER both rules, which are exempt from it
-// (see addSinkEdges / addSourceEdges): the prefix runs upstream of M0, where neither
-// general rule applies.
+// The design prefix's own chain is appended AFTER the source rule, which is exempt from
+// it (see addSourceEdges): the prefix runs upstream of M0, where the rule does not apply.
 func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDependency {
 	raw := architectureEdges(system, activityForComponent(acts))
 	reduced := transitiveReduction(raw)
-	addSinkEdges(reduced, acts)
 	addSourceEdges(reduced, acts)
 	for _, d := range designPrefixDependencies() {
 		reduced[d.Activity] = d.DependsOn
@@ -2012,6 +2008,10 @@ func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDepe
 //
 // M5 (v1 Production Live) is deliberately NOT derived: it depends entirely on additive
 // noncoding activities, so it arrives as an additive delta.
+//
+// The project-end milestone IS derived but not here: its fan-in is the whole plan's
+// terminal set, additives included, so applyDeltas builds it once they are in
+// (projectEndMilestoneFor).
 func deriveMilestones(system SystemView, acts []DerivedActivity) []NetworkMilestone {
 	kindByComponent := map[string]string{}
 	for _, c := range system.Components {
@@ -2194,10 +2194,13 @@ func validateAdditiveEdges(extraDeps []NetworkDependency, index map[string]int) 
 func applyAdditiveMilestones(ms []NetworkMilestone, index map[string]int, additive []AdditiveMilestone) ([]NetworkMilestone, error) {
 	milestones := make([]NetworkMilestone, len(ms))
 	copy(milestones, ms)
-	derivedMilestone := make(map[string]bool, len(ms))
+	derivedMilestone := make(map[string]bool, len(ms)+1)
 	for _, m := range ms {
 		derivedMilestone[m.Id] = true
 	}
+	// The project end is derived too, though applyDeltas appends it only after this runs
+	// (its fan-in needs the post-additive plan), so it is reserved here explicitly.
+	derivedMilestone[projectEndMilestone] = true
 	for _, am := range additive {
 		if derivedMilestone[am.Id] {
 			return nil, fweng.New(fweng.ContractMisuse,
@@ -2257,6 +2260,11 @@ func applyDeltas(base []DerivedActivity, deps []NetworkDependency, ms []NetworkM
 	allDeps = append(allDeps, extraDeps...)
 	sort.Slice(allDeps, func(i, j int) bool { return allDeps[i].Activity < allDeps[j].Activity })
 	sort.Slice(acts, func(i, j int) bool { return planOrderLess(acts[i].Name, acts[j].Name) })
+
+	// The sink last: its fan-in is the terminal set of the whole plan, additive activities
+	// and edges included (spec 2026-10-02 §7).
+	milestones = append(milestones, projectEndMilestoneFor(acts, allDeps, milestones))
+	sort.Slice(milestones, func(i, j int) bool { return milestones[i].Id < milestones[j].Id })
 
 	return DerivedPlan{Activities: acts, Dependencies: allDeps, Milestones: milestones}, nil
 }

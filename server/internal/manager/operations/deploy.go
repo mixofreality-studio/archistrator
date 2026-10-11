@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
@@ -30,8 +30,9 @@ type deployInput struct {
 // DeployWorkflow drives UC4 deploy (operationsManager.md §6.3):
 //  1. ReadOperatedSystemActivity → head-state (desiredState, deployableBundleRef).
 //  2. (first deploy, full bundle) RetrieveDeployableBundleActivity.
-//  3. PublishDesiredStateActivity (the git commit).
-//  4. RecordPublishDesiredStateActivity (head-state transition, reason=operator|deploy).
+//  3. PublishDesiredStateActivity (the git commit), the server at the desired scale.
+//  4. RecordPublishDesiredStateActivity (head-state transition, reason=operator|deploy,
+//     with the desired scale: the replicas published and the project's scaling policy).
 func (wf *workflows) DeployWorkflow(ctx workflow.Context, in deployInput) (DeployResult, error) {
 	logger := workflow.GetLogger(ctx)
 
@@ -79,6 +80,13 @@ func (wf *workflows) DeployWorkflow(ctx workflow.Context, in deployInput) (Deplo
 			"failed to assemble the desired state from the project's deployment model",
 			fwmgr.ErrType(fwmgr.FailedPrecondition), aerr)
 	}
+	scale, serr := deployScale(proj, desired.Server.Replicas, workflow.Now(ctx))
+	if serr != nil {
+		return DeployResult{}, temporal.NewNonRetryableApplicationError(
+			"failed to read the project's scaling policy",
+			fwmgr.ErrType(fwmgr.FailedPrecondition), serr)
+	}
+	desired.Server.Replicas = scale.Replicas
 
 	// Publish the assembled desired state (git commit; content-idempotent).
 	revision := publishRevision(in.OperatedAppID, in.Change.ChangeID)
@@ -87,7 +95,7 @@ func (wf *workflows) DeployWorkflow(ctx workflow.Context, in deployInput) (Deplo
 	}
 
 	// Record the head-state desired-state transition (additive; Conflict loop).
-	if _, rerr := wf.recordPublishDesiredState(ctx, in.OperatedAppID, op.Version, in.Change.Reason, nil); rerr != nil {
+	if _, rerr := wf.recordPublishDesiredState(ctx, in.OperatedAppID, op.Version, in.Change.Reason, scale); rerr != nil {
 		return DeployResult{}, rerr
 	}
 
@@ -158,19 +166,62 @@ func (wf *workflows) publishDesiredState(ctx workflow.Context, appID operatedApp
 }
 
 // recordPublishDesiredState applies the head-state desired-state transition with the
-// Conflict loop (§6.5). decision is carried only for reason=autoscale. Task 4: seed/
-// return now speak operatedsystemstate.Version directly (the former Manager-local
-// version mirror is retired). Task 5: decision is now the published *autoscaler.Decision
-// (the seam autoscaleDecisionSeam is retired) — autoscaleDecisionToState (adapters.go)
-// bridges it straight to operatedsystemstate.AutoscaleDecision.
+// Conflict loop (§6.5), recording the desired scale the publication carried — the
+// replicas published and the scaling policy they were published under, which the
+// reconcile tick's autoscaler reads back as the current desired state.
 // Shared workflow-context helper (used by 2 workflows); lives in its first caller's file per the file-layout standard.
-func (wf *workflows) recordPublishDesiredState(ctx workflow.Context, appID operatedAppID, seed operatedsystemstate.Version, reason DesiredStateReason, decision *autoscaler.Decision) (operatedsystemstate.Version, error) {
+func (wf *workflows) recordPublishDesiredState(ctx workflow.Context, appID operatedAppID, seed operatedsystemstate.Version, reason DesiredStateReason, scale operatedsystemstate.DesiredScale) (operatedsystemstate.Version, error) {
 	return wf.applyRecovering(ctx, appID, seed, func(expected operatedsystemstate.Version) (operatedsystemstate.Version, error) {
 		return wf.Acts.OperatedSystemStatePublishDesiredState(ctx, appID,
 			expected,
 			desiredStateReasonToState(reason),
-			autoscaleDecisionToState(decision))
+			scale)
 	})
+}
+
+// deployScale is the desired scale a deploy publishes and records: the project's
+// committed scaling policy (operationalConcepts.scalingPolicy) bounds the server
+// replicas, and the deployment model's instance count is the replicas, clamped into
+// those bounds (never below one: a deploy is never a scale to zero). A project with no
+// scaling policy is pinned to its deployment model's instance count (minimum = maximum =
+// replicas), which the autoscaler can never move. at is the workflow clock.
+func deployScale(proj projectstate.Project, instances int64, at time.Time) (operatedsystemstate.DesiredScale, error) {
+	policy, ok, err := scalingPolicyOf(proj)
+	if err != nil {
+		return operatedsystemstate.DesiredScale{}, err
+	}
+	if !ok {
+		return operatedsystemstate.DesiredScale{Replicas: instances, MinReplicas: instances, MaxReplicas: instances, ScaledAt: at}, nil
+	}
+	if policy.MaxInstances < max(policy.MinInstances, 1) {
+		return operatedsystemstate.DesiredScale{}, fmt.Errorf("deployScale: project %q's scaling policy allows at most %d instances, below its floor of %d", proj.ID, policy.MaxInstances, max(policy.MinInstances, 1))
+	}
+	return operatedsystemstate.DesiredScale{
+		Replicas:             min(max(instances, policy.MinInstances, 1), policy.MaxInstances),
+		MinReplicas:          policy.MinInstances,
+		MaxReplicas:          policy.MaxInstances,
+		TargetUtilizationPct: policy.TargetUtilizationPct,
+		ScaleToZero:          policy.ScaleToZero,
+		ScaledAt:             at,
+	}, nil
+}
+
+// scalingPolicyOf reads the project's committed scaling policy off its operational
+// concepts (the slot model carries it untyped: null or a ScalingPolicy). ok is false
+// when the project commits none.
+func scalingPolicyOf(proj projectstate.Project) (policy projectstate.ScalingPolicy, ok bool, err error) {
+	model, isModel := proj.OperationalConcepts.Model.(*projectstate.DeploymentOperationsModel)
+	if !isModel || model == nil || model.ScalingPolicy == nil {
+		return projectstate.ScalingPolicy{}, false, nil
+	}
+	raw, err := json.Marshal(model.ScalingPolicy)
+	if err != nil {
+		return projectstate.ScalingPolicy{}, false, fmt.Errorf("scalingPolicyOf: encode: %w", err)
+	}
+	if err := json.Unmarshal(raw, &policy); err != nil {
+		return projectstate.ScalingPolicy{}, false, fmt.Errorf("scalingPolicyOf: project %q's scaling policy is not a ScalingPolicy: %w", proj.ID, err)
+	}
+	return policy, true, nil
 }
 
 // applyRecovering executes one head-state mutation Activity with a workflow-level
@@ -238,10 +289,9 @@ func publishRevision(appID operatedAppID, changeID string) string {
 // ---------------------------------------------------------------------------
 const (
 	// selfManagedProjectRef is the well-known project id archistrator uses for its
-	// OWN system design (see cmd/gen-systemtests, cmd/gen-uitests-fixtures,
-	// cmd/gen-uitests-episodes, all of which default their -project/-id flag to
-	// this same literal). A project whose ID matches it is archistrator operating
-	// itself, not a customer-operated tenant.
+	// OWN system design (the id the dogfood project.json carries). A project whose
+	// ID matches it is archistrator operating itself, not a customer-operated
+	// tenant.
 	selfManagedProjectRef = "archistrator"
 
 	// platformDomain is the shared apex domain every operated app is hosted under

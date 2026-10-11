@@ -21,10 +21,8 @@ export type LifecycleTypeKey =
   | 'projectDesign'
   | 'service'
   | 'frontend'
-  | 'testing:plan'
   | 'testing:harness'
   | 'testing:perf'
-  | 'testing:systemTest'
   | 'testing:qaProcess'
   | 'deployment'
   | 'documentation'
@@ -274,7 +272,7 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
         label: 'Test Plan',
         weight: 10,
         gate: 'stpReview',
-        exitCriterion: "This component's test plan is written and passes STP review",
+        exitCriterion: 'Every projected scenario is bound and the TP-* rules pass',
       },
       {
         id: 'construction',
@@ -288,7 +286,8 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
         label: 'Integration',
         weight: 15,
         gate: 'testing',
-        exitCriterion: 'The component is integrated and its tests pass',
+        exitCriterion:
+          'A test run at the current revision covers every scenario, all pass, and the results render',
       },
     ],
     tasks: [
@@ -366,9 +365,9 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
       {
         id: 'stp',
         kind: 'dispatch',
-        title: 'STP',
+        title: 'Test Plan',
         phase: 'test_plan',
-        dependsOn: ['srsReview'],
+        dependsOn: ['designReview'],
         revisionGroup: 'stp',
         command: 'service-test-plan',
         workerClass: 'test-engineer',
@@ -377,7 +376,7 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
       {
         id: 'stpReview',
         kind: 'review',
-        title: 'STP Review',
+        title: 'Test Plan Review',
         phase: 'test_plan',
         dependsOn: ['stp'],
         revisionGroup: 'stp',
@@ -416,8 +415,7 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
         label: 'Flows',
         weight: 10,
         gate: 'stpReview',
-        exitCriterion:
-          'The user flows this surface must support are written as tests and pass review',
+        exitCriterion: 'Every projected scenario is bound and the TP-* rules pass',
       },
       {
         id: 'construction',
@@ -432,7 +430,7 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
         weight: 15,
         gate: 'testing',
         exitCriterion:
-          'The surface is wired to its managers and its flows pass against the integrated system',
+          'A test run at the current revision covers every scenario, all pass, and the results render',
       },
     ],
     tasks: [
@@ -512,7 +510,7 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
         kind: 'dispatch',
         title: 'Flows',
         phase: 'test_plan',
-        dependsOn: ['srsReview'],
+        dependsOn: ['designReview'],
         revisionGroup: 'stp',
         command: 'frontend-test-plan',
         workerClass: 'test-engineer',
@@ -533,95 +531,6 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
         title: 'Flow Testing',
         phase: 'integration',
         dependsOn: ['integration', 'stpReview'],
-        revisionGroup: 'integration',
-        reviews: 'integration',
-      },
-    ],
-  },
-  {
-    type: 'testing:plan',
-    phases: [
-      {
-        id: 'requirements',
-        label: 'Use-Case Trace',
-        weight: 20,
-        gate: 'srsReview',
-        exitCriterion:
-          'Every core use case is traced to the scenarios that will exercise it, and the trace passes review',
-      },
-      {
-        id: 'construction',
-        label: 'Plan Authoring',
-        weight: 45,
-        gate: 'codeReview',
-        exitCriterion: 'The black-box scenarios are written and pass scenario review',
-      },
-      {
-        id: 'integration',
-        label: 'Plan Review',
-        weight: 35,
-        gate: 'testing',
-        exitCriterion: 'The assembled system test plan passes review and is signed off',
-      },
-    ],
-    tasks: [
-      {
-        id: 'srs',
-        kind: 'dispatch',
-        title: 'Use-Case Trace',
-        phase: 'requirements',
-        dependsOn: [],
-        revisionGroup: 'srs',
-        command: 'testing-plan-requirements',
-        workerClass: 'test-engineer',
-        artifactKind: 'SRS',
-      },
-      {
-        id: 'srsReview',
-        kind: 'review',
-        title: 'Trace Review',
-        phase: 'requirements',
-        dependsOn: ['srs'],
-        revisionGroup: 'srs',
-        reviews: 'srs',
-      },
-      {
-        id: 'construction',
-        kind: 'dispatch',
-        title: 'Plan Authoring',
-        phase: 'construction',
-        dependsOn: ['srsReview'],
-        revisionGroup: 'construction',
-        command: 'testing-plan-construction',
-        workerClass: 'test-engineer',
-        artifactKind: 'Construction',
-      },
-      {
-        id: 'codeReview',
-        kind: 'review',
-        title: 'Scenario Review',
-        phase: 'construction',
-        dependsOn: ['construction'],
-        revisionGroup: 'construction',
-        reviews: 'construction',
-      },
-      {
-        id: 'integration',
-        kind: 'dispatch',
-        title: 'Plan Assembly',
-        phase: 'integration',
-        dependsOn: ['codeReview'],
-        revisionGroup: 'integration',
-        command: 'testing-plan-integration',
-        workerClass: 'qa-engineer',
-        artifactKind: 'Integration',
-      },
-      {
-        id: 'testing',
-        kind: 'review',
-        title: 'Plan Review',
-        phase: 'integration',
-        dependsOn: ['integration'],
         revisionGroup: 'integration',
         reviews: 'integration',
       },
@@ -797,94 +706,6 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
         id: 'testing',
         kind: 'review',
         title: 'Rig Review',
-        phase: 'integration',
-        dependsOn: ['integration'],
-        revisionGroup: 'integration',
-        reviews: 'integration',
-      },
-    ],
-  },
-  {
-    type: 'testing:systemTest',
-    phases: [
-      {
-        id: 'requirements',
-        label: 'Smoke Pass',
-        weight: 10,
-        gate: 'srsReview',
-        exitCriterion: 'A smoke pass runs over the integrated build and shows it is testable',
-      },
-      {
-        id: 'construction',
-        label: 'Use-Case Execution',
-        weight: 45,
-        gate: 'codeReview',
-        exitCriterion: 'Every use case has run against the real build and its results are reviewed',
-      },
-      {
-        id: 'integration',
-        label: 'Regression & Sign-off',
-        weight: 45,
-        gate: 'testing',
-        exitCriterion: 'The regression run is green and the system test is signed off',
-      },
-    ],
-    tasks: [
-      {
-        id: 'srs',
-        kind: 'dispatch',
-        title: 'Smoke Pass',
-        phase: 'requirements',
-        dependsOn: [],
-        revisionGroup: 'srs',
-        command: 'testing-systemtest-requirements',
-        workerClass: 'software-tester',
-        artifactKind: 'SRS',
-      },
-      {
-        id: 'srsReview',
-        kind: 'review',
-        title: 'Testability Check',
-        phase: 'requirements',
-        dependsOn: ['srs'],
-        revisionGroup: 'srs',
-        reviews: 'srs',
-      },
-      {
-        id: 'construction',
-        kind: 'dispatch',
-        title: 'Use-Case Execution',
-        phase: 'construction',
-        dependsOn: ['srsReview'],
-        revisionGroup: 'construction',
-        command: 'testing-systemtest-construction',
-        workerClass: 'software-tester',
-        artifactKind: 'Construction',
-      },
-      {
-        id: 'codeReview',
-        kind: 'review',
-        title: 'Results Review',
-        phase: 'construction',
-        dependsOn: ['construction'],
-        revisionGroup: 'construction',
-        reviews: 'construction',
-      },
-      {
-        id: 'integration',
-        kind: 'dispatch',
-        title: 'Regression',
-        phase: 'integration',
-        dependsOn: ['codeReview'],
-        revisionGroup: 'integration',
-        command: 'testing-systemtest-integration',
-        workerClass: 'software-tester',
-        artifactKind: 'Integration',
-      },
-      {
-        id: 'testing',
-        kind: 'review',
-        title: 'Sign-off',
         phase: 'integration',
         dependsOn: ['integration'],
         revisionGroup: 'integration',

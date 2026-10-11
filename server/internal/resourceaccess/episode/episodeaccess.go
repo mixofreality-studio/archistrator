@@ -39,6 +39,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -83,7 +84,7 @@ var _ EpisodeAccess = (*localFSEpisodeAccess)(nil)
 // binding, so composegen's generated main only ever calls this constructor as
 // `episodeAccess = episode.NewLocalFSEpisodeAccess(repoURL)` — a plain
 // single-value assignment, never `v, err :=` (there is no inverse escape
-// hatch; see NewGitLocalConstructionTransitionAccess in
+// hatch; see NewGitLocalGitActivityStatusAccess in
 // projectstateaccess.go, the composegen precedent this mirrors).
 //
 // TRUE fidelity to that precedent means more than matching its arity: like
@@ -148,8 +149,16 @@ type storedEpisode struct {
 	Record    EpisodeRecord `json:"Record"`
 }
 
-func ledgerPath(tracesDir string) string {
-	return filepath.Join(tracesDir, "episodes.jsonl")
+// ledgerFile is the ledger's name inside the traces directory. Every file this store
+// touches is opened through an os.Root on that directory, so no name can resolve
+// outside it.
+const ledgerFile = "episodes.jsonl"
+
+// openTracesRoot opens the traces directory as the root every ledger and trace file is
+// read and written through. A directory that does not exist yet reports
+// os.ErrNotExist.
+func openTracesRoot(tracesDir string) (*os.Root, error) {
+	return os.OpenRoot(tracesDir)
 }
 
 // AppendEpisode appends one EpisodeRecord to the ledger, fsync'd. A
@@ -178,8 +187,13 @@ func (a *localFSEpisodeAccess) AppendEpisode(_ fwra.Context, projectID ProjectID
 	if err := ensureTracesDirLocked(dir); err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, op+": ensure traces dir")
 	}
+	root, err := openTracesRoot(dir)
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, op+": open traces dir")
+	}
+	defer func() { _ = root.Close() }()
 
-	entries, err := readLedgerLocked(dir)
+	entries, err := readLedgerLocked(root)
 	if err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, op+": dedupe scan")
 	}
@@ -194,7 +208,7 @@ func (a *localFSEpisodeAccess) AppendEpisode(_ fwra.Context, projectID ProjectID
 	// skipping the line on read), a plain O_APPEND write would glue this
 	// new record onto the torn tail and corrupt IT too. Lead with a
 	// newline in that case so the new record always starts its own line.
-	needsLeadingNL, err := ledgerTailNeedsNewline(ledgerPath(dir))
+	needsLeadingNL, err := ledgerTailNeedsNewline(root)
 	if err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, op+": check ledger tail")
 	}
@@ -206,9 +220,12 @@ func (a *localFSEpisodeAccess) AppendEpisode(_ fwra.Context, projectID ProjectID
 	if needsLeadingNL {
 		line = append([]byte("\n"), line...)
 	}
-	line = append(line, '\n')
+	return appendLedgerLine(root, op, append(line, '\n'))
+}
 
-	f, err := os.OpenFile(ledgerPath(dir), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+// appendLedgerLine appends one complete ledger line and fsyncs it.
+func appendLedgerLine(root *os.Root, op string, line []byte) error {
+	f, err := root.OpenFile(ledgerFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, op+": open ledger")
 	}
@@ -247,7 +264,15 @@ func (a *localFSEpisodeAccess) ListEpisodes(_ fwra.Context, query EpisodeQuery) 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	entries, err := readLedgerLocked(dir)
+	root, err := openTracesRoot(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil // nothing appended yet: no traces directory, no episodes
+	}
+	if err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, op+": open traces dir")
+	}
+	defer func() { _ = root.Close() }()
+	entries, err := readLedgerLocked(root)
 	if err != nil {
 		return nil, fwra.Wrap(fwra.Infrastructure, err, op+": read ledger")
 	}
@@ -322,10 +347,17 @@ func (a *localFSEpisodeAccess) ReadTraceEvents(_ fwra.Context, projectID Project
 		return nil, err
 	}
 
-	// episodeID is validated against episodeIDPattern above (no "/" or ".."), so
-	// path stays confined to dir — the traversal guard gosec is asking for.
-	path := filepath.Join(dir, episodeID+".jsonl")
-	data, err := os.ReadFile(path) // #nosec G304 -- episodeID traversal-guarded above
+	// The trace is read through an os.Root on the traces directory, so the name
+	// (episodeID is also pattern-checked above) cannot resolve outside it.
+	root, err := openTracesRoot(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fwra.Wrap(fwra.NotFound, err, op+": no trace file for episode "+episodeID)
+	}
+	if err != nil {
+		return nil, fwra.Wrap(fwra.Infrastructure, err, op+": open traces dir")
+	}
+	defer func() { _ = root.Close() }()
+	data, err := root.ReadFile(episodeID + ".jsonl")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fwra.Wrap(fwra.NotFound, err, op+": no trace file for episode "+episodeID)
@@ -352,8 +384,12 @@ func ensureTracesDirLocked(tracesDir string) error {
 	if err := os.MkdirAll(tracesDir, 0o750); err != nil {
 		return err
 	}
-	gi := filepath.Join(tracesDir, ".gitignore")
-	f, err := os.OpenFile(gi, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- fixed literal filename under tracesDir
+	root, err := openTracesRoot(tracesDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	f, err := root.OpenFile(".gitignore", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		if os.IsExist(err) {
 			return nil
@@ -377,9 +413,9 @@ func ensureTracesDirLocked(tracesDir string) error {
 // skip is logged (non-fatal) with its 1-based line number so corruption is
 // still observable without taking ListEpisodes or AppendEpisode's dedupe
 // scan down. Caller must hold a.mu.
-func readLedgerLocked(tracesDir string) ([]storedEpisode, error) {
-	path := ledgerPath(tracesDir)
-	data, err := os.ReadFile(path) // #nosec G304 -- fixed literal filename under tracesDir
+func readLedgerLocked(root *os.Root) ([]storedEpisode, error) {
+	path := filepath.Join(root.Name(), ledgerFile)
+	data, err := root.ReadFile(ledgerFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -408,12 +444,12 @@ func readLedgerLocked(tracesDir string) ([]storedEpisode, error) {
 	return out, nil
 }
 
-// ledgerTailNeedsNewline reports whether path exists, is non-empty, and does
+// ledgerTailNeedsNewline reports whether the ledger exists, is non-empty, and does
 // NOT already end with a newline — i.e. its last line is torn (a crash
 // mid-append, the same artifact readLedgerLocked tolerates on read). A
 // missing ledger needs no leading newline (O_CREATE starts it fresh).
-func ledgerTailNeedsNewline(path string) (bool, error) {
-	f, err := os.Open(path) // #nosec G304 -- fixed ledger path, not user input
+func ledgerTailNeedsNewline(root *os.Root) (bool, error) {
+	f, err := root.Open(ledgerFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil

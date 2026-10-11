@@ -1,7 +1,7 @@
 /**
  * Maps the artifact header's StageChip display stage from the committed flag +
  * the live co-author session stage. Extracted from SystemDesignView's inline
- * ternary so the chip-honesty rule is unit-testable (headerChipStage.test.ts):
+ * ternary so the chip-honesty rule is stated once:
  * while a generation is in flight (stage drafting/redrafting — e.g. right after
  * a founder "Send back") the chip must read DRAFTING…/REDRAFTING…, never the
  * dishonest "NOT DRAFTED". Precedence is unchanged from the original mapping:

@@ -169,9 +169,9 @@ export function ArchitectureView({
   );
   // The lens' live health tint, delivered by the same orchestrators through
   // DeploymentHealthContext (this file may not reach src/hooks). Undefined
-  // whenever the overlay is dormant — the local profile has no operations
-  // capability at all (D9) — and DeploymentFlow then renders exactly as it does
-  // with no overlay: an unobserved node is neutral, never red.
+  // whenever the overlay is dormant (no operated-app id yet), and DeploymentFlow
+  // then renders exactly as it does with no overlay: an unobserved node is
+  // neutral, never red.
   const deploymentHealth = useDeploymentHealthOverlay();
 
   // Map each established contract to its C4 component id, so a focused component

@@ -13,7 +13,6 @@ import (
 type FakeUsageAccess struct {
 	ReadRangeFn          func(rc fwra.Context, query usage.UsageRangeQuery) ([]usage.UsageEvent, error)
 	RecordComputeUsageFn func(rc fwra.Context, events []usage.UsageEvent) ([]usage.EntryRef, error)
-	RecordFinalUsageFn   func(rc fwra.Context, events []usage.UsageEvent) ([]usage.EntryRef, error)
 }
 
 func (f *FakeUsageAccess) ReadRange(rc fwra.Context, query usage.UsageRangeQuery) ([]usage.UsageEvent, error) {
@@ -28,13 +27,6 @@ func (f *FakeUsageAccess) RecordComputeUsage(rc fwra.Context, events []usage.Usa
 		panic("FakeUsageAccess.RecordComputeUsageFn not set")
 	}
 	return f.RecordComputeUsageFn(rc, events)
-}
-
-func (f *FakeUsageAccess) RecordFinalUsage(rc fwra.Context, events []usage.UsageEvent) ([]usage.EntryRef, error) {
-	if f.RecordFinalUsageFn == nil {
-		panic("FakeUsageAccess.RecordFinalUsageFn not set")
-	}
-	return f.RecordFinalUsageFn(rc, events)
 }
 
 var _ usage.UsageAccess = (*FakeUsageAccess)(nil)

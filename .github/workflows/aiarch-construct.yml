@@ -72,6 +72,14 @@ on:
         description: "operator steer for this attempt, delivered to the agent through the aiarch-state MCP server, never the prompt (readers of this repo can see it in the run's inputs)"
         required: false
         type: string
+      # The attempt this job runs under ("<activity>:<task>:<n>"), minted by the
+      # dispatching Manager. The integration step's record-test-run stamps it on the
+      # TestRun as its revision, and the testing gate matches it against the attempt
+      # its round judges (DCT plan 5 r2). Validated as an id by the first step.
+      revision:
+        description: "the attempt this job runs under; recorded as the TestRun's revision"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -107,6 +115,7 @@ jobs:
           ACTIVITY_ID: ${{ inputs.activity_id }}
           COMPONENT_ID: ${{ inputs.component_id }}
           COMMAND: ${{ inputs.command }}
+          REVISION: ${{ inputs.revision }}
         run: |
           # valid VALUE ERE: a whole-line match of at most 128 characters, and a value
           # holding a newline is never an id (grep matches per line). The length bound
@@ -140,6 +149,10 @@ jobs:
           fi
           if ! valid "${COMMAND}" "${command_re}"; then
             echo "::error::command is not a valid command slug"
+            ok=0
+          fi
+          if [ -n "${REVISION}" ] && ! valid "${REVISION}" "${id_re}"; then
+            echo "::error::revision is not a valid attempt id"
             ok=0
           fi
           if [ "${ok}" != 1 ]; then
@@ -257,6 +270,34 @@ jobs:
         run: |
           echo "disallowed=$("${MCP_BIN}" step-tools --command "${AIARCH_COMMAND}" --disallowed)" >> "$GITHUB_OUTPUT"
 
+      # -----------------------------------------------------------------------
+      # DETERMINISTIC COMPONENT TESTING — the integration step (spec §12 B12). The
+      # test plan is bound in parallel with construction; the INTEGRATION task is
+      # where the branches meet: its agent generates the black-box scenario tests
+      # from the reviewed plan (make gen-tests), fills their hooks, runs them
+      # against the integrated component and records the run with the state
+      # binary's `record-test-run` BEFORE publishDraft, so the run rides the same
+      # publish as the rest of the integration onto activity/<id> (a record written
+      # after the agent published would stay in this runner). This step hands the
+      # agent what only the venue knows: the binary on PATH, the attempt the run is
+      # recorded at (AIARCH_REVISION), the run id, and the artifact name the upload
+      # step below uses — one name, so the recorded run and the uploaded tree agree.
+      # activity_id and revision were validated by the first step (no newline can
+      # reach $GITHUB_ENV).
+      # -----------------------------------------------------------------------
+      - name: Expose the test-run recorder to the integration step
+        if: ${{ inputs.phase == 'integration' }}
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+          AIARCH_ACTIVITY_ID: ${{ inputs.activity_id }}
+          AIARCH_RUN_ID: ${{ github.run_id }}
+          AIARCH_REVISION: ${{ inputs.revision }}
+        run: |
+          dirname "${MCP_BIN}" >> "$GITHUB_PATH"
+          printf 'AIARCH_REVISION=%s\n' "${AIARCH_REVISION}" >> "$GITHUB_ENV"
+          printf 'AIARCH_TEST_RUN_ID=%s\n' "${AIARCH_RUN_ID}" >> "$GITHUB_ENV"
+          printf 'AIARCH_TEST_ARTIFACT=test-results-%s-%s\n' "${AIARCH_ACTIVITY_ID}" "${AIARCH_RUN_ID}" >> "$GITHUB_ENV"
+
       - name: Run construction step (claude-code-action)
         uses: anthropics/claude-code-action@v1
         with:
@@ -284,3 +325,54 @@ jobs:
           # which the first step validated. The operator note never rides here.
           prompt: |
             /${{ inputs.command }} ${{ inputs.component_id }} ${{ inputs.activity_id }}
+
+      # The venue's own check after the integration agent: the committed generated
+      # scenario tests still match the committed test plan (the agent may fill
+      # hooks, never edit a generated file). Paths are module-root-relative: the
+      # seated app module lives at the repo root (go.mod), so there is no server/
+      # prefix and -uitests is spelled (testgen's default ../uitests/generated
+      # assumes a server/ subdirectory).
+      - name: Check the generated scenario tests
+        if: ${{ inputs.phase == 'integration' }}
+        env:
+          GOWORK: off
+        run: |
+          go run github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen@v0.12.1 -project .aiarch/state/project.json -root . -uitests uitests/generated -check
+
+      # The results tree the integration agent's run wrote and recorded: the go
+      # test -json stream plus test-results/<component>/ (results.json and, for a
+      # UI client, the videos and traces its frontend-integration step mirrored
+      # out of uitests/test-results/<component>). Named
+      # test-results-<activityId>-<runId> = $AIARCH_TEST_ARTIFACT, the name the
+      # recorded run carries, so the delivery rail's artifact fetch finds it. It
+      # uploads whenever a run left results — also after a failed agent step, the
+      # evidence either way — and is skipped when the agent ran no tests (its
+      # test plan had not landed yet, so it recorded no run).
+      #
+      # ARCHIVE LAYOUT (pinned by TestConstructTemplateHasScenarioSteps):
+      # upload-artifact@v4 roots the zip at the least common ancestor of its
+      # SEARCH PATHS, so this single path yields entries `go-test.jsonl` and
+      # `<component>/results.json` — the same layout the local venue writes
+      # (spec §6.3: .aiarch/test-results/<run>/<component>/results.json) and the
+      # cloud TestRun reader opens (`<component>/results.json`, `go-test.jsonl`).
+      # Adding uitests/test-results/** as a second path would re-root the zip at
+      # the checkout (test-results/go-test.jsonl, uitests/test-results/<c>/...)
+      # for Go-only components too, and split the cloud and local layouts.
+      - name: Upload test results
+        if: ${{ always() && inputs.phase == 'integration' && hashFiles('test-results/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.activity_id }}-${{ github.run_id }}
+          path: test-results/**
+          retention-days: 90
+          if-no-files-found: error
+
+      # The recorded run is evidence either way, so it is published and uploaded
+      # red or green; a red one still fails the job. Every scenario in the run's
+      # index must be `pass` (a skip is not a pass, spec §3.1).
+      - name: Fail on a red scenario run
+        if: ${{ inputs.phase == 'integration' && hashFiles('test-results/**') != '' }}
+        env:
+          AIARCH_COMPONENT_ID: ${{ inputs.component_id }}
+        run: |
+          jq -e 'length > 0 and all(.[]; .status == "pass")' "test-results/${AIARCH_COMPONENT_ID}/results.json" > /dev/null

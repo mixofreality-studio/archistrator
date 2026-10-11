@@ -12,9 +12,13 @@
  *                    `sdpReview`, the Project Design M0 body below.
  *   serviceContract  ServiceContractView over the contract JOIN, which is what
  *                    keeps ContractCodeFlow and ContractSignatureList reachable.
- *   classified       artifactRenderers[classification] — TestPlanView →
- *                    ScenarioBrowser, SystemTestRunView, FrontendArtifactView —
- *                    called with EXACTLY `ArtifactRendererProps`.
+ *   classified       artifactRenderers[classification] — the phase-aware
+ *                    service/frontend renderer (ScenarioPlanView →
+ *                    ScenarioBrowser on `test_plan`, TestRunPanel on
+ *                    `integration`, FrontendArtifactView on `construction`),
+ *                    uiDesign's FrontendArtifactView — called with EXACTLY
+ *                    `ArtifactRendererProps`, the phase and the testing data
+ *                    the container fetched included.
  *   unavailable      an honest panel carrying the dispatcher's reason verbatim.
  *
  * ── A renderer with no row draws a LIE ──────────────────────────────────────
@@ -29,10 +33,12 @@
  * (16), `ActivityListView` (9), `NetworkView` (10 × 9). Nothing new is drawn:
  * the prototype's `PlanArtifact.tsx` was a mock of components that already
  * exist. `SdpReviewView` runs in `decision: 'chooser'` mode, so the option
- * radiogroup is live but its own Commit / Reject all verbs are NOT rendered:
- * every verb on this screen converges through the one SubmitBar, and the M0 gate
- * has no send-back at all. `onCommit` / `onRejectAll` are therefore no-ops that
- * cannot be reached.
+ * radiogroup is live and its own Commit is NOT rendered: approve converges through
+ * the one SubmitBar, so `onCommit` is a no-op that cannot be reached. Reject all
+ * IS rendered while the gate is live (spec §12 B7: the use cases decline the plan
+ * with a reason — commit-to-a-project-option [reject-all + feedback],
+ * replan-under-scope-change [reject]); it is not a send-back, which M0 still has
+ * none of, because it returns no artifact for a redraft.
  *
  * Pure and props-only: `useTokens` is `utilities/`, not `hooks/`.
  */
@@ -49,7 +55,11 @@ import {
 } from './activityCopy.ts';
 import type { TaskArtifact } from './taskArtifactFor.ts';
 import { ArtifactRenderer } from '../ArtifactRenderer';
-import { artifactRenderers, type ArtifactActivityVM } from '../construction/artifactRenderers';
+import {
+  artifactRenderers,
+  type ArtifactActivityVM,
+  type TestingArtifactData,
+} from '../construction/artifactRenderers';
 import { ServiceContractView } from '../construction/ServiceContractView';
 import { ActivityListView } from '../project/ActivityListView';
 import { NetworkView } from '../project/NetworkView';
@@ -65,9 +75,20 @@ import type {
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
-/** Unreachable in `decision: 'chooser'` mode — see the file header. */
+/** `onCommit` is unreachable in `decision: 'chooser'` mode — see the file header. */
 function unreachable(): void {
   /* intentionally empty: the SDP view renders no verb of its own here */
+}
+
+/**
+ * What the M0 body hands up and down. `onChoose` reports the option the bar will
+ * approve; `onRejectAll` is present only while a decision is owed on the gate.
+ */
+export interface SdpDecisionProps {
+  onChoose: (optionId: string) => void;
+  onRejectAll?: ((feedback: string) => void) | undefined;
+  /** A reject-all is in flight. */
+  rejectPending?: boolean | undefined;
 }
 
 function slotEnvelope(
@@ -102,11 +123,11 @@ function UnavailablePanel({ reason }: { reason: string }): ReactNode {
 /** The Project Design M0 body: the SDP review, the plan it derives from, its network. */
 function ProjectDesignBody({
   slots,
-  onChoose,
+  sdp,
   readOnly,
 }: {
   slots: readonly ArtifactSlotView[];
-  onChoose: ((optionId: string) => void) | undefined;
+  sdp: SdpDecisionProps | undefined;
   /** A read-only history: the option radiogroup reports and changes nothing. */
   readOnly: boolean;
 }): ReactNode {
@@ -114,17 +135,18 @@ function ProjectDesignBody({
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
       {/* `decision: 'chooser'` is kept in BOTH modes on purpose: it is what
-          suppresses the view's own Commit / Reject all buttons, so a read-only
-          history renders no decision control at all rather than two disabled
-          ones. `readOnly` is what makes the option rows inert. */}
+          suppresses the view's own Commit, so a read-only history renders no
+          decision control at all rather than a disabled one. `readOnly` makes the
+          option rows inert, and Reject all renders only where the host hands
+          `onRejectAll` — a LIVE gate, never a history. */}
       <SdpReviewView
         decision="chooser"
         envelope={projectEnvelope(slots, 'sdpReview')}
-        pending={false}
+        pending={sdp?.rejectPending ?? false}
         readOnly={readOnly}
-        onChoose={onChoose}
+        onChoose={sdp?.onChoose}
         onCommit={unreachable}
-        onRejectAll={unreachable}
+        onRejectAll={readOnly ? undefined : sdp?.onRejectAll}
       />
       <ActivityListView envelope={activityEnvelope} />
       <NetworkView
@@ -162,6 +184,7 @@ export function ArtifactPanel({
   project,
   systemEnvelope,
   contractJoin,
+  testing,
   sdp,
   readOnly = false,
 }: {
@@ -174,8 +197,10 @@ export function ArtifactPanel({
   systemEnvelope: ArtifactModelEnvelope | undefined;
   /** For the `serviceContract` branch: the join the container already computes. */
   contractJoin: ContractJoin | undefined;
-  /** Project Design M0 only: how the option the bar will approve is reported up. */
-  sdp?: { onChoose: (optionId: string) => void } | undefined;
+  /** For the `classified` branch on a testing phase: the scenario plan / test run reads. */
+  testing?: TestingArtifactData | undefined;
+  /** Project Design M0 only: the option the bar will approve, and the gate's reject-all. */
+  sdp?: SdpDecisionProps | undefined;
   /**
    * The reader is on a NON-LATEST revision (R1). Only the M0 body has an
    * interactive control of its own; every other renderer here is already a
@@ -192,7 +217,7 @@ export function ArtifactPanel({
         // the M0 body; every other slot it names is a Phase-1 artifact, which
         // is what `ArtifactRenderer` dispatches.
         return artifact.artifactKind === 'sdpReview' ? (
-          <ProjectDesignBody readOnly={readOnly} slots={slots} onChoose={sdp?.onChoose} />
+          <ProjectDesignBody readOnly={readOnly} sdp={sdp} slots={slots} />
         ) : (
           <ArtifactRenderer
             envelope={slotEnvelope(slots, artifact.artifactKind)}
@@ -217,7 +242,17 @@ export function ArtifactPanel({
         if (vm === undefined) return <UnavailablePanel reason={NO_CONSTRUCTION_RECORD} />;
         const Renderer = artifactRenderers[artifact.classification];
         if (Renderer === undefined) return <UnavailablePanel reason={NO_CONSTRUCTION_RECORD} />;
-        return <Renderer project={project} systemEnvelope={systemEnvelope} t={t} vm={vm} />;
+        return (
+          <Renderer
+            phase={artifact.phase}
+            project={project}
+            systemEnvelope={systemEnvelope}
+            t={t}
+            testing={testing}
+            useCasesEnvelope={slotEnvelope(slots, 'coreUseCases')}
+            vm={vm}
+          />
+        );
       }
 
       case 'unavailable':

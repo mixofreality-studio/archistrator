@@ -161,12 +161,16 @@ import (
 //	  non-generated code under server/internal. (An earlier recon said 13; the
 //	  thirteenth is prose, at deliveryactivity.go:3729.)
 //	wantBusProducerSites   — MessageBusDeliverSignal call sites.
-//	wantBusChannelSites    — of the 12, those whose NAME a producer uses.
+//	wantBusChannelSites    — of the 10, those whose NAME a producer uses.
+//
+// dct4 (Plan 4 Task 4) took the count from 12 to 10: billing's CloseCycleWorkflow lost
+// its inboundRevenueReceived drain and its chargebackReceived await with the two
+// webhook-fed revenue ops (neither had a producer of any kind).
 //
 // A change to any of these is a change to this gate's coverage and must be made
 // deliberately, here, in the same commit as the code that moved it.
 const (
-	wantSignalChannelSites = 12
+	wantSignalChannelSites = 10
 	wantBusProducerSites   = 5
 	wantBusChannelSites    = 6
 )

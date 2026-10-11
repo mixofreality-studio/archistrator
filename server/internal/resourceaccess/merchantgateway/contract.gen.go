@@ -4,7 +4,9 @@
 package merchantgateway
 
 import (
+	"context"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
@@ -13,27 +15,20 @@ type Money struct {
 	Currency   string `json:"Currency"`
 }
 
+type StoredInstrument struct {
+	Validated bool `json:"Validated"`
+}
+
 // MerchantGatewayAccess is the generated service-contract interface for this component.
 type MerchantGatewayAccess interface {
 	ChargeCustomer(rc fwra.Context, customerID uuid.UUID, amount Money, idempotencyKey string) error
 	ValidateStoredInstrument(rc fwra.Context, customerID uuid.UUID, idempotencyKey string) error
+	ReadStoredInstrument(rc fwra.Context, customerID uuid.UUID) (StoredInstrument, error)
 }
 
-// stubMerchantGatewayAccess is the generated not-implemented MerchantGatewayAccess. The component is contracted
-// but not yet built, so every method returns a not-implemented error; the bodies
-// are replaced when the component is constructed.
-type stubMerchantGatewayAccess struct{}
-
-// NewMerchantGatewayAccess returns the not-implemented MerchantGatewayAccess. It takes no arguments
-// (the component has no infrastructure binding yet).
-func NewMerchantGatewayAccess() MerchantGatewayAccess { return &stubMerchantGatewayAccess{} }
-
-var _ MerchantGatewayAccess = (*stubMerchantGatewayAccess)(nil)
-
-func (*stubMerchantGatewayAccess) ChargeCustomer(_ fwra.Context, _ uuid.UUID, _ Money, _ string) error {
-	return fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubMerchantGatewayAccess) ValidateStoredInstrument(_ fwra.Context, _ uuid.UUID, _ string) error {
-	return fwra.New(fwra.Unknown, "not implemented")
+// NewPostgresMerchantGatewayAccess constructs the Postgres-backed MerchantGatewayAccess, delegating to the hand-written,
+// unexported builder newPostgresMerchantGatewayAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewPostgresMerchantGatewayAccess(ctx context.Context, pool *pgxpool.Pool) (MerchantGatewayAccess, error) {
+	return newPostgresMerchantGatewayAccess(ctx, pool)
 }

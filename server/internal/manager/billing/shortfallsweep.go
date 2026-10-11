@@ -1,16 +1,18 @@
 package billing
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
@@ -23,34 +25,35 @@ type shortfallSweepInput struct {
 	ProjectID string // optional scope narrow; empty ⇒ platform-wide
 }
 
-// ShortfallSweepWorkflow drives ncuc5 (billingManager.md §6.3):
-//  1. ReadDelinquentActivity → the persistently-delinquent customer set.
-//  2. for each, DeliverDelinquencySignalActivity → the queued applyDelinquencyPolicy
-//     Signal to operationsManager (the single sanctioned queued M→M edge).
+// ShortfallSweepWorkflow drives ncuc5 (billingManager.md §6.3; use case
+// retry-a-declined-service-invoice):
+//  1. ReadDeclinedCycles → every settled cycle whose charge stands declined and is not
+//     escalated, each with its retry history (attempts made, sweeps aged).
+//  2. for each, retryDeclined: the interventionEngine decides under settlementPolicy —
+//     one re-charge under the next attempt's key (B18: it lands once the customer has
+//     replaced the payment instrument), leave it for the next sweep, or escalate it —
+//     and ResettleCycle records the result.
+//  3. ReadDelinquentActivity → the persistently-delinquent customer set; for each,
+//     DeliverDelinquencySignalActivity → the queued applyDelinquencyPolicy Signal to
+//     operationsManager (the single sanctioned queued M→M edge).
 //
 // Does NOT pause/withdraw apps itself — that is operationsManager's scope downstream.
-//
-// TOLERANT TICK (fix round 1, Task 7c live-firing review): billingStateAccess is
-// an arm-less REQUIRED binding today (no deployment perProfile arm in ANY
-// profile) — the generated stub's every op returns fwra.New(fwra.Unknown, "not
-// implemented"), which (Unknown.DefaultRetryable() == false) fails the
-// Activity immediately, non-retryably, on the FIRST attempt of EVERY hourly
-// firing. Rather than let that surface as a failed workflow execution (an
-// ever-growing pile of failed hourly ticks with no operator action possible),
-// an fwra.Unknown from readDelinquent is treated as a quiet no-op tick: WARN
-// (naming the unimplemented RA) and complete cleanly with an empty result —
-// the SAME "nothing to do this tick" shape a genuinely-empty delinquent set
-// already produces. The sweep becomes real the moment billingStateAccess gains
-// a real binding; no code here needs to change when that lands.
 func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSweepInput) (ShortfallSweepResult, error) {
 	logger := workflow.GetLogger(ctx)
+	scope := billingstate.DelinquencyScope(in)
 
-	customers, err := wf.readDelinquent(ctx, billingstate.DelinquencyScope(in))
+	declined, err := wf.Acts.BillingStateReadDeclinedCycles(ctx, scope)
 	if err != nil {
-		if isRAUnimplemented(err) {
-			logger.Warn("shortfall sweep: billingStateAccess is not implemented yet (arm-less required binding, no deployment arm) — quiet no-op tick; the sweep becomes real once the RA does")
-			return ShortfallSweepResult{}, nil
+		return ShortfallSweepResult{}, err
+	}
+	for _, c := range declined {
+		if rerr := wf.retryDeclined(ctx, c); rerr != nil {
+			return ShortfallSweepResult{}, rerr
 		}
+	}
+
+	customers, err := wf.readDelinquent(ctx, scope)
+	if err != nil {
 		return ShortfallSweepResult{}, err
 	}
 
@@ -62,8 +65,63 @@ func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSw
 		result.SignalledCustomers = append(result.SignalledCustomers, c.ID)
 	}
 
-	logger.Info("shortfall sweep complete", "signalled", len(result.SignalledCustomers))
+	logger.Info("shortfall sweep complete", "declined", len(declined), "signalled", len(result.SignalledCustomers))
 	return result, nil
+}
+
+// retryDeclined runs one declined cycle through the retry use case and records the result
+// on the cycle. consult-policy: the interventionEngine (direct, in-workflow) decides on the
+// cycle's recorded history under settlementPolicy. Retry → ONE re-charge under the next
+// attempt's key settle:{customerId}:{cycleId}:{attempt} (B6, B18): it lands only when the
+// customer has replaced the payment instrument since the decline, and a decline again is
+// left for the next sweep (delay-sweep). Delay leaves the shortfall for the next sweep;
+// Escalate marks it persistently delinquent. A cycle the sweep leaves declined or escalates
+// has aged one more sweep; one whose charge lands is paid.
+func (wf *workflows) retryDeclined(ctx workflow.Context, c billingstate.DeclinedCycle) error {
+	directive, derr := wf.Intervention.DecideOnSettlementFailure(fweng.Context{Context: context.Background()},
+		intervention.SettlementFailure{
+			CustomerID:   intervention.CustomerID(c.CustomerID.String()),
+			CycleID:      intervention.CycleID(c.Cycle),
+			Kind:         intervention.ChargeDeclined,
+			AttemptCount: c.Outcome.Attempts,
+			ShortfallAge: c.Outcome.SweepsAged,
+			Policy:       settlementPolicy(),
+		})
+	if derr != nil {
+		return fwmgr.MapError(derr)
+	}
+	correction := c.Outcome
+	switch directive {
+	case intervention.SettlementRetry:
+		amount := merchantgateway.Money{MinorUnits: -c.Outcome.Net.MinorUnits, Currency: c.Outcome.Net.Currency}
+		rec, err := wf.chargeAttempt(ctx, c.CustomerID, c.Cycle, amount, chargeRecord{attempts: c.Outcome.Attempts, declined: true})
+		if err != nil {
+			return err
+		}
+		correction.Attempts = rec.attempts
+		correction.Declined = rec.declined
+	case intervention.SettlementDelay:
+		workflow.GetLogger(ctx).Info("declined charge left for the next shortfall sweep",
+			"customerId", c.CustomerID.String(), "cycleId", c.Cycle, "attempts", c.Outcome.Attempts)
+	case intervention.SettlementEscalate:
+		workflow.GetLogger(ctx).Warn("declined charge escalated to persistent delinquency",
+			"customerId", c.CustomerID.String(), "cycleId", c.Cycle, "attempts", c.Outcome.Attempts)
+		correction.Escalated = true
+	default:
+		return temporal.NewNonRetryableApplicationError(
+			"intervention returned an unknown billing-failure directive", "UnknownBillingDirective", nil)
+	}
+	if correction.Declined {
+		correction.SweepsAged++
+	}
+	billing, err := wf.readBilling(ctx, c.CustomerID)
+	if err != nil {
+		return err
+	}
+	_, err = wf.applyRecovering(ctx, c.CustomerID, billing.Version, func(expected billingstate.Version) (billingstate.Version, error) {
+		return wf.Acts.BillingStateResettleCycle(ctx, c.CustomerID, expected, c.Cycle, correction)
+	})
+	return err
 }
 
 // readDelinquent invokes billingStateAccess.readPersistentlyDelinquentCustomers
@@ -71,23 +129,6 @@ func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSw
 // billingstate.DelinquencyScope contract types directly — no Manager-local mirror.
 func (wf *workflows) readDelinquent(ctx workflow.Context, scope billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error) {
 	return wf.Acts.BillingStateReadPersistentlyDelinquentCustomers(ctx, scope)
-}
-
-// raUnknownErrType is the canonical Temporal Type() an RA op surfaces for
-// fwra.Unknown — the kind the arm-less stub constructors (contract.gen.go's
-// stub<Interface>, e.g. stubBillingStateAccess) return for every op.
-var raUnknownErrType = fwmgr.RAErrType(fwra.Unknown)
-
-// isRAUnimplemented reports whether err is the arm-less-binding stub's
-// fwra.Unknown ("not implemented"), surfaced through the Activity boundary as
-// a non-retryable *temporal.ApplicationError (Unknown.DefaultRetryable() ==
-// false, so it fails on the very first attempt, not after retries exhaust).
-func isRAUnimplemented(err error) bool {
-	var appErr *temporal.ApplicationError
-	if errors.As(err, &appErr) {
-		return appErr.Type() == raUnknownErrType
-	}
-	return false
 }
 
 // The two wire values billing may send on applyDelinquencyPolicy. They mirror
@@ -106,6 +147,12 @@ const (
 // a string literal to avoid a Manager→Manager package import (the edge is queued via
 // the messageBus utility, not a direct call).
 const signalApplyDelinquencyPolicy = "applyDelinquencyPolicy"
+
+// executionKindDelinquency is the messageBus ExecutionKind of operations' delinquency
+// enforcement workflow — a string literal for the same reason as the signal name
+// (billing may not import operations); the composition root's kind table pairs it
+// with operations' registered workflow type and task queue.
+const executionKindDelinquency = "operationsDelinquencyEnforcement"
 
 // deliverDelinquencySignal invokes messageBus.deliverSignal — the one
 // sanctioned queued M→M edge (applyDelinquencyPolicy → operationsManager). Fire-and-
@@ -140,9 +187,20 @@ func (wf *workflows) deliverDelinquencySignal(ctx workflow.Context, cid customer
 	if err != nil {
 		return err
 	}
+	// The receiver is born by the message: no operations execution runs for a customer
+	// until its first delinquency, so the signal starts {customerId}:delinquency when
+	// none is running (signal-with-start, the model's queued edge). Its start argument
+	// is the operations workflow's input, {CustomerID}.
+	start, err := json.Marshal(struct {
+		CustomerID customerID `json:"CustomerID"`
+	}{CustomerID: cid})
+	if err != nil {
+		return err
+	}
 	targetWorkflowID := fmt.Sprintf("%s:delinquency", cid)
 	return wf.Acts.MessageBusDeliverSignal(ctx,
 		messagebus.ExecutionID(targetWorkflowID),
 		messagebus.SignalName(signalApplyDelinquencyPolicy),
-		messagebus.ExecutionPayload{Bytes: bytes})
+		messagebus.ExecutionPayload{Bytes: bytes},
+		&messagebus.ExecutionStart{Kind: executionKindDelinquency, Payload: messagebus.ExecutionPayload{Bytes: start}})
 }

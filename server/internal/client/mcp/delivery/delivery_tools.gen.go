@@ -375,6 +375,7 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 	reflect.TypeFor[mgr.ActivityConstructionStatus](): {
 		"BuildStatus":   "The coarse build status. Meaningless when hasBuildEvidence is false (or classified is false): its zero value names InConstruction, which on such a row reports nothing, not work in progress. Read it only when both flags are true.",
 		"Phase":         "The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum's zero, not a reported phase. Read it only when both flags are true.",
+		"Variant":       "The testing variant of a testing activity; absent on every other row (the zero value is no variant, and ordinals 0 and 3 are retired).",
 		"operatorNotes": "Every note an operator recorded against this activity (a send-back's feedback, a steer's reason), append-only and in recorded order. A note is pending until an agent dispatch carries it whole; then it names that dispatch's attempt. Delivery is at-least-once: when a note's delivery stamp cannot be written, the note stays pending and the next attempt carries it again, so an agent may see one note twice but never zero times, and never twice in the same attempt. When the pending notes exceed the 16 KiB one dispatch carries, the oldest wait for a later attempt so the newest arrives whole. A note recorded where no agent runs next (a merge-only retry, a takeover, or a finished activity) stays pending until the activity's next agent dispatch. Omitted when there are none.",
 		"pendingResume": "Present iff no construction pump opened this row (no start stamp) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done.",
 		"recorded":      "True iff a stored .activityExecution head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.",
@@ -449,7 +450,6 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"pauseReason":         "The reason the operator gave when pausing construction. Omitted when construction is not paused.",
 	},
 	reflect.TypeFor[mgr.PumpResult](): {
-		"activityId":  "DEPRECATED, and populated with the FIRST element of activityIds. A parallel pump dispatches a whole frontier in one tick, so one id is a lie about N; read activityIds. Kept because a reader written against the singular field still gets a true answer about one of the activities that started.",
 		"activityIds": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight).",
 	},
 	reflect.TypeFor[mgr.PumpStatus](): {
@@ -481,6 +481,9 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"at":        "RFC3339, stamped by the store when the verdict was appended, verbatim. A string and not a date-time: the ledger holds it as one, and parsing it here would turn an unstamped legacy verdict into the zero instant.",
 		"attemptId": "The gate attempt this verdict was given at.",
 		"summary":   "The reviewer's one-line reason, verbatim.",
+	},
+	reflect.TypeFor[mgr.ScenarioInputView](): {
+		"via": "The alternative callers when an alt group's calls into the component collapse to this one stimulus (Amendment A4); empty when the stimulus has a single caller.",
 	},
 	reflect.TypeFor[mgr.TaskAttempt](): {
 		"detail": "The attempt's own render-ready sentence, verbatim. Absent where the attempt recorded none.",

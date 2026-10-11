@@ -96,14 +96,6 @@ func (s *postgresUsageAccess) RecordComputeUsage(rc fwra.Context, events []Usage
 	return s.appendBatch(rc.Context, "usage.RecordComputeUsage", events)
 }
 
-// RecordFinalUsage appends the final usage batch captured at withdraw
-// (contract §2.2). Same table, same transaction shape, same idempotency as
-// RecordComputeUsage — the "final" distinction is the business moment, not a
-// column this seam exposes (contract §6).
-func (s *postgresUsageAccess) RecordFinalUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error) {
-	return s.appendBatch(rc.Context, "usage.RecordFinalUsage", events)
-}
-
 // insertSQL appends one immutable fact. ON CONFLICT (runtime_event_id)
 // DO NOTHING — NOT DO UPDATE, which the append-only trigger would (rightly)
 // reject. A conflicting row returns no RETURNING row; appendBatch then
@@ -223,16 +215,16 @@ func resolveDuplicatesPass2(ctx context.Context, tx pgx.Tx, op string, events []
 
 // ReadRange replays the immutable usage facts in scope, in append order
 // (contract §2.3): whole period when query.OperatedAppID is nil, one operated
-// app's facts when set. Pure read; an empty period returns an empty
-// (non-nil) slice, never NotFound.
+// app's facts when set. An empty CycleID reads every cycle of the customer: usage
+// the operations rail records is attributed to the cycle of the recorder's own
+// clock, so a reader that did not choose that cycle names the customer (and app)
+// only. Pure read; an empty period returns an empty (non-nil) slice, never
+// NotFound.
 func (s *postgresUsageAccess) ReadRange(rc fwra.Context, query UsageRangeQuery) ([]UsageEvent, error) {
 	ctx := rc.Context
 	const op = "usage.ReadRange"
 	if query.CustomerID == uuid.Nil {
 		return nil, fwra.New(fwra.ContractMisuse, op+": zero CustomerID")
-	}
-	if query.CycleID == "" {
-		return nil, fwra.New(fwra.ContractMisuse, op+": empty CycleID")
 	}
 	if query.OperatedAppID != nil && *query.OperatedAppID == uuid.Nil {
 		return nil, fwra.New(fwra.ContractMisuse, op+": OperatedAppID set but zero (use nil for the whole period)")
@@ -242,10 +234,17 @@ func (s *postgresUsageAccess) ReadRange(rc fwra.Context, query UsageRangeQuery) 
 SELECT entry_id, customer_id, operated_app_id, cycle_id, units_amount, units_unit,
        runtime_event_id, raw_meter, window_start, window_end, occurred_at, recorded_at
 FROM usage_log
-WHERE customer_id = $1 AND cycle_id = $2`
-	args := []any{query.CustomerID, string(query.CycleID)}
-	if query.OperatedAppID != nil {
-		q += ` AND operated_app_id = $3`
+WHERE customer_id = $1`
+	args := []any{query.CustomerID}
+	switch {
+	case query.CycleID != "" && query.OperatedAppID != nil:
+		q += ` AND cycle_id = $2 AND operated_app_id = $3`
+		args = append(args, string(query.CycleID), *query.OperatedAppID)
+	case query.CycleID != "":
+		q += ` AND cycle_id = $2`
+		args = append(args, string(query.CycleID))
+	case query.OperatedAppID != nil:
+		q += ` AND operated_app_id = $2`
 		args = append(args, *query.OperatedAppID)
 	}
 	q += `
@@ -329,44 +328,6 @@ func validateEvent(op string, i int, ev *UsageEvent) error {
 // entryRef renders the ledger's append position as the opaque EntryRef token.
 func entryRef(id int64) EntryRef {
 	return EntryRef(strconv.FormatInt(id, 10))
-}
-
-// noopUsageAccess is the permanent no-op UsageAccess selected on the LOCAL
-// profile (operational-concepts.md's local environment: "usageAccess=no-op" —
-// the init-funnel target has no Postgres, and usage/hosting metering is a
-// cloud-only concern per the canonical billing model — construction and
-// hosting are never metered on the user's own subscription/laptop). It
-// performs NO persistence: every write trivially "succeeds" (a fresh,
-// zero-value EntryRef per event, never persisted or read back) and every read
-// returns an empty range. Do not add any behind this type; a future real
-// local metering store is a new, separate implementation, not this one grown
-// up (mirrors revenueledger.noopRevenueLedgerAccess's documented stance).
-type noopUsageAccess struct{}
-
-// NewNoOpUsageAccess returns the permanent no-op UsageAccess for the local
-// profile. It takes no arguments — there is no infrastructure binding (the
-// local deployment binding declares infra: [] for this variant).
-func NewNoOpUsageAccess() UsageAccess { return noopUsageAccess{} }
-
-var _ UsageAccess = noopUsageAccess{}
-
-// RecordComputeUsage drops the batch (local no-op); returns one zero-value
-// EntryRef per input event so callers folding the returned slice length
-// against the input see no mismatch.
-func (noopUsageAccess) RecordComputeUsage(_ fwra.Context, events []UsageEvent) ([]EntryRef, error) {
-	return make([]EntryRef, len(events)), nil
-}
-
-// RecordFinalUsage drops the batch (local no-op); same shape as
-// RecordComputeUsage — the "final" distinction is a business moment this
-// no-op does not observe.
-func (noopUsageAccess) RecordFinalUsage(_ fwra.Context, events []UsageEvent) ([]EntryRef, error) {
-	return make([]EntryRef, len(events)), nil
-}
-
-// ReadRange returns no facts — nothing is ever persisted to read back.
-func (noopUsageAccess) ReadRange(_ fwra.Context, _ UsageRangeQuery) ([]UsageEvent, error) {
-	return []UsageEvent{}, nil
 }
 
 // CustomerID is the billing counterparty the usage facts are scoped to

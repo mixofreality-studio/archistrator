@@ -23,6 +23,17 @@ type ExecutionPayload struct {
 	ContentType string `json:"ContentType"`
 }
 
+type ExecutionStart struct {
+	Kind    ExecutionKind    `json:"Kind"`
+	Payload ExecutionPayload `json:"Payload"`
+}
+
+type ScheduleDescription struct {
+	Registered       bool          `json:"Registered"`
+	ExecutionKind    ExecutionKind `json:"ExecutionKind"`
+	TargetIDTemplate string        `json:"TargetIDTemplate"`
+}
+
 type ScheduleID string
 
 type ScheduleSpec struct {
@@ -36,8 +47,9 @@ type SignalName string
 
 // MessageBus is the generated service-contract interface for this component.
 type MessageBus interface {
-	DeliverSignal(rc fwra.Context, targetExecutionID ExecutionID, signalName SignalName, payload ExecutionPayload) error
+	DeliverSignal(rc fwra.Context, targetExecutionID ExecutionID, signalName SignalName, payload ExecutionPayload, start *ExecutionStart) error
 	RegisterSchedule(rc fwra.Context, scheduleID ScheduleID, spec ScheduleSpec) error
+	DescribeSchedule(rc fwra.Context, scheduleID ScheduleID) (ScheduleDescription, error)
 }
 
 // NewTemporalMessageBus constructs the Temporal-backed MessageBus, delegating to the hand-written,

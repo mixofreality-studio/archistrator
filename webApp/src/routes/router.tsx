@@ -8,6 +8,7 @@
  *   /project/$projectId/home                      → HomeBase (wraps itself in the AppShell)
  *   /project/$projectId/plan                      → PlanScreen (the ONE plan surface, full-screen)
  *   /project/$projectId/activity/$activityId      → ActivityExperienceScreen (one activity, full-screen)
+ *   /project/$projectId/history                   → StateHistoryScreen (the project's recorded changes)
  *   /project/$projectId/design/system/{-$stepSlug}  → redirect to /plan
  *   /project/$projectId/design/project/{-$stepSlug} → redirect to /plan
  *   /project/$projectId/construction                → redirect to /plan
@@ -16,9 +17,8 @@
  * replace (spec §7.4). Their screens are DELETED; the paths stay REGISTERED and
  * redirect in `beforeLoad`, because an unregistered path is the router's
  * not-found, which is a worse answer to an old bookmark than the screen that
- * replaced it. The redirect itself lives in `activityRedirect.ts` — split out for
- * the same reason operationsGuard.ts is: a `beforeLoad` written inline here
- * cannot be unit-tested — and is covered by activityRedirect.test.ts.
+ * replaced it. The redirect itself lives in `activityRedirect.ts` — split out
+ * so the rule is a function of its own rather than an inline `beforeLoad`.
  *
  * `beforeLoad` throws before any component renders, so the three routes need no
  * component at all. They are registered with `component: undefined`, which
@@ -35,7 +35,7 @@
  * definitions here) so fast-refresh stays happy alongside the router factory.
  */
 import {
-  createRootRouteWithContext,
+  createRootRoute,
   createRoute,
   createRouter,
   Outlet,
@@ -50,7 +50,7 @@ import { BillingScreen } from './Billing';
 import { TeamScreen } from './TeamView';
 import { PlanScreen } from './Plan';
 import { ActivityExperienceScreen } from './ActivityExperience';
-import { operationsBeforeLoad } from './operationsGuard';
+import { StateHistoryScreen } from './StateHistory';
 // One import for both new paths: activityRedirect owns the redirect the old rails
 // take and re-exports the literals it redirects between, so the path a route
 // registers and the path the redirect names cannot drift.
@@ -61,21 +61,10 @@ import {
   planSearchFromLegacy,
   redirectToPlan,
 } from './activityRedirect';
-import { activitySearch } from '../contracts/routePaths';
+import { activitySearch, STATE_HISTORY_PATH } from '../contracts/routePaths';
 import { validateLensSearch } from '../components/construction/lens/useLensSelection';
-import type { Capabilities } from '../utilities/capabilities';
 
-/**
- * What the shell that builds the router hands every route. The operations guard
- * runs in `beforeLoad`, outside React, so it cannot reach the OpsClient context;
- * the shell passes the capabilities read bound to ITS transport instead (main.tsx
- * the REST client, previewShell the fixture client).
- */
-export interface AppRouterContext {
-  readonly fetchCapabilities: () => Promise<Capabilities>;
-}
-
-const rootRoute = createRootRouteWithContext<AppRouterContext>()({ component: Outlet });
+const rootRoute = createRootRoute({ component: Outlet });
 
 const landingRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -147,17 +136,6 @@ const operationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/operations/$operatedAppId',
   component: OperationsConsoleScreen,
-  // D9 (operations-argocd-deployment Task 11): the local profile holds no
-  // deployment credential and must not surface operations at all — not a
-  // disabled console, not a simulated one. Confirmed fresh from the server on
-  // every navigation (GET /api/v1/capabilities, never trusted from a stale
-  // client cache) BEFORE the console mounts: {operations:false} redirects
-  // home (local always answers successfully, so this IS the D9 case); a
-  // genuinely unreachable capabilities check does NOT redirect — it hands
-  // OperationsConsoleScreen an explicit error state via context instead, so a
-  // cloud operator mid-incident sees why, not a silent bounce to the catalog.
-  // See operationsGuard.ts.
-  beforeLoad: ({ context }) => operationsBeforeLoad(context.fetchCapabilities),
 });
 
 const changeRequestsRoute = createRoute({
@@ -178,6 +156,12 @@ const billingRoute = createRoute({
   component: BillingScreen,
 });
 
+const stateHistoryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: STATE_HISTORY_PATH,
+  component: StateHistoryScreen,
+});
+
 const teamRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/project/$projectId/team',
@@ -196,6 +180,7 @@ const routeTree = rootRoute.addChildren([
   changeRequestsRoute,
   subprojectRoute,
   billingRoute,
+  stateHistoryRoute,
   teamRoute,
 ]);
 
@@ -211,8 +196,8 @@ export type AppRouter = ReturnType<
   typeof createRouter<typeof routeTree, 'never', false, RouterHistory>
 >;
 
-export function createAppRouter(history: RouterHistory, context: AppRouterContext): AppRouter {
-  return createRouter({ routeTree, history, context });
+export function createAppRouter(history: RouterHistory): AppRouter {
+  return createRouter({ routeTree, history });
 }
 
 declare module '@tanstack/react-router' {

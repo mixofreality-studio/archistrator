@@ -1,9 +1,8 @@
 /**
  * Which theme token carries each build status, and which carries selection
- * (designer palette ruling, fix I). No runtime imports, so node:test measures the
- * float ramp against these (bandRamp.test.ts: every band stays ≥15 CIEDE2000 from
- * every hued status colour and from the selection accent); status.tsx renders from
- * it.
+ * (designer palette ruling, fix I: every float band stays ≥15 CIEDE2000 from
+ * every hued status colour and from the selection accent). No runtime imports;
+ * status.tsx renders from it.
  *
  * `blocked` is awaitingFg, not the accent: the accent means brand, selection,
  * focus and search match only. `failed` is dangerFg, which means failed/error only.

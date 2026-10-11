@@ -4,7 +4,7 @@
  * enum schema).
  *
  * Derivation rule (per enum, independently):
- *   1. Strip the schema's manager-namespace prefix (Delivery / Operations) to get
+ *   1. Strip the schema's manager-namespace prefix (Billing / Delivery / Operations) to get
  *      the enum's local Go type name (e.g. `DeliveryArtifactKind` ->
  *      `ArtifactKind`). Stage 4a collapsed the three design/construction
  *      namespaces into one, `Delivery`, which is also why DEDUPE_GROUPS is empty:
@@ -31,7 +31,7 @@
  */
 import yaml from 'js-yaml';
 
-const MANAGER_PREFIXES = ['Delivery', 'Operations'];
+const MANAGER_PREFIXES = ['Billing', 'Delivery', 'Operations'];
 
 /** Logical output name for each OAS schema name (post manager-prefix strip),
  * chosen to match the existing hand type name in src/contracts/types.ts where
@@ -94,6 +94,8 @@ const OUTPUT_NAMES = {
   DeliveryEpisodeOutcome: 'EpisodeOutcome',
   // operator notes on a construction row (plan B1.1); new/unwired, no hand table yet.
   DeliveryOperatorNoteKind: 'OperatorNoteKind',
+  // billingManager's one client-exposed op, GetBillingCycle (view-a-billing-cycle).
+  BillingRoutingDirective: 'RoutingDirective',
 };
 
 /** Groups of OAS schema names known (verified by one-off comparison against
@@ -158,10 +160,10 @@ const NON_MECHANICAL = {
     'entirely for 2 of 3 members. Semantic naming diff, not a bug.',
   TestingVariant:
     'Local type name is "TestingVariant" but the Go consts use the short prefix "Test" ' +
-    '(TestVariantPlan, ...) — "Test" is not a whole-word run of "TestingVariant", so no ' +
+    '(TestVariantHarness, ...) — "Test" is not a whole-word run of "TestingVariant", so no ' +
     'candidate strips and the mechanical derivation falls through to the full lowerFirst ' +
-    'varname ("testVariantPlan"). enums.ts testingVariantFromOrdinal instead returns short ' +
-    'forms ("plan"/"harness"/"perf"/"systemTest"/"qaProcess"). Not mechanically derivable.',
+    'varname ("testVariantHarness"). enumMappings.ts testingVariantFromOrdinal instead returns ' +
+    'short forms ("harness"/"perf"/"qaProcess"). Not mechanically derivable.',
 };
 
 /** Logical output names with no existing hand-table counterpart to verify
@@ -181,6 +183,9 @@ const UNVERIFIED_MECHANICAL = new Set([
   // stage 4b3: the delinquency directive. No hand table has ever named it — the field it
   // replaced was a bool — so the mechanical derivation is the only table there is.
   'DelinquencyAction',
+  // billingManager.GetBillingCycle's routed outcome (NoAction | Charge; ordinal 1, the
+  // retired payout arm, is tombstoned). New with the billing view; no hand table.
+  'RoutingDirective',
 ]);
 
 function splitWords(name) {
@@ -227,6 +232,48 @@ function stripManagerPrefix(schemaName) {
 
 function tsIdent(varnames, quote = "'") {
   return varnames.map((v) => `${quote}${v}${quote}`).join(', ');
+}
+
+/**
+ * The ordinal → varname table, indexed by the WIRE VALUE. A dense enum (0..n-1 in
+ * order) aliases the varname array. A sparse one — `TestingVariant` is `[1, 2, 4]`
+ * since its 0 and 3 were retired — gets a literal with `undefined` holes, so
+ * `TABLE[1]` is the varname of value 1 and never the SECOND varname.
+ */
+function emitOrdinalTable(SNAKE, e) {
+  const name = `${SNAKE}_ORDINAL_TO_GO_VARNAME`;
+  const dense = e.values.every((v, i) => v === i);
+  if (dense) {
+    return `export const ${name}: readonly ${e.outputName}GoVarname[] = ${SNAKE}_GO_VARNAMES;\n`;
+  }
+  const max = Math.max(...e.values);
+  const byValue = new Map(e.values.map((v, i) => [v, e.varnames[i]]));
+  const cells = Array.from({ length: max + 1 }, (_, v) => {
+    const varname = byValue.get(v);
+    return varname === undefined ? 'undefined' : `'${varname}'`;
+  });
+  return (
+    `// Sparse wire values (${e.values.join(', ')}): indexed by VALUE, with holes.\n` +
+    `export const ${name}: readonly (${e.outputName}GoVarname | undefined)[] = [${cells.join(', ')}];\n`
+  );
+}
+
+/**
+ * The ordinal → app-string table, indexed by the WIRE VALUE like the varname table
+ * (emitOrdinalTable): a dense enum aliases the app-string array, a sparse one —
+ * `RoutingDirective` is `[0, 2]` — gets a literal with `undefined` holes.
+ */
+function emitOrdinalToApp(SNAKE, e, appStrings) {
+  const name = `${SNAKE}_ORDINAL_TO_APP`;
+  if (e.values.every((v, i) => v === i)) {
+    return `export const ${name}: readonly ${e.outputName}[] = ${SNAKE}_APP_STRINGS;\n`;
+  }
+  const byValue = new Map(e.values.map((v, i) => [v, appStrings[i]]));
+  const cells = Array.from({ length: Math.max(...e.values) + 1 }, (_, v) => {
+    const app = byValue.get(v);
+    return app === undefined ? 'undefined' : `'${app}'`;
+  });
+  return `export const ${name}: readonly (${e.outputName} | undefined)[] = [${cells.join(', ')}];\n`;
 }
 
 function emitConstArray(name, values, quote = "'") {
@@ -348,9 +395,7 @@ function emitBlock(e) {
 
   out.push(emitConstArray(`${SNAKE}_GO_VARNAMES`, e.varnames));
   out.push(`export type ${e.outputName}GoVarname = (typeof ${SNAKE}_GO_VARNAMES)[number];\n`);
-  out.push(
-    `export const ${SNAKE}_ORDINAL_TO_GO_VARNAME: readonly ${e.outputName}GoVarname[] = ${SNAKE}_GO_VARNAMES;\n`
-  );
+  out.push(emitOrdinalTable(SNAKE, e));
 
   const nonMechanicalReason = NON_MECHANICAL[e.outputName];
   if (nonMechanicalReason !== undefined) {
@@ -367,10 +412,9 @@ function emitBlock(e) {
   }
   out.push(emitConstArray(`${SNAKE}_APP_STRINGS`, appStrings));
   out.push(`export type ${e.outputName} = (typeof ${SNAKE}_APP_STRINGS)[number];\n`);
-  out.push(
-    `export const ${SNAKE}_ORDINAL_TO_APP: readonly ${e.outputName}[] = ${SNAKE}_APP_STRINGS;\n`
-  );
-  const entries = appStrings.map((s, i) => `  ${s}: ${i},`).join('\n');
+  out.push(emitOrdinalToApp(SNAKE, e, appStrings));
+  // Keyed by the WIRE VALUE: a sparse enum's i-th app string is value e.values[i].
+  const entries = appStrings.map((s, i) => `  ${s}: ${e.values[i]},`).join('\n');
   out.push(
     `export const ${SNAKE}_APP_TO_ORDINAL: Readonly<Record<${e.outputName}, number>> = {\n${entries}\n};`
   );

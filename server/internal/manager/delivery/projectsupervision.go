@@ -11,7 +11,6 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
@@ -21,8 +20,8 @@ import (
 // §6.3 PauseProjectBranch + §6.2). The pause Signal (operatorPauseRequested) is a
 // signal-with-start against {projectId}:construction; the supervision workflow
 // resumes on awaitSignal, runs interventionEngine.applyPausePolicy → pausePlan
-// (DECIDE), then the Manager EXECUTES the plan (cancelAgenticJob per
-// pipeline + recordOperatorPaused).
+// (DECIDE), then the Manager EXECUTES the plan (recordOperatorPaused, then the relay
+// to the pump; a pause cancels nothing in flight).
 
 // projectSupervisionInput is the start payload for the project-level supervision
 // workflow. It is started (signal-with-start) by the pause Signal.
@@ -69,9 +68,10 @@ func (wf *csWorkflows) ProjectSupervisionWorkflow(ctx workflow.Context, in proje
 }
 
 // runPauseBranch runs the NCUC2 operator-pause branch: applyPausePolicy (DECIDE)
-// then EXECUTE the plan (constructionManager.md §6.3). InFlightPipelines is left
-// unset (zero value) — the retired pauseRequestContext mirror never populated it
-// either (zero behavior change).
+// then EXECUTE the plan (constructionManager.md §6.3). A pause cancels nothing in
+// flight: it is recorded and relayed to the pump, whose cascade stops after the
+// activity it is running. The plan's cancel list (and the agentic-job cancel verb it
+// fed) was deleted in dct4 — nothing ever filled it, so no job was ever cancelled.
 func (wf *csWorkflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, reason string, state *constructState) error {
 	plan, perr := wf.Intervention.ApplyPausePolicy(fweng.Context{Context: context.Background()}, intervention.PauseRequestContext{
 		ProjectID: intervention.ProjectID(projectID),
@@ -90,7 +90,7 @@ func (wf *csWorkflows) runPauseBranch(ctx workflow.Context, projectID ProjectID,
 	// EXECUTE. GetVersion ("pause-relays-to-pump") pins supervision runs already inside
 	// this branch at deploy to the pre-change sequence.
 	if workflow.GetVersion(ctx, "pause-relays-to-pump", workflow.DefaultVersion, 1) >= 1 {
-		// RECORD → RELAY → CANCEL (I2 ruling, 2026-09-12).
+		// RECORD → RELAY (I2 ruling, 2026-09-12).
 		//   - RECORD FIRST: the pause is durable in head-state before anything else, so a
 		//     pump the 30s sweep (re)starts at any point from here on — including inside
 		//     the relay window — reads it at its recorded-pause gate (pumpnextactivity.go)
@@ -98,42 +98,21 @@ func (wf *csWorkflows) runPauseBranch(ctx workflow.Context, projectID ProjectID,
 		//   - RELAY: PauseProject's signal lands HERE, on {projectId}:construction; a
 		//     pump already cascading holds a head-state snapshot from before the record,
 		//     so the relayed signal is what stops it (after its current activity).
-		//   - CANCEL the in-flight pipelines the plan names, last.
 		if err := wf.recordOperatorPaused(ctx, projectID, reason, plan); err != nil {
 			return err
 		}
 		if err := wf.relayPauseToPump(ctx, projectID, reason); err != nil {
 			return err
 		}
-		if err := wf.cancelPlannedPipelines(ctx, plan); err != nil {
-			return err
-		}
 	} else {
-		// DefaultVersion: the pre-change sequence, exactly as main had it — cancel, then
-		// record, no relay.
-		if err := wf.cancelPlannedPipelines(ctx, plan); err != nil {
-			return err
-		}
+		// DefaultVersion: the pre-change sequence — record, no relay. (Its cancel step
+		// scheduled no command: the cancel list was always empty.)
 		if err := wf.recordOperatorPaused(ctx, projectID, reason, plan); err != nil {
 			return err
 		}
 	}
 
 	state.stage = StagePaused
-	return nil
-}
-
-// cancelPlannedPipelines cancels each in-flight pipeline the pause plan names
-// (GENERATED cancel invoker). PipelineRef is a published named-string type; cast to the
-// Manager's own opaque pipelineHandle.Name (string) — NotifyTargets/ResumeHint stay
-// unread, same as the retired pausePlan mirror never converting them into anything
-// downstream read.
-func (wf *csWorkflows) cancelPlannedPipelines(ctx workflow.Context, plan intervention.PausePlan) error {
-	for _, pid := range plan.PipelinesToCancel {
-		if err := wf.cancelPipeline(ctx, pipelineHandle{Name: string(pid)}); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -145,9 +124,9 @@ func (wf *csWorkflows) recordOperatorPaused(ctx workflow.Context, projectID Proj
 	}
 	headVersion := wf.readVersion(ctx, projectID)
 	_, err := wf.applyRecovering(ctx, projectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		// Project-level pause has no per-activity minted cred; the cred-binding git
-		// adapter mints just-in-time and the local store ignores an empty cred.
-		return wf.Acts.ConstructionTransitionRecordOperatorPaused(ctx, projectstate.ProjectID(projectID), expected, reason, railCredEnvelope{}.toProjectState())
+		// Project-level pause has no per-activity minted cred: it is a projectStateAccess
+		// verb, and that facet's cred-binding adapter mints just-in-time.
+		return wf.Acts.ProjectStateRecordOperatorPaused(ctx, projectstate.ProjectID(projectID), expected, reason)
 	})
 	return err
 }
@@ -166,7 +145,7 @@ func (wf *csWorkflows) relayPauseToPump(ctx workflow.Context, projectID ProjectI
 	err = wf.Acts.MessageBusDeliverSignal(ctx,
 		messagebus.ExecutionID(pumpWorkflowID(projectID)),
 		messagebus.SignalName(signalOperatorPauseRequested),
-		payload)
+		payload, nil)
 	if err != nil && !isSignalTargetNotFound(err) {
 		return err
 	}
@@ -191,9 +170,4 @@ func pumpPausePayload(projectID ProjectID, reason string) (messagebus.ExecutionP
 func isSignalTargetNotFound(err error) bool {
 	var appErr *temporal.ApplicationError
 	return errors.As(err, &appErr) && appErr.Type() == raNotFoundErrType
-}
-
-// cancelPipeline calls the GENERATED cancel invoker (idempotent-on-intent in the RA).
-func (wf *csWorkflows) cancelPipeline(ctx workflow.Context, handle pipelineHandle) error {
-	return wf.Acts.PipelineCancelAgenticJob(ctx, agenticjob.ParsePipelineHandle(handle.Name))
 }
