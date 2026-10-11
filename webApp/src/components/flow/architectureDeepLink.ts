@@ -17,7 +17,7 @@
  *    non-positive-integer value degrades to undefined rather than blocking the
  *    view from applying (a bad step is just ignored, not a dead link).
  *
- * Kept React-free so the rules are unit-testable (architectureDeepLink.test.ts).
+ * Kept React-free.
  */
 
 export interface DeepLinkDecision {

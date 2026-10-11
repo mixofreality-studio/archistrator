@@ -26,7 +26,7 @@ uitests/
 ```
 
 `<component>` is the client component's key in the committed System
-(`web-client`, `mcp-client`, ...). The scenarios and their bindings come from
+(`webClient`, `webClientPlan`, ...). The scenarios and their bindings come from
 `project.json` `.phaseArtifacts.testPlan.<component>` × the deterministic
 scenario projection (`listComponentScenarios`); `make gen-tests` in `../server`
 regenerates, and `make gen-tests-check` is the drift gate.
@@ -41,16 +41,25 @@ npm run install:browsers
 npm run test:scenarios
 
 # One component:
-npx playwright test -c generated/web-client/playwright.config.gen.ts
+npx playwright test -c generated/webClient/playwright.config.gen.ts
 ```
 
 A generated config has no `webServer` block: `hooks.before` owns whatever the
-scenario needs up (sign-in, seeded state), and the SPA it drives must already be
-reachable. In CI (`.github/workflows/uitests.yml`) the Go server boots on the
-local profile with dev-mode auth against a fresh bare project-state repo, the
-Vite dev server is started in the background, and `npm run test:scenarios` runs.
-The construction venue (`aiarch-construct.yml`, integration phase) runs the one
-component's config directly and uploads `test-results/` as the run's artifact.
+scenario needs up, and the SPA it drives must already be reachable
+(`PLAYWRIGHT_TEST_BASE_URL`, a Vite dev server whose `/api` proxy,
+`ARCHISTRATOR_API_PROXY_TARGET`, points at `UITESTS_API_PORT`). The webClient
+hooks bring up a stack of their own for every scenario: a fresh in-memory
+Temporal dev server (`temporal` on PATH), a fresh LOCAL-profile project repo,
+and the Go server on `UITESTS_API_PORT` with real construction through the
+local executor, whose `claude` is the hooks' scripted agent. Postgres is the
+harness's (`UITESTS_POSTGRES_URL`). `UITESTS_SERVER_BIN` /
+`UITESTS_STATE_MCP_BIN` name prebuilt binaries (built from `../server` when
+unset), and `UITESTS_WORK_DIR` is where each scenario's repo and logs go. In CI
+(`.github/workflows/uitests.yml`) Postgres is a service, the binaries are
+prebuilt, the Vite dev server is started in the background, and
+`npm run test:scenarios` runs. The construction venue (`aiarch-construct.yml`,
+integration phase) runs the one component's config directly and uploads
+`test-results/` as the run's artifact.
 
 ## Results
 

@@ -521,7 +521,7 @@ function OwedRow({
               fontSize: 11,
               fontWeight: item.why.riskFloor ? 800 : 500,
               // The risk floor always ASKS a human: the awaiting tone. dangerFg is
-              // failed/error only (palette ruling, rule 2; bandRamp.test.ts pin).
+              // failed/error only (palette ruling, rule 2).
               color: item.why.riskFloor ? t.awaitingFg : t.ink,
             }}
           >

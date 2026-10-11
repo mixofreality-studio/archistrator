@@ -144,10 +144,12 @@ export function StaleBasisHeaderChip({
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 0.5 }}>
               <TextField
                 fullWidth
-                data-testid={UI_IDENTIFIERS.DesignExperience.STALE_ACK_NOTE}
                 label="Why is it unaffected? (optional)"
                 placeholder="e.g. the upstream change was diagrams only"
                 size="small"
+                slotProps={{
+                  htmlInput: { 'data-testid': UI_IDENTIFIERS.DesignExperience.STALE_ACK_NOTE },
+                }}
                 value={note}
                 onChange={(e) => {
                   setNote(e.target.value);

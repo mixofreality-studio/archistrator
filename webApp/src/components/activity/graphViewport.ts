@@ -18,7 +18,7 @@
  * set — never by any status — so a cascade completing an activity keeps the
  * viewport, while a genuinely different project or plan starts from fit.
  *
- * Pure (no React): pinned by graphViewport.test.ts under node:test.
+ * Pure (no React).
  */
 
 /** An xyflow viewport: translate + zoom. */

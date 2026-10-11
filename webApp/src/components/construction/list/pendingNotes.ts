@@ -11,7 +11,7 @@
  * recorded after the last agent run. While an agent runs, the note is simply queued
  * for the next dispatch, and nothing is said.
  *
- * Pure — node:test pins it (pendingNotes.test.ts).
+ * Pure.
  */
 import type { RowState } from './activityRowPresentation.ts';
 

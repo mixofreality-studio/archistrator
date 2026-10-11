@@ -1,7 +1,6 @@
 /**
  * The mutation key every REVIEW DECISION of ONE project shares — the pure half of
- * `useSubmitReviewDecision`, with no React or api import, so node:test pins it
- * (reviewDecisionKey.test.ts).
+ * `useSubmitReviewDecision`, with no React or api import.
  *
  * IT KEYS A TASK DECISION, and that is why it is no longer called
  * `phaseDecisionKey`: the op behind it was `SubmitPhaseDecision` on the retired

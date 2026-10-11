@@ -413,7 +413,9 @@ export function activityViewQueryOptions(
   projectId: string,
   activityId: string | undefined,
   enabled: boolean,
-  notStartedPollMs: number | false = false
+  notStartedPollMs: number | false = false,
+  /** See activityViewPollIntervalMs: the signature a write this screen sent is owed from. */
+  owedFrom?: string
 ): UseQueryOptions<ActivityView, Error, ActivityView> {
   const id = activityId ?? '';
   return {
@@ -428,17 +430,18 @@ export function activityViewQueryOptions(
     // never flips back on its own — so it is neither retried nor polled.
     retry: (count, error) => !isNoSessionError(error) && count < 1,
     refetchInterval: (query): number | false =>
-      activityViewPollIntervalMs(query.state.data, query.state.error, notStartedPollMs),
+      activityViewPollIntervalMs(query.state.data, query.state.error, notStartedPollMs, owedFrom),
   };
 }
 
 export function useActivityView(
   projectId: string,
   activityId?: string,
-  enabled = true
+  enabled = true,
+  owedFrom?: string
 ): UseQueryResult<ActivityView> {
   const { ops } = useOpsClient();
-  return useQuery(activityViewQueryOptions(ops, projectId, activityId, enabled));
+  return useQuery(activityViewQueryOptions(ops, projectId, activityId, enabled, false, owedFrom));
 }
 
 // ── episodes (SP1 capture seam) ──────────────────────────────────────────────

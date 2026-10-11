@@ -1,6 +1,5 @@
 /**
- * The test-run panel's rules, as data — pure (no React), so node:test pins them
- * (TestRunPanel.logic.test.ts).
+ * The test-run panel's rules, as data — pure (no React).
  *
  * The testing task's run (spec §6.4) is one `results.json` joined with the
  * component's projected scenarios. What this module decides:

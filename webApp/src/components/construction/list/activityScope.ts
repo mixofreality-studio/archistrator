@@ -2,7 +2,7 @@
  * The LIST lens's NAVIGABILITY rules (Stage B Task 11): scope chips, the kind
  * and layer filters, search-and-reveal, tier-1 sort, and "expand to current
  * phase". (The "Observed only" evidence toggle is NOT a filter — it rewrites the
- * rows' evidence before the tree is built; see observedOnly.ts.)
+ * rows' evidence before the tree is built.)
  *
  * There is no DataGrid backing this tree (`@mui/x-tree-view` is the free
  * community package — see Task 2's brief), so none of sort/filter/virtualize
@@ -41,7 +41,7 @@
  * It used to REMOVE every activity whose worst provenance was reconstructed —
  * 23 of 29 rows. But the committed activity list decides what exists (spec R6);
  * evidence only decides what is known. Its replacement, "Observed only", keeps
- * every row and strips the untrusted evidence instead (observedOnly.ts), so a
+ * every row and strips the untrusted evidence instead, so a
  * backfilled activity reads not started rather than disappearing (designer P1-11).
  */
 import { provenanceGradeOf, worstOriginOf, type ProvenanceOrigin } from '../provenanceAxis.ts';
@@ -181,7 +181,7 @@ export function activityPassesSearch(node: ActivityNode, query: string): boolean
  * Whether a search-revealed task row must carry its OWN inline provenance
  * mark, independent of whether its ancestors happen to still be on screen.
  *
- * The tier-1/tier-2 group badge (`ProvenanceGroupStamp`) is the surface's
+ * The tier-1/tier-2 group badge is the surface's
  * normal defence against a reconstructed row reading as fact — but it is an
  * argument from CONTEXT (the header is always visible above the task), and
  * search is the one feature that can reveal and focus a tier-3 row on its own

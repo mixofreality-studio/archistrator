@@ -131,7 +131,13 @@ import {
   REQUIREMENTS_ACTIVITY_ID,
   taskArtifactFor,
 } from '../components/activity/taskArtifactFor.ts';
-import { REVIEW_ADVANCE, REVIEW_SET_COMMENT_STATUS, verbsFor } from './activityVerbs.ts';
+import {
+  REVIEW_ADVANCE,
+  REVIEW_SET_COMMENT_STATUS,
+  isConstructionRail,
+  verbsFor,
+} from './activityVerbs.ts';
+import { EpisodesPanelContainer } from './EpisodesPanelContainer';
 import { toC4View } from '../contracts/adapters';
 import { ARTIFACT_STAGE_ORDINAL_TO_APP } from '../contracts/enums.gen.ts';
 import { narrowProject } from '../contracts/projectAdapters';
@@ -144,7 +150,9 @@ import {
   useDesignHealth,
   useEpisodeTimeline,
   useProject,
+  useSessionState,
 } from '../hooks/useDeliveryQueries';
+import { activityViewSignature } from '../hooks/activityViewPolling';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
 import { useComponentScenarios, useTestRun, useTestRunOutputs } from '../hooks/useTestRun';
 import type { TestingArtifactData } from '../components/construction/artifactRenderers';
@@ -179,6 +187,25 @@ function revisionWireFor(
   return view?.tasks
     .find((taskView) => taskView.id === sel.taskId)
     ?.revisions.find((r) => r.n === sel.revision);
+}
+
+/**
+ * The revision an AMENDMENT in flight would replace — the last revision of the
+ * selected task that PASSED — when the task holds a newer one (the redraft, drafting
+ * or awaiting its review). `undefined` when the head is the decided revision, or
+ * nothing has passed yet (a first draft amends nothing). Whether the slot it judges
+ * is still COMMITTED is the caller's other half of the question.
+ */
+function amendedRevisionFor(
+  view: ActivityViewWire | undefined,
+  sel: ActivitySelection | undefined
+): number | undefined {
+  if (sel === undefined) return undefined;
+  const revisions = view?.tasks.find((taskView) => taskView.id === sel.taskId)?.revisions ?? [];
+  const passed = revisions.filter((r) => r.outcome === 'passed').map((r) => r.n);
+  if (passed.length === 0) return undefined;
+  const committed = Math.max(...passed);
+  return Math.max(...revisions.map((r) => r.n)) > committed ? committed : undefined;
 }
 
 /**
@@ -223,7 +250,14 @@ export function ActivityExperienceContainer({
     setAnchor,
     setActiveKey,
   } = useComments();
-  const { data: view, error, isLoading } = useActivityView(projectId, activityId);
+  // A decision, an amendment or an override sent from this screen is applied by the
+  // server asynchronously: the activity as it read when the write went out, followed
+  // until it moves (activityViewPollIntervalMs).
+  const [owedFrom, setOwedFrom] = useState<string | undefined>(undefined);
+  const { data: view, error, isLoading } = useActivityView(projectId, activityId, true, owedFrom);
+  const owe = (): void => {
+    setOwedFrom(view === undefined ? undefined : activityViewSignature(view));
+  };
   // The ARTIFACT read. No refetchInterval: see the file header.
   const { data: project } = useProject(projectId);
   // THE TWO READS THE THREE CROSS-SLOT PROVIDERS NEED (stage 4b2 Task 9) — see the
@@ -498,6 +532,7 @@ export function ActivityExperienceContainer({
       },
       {
         onSuccess: () => {
+          owe();
           reset();
           // THE CLIENT NO LONGER ADVANCES THE PHASE (final fix wave, F1). It used to fire
           // ReviewAdvance unconditionally on every M0 approve, which made the M0 approve a
@@ -545,7 +580,7 @@ export function ActivityExperienceContainer({
    */
   const overrideAction = historical ? 'none' : overrideActionFor(view);
   const applyOverride = (note: string): void => {
-    overrideActivity.mutate({ activityId, kind: OVERRIDE_KIND, notes: note });
+    overrideActivity.mutate({ activityId, kind: OVERRIDE_KIND, notes: note }, { onSuccess: owe });
   };
 
   /**
@@ -618,7 +653,10 @@ export function ActivityExperienceContainer({
   /** A committed design slot: redraft it with the architect's rationale as feedback. */
   const amendSlot = (rationale: string): void => {
     if (verbs.amend.kind !== 'dispatch') return;
-    amendTask.mutate({ ...ref, artifactKind: decidedKind, feedback: rationale });
+    amendTask.mutate(
+      { ...ref, artifactKind: decidedKind, feedback: rationale },
+      { onSuccess: owe }
+    );
   };
 
   // One OP behind both, but three observers of it (decision / advance / comment
@@ -639,12 +677,37 @@ export function ActivityExperienceContainer({
   // a no-op.
   const liveGate =
     !historical && revisionWire?.outcome === 'awaitingHuman' && verbs.approve.kind !== 'none';
+  // THE DRAFT A LIVE DESIGN GATE JUDGES is not on main: it is staged on the owning
+  // activity's branch until the approve merges it (a first draft and an amendment
+  // alike), so the project read above holds the slot as it was before the draft — empty
+  // for a first draft. The session view is the read that answers with the draft under
+  // review (ask-a-clarifying-question-during-review [yes: session branch],
+  // send-back-change-requests-for-a-redraft), and while a gate is live the body renders
+  // its draft. Every other screen state renders the project's own slot.
+  const liveSlotKind =
+    liveGate && artifact.kind === 'slot'
+      ? (artifact.artifactKind as ArtifactKind | undefined)
+      : undefined;
+  const { data: liveSession } = useSessionState(
+    projectId,
+    liveSlotKind ?? 'mission',
+    liveSlotKind !== undefined
+  );
+  const liveDraft = liveSlotKind === undefined ? undefined : liveSession?.view.draft;
+  const gateSlots =
+    liveDraft?.model === undefined
+      ? slots
+      : slots.map((s) => (s.kind === liveSlotKind ? { ...s, model: liveDraft } : s));
   // The head revision of a gate that PASSED and has nothing re-running upstream of it:
   // what the amendment and the revoke act on. `node.state === 'done'` is what keeps
   // both off a gate whose redraft is already in flight.
   const decidedHead = !historical && node?.state === 'done' && revisionWire?.outcome === 'passed';
   const slotCommitted =
     staleSlot !== undefined && ARTIFACT_STAGE_ORDINAL_TO_APP[staleSlot.stage] === 'committed';
+  // An amendment sent from this gate (or its draft) is in flight: the slot is still
+  // committed and the task's head is the redraft. Said on the head only — a past
+  // revision on screen is not where the amendment is.
+  const amending = !historical && slotCommitted ? amendedRevisionFor(view, sel) : undefined;
 
   // The requirements activity's first dispatch needs the research corpus (StartProject
   // refuses to start system design without it). Shown while the project holds none.
@@ -926,6 +989,7 @@ export function ActivityExperienceContainer({
                   }
                 : undefined
             }
+            amending={amending}
             approveCopy={verbs.approveCopy}
             artifact={artifact}
             askPending={askQuestionsMut.isPending}
@@ -966,7 +1030,7 @@ export function ActivityExperienceContainer({
                   }
             }
             sdpDecisionError={sdpDecision.error?.message}
-            slots={slots}
+            slots={gateSlots}
             stagedChangeRequests={changeRequestCount}
             stagedQuestions={questionCount}
             // Advisory, non-blocking, and only where a mutation is possible: a
@@ -1003,6 +1067,14 @@ export function ActivityExperienceContainer({
             }}
           />
         )}
+
+        {/* The activity's recorded attempts, under whichever task is on screen: a failed
+            run is diagnosed from what its agent jobs did (requeue-a-failed-construction-
+            activity/read-attempts, read-failed-trace) before the operator re-opens it
+            from the override bar above. */}
+        {view !== undefined && isConstructionRail(view.type) ? (
+          <EpisodesPanelContainer byActivity projectId={projectId} targetRef={activityId} />
+        ) : null}
       </Box>
     </ExperienceChrome>
   );

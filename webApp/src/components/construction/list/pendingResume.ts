@@ -19,7 +19,7 @@
  *                     row in the list, its segment in the graph, and its line in the
  *                     hover card (designer final pass, item 2).
  *
- * Pure — node:test pins it (pendingResume.test.ts).
+ * Pure.
  */
 import type {
   ConstructionRow,

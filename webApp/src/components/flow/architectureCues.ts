@@ -1,7 +1,6 @@
 /**
  * Pure (JSX-free, xyflow-free) cues for the architecture diagram family, kept in
- * a leaf module so they are unit-testable under `node --test`
- * (architectureCues.test.ts — the volatilityMapLogic pattern).
+ * a leaf module (the volatilityMapLogic pattern).
  */
 import type { Layer } from '../../contracts/types';
 

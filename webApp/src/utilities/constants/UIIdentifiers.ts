@@ -634,19 +634,20 @@ export const UI_IDENTIFIERS = {
     ERROR_ALERT: 'error-alert',
     LOADING: 'loading-indicator',
   },
-  // The SP1 capture-seam episodes panel (Task 10) — mounted per design-artifact
-  // page (Phase 1 + Phase 2) and per construction activity. Base ids match the
-  // task brief exactly; per-row/per-episode ids append the id, following the
-  // repo's row-testid convention (listRow / graphLane / roleCard, ...).
+  // The SP1 capture-seam episodes panel (Task 10) — mounted under a construction
+  // activity's screen. Per-row/per-episode ids append the row's KEY (episodeRowKey in
+  // components/episodes/episodeRowKey.ts): the task and attempt the episode served
+  // (`construction-1`), which is what a run arranged, never the id the venue minted
+  // for it; an episode with no attempt key keeps its episode id.
   Episodes: {
     PANEL: 'episodes-panel',
-    episodeRow: (episodeId: string) => `episodes-row-${episodeId}`,
+    episodeRow: (rowKey: string) => `episodes-row-${rowKey}`,
     TIMELINE: 'episode-timeline',
     LINEAGE_TREE: 'episode-lineage-tree',
     EXPORT_MENU_BUTTON: 'episodes-export-menu',
     EXPORT_JSON: 'episode-export-json',
     EXPORT_CSV: 'episode-export-csv',
-    outcomeChip: (episodeId: string) => `episode-outcome-chip-${episodeId}`,
+    outcomeChip: (rowKey: string) => `episode-outcome-chip-${rowKey}`,
     TIMELINE_FILTER: 'episode-timeline-filter',
     /** The panel header's count, plus the optional scope caption after it. */
     HEADER_COUNT: 'episodes-header-count',
@@ -691,6 +692,10 @@ export const UI_IDENTIFIERS = {
     REVIEW_SET_ERROR: 'activity-review-set-error',
     TASK_FACTS: 'activity-task-facts',
     SUB_ATTEMPTS: 'activity-sub-attempts',
+    // The dispatch body's own timeline: the ONE episode of the revision on screen. Not
+    // Episodes.TIMELINE, which is the expanded row of the activity's episode list
+    // below the body; both can be on screen at once.
+    REVISION_TIMELINE: 'activity-revision-timeline',
     HISTORY_BANNER: 'activity-history-banner',
     BACK_TO_LATEST: 'activity-back-to-latest',
     HISTORY_CAPTION: 'activity-history-caption',

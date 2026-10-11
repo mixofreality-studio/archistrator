@@ -77,8 +77,7 @@
  * interval) recovered. The failure gates now watch at the slow gate cadence: the
  * polled server stage always wins within one interval, reload never required.
  */
-// Runtime imports carry explicit .ts extensions (allowImportingTsExtensions) so this
-// module also loads under node:test's type-stripping (sessionPolling.test.ts).
+// Runtime imports carry explicit .ts extensions (allowImportingTsExtensions).
 import { ApiError } from '../contracts/errors.ts';
 import { REVIEWABLE_STAGE } from '../contracts/types.ts';
 import type { SessionStage } from '../contracts/types.ts';

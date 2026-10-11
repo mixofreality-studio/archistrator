@@ -7,9 +7,8 @@
  * flowLayout.ts value-imports @xyflow/react and uses extensionless relative
  * imports, neither of which that runner loads. This module imports types only
  * — erased before Node ever sees them — which is what lets the construction
- * GRAPH lens reuse the house ordering algorithm and pin its own layout with a
- * golden test (construction/graph/activityGraphLayout.test.ts) instead of
- * re-implementing the sweep.
+ * GRAPH lens reuse the house ordering algorithm instead of re-implementing the
+ * sweep.
  */
 import type { Layer } from '../../contracts/types';
 
