@@ -84,20 +84,46 @@ func writeSpec(t *testing.T, scope projectstate.SpecEditScope) string {
 	return path
 }
 
-// violations runs the gate in r (main ref auto-resolved) and returns the paths it
-// reports (nil when it passes).
+// violations runs the gate in r against main's SHA as it is now (the venue captures it
+// before the agent runs) and returns the paths it reports (nil when it passes).
 func (r gitRepo) violations(spec, base, head string) []string {
 	r.t.Helper()
-	return r.violationsAgainst(spec, base, head, "")
+	return r.violationsAgainst(spec, base, head, r.git("rev-parse", "main"))
 }
 
-func (r gitRepo) violationsAgainst(spec, base, head, mainRef string) []string {
+// violationsAgainst runs the gate with --main mainSHA, or --no-main when it is "".
+func (r gitRepo) violationsAgainst(spec, base, head, mainSHA string) []string {
 	r.t.Helper()
-	got, err := editScopeViolations(r.root, spec, base, head, mainRef)
+	rng, err := resolveEditScopeRange(r.root, base, head, mainSHA, mainSHA == "")
+	if err != nil {
+		r.t.Fatalf("edit-scope range: %v", err)
+	}
+	got, err := editScopeViolations(r.root, spec, rng)
 	if err != nil {
 		r.t.Fatalf("edit-scope: %v", err)
 	}
 	return got
+}
+
+// runGate runs the edit-scope subcommand in r with args after --spec spec.
+func (r gitRepo) runGate(spec string, args ...string) error {
+	r.t.Helper()
+	r.t.Chdir(r.root)
+	return runEditScope(append([]string{"--spec", spec}, args...))
+}
+
+// wantExit asserts err is an exitError with code, whose message holds every want.
+func wantExit(t *testing.T, err error, code int, want ...string) {
+	t.Helper()
+	var ee exitError
+	if !errors.As(err, &ee) || ee.code != code {
+		t.Fatalf("want exit %d, got %v", code, err)
+	}
+	for _, w := range want {
+		if !strings.Contains(err.Error(), w) {
+			t.Fatalf("exit %d message lacks %q:\n%v", code, w, err)
+		}
+	}
 }
 
 var componentScope = projectstate.SpecEditScope{
@@ -184,13 +210,9 @@ func TestEditScope_CommandExitsOneListingViolations(t *testing.T) {
 	r := newGitRepo(t)
 	base := r.git("rev-parse", "HEAD")
 	head := r.commit("stray", map[string]string{"a/x.go": "x\n", "b/y.go": "y\n"})
-	t.Chdir(r.root)
-	err := runEditScope([]string{"--spec", writeSpec(t, componentScope), "--base", base, "--head", head})
-	var ee exitError
-	if !errors.As(err, &ee) || ee.code != 1 || !strings.Contains(err.Error(), "a/x.go") || !strings.Contains(err.Error(), "b/y.go") {
-		t.Fatalf("want exit 1 listing a/x.go and b/y.go, got %v", err)
-	}
-	if err := runEditScope([]string{"--spec", writeSpec(t, componentScope), "--base", base, "--head", base}); err != nil {
+	main := r.git("rev-parse", "main")
+	wantExit(t, r.runGate(writeSpec(t, componentScope), "--base", base, "--head", head, "--main", main), 1, "a/x.go", "b/y.go")
+	if err := r.runGate(writeSpec(t, componentScope), "--base", base, "--head", base, "--main", main); err != nil {
 		t.Fatalf("no change is in scope: %v", err)
 	}
 }
@@ -239,22 +261,23 @@ func TestEditScope_AddThenRemoveNetsOut(t *testing.T) {
 	}
 }
 
-// TestEditScope_NoMainRefIsStrict: with no main ref to net against (no origin/main, no
-// main), content merged in from the trunk counts; --main names the trunk explicitly.
-func TestEditScope_NoMainRefIsStrict(t *testing.T) {
+// TestEditScope_NoMainIsStrict: with --no-main, content merged in from the trunk
+// counts; --main <trunk SHA> nets it out.
+func TestEditScope_NoMainIsStrict(t *testing.T) {
 	r := newGitRepoOn(t, "trunk")
 	r.git("checkout", "-q", "-b", "activity/C-x")
 	base := r.git("rev-parse", "HEAD")
 	r.git("checkout", "-q", "trunk")
 	r.commit("trunk moves", map[string]string{"other/x.txt": "x\n"})
 	r.git("checkout", "-q", "activity/C-x")
+	trunk := r.git("rev-parse", "trunk")
 	r.git("merge", "-q", "--no-edit", "trunk")
 	head := r.git("rev-parse", "HEAD")
 	spec := writeSpec(t, componentScope)
-	if got := r.violations(spec, base, head); !slices.Equal(got, []string{"other/x.txt"}) {
-		t.Fatalf("strict fallback: violations %v", got)
+	if got := r.violationsAgainst(spec, base, head, ""); !slices.Equal(got, []string{"other/x.txt"}) {
+		t.Fatalf("--no-main: violations %v", got)
 	}
-	if got := r.violationsAgainst(spec, base, head, "trunk"); len(got) != 0 {
+	if got := r.violationsAgainst(spec, base, head, trunk); len(got) != 0 {
 		t.Fatalf("--main trunk nets trunk's content out: %v", got)
 	}
 }
@@ -278,12 +301,80 @@ func TestEditScope_RenameJudgesBothEnds(t *testing.T) {
 func TestEditScope_RefusesAGlobOutsideTheGrammar(t *testing.T) {
 	r := newGitRepo(t)
 	base := r.git("rev-parse", "HEAD")
-	t.Chdir(r.root)
-	err := runEditScope([]string{"--spec", writeSpec(t, projectstate.SpecEditScope{Extra: []string{"server/*.go"}}), "--base", base, "--head", base})
-	var ee exitError
-	if !errors.As(err, &ee) || ee.code != 2 || !strings.Contains(err.Error(), "server/*.go") {
-		t.Fatalf("want exit 2 naming the glob, got %v", err)
+	err := r.runGate(writeSpec(t, projectstate.SpecEditScope{Extra: []string{"server/*.go"}}), "--base", base, "--head", base, "--no-main")
+	wantExit(t, err, 2, "server/*.go")
+}
+
+// TestEditScope_PoisonedMainRefsDoNotHide (R26, reviewer repro 2a/2b): the agent moves
+// main and origin/main to its own head. The gate takes main as the SHA captured before
+// the agent ran, so the moved refs change nothing.
+func TestEditScope_PoisonedMainRefsDoNotHide(t *testing.T) {
+	r := newGitRepo(t)
+	base := r.git("rev-parse", "HEAD")
+	main := r.git("rev-parse", "main")
+	head := r.commit("evil", map[string]string{"other/evil": "x\n"})
+	r.git("branch", "-f", "main", "HEAD")
+	r.git("update-ref", "refs/remotes/origin/main", "HEAD")
+	wantExit(t, r.runGate(writeSpec(t, componentScope), "--base", base, "--head", head, "--main", main), 1, "other/evil")
+}
+
+// TestEditScope_RefNamesAreRefused (R26): --base and --main take only full SHAs, so a
+// ref the agent could move is never trusted; exactly one of --main / --no-main.
+func TestEditScope_RefNamesAreRefused(t *testing.T) {
+	r := newGitRepo(t)
+	base := r.git("rev-parse", "HEAD")
+	main := r.git("rev-parse", "main")
+	spec := writeSpec(t, componentScope)
+	for name, args := range map[string][]string{
+		"main ref":     {"--base", base, "--head", "HEAD", "--main", "main"},
+		"origin/main":  {"--base", base, "--head", "HEAD", "--main", "origin/main"},
+		"base ref":     {"--base", "HEAD", "--head", "HEAD", "--main", main},
+		"short base":   {"--base", base[:12], "--head", "HEAD", "--main", main},
+		"neither":      {"--base", base, "--head", "HEAD"},
+		"both":         {"--base", base, "--head", "HEAD", "--main", main, "--no-main"},
+		"option head":  {"--base", base, "--head", "--output=x", "--main", main},
+		"unknown sha":  {"--base", strings.Repeat("a", 40), "--head", "HEAD", "--main", main},
+		"unknown head": {"--base", base, "--head", "no-such-branch", "--main", main},
+	} {
+		t.Run(name, func(t *testing.T) { wantExit(t, r.runGate(spec, args...), 2) })
 	}
+}
+
+// TestEditScope_ReplaceObjectsAreIgnored (R26, reviewer repro 2e): `git replace` of the
+// dirty head with a clean commit must not hide the dirty tree.
+func TestEditScope_ReplaceObjectsAreIgnored(t *testing.T) {
+	r := newGitRepo(t)
+	base := r.git("rev-parse", "HEAD")
+	main := r.git("rev-parse", "main")
+	clean := r.commit("clean", map[string]string{"server/internal/billing/a.go": "package billing\n"})
+	r.git("reset", "-q", "--hard", base)
+	dirty := r.commit("dirty", map[string]string{"server/internal/billing/a.go": "package billing\n", "other/evil": "x\n"})
+	r.git("replace", dirty, clean)
+	wantExit(t, r.runGate(writeSpec(t, componentScope), "--base", base, "--head", "HEAD", "--main", main), 1, "other/evil")
+	t.Setenv("GIT_NO_REPLACE_OBJECTS", "") // an inherited GIT_* never steers the gate
+	wantExit(t, r.runGate(writeSpec(t, componentScope), "--base", base, "--head", dirty, "--main", main), 1, "other/evil")
+}
+
+// TestEditScope_WhitespaceAndNewlineNamesAreJudgedRaw (R26, reviewer repro 5b-5d): a
+// leading-space dir, a trailing-space "go.mod " beside the in-scope go.mod, and a name
+// holding a newline are paths of their own, out of scope, and listed visibly.
+func TestEditScope_WhitespaceAndNewlineNamesAreJudgedRaw(t *testing.T) {
+	r := newGitRepo(t)
+	base := r.git("rev-parse", "HEAD")
+	main := r.git("rev-parse", "main")
+	head := r.commit("sneaky", map[string]string{
+		" server/internal/billing/evil.go": "x\n",
+		"server/go.mod ":                   "x\n",
+		"server/go.mod\n":                  "x\n",
+		"server/internal/billing/ok.go":    "package billing\n",
+	})
+	got := r.violationsAgainst(writeSpec(t, componentScope), base, head, main)
+	want := []string{" server/internal/billing/evil.go", "server/go.mod\n", "server/go.mod "}
+	if !slices.Equal(got, want) {
+		t.Fatalf("violations %q, want %q", got, want)
+	}
+	wantExit(t, r.runGate(writeSpec(t, componentScope), "--base", base, "--head", head, "--main", main), 1,
+		`" server/internal/billing/evil.go"`, `"server/go.mod "`, `"server/go.mod\n"`)
 }
 
 // TestScopeGlobMatch pins the edit-scope grammar: exactly "**", "<dir>/**" (a path
