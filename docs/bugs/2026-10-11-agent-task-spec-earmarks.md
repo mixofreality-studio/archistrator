@@ -36,6 +36,50 @@ The gate's subprocesses run code the agent wrote, outside the agent's sandbox. T
 
 **To close:** R27's separate gate job.
 
-## E4: gate time stacks onto the Manager's observe ceiling (M6, parked)
+## E4: gate time stacks onto the Manager's observe ceiling (M6, parked). RESOLVED by R54
 
 The time before the agent (task-spec and gen-tests, 15 min each) and after it (edit-scope 15, checks 45, record 15) adds to the agent's 25 minutes. A long check gate can pass the Manager's 1h observe ceiling. The cloud job has the same shape.
+
+**Resolution (R54).** The Manager now observes a dispatched job for the templates' job bound (`timeout-minutes: 90`) plus 15 minutes: `gatedJobObserveCeiling` = 105m in `deliveryactivity.go`. `TestObserveCeilingCoversTheJobBound` pins it to the seated templates. The local rail's stacked bounds (25 + 45 + the 15-minute gate steps) fit inside it.
+
+## E5: use-case and check-source links in the task spec panel (R57 M2, R60; D1 F3)
+
+Spec §6 asks for component chips that link to the component, and for check sources that link to the use case or its diagram. Both still render as text or toggles:
+- `TaskSpecPanel.tsx` MAY EDIT: component chips toggle their path list;
+- `taskSpecPanelLogic.ts` `sourceLabel`: scenario rows read `<contract> · use case <id>` as plain text (0 `<a>` elements).
+
+**To close:** link each to the existing design-experience routes (component, use case dynamic view).
+
+## E6: a state-only design task lists the Edit and Write built-ins (R60; D1 F8)
+
+A state-only design draft (glossaryDraft) shows Edit and Write in its tools beside "Writes through state tools only". The tools come from the step manifest; the edit-scope gate is what binds, so this is display only.
+
+**To close:** either drop file-writing built-ins from state-only steps' manifests in method-assets, or have the panel say the gate admits only `.aiarch/state/**` for them.
+
+## E7: the state-tool pin drift gate (R50)
+
+Every cloud job resolves and hashes its task spec with the `aiarch-state-mcp` at `StateMcpModulePin`. A release that changes a command, charter, lifecycle, pricing or `TaskSpecFor` without moving the pin makes every cloud job refuse with "task spec drifted". The pin names a commit of THIS repo, so no test can check it before that commit exists.
+
+**For now:** a D3 checklist line (move the pin to the pushed merge, re-seat, push). The local rail has its own guard since R56 (`aiarch-state-mcp version` against the server's own `projectstate.StateToolVersion`).
+
+**To close:** have the cloud spec step run `aiarch-state-mcp version` and fail with the same "stale binary" message, so a skewed pin is named rather than reported as drift. The server would need to put its own version into the dispatch inputs.
+
+## E8: design-task CheckRuns live only on the session branch (final review M4)
+
+Approve-merge overlays only the slot onto main (`OverlaySlotFromBranchOntoMain`), and the F82 self-heal hard-resets the session branch to main. After a self-heal a design task's panel loses its recorded results: the view reads the branch and falls back to main only on NotFound.
+
+**To close:** carry the task's CheckRuns across the overlay, or make the self-heal keep `testingState.checkRuns`.
+
+## E9: the rule registry is a hand table, not generated and drift-gated (final review M6)
+
+Spec §4.3 calls for a generated, drift-gated rule registry. It is `ruleSlotAttributionPrefixes`, read by `RulePrefixesFor`. Plan deviation 3 accepted per-family granularity but not the missing drift gate; the `TestAttributeRule_*` tests pin a few rules, not completeness.
+
+**To close:** a test that every rule id methodcheck can emit attributes to exactly one slot family (or the whole-project check), so a new rule family cannot fall through silently.
+
+## E10: the webClient scripted agent and the uitests test repo (R58 follow-ups)
+
+R58 made the scripted agent honour its edit scope, and `execute-a-project-activity-P1` passes. Two things a longer webClient walk will hit:
+- **`command:arch` is red on every construction in the uitests stack.** The test repo has no Go module, so `go test ./internal/` reports "no Go files in ./internal". The run retries until the scenario ends. P1 only needs the dispatch, so it passes; a scenario that needs construction to go green will not.
+- **The test-plan task's recorded plan is refused.** For a `test_plan` task the agent records the design state's `phaseArtifacts.testPlan[<contract>]`, and the state tool's validation rejects it with TP-STATE findings, so that job exits 1 and retries.
+
+**To close:** give the uitests stack a check runner double (as the Go venue hooks do with `testinfra.RunChecksDouble`), or seed the test repo with a module the commands can build; and record a test plan that passes the TP rules (or skip the test-plan task in the script).
