@@ -3604,6 +3604,10 @@ const gatedJobLocalWorstCase = 130*time.Minute + 30*time.Second
 // then 28 × 5m).
 const gatedJobObserveCeiling = 150 * time.Minute
 
+// The ceiling must cover both worst cases plus the margin; a constant moved without the
+// others fails to compile (a negative constant cannot convert to uint).
+const _ = uint(gatedJobObserveCeiling - max(gatedJobTimeoutBound, gatedJobLocalWorstCase) - 15*time.Minute)
+
 const (
 	observeFastInterval = 15 * time.Second
 	observeFastPolls    = 4

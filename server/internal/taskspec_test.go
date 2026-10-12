@@ -424,13 +424,20 @@ func TestIntegrationScopeAdmitsEveryGeneratedTestPath(t *testing.T) {
 	if scopeAdmits(s.EditScope, "server/internal/manager/delivery/deliverymanager.go") {
 		t.Error("agentic-job-access integration admits the delivery manager's hand-written code")
 	}
+	assertIntegrationHooksScope(t, s.EditScope, generated)
+}
+
+// assertIntegrationHooksScope pins R61 for C-agentic-job-access: another component's
+// hand-filled hooks stay out of its integration scope and its own seeded hooks are in.
+func assertIntegrationHooksScope(t *testing.T, scope projectstate.SpecEditScope, generated []string) {
+	t.Helper()
 	// R61: another component's once-seeded, hand-filled hooks stay out, the component's own
 	// seeded hooks are in, and a web client's hooks.ts is not repo-wide admitted.
 	for _, other := range []string{
 		"server/internal/manager/delivery/manager_hooks_test.go",
 		"uitests/generated/webClient/hooks.ts",
 	} {
-		if scopeAdmits(s.EditScope, other) {
+		if scopeAdmits(scope, other) {
 			t.Errorf("agentic-job-access integration admits %s, another component's hand-written hooks", other)
 		}
 	}
@@ -438,7 +445,7 @@ func TestIntegrationScopeAdmitsEveryGeneratedTestPath(t *testing.T) {
 	if !slices.Contains(generated, ownHooks) {
 		t.Fatalf("testgen no longer seeds %s", ownHooks)
 	}
-	if !scopeAdmits(s.EditScope, ownHooks) {
+	if !scopeAdmits(scope, ownHooks) {
 		t.Errorf("agentic-job-access integration does not admit its own seeded hooks file %s", ownHooks)
 	}
 }
