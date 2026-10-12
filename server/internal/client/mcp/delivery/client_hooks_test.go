@@ -66,6 +66,7 @@ import (
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	"github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp/testinfra"
 	"github.com/mixofreality-studio/archistrator/server/internal/client/mcp/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -673,7 +674,7 @@ func streamEvents(failed bool) string {
 
 // perform is what a succeeding run does in its worktree.
 func (v *venue) perform(n int, j agentJob) error {
-	if err := verifyTaskSpec(v.tool, j); err != nil {
+	if err := testinfra.VerifyTaskSpec(v.tool, venueJob(j)); err != nil {
 		return err
 	}
 	switch j.Mode {
@@ -801,10 +802,10 @@ func (v *venue) integrate(n int, j agentJob) error {
 		return err
 	}
 	specPath := filepath.Join(dir, "spec.json")
-	if _, err := resolveTaskSpec(v.tool, j, specPath); err != nil {
+	if _, err := testinfra.ResolveTaskSpec(v.tool, venueJob(j), specPath); err != nil {
 		return err
 	}
-	resultsPath, err := writePassingResults(specPath, filepath.Join(dir, "results.json"))
+	resultsPath, err := testinfra.WritePassingResults(specPath, filepath.Join(dir, "results.json"))
 	if err != nil {
 		return err
 	}
@@ -818,72 +819,9 @@ func (v *venue) integrate(n int, j agentJob) error {
 	return v.withStateTool(j, func(*stateSession) error { return nil })
 }
 
-// resolveTaskSpec runs the state tool's task-spec over the job's worktree for the task the
-// dispatch names (AIARCH_TASK_ID), writes it to out and returns its hash — what the
-// construct and design templates do before the agent starts.
-func resolveTaskSpec(tool string, j agentJob, out string) (string, error) {
-	task := j.env["AIARCH_TASK_ID"]
-	if task == "" {
-		return "", fmt.Errorf("the %s dispatch of %s carries no task id (AIARCH_TASK_ID)", j.Command, j.Activity)
-	}
-	cmd := exec.Command(tool, "task-spec", "--activity", j.Activity, "--task", task, "--root", j.dir, "--out", out)
-	cmd.Dir = j.dir
-	cmd.Env = toolEnv(j)
-	got, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("task-spec %s/%s: %w", j.Activity, task, err)
-	}
-	return strings.TrimSpace(string(got)), nil
-}
-
-// verifyTaskSpec is the templates' first gate: the spec the job resolves over its checkout
-// must hash to the spec_hash the Manager dispatched, so what the panel shows is what runs.
-//
-// An ANSWER job is exempt: it answers an AskQuestions round (AnswerJobWorkflow), which is
-// no lifecycle task, so the Manager resolves and dispatches no spec for it.
-func verifyTaskSpec(tool string, j agentJob) error {
-	if j.Mode == "answer" {
-		return nil
-	}
-	want := j.env["AIARCH_SPEC_HASH"]
-	if len(want) != 64 {
-		return fmt.Errorf("the %s dispatch of %s carries spec hash %q, want a sha256 hex digest", j.Command, j.Activity, want)
-	}
-	tmp, err := os.MkdirTemp("", "dct-spec-")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.RemoveAll(tmp) }()
-	got, err := resolveTaskSpec(tool, j, filepath.Join(tmp, "spec.json"))
-	if err != nil {
-		return err
-	}
-	if got != want {
-		return fmt.Errorf("task spec drifted for %s/%s: dispatched %s, the worktree resolves %s", j.Activity, j.env["AIARCH_TASK_ID"], want, got)
-	}
-	return nil
-}
-
-// writePassingResults writes run-checks' results file for the spec at specPath: one
-// passing result per check, which is what a green gate run records.
-func writePassingResults(specPath, out string) (string, error) {
-	raw, err := os.ReadFile(specPath)
-	if err != nil {
-		return "", err
-	}
-	var spec projectstate.TaskSpec
-	if err := json.Unmarshal(raw, &spec); err != nil {
-		return "", err
-	}
-	results := make([]projectstate.CheckResult, 0, len(spec.Checks))
-	for _, c := range spec.Checks {
-		results = append(results, projectstate.CheckResult{CheckId: c.ID, Kind: c.Kind, Status: "pass", DurationMs: 1})
-	}
-	b, err := json.Marshal(results)
-	if err != nil {
-		return "", err
-	}
-	return out, os.WriteFile(out, b, 0o600)
+// venueJob is the job as the shared venue double (testinfra) takes it.
+func venueJob(j agentJob) testinfra.VenueJob {
+	return testinfra.VenueJob{Mode: j.Mode, Command: j.Command, Activity: j.Activity, Dir: j.dir, Env: j.env}
 }
 
 // commitWork is a construction step's work: a change on the activity branch.

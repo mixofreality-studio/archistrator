@@ -673,6 +673,7 @@ type ProjectView struct {
 	Episodes            []EpisodeRecordView        `json:"episodes,omitempty"`
 	Timeline            *EpisodeTimeline           `json:"timeline,omitempty"`
 	TestRun             *DeliveryTestRunView       `json:"testRun,omitempty"`
+	TestRuns            []DeliveryTestRunView      `json:"testRuns,omitempty"`
 	Scenarios           []ScenarioView             `json:"scenarios,omitempty"`
 	TaskSpec            *DeliveryTaskSpecView      `json:"taskSpec,omitempty"`
 }

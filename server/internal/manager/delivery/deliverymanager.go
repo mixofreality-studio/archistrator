@@ -14114,10 +14114,11 @@ type TestRunFileReader interface {
 var _ TestRunFileReader = (*deliveryManager)(nil)
 
 // queryTestRunView answers the `testRun` kind: the integration task's latest CheckRun
-// for activityId — or the run runId names — viewed for one contract (componentId when
-// the query names one, else the first contract the run carries scenarios for, else the
-// first the activity's component owns) and joined with that contract's projected
-// scenarios and the run's artifact index.
+// for activityId — or the run runId names — joined, contract by contract, with each
+// contract's projected scenarios and the run's artifact index. testRuns carries one view
+// per contract the testing gate judges (every contract the activity's component owns,
+// gateContracts), so a held facet is never hidden behind a green one; testRun is the one
+// componentId names, else the first of them (ruling R36).
 func (m *deliveryManager) queryTestRunView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
 	id, err := requireProjectID(query, "testRun")
 	if err != nil {
@@ -14134,52 +14135,58 @@ func (m *deliveryManager) queryTestRunView(rc fwmanager.Context, query ProjectVi
 	if query.RunID != nil {
 		runID = *query.RunID
 	}
-	run, ok := selectCheckRun(&proj, *query.ActivityID, integrationTaskID, runID, nil)
+	run, ok := selectCheckRun(&proj, *query.ActivityID, integrationTaskID, runID, nil, false)
 	if !ok {
 		if runID != "" {
 			return out, newError(fwmanager.NotFound, fmt.Sprintf("activity %q has no integration check run %q", *query.ActivityID, runID))
 		}
 		return out, newError(fwmanager.NotFound, fmt.Sprintf("activity %q has no recorded integration check run", *query.ActivityID))
 	}
-	contract, ok := testRunContract(&proj, run, query.ComponentID)
-	if !ok {
+	contracts := testRunContracts(&proj, run)
+	if len(contracts) == 0 {
 		return out, newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 			"check run %s carries no scenario verdict and activity %q owns no contract to view it for", run.ID, *query.ActivityID))
 	}
-	view, err := m.cs.testRunView(rc, &proj, run, contract)
-	if err != nil {
-		return out, err
+	named := contracts[0]
+	if query.ComponentID != nil && *query.ComponentID != "" {
+		named = *query.ComponentID
+		if !slices.Contains(contracts, named) {
+			contracts = append(contracts, named)
+		}
 	}
-	out.TestRun = &view
+	out.TestRuns = make([]DeliveryTestRunView, 0, len(contracts))
+	for _, contract := range contracts {
+		view, err := m.cs.testRunView(rc, &proj, run, contract)
+		if err != nil {
+			return out, err
+		}
+		out.TestRuns = append(out.TestRuns, view)
+		if contract == named {
+			v := view
+			out.TestRun = &v
+		}
+	}
 	return out, nil
 }
 
-// testRunContract picks the contract a testRun view shows: the one the query names, else
-// the first the run carries scenario verdicts for, else the first the activity's
-// component owns (a run that ran none renders every projected scenario missing).
-func testRunContract(proj *projectstate.Project, run projectstate.CheckRun, named *string) (string, bool) {
-	if named != nil && *named != "" {
-		return *named, true
+// testRunContracts names the contracts a testRun view shows: every contract the testing
+// gate judges for the run's activity (gateContracts over its component), else — an
+// activity the committed plan or System no longer resolves — the contracts the run
+// carries scenario verdicts for. Sorted.
+func testRunContracts(proj *projectstate.Project, run projectstate.CheckRun) []string {
+	if item, ok := committedActivityItem(*proj, run.Activity); ok {
+		if contracts, ok := gateContracts(proj, item.ComponentID); ok && len(contracts) > 0 {
+			return contracts
+		}
 	}
-	if contracts := scenarioContractsOf(run); len(contracts) > 0 {
-		return contracts[0], true
-	}
-	item, ok := committedActivityItem(*proj, run.Activity)
-	if !ok {
-		return "", false
-	}
-	contracts, ok := gateContracts(proj, item.ComponentID)
-	if !ok || len(contracts) == 0 {
-		return "", false
-	}
-	return contracts[0], true
+	return scenarioContractsOf(run)
 }
 
 // queryTaskSpecView answers the `taskSpec` kind: the agent task spec of one lifecycle
 // task (projectstate.TaskSpecFor), resolved over the project as the ACTIVITY BRANCH holds
 // it (main once the branch is gone) — the state the task's job checks out — with the
-// task's CheckRun beside it: the one recorded under task revision `revision` (a run whose
-// revision is one of that revision's attempt ids), else the latest. specChanged says the
+// task's CheckRun beside it: with `revision`, the one recorded under that task revision (a
+// run whose revision is one of its attempt ids) or none (R35); without, the latest. specChanged says the
 // run was recorded against a different spec than the one shown. A task that never ran
 // has a spec and no run.
 func (m *deliveryManager) queryTaskSpecView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
@@ -14211,7 +14218,7 @@ func (m *deliveryManager) queryTaskSpecView(rc fwmanager.Context, query ProjectV
 			fmt.Sprintf("the agent task spec of %s/%s does not resolve", activityID, taskID))
 	}
 	view := taskSpecToContract(spec)
-	if run, ok := selectCheckRun(&proj, activityID, taskID, "", attemptIDs); ok {
+	if run, ok := selectCheckRun(&proj, activityID, taskID, "", attemptIDs, query.Revision != nil); ok {
 		rv := checkRunToContract(run)
 		view.CheckRun = &rv
 		view.SpecChanged = run.SpecHash != spec.Hash
@@ -14474,11 +14481,14 @@ const integrationTaskID = string(projectstate.TaskIntegration)
 
 // selectCheckRun picks the CheckRun of (activity, task) a view or the gate is about:
 // runID when given (it must belong to the activity and task); else the LATEST run whose
-// revision is one of attemptIDs; else — no attempt ids given, or none matching (a run
-// recorded before attempt-id revisions, whose revision is a commit sha) — the LATEST run
-// for (activity, task). Latest is by end time, then start time, then recording order,
-// never by slice position alone, because the venue may record out of order.
-func selectCheckRun(proj *projectstate.Project, activityID, taskID, runID string, attemptIDs []string) (projectstate.CheckRun, bool) {
+// revision is one of attemptIDs; else, unless atAttemptsOnly, the LATEST run for
+// (activity, task) — the gate's fallback (a run recorded at another attempt, which its
+// revision rule then holds on) and a view's when it names no revision. A view that names
+// a revision passes atAttemptsOnly: a different revision's run shown as this one would be
+// misleading, so a revision with no run of its own has none (ruling R35). Latest is by
+// end time, then start time, then recording order, never by slice position alone,
+// because the venue may record out of order.
+func selectCheckRun(proj *projectstate.Project, activityID, taskID, runID string, attemptIDs []string, atAttemptsOnly bool) (projectstate.CheckRun, bool) {
 	var best, bestAt projectstate.CheckRun
 	found, foundAt := false, false
 	for _, run := range checkRuns(proj) {
@@ -14498,8 +14508,8 @@ func selectCheckRun(proj *projectstate.Project, activityID, taskID, runID string
 			bestAt, foundAt = run, true
 		}
 	}
-	if foundAt {
-		return bestAt, true
+	if foundAt || atAttemptsOnly {
+		return bestAt, foundAt
 	}
 	return best, found
 }

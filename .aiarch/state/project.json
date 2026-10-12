@@ -22740,6 +22740,15 @@
               ],
               "$ref": "#/$defs/DeliveryTestRunView"
             },
+            "testRuns": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeliveryTestRunView"
+              }
+            },
             "scenarios": {
               "type": [
                 "null",
@@ -29475,6 +29484,15 @@
                 "null"
               ],
               "$ref": "#/$defs/DeliveryTestRunView"
+            },
+            "testRuns": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeliveryTestRunView"
+              }
             },
             "scenarios": {
               "type": [

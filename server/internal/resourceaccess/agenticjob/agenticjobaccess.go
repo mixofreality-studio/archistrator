@@ -1406,33 +1406,36 @@ func (a *localExecAccess) submitDesignJob(rc fwra.Context, spec PipelineSpec, jo
 	artifactKind := strings.TrimSpace(spec.DispatchInputs[dispatchInputArtifactKindKey])
 	plan := designDispatchPlan(a.dispatchProjectID(spec), jobMode, command, targetBranch, artifactKind)
 	stampTaskSpecEnvelope(plan.rig, spec.DispatchInputs)
-	for key, rigKey := range map[string]string{dispatchInputActivityIDKey: "AIARCH_ACTIVITY_ID", dispatchInputRevisionKey: rigRevisionKey} {
-		if v := strings.TrimSpace(spec.DispatchInputs[key]); v != "" {
-			plan.rig[rigKey] = v
-		}
-	}
 	plan.agentStep = agentStepOf(spec)
 	return a.submitClaudeRun(rc, plan)
 }
 
-// stampTaskSpecEnvelope stamps the task-spec envelope the Manager dispatched (the
-// lifecycle task and the hash of the spec it resolved) into the rig, each only when
-// carried, so the attached aiarch-state server's run_checks resolves the same task the
-// cloud templates' AIARCH_TASK_ID / AIARCH_SPEC_HASH name. Resolving and gating the spec on
-// this rail is the local sequence's (B6).
+// stampTaskSpecEnvelope stamps the task-spec envelope the Manager dispatched — the
+// activity, the lifecycle task, the hash of the spec it resolved, and the attempt the job
+// runs under — into the rig, each only when carried, so the attached aiarch-state server
+// resolves the same task the cloud templates' AIARCH_* envelope names. The ONE place the
+// envelope's keys are mapped, for both arms: a construct dispatch carries the activity and
+// revision through constructDispatchPlan as well, with the same values. Resolving and
+// gating the spec on this rail is the local sequence's (B6).
 func stampTaskSpecEnvelope(rig map[string]string, inputs map[string]string) {
-	for key, rigKey := range map[string]string{dispatchInputTaskIDKey: rigTaskIDKey, dispatchInputSpecHashKey: rigSpecHashKey} {
+	for key, rigKey := range map[string]string{
+		dispatchInputActivityIDKey: rigActivityIDKey,
+		dispatchInputTaskIDKey:     rigTaskIDKey,
+		dispatchInputSpecHashKey:   rigSpecHashKey,
+		dispatchInputRevisionKey:   rigRevisionKey,
+	} {
 		if v := strings.TrimSpace(inputs[key]); v != "" {
 			rig[rigKey] = v
 		}
 	}
 }
 
-// rigTaskIDKey / rigSpecHashKey are the rig variables of the task-spec envelope
-// (cmd/aiarch-state-mcp's envTaskID; the spec hash the job is held to).
+// rigActivityIDKey / rigTaskIDKey / rigSpecHashKey are rig variables of the task-spec
+// envelope (cmd/aiarch-state-mcp's envActivityID / envTaskID; the spec hash the job is held to).
 const (
-	rigTaskIDKey   = "AIARCH_TASK_ID"
-	rigSpecHashKey = "AIARCH_SPEC_HASH"
+	rigActivityIDKey = "AIARCH_ACTIVITY_ID"
+	rigTaskIDKey     = "AIARCH_TASK_ID"
+	rigSpecHashKey   = "AIARCH_SPEC_HASH"
 )
 
 // submitClaudeRun converges the caller-supplied idempotencyKey on a single in-memory

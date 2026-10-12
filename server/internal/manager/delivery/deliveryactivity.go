@@ -6446,7 +6446,7 @@ func (wf *csWorkflows) readTestingGateEvidence(ctx workflow.Context, in delivery
 	if !resolved {
 		return []testingGateEvidence{{Contract: in.Activity.ComponentID, Unresolved: true}}, nil
 	}
-	run, found := selectCheckRun(&proj, string(in.ActivityID), integrationTaskID, "", []string{revision})
+	run, found := selectCheckRun(&proj, string(in.ActivityID), integrationTaskID, "", []string{revision}, false)
 	var (
 		idx  artifact.TestRunIndex
 		ierr error

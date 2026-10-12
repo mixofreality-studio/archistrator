@@ -1783,6 +1783,12 @@ components:
                     $ref: '#/components/schemas/DeliveryDeliveryTestRunView'
                     type:
                         - "null"
+                testRuns:
+                    items:
+                        $ref: '#/components/schemas/DeliveryDeliveryTestRunView'
+                    type:
+                        - "null"
+                        - array
                 timeline:
                     $ref: '#/components/schemas/DeliveryEpisodeTimeline'
                     type:

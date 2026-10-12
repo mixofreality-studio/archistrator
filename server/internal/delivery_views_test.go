@@ -6,13 +6,20 @@ import (
 	"testing"
 	"time"
 
+	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
+
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	artifactfake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact/fake"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
+	episodefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
 )
@@ -39,7 +46,21 @@ func viewManager(proj projectstate.Project, files []string) delivery.DeliveryMan
 			return artifact.TestRunIndex{Files: files}, nil
 		},
 	}
-	return delivery.NewDeliveryManager(nil, ps, art, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, "")
+	// The episode ledger is empty: the activity view (which a taskSpec query with a revision
+	// reads its attempt ids from) folds episodes into revisions, and none are needed here.
+	eps := &episodefake.FakeEpisodeAccess{
+		ListEpisodesFn: func(fwra.Context, episode.EpisodeQuery) ([]episode.EpisodeRecord, error) { return nil, nil },
+	}
+	return delivery.NewDeliveryManager(noSessions{}, ps, art, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "", nil, "")
+}
+
+// noSessions is a Temporal client with no workflow running: the activity view asks a
+// running row's live session and reads "not dispatched" (NotFound) as no session. Every
+// other client call is absent (nil embedded interface) and would panic.
+type noSessions struct{ client.Client }
+
+func (noSessions) QueryWorkflow(context.Context, string, string, string, ...any) (converter.EncodedValue, error) {
+	return nil, serviceerror.NewNotFound("workflow not found")
 }
 
 func viewCtx() fwmanager.Context { return fwmanager.Context{Context: context.Background()} }
@@ -233,4 +254,182 @@ func TestTestRunViewDefaultsToTheRunsContract(t *testing.T) {
 	if v.TestRun == nil || v.TestRun.Run.Component != viewContract || len(v.TestRun.Run.Scenarios) == 0 {
 		t.Fatalf("legacy run view %+v", v.TestRun)
 	}
+}
+
+// withRevision is q naming task revision n.
+func withRevision(q delivery.ProjectViewQuery, n int) delivery.ProjectViewQuery {
+	q.Revision = &n
+	return q
+}
+
+// R15: a taskSpec query naming revision N shows the run recorded under one of that
+// revision's attempt ids even when a later run exists. R35: a revision none of whose
+// attempt ids recorded a run shows NO run — never another revision's.
+func TestTaskSpecViewSelectsTheRunOfTheNamedRevision(t *testing.T) {
+	// No recorded run but the two below (the own project's runs include one at revision 1).
+	proj := *ownProject(t)
+	proj.TestingState = &projectstate.TestingState{}
+	// The own project's integration revision 1 is attempt C-agentic-job-access:integration:1.
+	atRev1 := projectstate.CheckRun{ID: "b5-rev1", Activity: viewActivity, Task: "integration",
+		Revision: viewActivity + ":integration:1", EndedAt: endedAt(2090), Artifact: "a"}
+	later := projectstate.CheckRun{ID: "b5-later", Activity: viewActivity, Task: "integration",
+		Revision: viewActivity + ":integration:7", EndedAt: endedAt(2100), Artifact: "a"}
+	q := taskSpecQuery(viewActivity, "integration")
+
+	v, err := viewManager(withCheckRun(withCheckRun(proj, atRev1), later), nil).QueryProjectView(viewCtx(), withRevision(q, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.TaskSpec.CheckRun == nil || v.TaskSpec.CheckRun.ID != atRev1.ID {
+		t.Fatalf("revision 1 shows run %+v, want %s (its own attempt's run, not the later one)", v.TaskSpec.CheckRun, atRev1.ID)
+	}
+	v, err = viewManager(withCheckRun(withCheckRun(proj, atRev1), later), nil).QueryProjectView(viewCtx(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.TaskSpec.CheckRun == nil || v.TaskSpec.CheckRun.ID != later.ID {
+		t.Fatalf("no revision shows run %+v, want the latest %s", v.TaskSpec.CheckRun, later.ID)
+	}
+	v, err = viewManager(withCheckRun(proj, later), nil).QueryProjectView(viewCtx(), withRevision(q, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.TaskSpec.CheckRun != nil {
+		t.Fatalf("revision 1, which recorded no run of its own, shows run %s (R35: none)", v.TaskSpec.CheckRun.ID)
+	}
+	if _, err := viewManager(proj, nil).QueryProjectView(viewCtx(), withRevision(q, 99)); err == nil {
+		t.Fatal("a revision the task never had answered")
+	}
+}
+
+// withoutCommittedPlan is p with no committed activity list (a fresh project, or one whose
+// list is being redrafted in project design).
+func withoutCommittedPlan(p projectstate.Project) projectstate.Project {
+	p.ActivityList = projectstate.ArtifactSlot{}
+	return p
+}
+
+// R33: the three reserved design-prefix activities resolve every task's spec with no
+// committed activity list — over the project as given, and over its Temporal envelope,
+// which is what the dispatch (dispatchSpecHash) resolves over — and the taskSpec view
+// serves them; the estimate is zero (unestimated), not a guess.
+func TestTaskSpecForDesignPrefixWithoutACommittedPlan(t *testing.T) {
+	proj := withoutCommittedPlan(*ownProject(t))
+	env, err := projectstate.EncodeProject(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := env.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"requirements", "architecture", "projectDesign"} {
+		tasks := designPrefixTasks(t, id)
+		for _, task := range tasks {
+			s, err := projectstate.TaskSpecFor(&proj, id, task)
+			if err != nil {
+				t.Fatalf("%s/%s with no committed plan: %v", id, task, err)
+			}
+			if s.Model.Estimate != (projectstate.SpecEstimate{}) {
+				t.Fatalf("%s/%s estimate %+v, want unestimated (zero)", id, task, s.Model.Estimate)
+			}
+			viaEnvelope, err := projectstate.TaskSpecFor(&decoded, id, task)
+			if err != nil || viaEnvelope.Hash != s.Hash {
+				t.Fatalf("%s/%s over the envelope: hash %q (%v), want %q", id, task, viaEnvelope.Hash, err, s.Hash)
+			}
+		}
+		v, err := viewManager(proj, nil).QueryProjectView(viewCtx(), taskSpecQuery(id, tasks[0]))
+		if err != nil || v.TaskSpec == nil {
+			t.Fatalf("taskSpec view of %s/%s with no committed plan: %v", id, tasks[0], err)
+		}
+	}
+	if _, err := projectstate.TaskSpecFor(&proj, viewActivity, "construction"); err == nil {
+		t.Fatal("a non-design activity resolved with no committed plan")
+	}
+}
+
+// designPrefixTasks is the task ids of a design-prefix activity's lifecycle (the three
+// reserved ids name their own lifecycles).
+func designPrefixTasks(t *testing.T, id string) []string {
+	t.Helper()
+	lc, ok := methodassets.LifecycleFor(id)
+	if !ok || len(lc.Tasks) == 0 {
+		t.Fatalf("no lifecycle %q", id)
+	}
+	out := make([]string, 0, len(lc.Tasks))
+	for _, task := range lc.Tasks {
+		out = append(out, task.ID)
+	}
+	return out
+}
+
+// Envelope parity: a spec resolved over the Temporal envelope of a project whose module
+// is not at the repo root hashes like one resolved over the project itself, so the
+// dispatched spec_hash matches what the job resolves over its checkout.
+func TestTaskSpecHashSurvivesTheProjectEnvelope(t *testing.T) {
+	proj := *ownProject(t)
+	if proj.ModuleDir != "server" {
+		t.Fatalf("own moduleDir %q, want server", proj.ModuleDir)
+	}
+	env, err := projectstate.EncodeProject(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := env.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range []string{"construction", "integration", "codeReview"} {
+		want, err := projectstate.TaskSpecFor(&proj, viewActivity, task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := projectstate.TaskSpecFor(&decoded, viewActivity, task)
+		if err != nil || got.Hash != want.Hash {
+			t.Fatalf("%s over the envelope: %q (%v), want %q", task, got.Hash, err, want.Hash)
+		}
+	}
+}
+
+// R36: the testRun view carries one view per contract the testing gate judges — every
+// contract the activity's component owns — not only the first.
+func TestTestRunViewCarriesEveryJudgedContract(t *testing.T) {
+	proj := *ownProject(t)
+	const activity, component = "C-project-state-access", "project-state-access"
+	contracts := ownedContracts(&proj, component)
+	if len(contracts) < 2 {
+		t.Fatalf("%s owns %v, want a multi-contract component", component, contracts)
+	}
+	pid, act := "archistrator", activity
+	v, err := viewManager(proj, nil).QueryProjectView(viewCtx(), delivery.ProjectViewQuery{
+		Kind: delivery.ProjectViewTestRun, ProjectID: &pid, ActivityID: &act})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, tr := range v.TestRuns {
+		got = append(got, tr.Run.Component)
+	}
+	if !slices.Equal(got, contracts) {
+		t.Fatalf("testRuns for %v, want every judged contract %v", got, contracts)
+	}
+	if v.TestRun == nil || v.TestRun.Run.Component != contracts[0] {
+		t.Fatalf("testRun %+v, want the first judged contract %s", v.TestRun, contracts[0])
+	}
+}
+
+// ownedContracts is the contracts the System gives component, as the gate names them.
+func ownedContracts(p *projectstate.Project, component string) []string {
+	key, ok := projectstate.ContractKeyOf(p, component)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for name, sc := range p.ServiceContracts {
+		if name == key || sc.Component == key {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
 }

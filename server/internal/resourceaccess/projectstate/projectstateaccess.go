@@ -10986,12 +10986,16 @@ type SpecCheckSource struct {
 // TaskSpecFor resolves the agent task spec of one lifecycle task of one committed
 // activity. The activity is looked up in the committed activity list and classified the
 // way QueryActivityView classifies it; an activity or task that does not resolve is an
-// error.
+// error. The three reserved design-prefix activities resolve before any plan is
+// committed (designPrefixItem), because system design runs before the plan exists.
 func TaskSpecFor(p *Project, activityID, taskID string) (TaskSpec, error) {
 	if p == nil {
 		return TaskSpec{}, errors.New("projectstate.TaskSpecFor: nil project")
 	}
 	item, ok := committedActivityItemOf(p, activityID)
+	if !ok {
+		item, ok = designPrefixItem(activityID)
+	}
 	if !ok {
 		return TaskSpec{}, fmt.Errorf("projectstate.TaskSpecFor: no activity %q in the committed activity list", activityID)
 	}
@@ -11115,6 +11119,23 @@ func committedActivityItemOf(p *Project, activityID string) (ActivityItem, bool)
 	}
 	return ActivityItem{}, false
 }
+
+// designPrefixItem synthesizes the activity item of one of the three reserved
+// design-prefix activities (designActivityTypes) for a project whose committed activity
+// list does not hold it — a fresh project, whose requirements, architecture and project
+// design run before any plan is committed (ruling R33). The item is the plan's fixed
+// prefix as DerivePlan emits it (noncoding, owned by the system architect) WITHOUT its
+// effort: no plan has estimated it, so the spec's estimate is zero, which reads as
+// unestimated rather than a guess. Every other id is not a design-prefix activity.
+func designPrefixItem(activityID string) (ActivityItem, bool) {
+	if _, ok := designActivityType(activityID); !ok {
+		return ActivityItem{}, false
+	}
+	return ActivityItem{Name: activityID, WorkerClass: designPrefixWorkerClass, Coding: false}, true
+}
+
+// designPrefixWorkerClass owns the design prefix (estimation's designPrefixActivities).
+const designPrefixWorkerClass = "system-architect"
 
 // isDesignMode reports whether a manifest mode is a design-slot job mode.
 func isDesignMode(mode string) bool {

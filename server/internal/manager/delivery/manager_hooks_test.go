@@ -73,6 +73,7 @@ import (
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	"github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp/testinfra"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
@@ -798,6 +799,10 @@ type venue struct {
 	contract  json.RawMessage            // the service contract the detailed design records
 	release   chan struct{}
 	inFlight  sync.WaitGroup
+	// narrow makes the integration step record a run that never ran one projected
+	// scenario (dropped), so the testing gate has a run to hold on.
+	narrow  bool
+	dropped string
 }
 
 // openVenue points the venue at this scenario: the doubles first on PATH (never the
@@ -963,9 +968,9 @@ func streamEvents(failed bool) string {
 }
 
 // perform is what a succeeding run does in its worktree, once the dispatched task spec
-// checks out (verifyTaskSpec).
+// checks out (testinfra.VerifyTaskSpec).
 func (v *venue) perform(n int, j agentJob) error {
-	if err := verifyTaskSpec(v.tool, j); err != nil {
+	if err := testinfra.VerifyTaskSpec(v.tool, venueJob(j)); err != nil {
 		return err
 	}
 	switch j.Mode {
@@ -1068,10 +1073,13 @@ func (v *venue) integrate(n int, j agentJob) error {
 		return err
 	}
 	specPath := filepath.Join(dir, "spec.json")
-	if _, err := resolveTaskSpec(v.tool, j, specPath); err != nil {
+	if _, err := testinfra.ResolveTaskSpec(v.tool, venueJob(j), specPath); err != nil {
 		return err
 	}
-	resultsPath, err := writePassingResults(specPath, filepath.Join(dir, "results.json"))
+	if err := v.narrowSpec(specPath); err != nil {
+		return err
+	}
+	resultsPath, err := testinfra.WritePassingResults(specPath, filepath.Join(dir, "results.json"))
 	if err != nil {
 		return err
 	}
@@ -1085,72 +1093,30 @@ func (v *venue) integrate(n int, j agentJob) error {
 	return v.withStateTool(j, func(*stateSession) error { return nil })
 }
 
-// resolveTaskSpec runs the state tool's task-spec over the job's worktree for the task the
-// dispatch names (AIARCH_TASK_ID), writes it to out and returns its hash — what the
-// construct and design templates do before the agent starts.
-func resolveTaskSpec(tool string, j agentJob, out string) (string, error) {
-	task := j.env["AIARCH_TASK_ID"]
-	if task == "" {
-		return "", fmt.Errorf("the %s dispatch of %s carries no task id (AIARCH_TASK_ID)", j.Command, j.Activity)
-	}
-	cmd := exec.Command(tool, "task-spec", "--activity", j.Activity, "--task", task, "--root", j.dir, "--out", out)
-	cmd.Dir = j.dir
-	cmd.Env = toolEnv(j)
-	got, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("task-spec %s/%s: %w", j.Activity, task, err)
-	}
-	return strings.TrimSpace(string(got)), nil
-}
-
-// verifyTaskSpec is the templates' first gate: the spec the job resolves over its checkout
-// must hash to the spec_hash the Manager dispatched, so what the panel shows is what runs.
-//
-// An ANSWER job is exempt: it answers an AskQuestions round (AnswerJobWorkflow), which is
-// no lifecycle task, so the Manager resolves and dispatches no spec for it.
-func verifyTaskSpec(tool string, j agentJob) error {
-	if j.Mode == "answer" {
+// narrowSpec, when the venue is set to narrow, drops the spec's first scenario check
+// (re-hashed, so record-check-run takes it) and remembers the scenario it dropped.
+func (v *venue) narrowSpec(specPath string) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if !v.narrow {
 		return nil
 	}
-	want := j.env["AIARCH_SPEC_HASH"]
-	if len(want) != 64 {
-		return fmt.Errorf("the %s dispatch of %s carries spec hash %q, want a sha256 hex digest", j.Command, j.Activity, want)
-	}
-	tmp, err := os.MkdirTemp("", "dct-spec-")
+	spec, err := testinfra.ReadSpec(specPath)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.RemoveAll(tmp) }()
-	got, err := resolveTaskSpec(tool, j, filepath.Join(tmp, "spec.json"))
-	if err != nil {
-		return err
+	i := slices.IndexFunc(spec.Checks, func(c projectstate.SpecCheck) bool { return c.Kind == projectstate.CheckKindScenario })
+	if i < 0 {
+		return fmt.Errorf("the integration spec of %s holds no scenario check to drop", spec.Activity)
 	}
-	if got != want {
-		return fmt.Errorf("task spec drifted for %s/%s: dispatched %s, the worktree resolves %s", j.Activity, j.env["AIARCH_TASK_ID"], want, got)
-	}
-	return nil
+	v.dropped = spec.Checks[i].Source.Scenario
+	spec.Checks = slices.Delete(spec.Checks, i, i+1)
+	return testinfra.WriteSpec(specPath, spec)
 }
 
-// writePassingResults writes run-checks' results file for the spec at specPath: one
-// passing result per check, which is what a green gate run records.
-func writePassingResults(specPath, out string) (string, error) {
-	raw, err := os.ReadFile(specPath)
-	if err != nil {
-		return "", err
-	}
-	var spec projectstate.TaskSpec
-	if err := json.Unmarshal(raw, &spec); err != nil {
-		return "", err
-	}
-	results := make([]projectstate.CheckResult, 0, len(spec.Checks))
-	for _, c := range spec.Checks {
-		results = append(results, projectstate.CheckResult{CheckId: c.ID, Kind: c.Kind, Status: "pass", DurationMs: 1})
-	}
-	b, err := json.Marshal(results)
-	if err != nil {
-		return "", err
-	}
-	return out, os.WriteFile(out, b, 0o600)
+// venueJob is the job as the shared venue double (testinfra) takes it.
+func venueJob(j agentJob) testinfra.VenueJob {
+	return testinfra.VenueJob{Mode: j.Mode, Command: j.Command, Activity: j.Activity, Dir: j.dir, Env: j.env}
 }
 
 // foldName folds a component's kebab id and its contract's camel name together (lower
@@ -2941,4 +2907,144 @@ func stepViewTheProjectStateLogP2S1(t *testing.T, h *scenariohost.Host, subject 
 func probeViewTheProjectStateLogP2S1N1(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager) (any, error) {
 	t.Helper()
 	return stackOf(t, subject).ps.ReadProjectVersion(h.ResourceAccessContext(t, "probe-1.1"), planProject)
+}
+
+// ---------------------------------------------------------------------------
+// The testing gate on the integration CheckRun (agent task spec, Task B5)
+//
+// These two tests are not projected from the test plan: the plan binds no scenario whose
+// venue records a deficient run, and the gate's hold is workflow code no public op returns.
+// They drive the subject exactly as the scenarios do — the arrangement, one pump tick,
+// the scripted venue — and observe it through its own read ops.
+// ---------------------------------------------------------------------------
+
+// TestTestingGateHoldsOnARunMissingAProjectedScenario: the venue records an integration
+// run that never ran one projected scenario, so the testing gate holds the round for a
+// human with ONE system comment anchored at that run.
+func TestTestingGateHoldsOnARunMissingAProjectedScenario(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.venue.mu.Lock()
+	s.venue.narrow = true
+	s.venue.mu.Unlock()
+	s.serve()
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-gate-hold-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	view := awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewAwaitingHuman)
+	s.venue.mu.Lock()
+	dropped := s.venue.dropped
+	s.venue.mu.Unlock()
+	if dropped == "" {
+		t.Fatal("the venue recorded no narrowed integration run")
+	}
+	hold, ok := testingHold(view)
+	if !ok {
+		t.Fatalf("the testing gate holds no system comment: %+v", taskOf(view, "testing"))
+	}
+	if !strings.HasPrefix(hold.Anchor, "$.testingState.checkRuns[id=dct-run-") ||
+		!strings.Contains(hold.Text, "never ran projected scenario(s)") || !strings.Contains(hold.Text, dropped) {
+		t.Fatalf("hold comment %q at %q, want one at the run naming the never-run %s", hold.Text, hold.Anchor, dropped)
+	}
+}
+
+// TestTestingGatePassCitesTheJudgedRun: a complete green integration run at the judged
+// attempt passes the gate, the testing pass cites that ONE run (evidence checkRun), and
+// the taskSpec view of integration revision 1 — which reads the activity branch, where
+// the run is published — shows it, recorded at the judged attempt (R15).
+func TestTestingGatePassCitesTheJudgedRun(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-gate-pass-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
+	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "gate-pass-read"), planProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	judged, cited := judgedAndCited(t, proj.ActivityExecution[drivenActivity])
+	if cited == "" || strings.Contains(cited, ",") {
+		t.Fatalf("the testing pass cites %q, want exactly one run", cited)
+	}
+	pid, act, task, rev := planProject, drivenActivity, "integration", 1
+	v, err := subject.QueryProjectView(callContext(t, h, ""), delivery.ProjectViewQuery{
+		Kind: delivery.ProjectViewTaskSpec, ProjectID: &pid, ActivityID: &act, TaskID: &task, Revision: &rev})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.TaskSpec == nil || v.TaskSpec.CheckRun == nil {
+		t.Fatalf("integration revision 1 shows no run, want the cited run %s", cited)
+	}
+	run := v.TaskSpec.CheckRun
+	if run.ID != cited || run.Revision != judged || run.Task != "integration" || v.TaskSpec.SpecChanged {
+		t.Fatalf("integration revision 1 shows run %s at %q (task %s, specChanged %v), want the cited run %s at the judged attempt %q",
+			run.ID, run.Revision, run.Task, v.TaskSpec.SpecChanged, cited, judged)
+	}
+}
+
+// judgedAndCited is the row's passed integration attempt and the run its passed testing
+// attempt cites, failing t when the testing pass cites anything but a check run.
+func judgedAndCited(t *testing.T, row projectstate.ActivityExecution) (judged, cited string) {
+	t.Helper()
+	for _, a := range row.Attempts {
+		switch {
+		case a.Task == projectstate.TaskIntegration && a.Outcome == projectstate.OutcomePassed:
+			judged = a.AttemptID
+		case a.Task == projectstate.TaskTesting && a.Outcome == projectstate.OutcomePassed:
+			if a.Evidence.Kind != projectstate.EvidenceCheckRun {
+				t.Fatalf("the testing pass cites %+v, want a check run", a.Evidence)
+			}
+			cited = a.Evidence.Ref
+		}
+	}
+	return judged, cited
+}
+
+// taskOf is the view's task named id.
+func taskOf(v delivery.ActivityView, id string) delivery.ActivityTaskView {
+	for _, task := range v.Tasks {
+		if task.ID == id {
+			return task
+		}
+	}
+	return delivery.ActivityTaskView{}
+}
+
+// testingHold is the system comment the testing task's latest revision carries.
+func testingHold(v delivery.ActivityView) (delivery.ReviewThreadComment, bool) {
+	revs := taskOf(v, "testing").Revisions
+	if len(revs) == 0 {
+		return delivery.ReviewThreadComment{}, false
+	}
+	for _, c := range revs[len(revs)-1].Thread {
+		if strings.HasPrefix(c.Anchor, "$.testingState.checkRuns") {
+			return c, true
+		}
+	}
+	return delivery.ReviewThreadComment{}, false
+}
+
+// endHeldWorkflows terminates, when the test ends, the executions a held gate
+// leaves running — the project's pump and the driven activity's walk — what RunScenario
+// does for a projected scenario, so a gate the test left held cannot answer the next
+// test's pump start for the same project. A terminate of a closed execution is a no-op.
+func endHeldWorkflows(t *testing.T, h *scenariohost.Host) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		for _, id := range []string{planProject + ":nextActivity", planProject + ":activity:" + drivenActivity} {
+			_ = h.TemporalClient().TerminateWorkflow(ctx, id, "", "test ended")
+		}
+	})
 }
