@@ -94,7 +94,7 @@ func throughIntegration() []projectstate.TaskAttempt {
 
 // citedPass is a testing pass citing run id.
 func citedPass(n int, run string) projectstate.TaskAttempt {
-	return attempt(projectstate.TaskTesting, n, projectstate.OutcomePassed, projectstate.EvidenceRef{Kind: projectstate.EvidenceTestRun, Ref: run})
+	return attempt(projectstate.TaskTesting, n, projectstate.OutcomePassed, projectstate.EvidenceRef{Kind: projectstate.EvidenceCheckRun, Ref: run})
 }
 
 // qualifyingRun is the run a testing pass of recActivity stands on: its activity, at the

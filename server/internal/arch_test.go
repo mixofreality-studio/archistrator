@@ -998,6 +998,11 @@ var encapsulationAllowlistData = map[string][]string{
 		"CheckKindRule",
 		"CheckKindCommand",
 		"CheckKindScenario",
+		// ValidEditScopeGlob: the ONE edit-scope glob grammar ("**", "<dir>/**", literal)
+		// TaskSpecFor validates its scope against and cmd/aiarch-state-mcp's edit-scope gate
+		// matches by, so the scope the panel shows and the gate enforces cannot diverge. A
+		// pure predicate, same category as the result shape above.
+		"ValidEditScopeGlob",
 		// RULE ATTRIBUTION REGISTRY (moved from cmd/aiarch-state-mcp/staleness.go, Task B2):
 		// the rule-id-prefix → owning-slot table. cmd/aiarch-state-mcp's slot-scoped severity
 		// policy reads AttributeRule; TaskSpecFor's slot rule checks read RulePrefixesFor —

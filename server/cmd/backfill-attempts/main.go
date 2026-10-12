@@ -39,7 +39,7 @@
 //
 // NO BACKFILLED ACTIVITY HAS PASSED ITS TESTING TASK when its lifecycle binds a test plan
 // (spec 2026-10-02 §1 T4, founder 2026-10-04): that task passes only on a full green
-// TestRun at the current revision that renders, and nothing this tool reads is a run. Such
+// CheckRun at the current revision that renders, and nothing this tool reads is a run. Such
 // an activity is backfilled through Integration and its `testing` review is left for the
 // testing gate, which shows the recorded run and asks for the approve (see attemptsFor).
 //
@@ -1434,7 +1434,7 @@ func classify(item projectstate.ActivityItem, hasContract bool) (projectstate.Ac
 // integrated, and those tasks stay unattempted — real work for the pump to record.
 //
 // THE TESTING REVIEW OF A TEST-PLANNED LIFECYCLE IS NEVER BACKFILLED (spec §1 T4). That
-// task passes only on a full green TestRun at the current revision that renders, cited as
+// task passes only on a full green CheckRun at the current revision that renders, cited as
 // the pass's evidence (projectstate.QualifiedAttempts); this tool reads code, not runs, so
 // it has none to cite, and a pass it wrote would be one no reader counts. The task stays
 // unattempted: the activity reads integrated with its testing task pending review, and the

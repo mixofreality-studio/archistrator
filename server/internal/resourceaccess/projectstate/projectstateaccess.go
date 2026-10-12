@@ -3416,12 +3416,17 @@ type ProjectEnvelope struct {
 	ServiceContracts           map[string]ServiceContract               `json:"serviceContracts,omitempty"`
 	ReviewPolicy               *ReviewPolicy                            `json:"reviewPolicy,omitempty"`
 	// TestingState is the fourth construction-fidelity section (deterministic component
-	// testing, §6.5): the venue's recorded runs (.testingState.testRuns) live on the
+	// testing, §6.5): the venue's recorded runs (.testingState.checkRuns) live on the
 	// ACTIVITY BRANCH until finalizeWalk merges it, and the testing gate reads them across
 	// this boundary — readProjectOnBranch is the one branch-aware read a workflow has, and
 	// without this member it decoded a project with no runs on it. omitempty keeps every
 	// payload without a testing state byte-identical to before.
 	TestingState *TestingState `json:"testingState,omitempty"`
+	// ModuleDir is the project's Go module directory (agent task spec): the task spec's
+	// edit scope and command checks are rooted there, so a spec resolved off this envelope
+	// must see it to hash the same as one resolved off the checkout. omitempty keeps every
+	// payload of a root-module project byte-identical to before.
+	ModuleDir string `json:"moduleDir,omitempty"`
 
 	// OperatorPaused / PauseReason carry the operator's RECORDED pause
 	// (RecordOperatorPaused) across the boundary: the construction pump's
@@ -3445,6 +3450,7 @@ func EncodeProject(p Project) (ProjectEnvelope, error) {
 	out.ActivityExecution = p.ActivityExecution
 	out.ServiceContracts = p.ServiceContracts
 	out.TestingState = p.TestingState
+	out.ModuleDir = p.ModuleDir
 	out.OperatorPaused = p.OperatorPaused
 	out.PauseReason = p.PauseReason
 	if len(p.ReviewPolicy.GatedPhasesByType) != 0 || p.ReviewPolicy.Preset != nil {
@@ -3483,6 +3489,7 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 	p.ActivityExecution = activityExecutionOrLegacy(e.ActivityExecution, e.LegacyActivityConstruction)
 	p.ServiceContracts = e.ServiceContracts
 	p.TestingState = e.TestingState
+	p.ModuleDir = e.ModuleDir
 	p.OperatorPaused = e.OperatorPaused
 	p.PauseReason = e.PauseReason
 	if e.ReviewPolicy != nil {
@@ -7106,20 +7113,21 @@ const (
 	EvidenceArtifact EvidenceKind = "artifact"
 	EvidenceContract EvidenceKind = "contract"
 	EvidenceGit      EvidenceKind = "git"
-	// EvidenceTestRun cites a recorded TestRun by its id (.testingState.testRuns[].id). It is
-	// the ONLY evidence a `testing` pass of a test-planned activity may carry (see
-	// QualifiedAttempts): the testing gate writes it when the run it judged qualified.
-	EvidenceTestRun EvidenceKind = "testRun"
+	// EvidenceCheckRun cites a recorded CheckRun by its id (.testingState.checkRuns[].id). It
+	// is the ONLY evidence a `testing` pass of a test-planned activity may carry (see
+	// QualifiedAttempts): the testing gate writes it when the integration run it judged
+	// qualified.
+	EvidenceCheckRun EvidenceKind = "checkRun"
 )
 
 // THE TESTING TASK PASSES ONLY ON A QUALIFYING TEST RUN (spec 2026-10-02 §1 T4, §6.5).
 //
 // A lifecycle that binds a test plan — the service and frontend lifecycles, whose phase set
 // carries MethodPhaseTestPlan — exits its Integration phase through the `testing` review, and
-// T4 says that review passes only on a full green TestRun at the judged revision that
+// T4 says that review passes only on a full green integration CheckRun at the judged revision that
 // renders. The testing gate (the delivery Manager's DeliveryActivityWorkflow) checks all four
 // §6.5 rules before it passes, and records the run it judged as the pass's evidence
-// (EvidenceTestRun). So a `testing` pass that cites no run is a pass nobody judged against a
+// (EvidenceCheckRun). So a `testing` pass that cites no run is a pass nobody judged against a
 // run — the backfill's "assume it is done" rows, a human override of a held gate, a record
 // written before the gate existed — and it does not stand:
 //
@@ -7139,14 +7147,14 @@ func testsScenarios(pr Profile) bool {
 }
 
 // testingPassCitesRun reports whether a passed `testing` attempt carries the evidence T4
-// requires: a cited TestRun id.
+// requires: a cited CheckRun id.
 func testingPassCitesRun(a TaskAttempt) bool {
-	return a.Evidence.Kind == EvidenceTestRun && a.Evidence.Ref != ""
+	return a.Evidence.Kind == EvidenceCheckRun && a.Evidence.Ref != ""
 }
 
 // QualifiedAttempts is the attempt ledger as every reader must resolve it: when scenarioTested
 // (the activity's lifecycle binds a test plan), each `testing` attempt that PASSED without
-// citing a TestRun is dropped, so the testing task reads as undecided rather than passed. Every
+// citing a CheckRun is dropped, so the testing task reads as undecided rather than passed. Every
 // other attempt, and every attempt of a lifecycle that binds no test plan, is kept as it is.
 // The input is never modified.
 func QualifiedAttempts(scenarioTested bool, attempts []TaskAttempt) []TaskAttempt {
@@ -9847,8 +9855,8 @@ func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID Pro
 // an already-resolved attempt a different terminal is refused. The dedup ledger
 // covers the RETRY; this rule covers the RE-ISSUE, and the ledger needs both.
 //
-// A `testing` PASS on a row whose lifecycle binds a test plan must cite the TestRun the
-// testing gate judged (EvidenceTestRun with the run id), or it is refused: T4 says that task
+// A `testing` PASS on a row whose lifecycle binds a test plan must cite the CheckRun the
+// testing gate judged (EvidenceCheckRun with the run id), or it is refused: T4 says that task
 // passes only on a qualifying run, and a pass citing none is one no reader would count
 // (QualifiedAttempts). The row's own classified type decides, as it decides every other
 // reading of the row.
@@ -9866,8 +9874,8 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 		if attempt.TaskID == TaskTesting && attempt.Outcome == OutcomePassed && testsScenarios(ProfileFor(cs.Type, cs.Variant)) &&
 			!testingPassCitesRun(TaskAttempt{Evidence: EvidenceRef{Kind: attempt.EvidenceKind, Ref: attempt.EvidenceRef}}) {
 			return execMisuse("RecordAttemptOutcome", fmt.Sprintf(
-				"attempt %s passes the testing task of %s without citing a test run (evidenceKind %q, evidenceRef %q); the testing task passes only on a qualifying TestRun, cited as evidenceKind %q with the run id (spec §1 T4)",
-				attempt.AttemptID, activityID, attempt.EvidenceKind, attempt.EvidenceRef, EvidenceTestRun))
+				"attempt %s passes the testing task of %s without citing a check run (evidenceKind %q, evidenceRef %q); the testing task passes only on a qualifying integration CheckRun, cited as evidenceKind %q with the run id (spec §1 T4)",
+				attempt.AttemptID, activityID, attempt.EvidenceKind, attempt.EvidenceRef, EvidenceCheckRun))
 		}
 		for i := range cs.Attempts {
 			held := &cs.Attempts[i]

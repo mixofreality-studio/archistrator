@@ -27,8 +27,9 @@
 // agent. The `claude` the venue starts is this test binary (see the venue section):
 // a scripted agent that does, in its worktree, what a real agent does — it drives the
 // venue's REAL state tool (cmd/aiarch-state-mcp, built for the run) over MCP, records
-// the integration step's test run with that tool's record-test-run, or commits its
-// construction work — and ends as the scenario scripts (succeeds, fails, or is still
+// the integration step's check run with that tool's record-check-run, or commits its
+// construction work — first holding the dispatch to the task spec it names, as the venue
+// templates do — and ends as the scenario scripts (succeeds, fails, or is still
 // running when the operator looks).
 //
 // ARRANGEMENT goes through public operations only (round-2 ruling): the project is
@@ -666,9 +667,10 @@ func awaitActivityState(t *testing.T, h *scenariohost.Host, subject delivery.Del
 //     its worktree what a real agent run does there: a design job drives the real state
 //     tool over MCP (putDraftModel / setCritiqueVerdict / respondToReviewComment, then
 //     publishDraft); a construction job commits its work; the integration job records
-//     the test run with the state tool's record-test-run (the venue's own write, from
-//     the results of every scenario the component's committed plan binds) and then
-//     publishes. Its stdout is the stream-json a real run writes, so the venue mines
+//     its check run with the state tool's record-check-run (the venue's own write, a
+//     green result for every check the task spec holds — every scenario projected onto
+//     the component among them) and then publishes. Every job first resolves its task
+//     spec with task-spec and refuses a hash other than the dispatched spec_hash. Its stdout is the stream-json a real run writes, so the venue mines
 //     the episode from it.
 
 const (
@@ -730,7 +732,10 @@ func buildVenue(moduleRoot string) (string, venueRig, error) {
 	tool := filepath.Join(dir, "state-tool")
 	build := exec.Command("go", "build", "-o", tool, "./cmd/aiarch-state-mcp")
 	build.Dir = moduleRoot
-	build.Env = append(os.Environ(), "GOWORK=off")
+	// The tool builds in the mode this test binary was built in (the ambient GOWORK: off
+	// under the make targets, the workspace during a pre-release development cycle), so
+	// the venue's state tool and the subject resolve the same platform modules.
+	build.Env = os.Environ()
 	if out, err := build.CombinedOutput(); err != nil {
 		return "", venueRig{}, fmt.Errorf("build the state tool: %w\n%s", err, out)
 	}
@@ -783,7 +788,7 @@ type venue struct {
 	repo      workingRepo
 	stateTool string // what the venue is configured with: the double on PATH
 	tool      string // the real state tool
-	results   string // where the integration step's test runs are kept
+	results   string // where the integration step's check runs are kept
 
 	mu        sync.Mutex
 	submitted []agentJob
@@ -957,8 +962,12 @@ func streamEvents(failed bool) string {
 	return string(initEv) + "\n" + string(resultEv) + "\n"
 }
 
-// perform is what a succeeding run does in its worktree.
+// perform is what a succeeding run does in its worktree, once the dispatched task spec
+// checks out (verifyTaskSpec).
 func (v *venue) perform(n int, j agentJob) error {
+	if err := verifyTaskSpec(v.tool, j); err != nil {
+		return err
+	}
 	switch j.Mode {
 	case "draft":
 		return v.draft(j)
@@ -1046,63 +1055,102 @@ func (v *venue) answer(j agentJob) error {
 	})
 }
 
-// integrate is the integration step's venue write: every scenario projected onto the
-// component — computed from the worktree's project exactly as testgen and the state tool
-// compute it (projectstate.ComponentScenarios), the set the generated tests bind — ran
-// green, the results flushed where the scenario host writes them (one results.json under
-// the contract's name), and that run is recorded with record-test-run at the attempt the
-// dispatch stamped (AIARCH_REVISION) and published.
+// integrate is the integration step's venue write, the construct template's gate in
+// miniature: the task spec resolved in the worktree exactly as the job resolves it
+// (task-spec), every check it holds — the scenario checks are every scenario projected
+// onto the component — ran green, the results written where run-checks writes them, and
+// that run recorded with record-check-run at the attempt the dispatch stamped
+// (AIARCH_REVISION) and published.
 func (v *venue) integrate(n int, j agentJob) error {
-	scenarios, err := projectedScenarios(j)
-	if err != nil {
-		return err
-	}
 	runID := fmt.Sprintf("dct-run-%04d", n+1)
 	dir := filepath.Join(v.results, runID)
-	if err := os.MkdirAll(filepath.Join(dir, drivenContract), 0o750); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	results := make([]scenariohost.ScenarioResult, 0, len(scenarios))
-	for _, id := range scenarios {
-		results = append(results, scenariohost.ScenarioResult{Scenario: id, Status: scenariohost.StatusPass, DurationMs: 1})
+	specPath := filepath.Join(dir, "spec.json")
+	if _, err := resolveTaskSpec(v.tool, j, specPath); err != nil {
+		return err
 	}
-	b, err := json.Marshal(results)
+	resultsPath, err := writePassingResults(specPath, filepath.Join(dir, "results.json"))
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, drivenContract, "results.json"), b, 0o600); err != nil {
-		return err
-	}
-	record := exec.Command(v.tool, "record-test-run", "--activity", j.Activity, "--component", j.Component,
-		"--run-id", runID, "--artifact", dir, "--results", dir)
+	record := exec.Command(v.tool, "record-check-run", "--spec", specPath, "--results", resultsPath,
+		"--run-id", runID, "--artifact", dir)
 	record.Dir = j.dir
 	record.Env = toolEnv(j)
 	if out, err := record.CombinedOutput(); err != nil {
-		return fmt.Errorf("record-test-run: %w\n%s", err, out)
+		return fmt.Errorf("record-check-run: %w\n%s", err, out)
 	}
 	return v.withStateTool(j, func(*stateSession) error { return nil })
 }
 
-// projectedScenarios is the ids of the scenarios the worktree's project projects onto the
-// job's component.
-func projectedScenarios(j agentJob) ([]string, error) {
-	raw, err := os.ReadFile(filepath.Join(j.dir, ".aiarch", "state", "project.json"))
+// resolveTaskSpec runs the state tool's task-spec over the job's worktree for the task the
+// dispatch names (AIARCH_TASK_ID), writes it to out and returns its hash — what the
+// construct and design templates do before the agent starts.
+func resolveTaskSpec(tool string, j agentJob, out string) (string, error) {
+	task := j.env["AIARCH_TASK_ID"]
+	if task == "" {
+		return "", fmt.Errorf("the %s dispatch of %s carries no task id (AIARCH_TASK_ID)", j.Command, j.Activity)
+	}
+	cmd := exec.Command(tool, "task-spec", "--activity", j.Activity, "--task", task, "--root", j.dir, "--out", out)
+	cmd.Dir = j.dir
+	cmd.Env = toolEnv(j)
+	got, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return "", fmt.Errorf("task-spec %s/%s: %w", j.Activity, task, err)
 	}
-	proj, _, err := projectstate.DecodeProjectJSON(raw, planProject)
+	return strings.TrimSpace(string(got)), nil
+}
+
+// verifyTaskSpec is the templates' first gate: the spec the job resolves over its checkout
+// must hash to the spec_hash the Manager dispatched, so what the panel shows is what runs.
+//
+// An ANSWER job is exempt: it answers an AskQuestions round (AnswerJobWorkflow), which is
+// no lifecycle task, so the Manager resolves and dispatches no spec for it.
+func verifyTaskSpec(tool string, j agentJob) error {
+	if j.Mode == "answer" {
+		return nil
+	}
+	want := j.env["AIARCH_SPEC_HASH"]
+	if len(want) != 64 {
+		return fmt.Errorf("the %s dispatch of %s carries spec hash %q, want a sha256 hex digest", j.Command, j.Activity, want)
+	}
+	tmp, err := os.MkdirTemp("", "dct-spec-")
 	if err != nil {
-		return nil, err
+		return err
 	}
-	projected, err := projectstate.ComponentScenarios(&proj, j.Component)
+	defer func() { _ = os.RemoveAll(tmp) }()
+	got, err := resolveTaskSpec(tool, j, filepath.Join(tmp, "spec.json"))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	ids := make([]string, 0, len(projected))
-	for _, sc := range projected {
-		ids = append(ids, sc.ID)
+	if got != want {
+		return fmt.Errorf("task spec drifted for %s/%s: dispatched %s, the worktree resolves %s", j.Activity, j.env["AIARCH_TASK_ID"], want, got)
 	}
-	return ids, nil
+	return nil
+}
+
+// writePassingResults writes run-checks' results file for the spec at specPath: one
+// passing result per check, which is what a green gate run records.
+func writePassingResults(specPath, out string) (string, error) {
+	raw, err := os.ReadFile(specPath)
+	if err != nil {
+		return "", err
+	}
+	var spec projectstate.TaskSpec
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		return "", err
+	}
+	results := make([]projectstate.CheckResult, 0, len(spec.Checks))
+	for _, c := range spec.Checks {
+		results = append(results, projectstate.CheckResult{CheckId: c.ID, Kind: c.Kind, Status: "pass", DurationMs: 1})
+	}
+	b, err := json.Marshal(results)
+	if err != nil {
+		return "", err
+	}
+	return out, os.WriteFile(out, b, 0o600)
 }
 
 // foldName folds a component's kebab id and its contract's camel name together (lower

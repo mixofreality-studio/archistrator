@@ -1792,8 +1792,8 @@ func TestT4_AnUncitedTestingPassNeverReadsPassed(t *testing.T) {
 	}{
 		{"no evidence (the pre-T4 backfill)", projectstate.EvidenceRef{}, [2]any{projectstate.ActivityConstructionRunning, projectstate.BuildInReview}},
 		{"a git ref is not a run", projectstate.EvidenceRef{Kind: projectstate.EvidenceGit, Ref: fixtureHead}, [2]any{projectstate.ActivityConstructionRunning, projectstate.BuildInReview}},
-		{"a testRun kind naming no run", projectstate.EvidenceRef{Kind: projectstate.EvidenceTestRun}, [2]any{projectstate.ActivityConstructionRunning, projectstate.BuildInReview}},
-		{"a cited run", projectstate.EvidenceRef{Kind: projectstate.EvidenceTestRun, Ref: "run-1"}, [2]any{projectstate.ActivityConstructionDone, projectstate.BuildIntegrated}},
+		{"a checkRun kind naming no run", projectstate.EvidenceRef{Kind: projectstate.EvidenceCheckRun}, [2]any{projectstate.ActivityConstructionRunning, projectstate.BuildInReview}},
+		{"a cited run", projectstate.EvidenceRef{Kind: projectstate.EvidenceCheckRun, Ref: "run-1"}, [2]any{projectstate.ActivityConstructionDone, projectstate.BuildIntegrated}},
 	}
 	for _, c := range cases {
 		phase, build := projectstate.EffectiveConstructionPhase(withTesting(c.evidence), item)

@@ -2335,16 +2335,20 @@ func pauseReasonToContract(reason string) *string {
 }
 
 // testingStateToContract converts the head-state TestingState to the contract
-// view. Returns nil when absent so the field is omitted from the read. A test run is
-// one venue run of a component's generated scenario tests (deterministic component
-// testing, spec §6.1); the system test plan the view used to carry is retired (§7).
+// view. Returns nil when absent so the field is omitted from the read. The view's runs
+// are the scenario halves of the recorded CheckRuns (agent task spec): one TestRunView
+// per (run, contract) whose scenario verdicts the run carries, in recording order and
+// contract-name order within a run. A run with no scenario verdict (a design task's rule
+// checks, a construction task's build checks) is not a test run and is not listed.
 func testingStateToContract(ts *projectstate.TestingState) *TestingStateView {
 	if ts == nil {
 		return nil
 	}
-	runs := make([]TestRunView, len(ts.TestRuns))
-	for i, r := range ts.TestRuns {
-		runs[i] = testRunToContract(r)
+	runs := make([]TestRunView, 0, len(ts.CheckRuns))
+	for _, r := range ts.CheckRuns {
+		for _, contract := range scenarioContractsOf(r) {
+			runs = append(runs, testRunToContract(r, contract))
+		}
 	}
 	defects := make([]DefectView, len(ts.Defects))
 	for i, d := range ts.Defects {
@@ -2353,29 +2357,87 @@ func testingStateToContract(ts *projectstate.TestingState) *TestingStateView {
 	return &TestingStateView{TestRuns: runs, Defects: defects}
 }
 
-// testRunToContract maps one recorded test run, scenario results included, onto the
-// wire. Scenarios is never nil on the wire: a run with no results is an empty list.
-func testRunToContract(r projectstate.TestRun) TestRunView {
-	scenarios := make([]ScenarioResultView, len(r.Scenarios))
-	for i, sc := range r.Scenarios {
-		scenarios[i] = ScenarioResultView{
-			Scenario:   sc.Scenario,
-			Status:     sc.Status,
-			DurationMs: int64(sc.DurationMs),
-			VideoRef:   sc.VideoRef,
-			TraceRef:   sc.TraceRef,
+// testRunToContract maps one CheckRun's scenario verdicts for ONE contract onto the
+// test-run wire shape: the run's id, activity and revision, the contract as its
+// component, and one result per `scenario:<contract>:<id>` check with the scenario id as
+// its name. Scenarios is never nil on the wire: a run with no results for the contract
+// is an empty list.
+func testRunToContract(r projectstate.CheckRun, contract string) TestRunView {
+	scenarios := []ScenarioResultView{}
+	for _, res := range r.Results {
+		id, ok := scenarioIDOf(res, contract)
+		if !ok {
+			continue
 		}
+		scenarios = append(scenarios, ScenarioResultView{
+			Scenario:   id,
+			Status:     res.Status,
+			DurationMs: int64(res.DurationMs),
+			VideoRef:   derefString(res.VideoRef, ""),
+			TraceRef:   derefString(res.TraceRef, ""),
+		})
 	}
 	return TestRunView{
 		Id:        r.ID,
 		Activity:  r.Activity,
-		Component: r.Component,
+		Component: contract,
 		Revision:  r.Revision,
 		Artifact:  r.Artifact,
 		StartedAt: r.StartedAt,
 		EndedAt:   r.EndedAt,
 		Scenarios: scenarios,
 	}
+}
+
+// checkRunToContract maps one recorded CheckRun onto the wire verbatim. Results is never
+// nil on the wire.
+func checkRunToContract(r projectstate.CheckRun) DeliveryCheckRunView {
+	results := make([]CheckResultView, len(r.Results))
+	for i, res := range r.Results {
+		results[i] = CheckResultView{
+			CheckId: res.CheckId, Kind: res.Kind, Status: res.Status, DurationMs: res.DurationMs,
+			OutputRef: res.OutputRef, TraceRef: res.TraceRef, VideoRef: res.VideoRef,
+		}
+	}
+	return DeliveryCheckRunView{
+		ID: r.ID, Activity: r.Activity, Task: r.Task, Revision: r.Revision, SpecHash: r.SpecHash,
+		StartedAt: r.StartedAt, EndedAt: r.EndedAt, Artifact: r.Artifact, Results: results,
+	}
+}
+
+// scenarioCheckPrefix is the check-id prefix of every scenario check a contract owns:
+// projectstate.TaskSpecFor names a scenario check "scenario:<contract>:<scenario id>".
+func scenarioCheckPrefix(contract string) string {
+	return projectstate.CheckKindScenario + ":" + contract + ":"
+}
+
+// scenarioIDOf is the scenario id a scenario result names under contract, ok=false for a
+// result of another kind or another contract.
+func scenarioIDOf(res projectstate.CheckResult, contract string) (string, bool) {
+	if res.Kind != projectstate.CheckKindScenario {
+		return "", false
+	}
+	id, ok := strings.CutPrefix(res.CheckId, scenarioCheckPrefix(contract))
+	return id, ok && id != ""
+}
+
+// scenarioContractsOf names the contracts a run carries scenario verdicts for, sorted.
+func scenarioContractsOf(r projectstate.CheckRun) []string {
+	var out []string
+	for _, res := range r.Results {
+		if res.Kind != projectstate.CheckKindScenario {
+			continue
+		}
+		rest, ok := strings.CutPrefix(res.CheckId, projectstate.CheckKindScenario+":")
+		if !ok {
+			continue
+		}
+		if contract, _, ok := strings.Cut(rest, ":"); ok && contract != "" {
+			out = append(out, contract)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // reviewPolicyToContract converts the head-state ReviewPolicy to the contract
@@ -8691,11 +8753,12 @@ type gateLedger struct {
 	// constructState.workAttemptID for the same reason the rest of this struct does: on a
 	// fork two gates judge two different attempts at the same moment.
 	judgedAttemptID string
-	// testRunID is the TestRun a scenario testing gate judged and found qualifying (spec
-	// §6.5), set by testingGateHeld when the gate does not hold. The gate's pass cites it as
-	// its evidence (passGateAttempt), which is the only testing pass T4 lets stand; empty on
-	// every other gate, and on a testing gate that has not (yet) judged a qualifying run.
-	testRunID string
+	// checkRunID is the integration CheckRun a scenario testing gate judged and found
+	// qualifying (spec §6.5), set by testingGateHeld when the gate does not hold. The gate's
+	// pass cites it as its evidence (passGateAttempt), which is the only testing pass T4
+	// lets stand; empty on every other gate, and on a testing gate that has not (yet)
+	// judged a qualifying run.
+	checkRunID string
 }
 
 // walkRun is the generic child's per-run head-state and git lifecycle. The helpers it
@@ -10053,7 +10116,7 @@ func deriveTaskViews(lc methodassets.Lifecycle, attempts []projectstate.TaskAtte
 		s := evidenceState(t, gates[id], revs, reviewerOf, liveGates)
 		if s == taskPassed && scenarioTestingGate(lc, t) && !testingPassCitesRun(attempts) {
 			// T4 (spec §1): the testing task of a test-planned lifecycle reads passed only on
-			// a pass that cites its TestRun. A persisted round can read passed on its own (a
+			// a pass that cites its CheckRun. A persisted round can read passed on its own (a
 			// round decided before its gate attempt was refused), so the state is checked
 			// here as well as the ledger being qualified on the way in: the task reads
 			// pending review, or locked behind an unfinished dependency, like a task never
@@ -11585,6 +11648,8 @@ func (m *deliveryManager) QueryProjectView(rc fwmanager.Context, query ProjectVi
 		return m.queryTestRunView(rc, query, out)
 	case ProjectViewScenarios:
 		return m.queryScenariosView(rc, query, out)
+	case ProjectViewTaskSpec:
+		return m.queryTaskSpecView(rc, query, out)
 	}
 	return out, nil
 }
@@ -12303,9 +12368,16 @@ type pipelineSpec struct {
 	OperatorNote string
 	// Revision is the attempt this dispatch runs under (<activity>:<task>:<n>). It IS the
 	// revision a run the job records is stamped with: the walk holds the attempt and no SHA,
-	// and the testing gate judges a TestRun's revision against the integration attempt its
+	// and the testing gate judges a CheckRun's revision against the integration attempt its
 	// round opened (dct5 round-2 ruling). The venue exports it to the job as AIARCH_REVISION.
 	Revision string
+	// TaskID is the lifecycle task this dispatch runs, and SpecHash the hash of the agent
+	// task spec the walk resolved for it (projectstate.TaskSpecFor) over the project state
+	// the job will check out. The job recomputes the spec from the same code and refuses to
+	// start on a different hash, so the model, prompt, tools, edit scope and checks the
+	// panel shows are the ones the run uses (agent task spec §5).
+	TaskID   string
+	SpecHash string
 }
 
 // csPipelineObservation is the Manager's neutral pipeline observation.
@@ -12393,8 +12465,8 @@ func isGitLocalVenue(projectID ProjectID, repoRef sourcecontrol.RepoRef) bool {
 // in Task 13.
 func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	m := map[string]string{
-		"activity_id":  spec.ActivityID,
-		"component_id": spec.ComponentID,
+		dispatchInputActivityID: spec.ActivityID,
+		"component_id":          spec.ComponentID,
 	}
 	if spec.Phase != "" {
 		m["phase"] = spec.Phase
@@ -12414,8 +12486,25 @@ func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	if spec.Revision != "" {
 		m[dispatchInputRevision] = spec.Revision
 	}
+	if spec.TaskID != "" {
+		m[dispatchInputTaskID] = spec.TaskID
+	}
+	if spec.SpecHash != "" {
+		m[dispatchInputSpecHash] = spec.SpecHash
+	}
 	return m
 }
+
+// dispatchInputTaskID / dispatchInputSpecHash carry the agent task spec envelope: the
+// lifecycle task the job runs and the hash of the spec the walk resolved for it. Bare
+// literals like every other input: the seated workflow templates (both of which require
+// them) are the wire keys' source of truth, and the local venue stamps them into the rig
+// as AIARCH_TASK_ID / AIARCH_SPEC_HASH.
+const (
+	dispatchInputTaskID     = "task_id"
+	dispatchInputSpecHash   = "spec_hash"
+	dispatchInputActivityID = "activity_id"
+)
 
 // dispatchInputRevision is the dispatch input carrying the attempt the job runs under
 // (pipelineSpec.Revision). A bare literal for the same reason operator_note is: the seated
@@ -13973,9 +14062,9 @@ const (
 // DETERMINISTIC COMPONENT TESTING — the `testRun` and `scenarios` project views and
 // the test-run file read (spec §6.3/§6.4; Plan 2 Task 6).
 //
-// A test run is what the venue recorded: one row in .testingState.testRuns holding
-// the per-scenario results of one `make test-scenarios` over one construction
-// revision. On its own the row cannot render — a reviewer needs to see the scenario
+// A test run is the scenario half of what the venue recorded: the `scenario:<contract>:*`
+// results of the integration task's CheckRun on .testingState.checkRuns (agent task
+// spec; one run holds every contract's scenarios, each contract viewed on its own). On its own the row cannot render — a reviewer needs to see the scenario
 // behind each id (its title and the guards it took), which scenarios the run never
 // ran, which results name no projected scenario at all, and whether the artifact
 // holding the videos, traces and the go test stream is still there to open. The view
@@ -14024,9 +14113,11 @@ type TestRunFileReader interface {
 
 var _ TestRunFileReader = (*deliveryManager)(nil)
 
-// queryTestRunView answers the `testRun` kind: the latest run recorded for activityId —
-// or the run runId names — joined with its component's projected scenarios and its
-// artifact index.
+// queryTestRunView answers the `testRun` kind: the integration task's latest CheckRun
+// for activityId — or the run runId names — viewed for one contract (componentId when
+// the query names one, else the first contract the run carries scenarios for, else the
+// first the activity's component owns) and joined with that contract's projected
+// scenarios and the run's artifact index.
 func (m *deliveryManager) queryTestRunView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
 	id, err := requireProjectID(query, "testRun")
 	if err != nil {
@@ -14043,19 +14134,150 @@ func (m *deliveryManager) queryTestRunView(rc fwmanager.Context, query ProjectVi
 	if query.RunID != nil {
 		runID = *query.RunID
 	}
-	run, ok := selectTestRun(&proj, *query.ActivityID, runID)
+	run, ok := selectCheckRun(&proj, *query.ActivityID, integrationTaskID, runID, nil)
 	if !ok {
 		if runID != "" {
-			return out, newError(fwmanager.NotFound, fmt.Sprintf("activity %q has no test run %q", *query.ActivityID, runID))
+			return out, newError(fwmanager.NotFound, fmt.Sprintf("activity %q has no integration check run %q", *query.ActivityID, runID))
 		}
-		return out, newError(fwmanager.NotFound, fmt.Sprintf("activity %q has no recorded test run", *query.ActivityID))
+		return out, newError(fwmanager.NotFound, fmt.Sprintf("activity %q has no recorded integration check run", *query.ActivityID))
 	}
-	view, err := m.cs.testRunView(rc, &proj, run)
+	contract, ok := testRunContract(&proj, run, query.ComponentID)
+	if !ok {
+		return out, newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"check run %s carries no scenario verdict and activity %q owns no contract to view it for", run.ID, *query.ActivityID))
+	}
+	view, err := m.cs.testRunView(rc, &proj, run, contract)
 	if err != nil {
 		return out, err
 	}
 	out.TestRun = &view
 	return out, nil
+}
+
+// testRunContract picks the contract a testRun view shows: the one the query names, else
+// the first the run carries scenario verdicts for, else the first the activity's
+// component owns (a run that ran none renders every projected scenario missing).
+func testRunContract(proj *projectstate.Project, run projectstate.CheckRun, named *string) (string, bool) {
+	if named != nil && *named != "" {
+		return *named, true
+	}
+	if contracts := scenarioContractsOf(run); len(contracts) > 0 {
+		return contracts[0], true
+	}
+	item, ok := committedActivityItem(*proj, run.Activity)
+	if !ok {
+		return "", false
+	}
+	contracts, ok := gateContracts(proj, item.ComponentID)
+	if !ok || len(contracts) == 0 {
+		return "", false
+	}
+	return contracts[0], true
+}
+
+// queryTaskSpecView answers the `taskSpec` kind: the agent task spec of one lifecycle
+// task (projectstate.TaskSpecFor), resolved over the project as the ACTIVITY BRANCH holds
+// it (main once the branch is gone) — the state the task's job checks out — with the
+// task's CheckRun beside it: the one recorded under task revision `revision` (a run whose
+// revision is one of that revision's attempt ids), else the latest. specChanged says the
+// run was recorded against a different spec than the one shown. A task that never ran
+// has a spec and no run.
+func (m *deliveryManager) queryTaskSpecView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
+	id, err := requireProjectID(query, "taskSpec")
+	if err != nil {
+		return out, err
+	}
+	if query.ActivityID == nil || *query.ActivityID == "" {
+		return out, missingSelector("taskSpec", "activityId")
+	}
+	if query.TaskID == nil || *query.TaskID == "" {
+		return out, missingSelector("taskSpec", "taskId")
+	}
+	activityID, taskID := *query.ActivityID, *query.TaskID
+	var attemptIDs []string
+	if query.Revision != nil {
+		attemptIDs, err = m.revisionAttemptIDs(rc, ProjectID(id), activityID, taskID, *query.Revision)
+		if err != nil {
+			return out, err
+		}
+	}
+	proj, err := m.readProjectForActivityView(rc, id, activityID)
+	if err != nil {
+		return out, err
+	}
+	spec, err := projectstate.TaskSpecFor(&proj, activityID, taskID)
+	if err != nil {
+		return out, fwmanager.Wrap(fwmanager.FailedPrecondition, err,
+			fmt.Sprintf("the agent task spec of %s/%s does not resolve", activityID, taskID))
+	}
+	view := taskSpecToContract(spec)
+	if run, ok := selectCheckRun(&proj, activityID, taskID, "", attemptIDs); ok {
+		rv := checkRunToContract(run)
+		view.CheckRun = &rv
+		view.SpecChanged = run.SpecHash != spec.Hash
+	}
+	out.TaskSpec = &view
+	return out, nil
+}
+
+// revisionAttemptIDs is the attempt ids of revision n of one task, read off the activity
+// view (the one derivation of task revisions). An unknown task or revision is NotFound.
+func (m *deliveryManager) revisionAttemptIDs(rc fwmanager.Context, projectID ProjectID, activityID, taskID string, n int) ([]string, error) {
+	av, err := m.QueryActivityView(rc, projectID, ActivityID(activityID))
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range av.Tasks {
+		if t.ID != taskID {
+			continue
+		}
+		for _, rev := range t.Revisions {
+			if rev.N == int64(n) {
+				return rev.AttemptIDs, nil
+			}
+		}
+		return nil, newError(fwmanager.NotFound, fmt.Sprintf("task %s of %s has no revision %d", taskID, activityID, n))
+	}
+	return nil, newError(fwmanager.NotFound, fmt.Sprintf("activity %s has no task %q", activityID, taskID))
+}
+
+// taskSpecToContract maps a resolved task spec onto the wire. Slices are never nil.
+func taskSpecToContract(s projectstate.TaskSpec) DeliveryTaskSpecView {
+	comps := make([]TaskSpecScopeComponentView, len(s.EditScope.Components))
+	for i, c := range s.EditScope.Components {
+		comps[i] = TaskSpecScopeComponentView{ID: c.ID, Paths: nonNilStrings(c.Paths)}
+	}
+	checks := make([]TaskSpecCheckView, len(s.Checks))
+	for i, c := range s.Checks {
+		checks[i] = TaskSpecCheckView{
+			ID: c.ID, Kind: c.Kind, Title: c.Title, TimeoutSec: c.TimeoutSec,
+			Source: TaskSpecCheckSourceView{
+				RulePrefixes: c.Source.RulePrefixes, RuleSlot: strPtrOrNil(c.Source.RuleSlot),
+				Argv: c.Source.Argv, Dir: strPtrOrNil(c.Source.Dir), Scenario: strPtrOrNil(c.Source.Scenario),
+				Contract: strPtrOrNil(c.Source.Contract), UseCase: strPtrOrNil(c.Source.UseCase),
+			},
+		}
+	}
+	return DeliveryTaskSpecView{
+		Activity: s.Activity,
+		Task:     s.Task,
+		Identity: TaskSpecIdentityView{
+			Kind: s.Identity.Kind, Title: s.Identity.Title, Phase: s.Identity.Phase, Command: s.Identity.Command,
+			Agent: s.Identity.Agent, WorkerClass: s.Identity.WorkerClass, ArtifactKind: s.Identity.ArtifactKind,
+			ExitCriterion: s.Identity.ExitCriterion, Mode: s.Identity.Mode,
+		},
+		Model: TaskSpecModelView{
+			ID: s.Model.ID, Source: s.Model.Source,
+			Estimate: TaskSpecEstimateView{TokensIn: s.Model.Estimate.TokensIn, TokensOut: s.Model.Estimate.TokensOut, Usd: s.Model.Estimate.USD},
+		},
+		Prompt: TaskSpecPromptView{Text: s.Prompt.Text, Tokens: s.Prompt.Tokens, Charter: s.Prompt.Charter, Skills: nonNilStrings(s.Prompt.Skills)},
+		Tools:  TaskSpecToolsView{Mcp: nonNilStrings(s.Tools.MCP), Builtin: nonNilStrings(s.Tools.Builtin)},
+		EditScope: TaskSpecEditScopeView{
+			Components: comps, Extra: nonNilStrings(s.EditScope.Extra), StateOnly: s.EditScope.StateOnly,
+		},
+		Checks: checks,
+		Hash:   s.Hash,
+	}
 }
 
 // queryScenariosView answers the `scenarios` kind: the scenario set projected onto
@@ -14081,8 +14303,8 @@ func (m *deliveryManager) queryScenariosView(rc fwmanager.Context, query Project
 	return out, nil
 }
 
-// ReadTestRunFile resolves runID to its recorded run (across every activity — a run id
-// is venue-unique), refuses a path that could escape the artifact, and reads the file
+// ReadTestRunFile resolves runID to its recorded CheckRun (across every activity and task —
+// a run id is venue-unique), refuses a path that could escape the artifact, and reads the file
 // through artifactAccess under the run's own ref.
 func (m *deliveryManager) ReadTestRunFile(rc fwmanager.Context, projectID ProjectID, runID, filePath string) (TestRunFile, error) {
 	if projectID == "" {
@@ -14098,9 +14320,9 @@ func (m *deliveryManager) ReadTestRunFile(rc fwmanager.Context, projectID Projec
 	if err != nil {
 		return TestRunFile{}, err
 	}
-	run, ok := testRunByID(&proj, runID)
+	run, ok := checkRunByID(&proj, runID)
 	if !ok {
-		return TestRunFile{}, newError(fwmanager.NotFound, fmt.Sprintf("project %q has no test run %q", projectID, runID))
+		return TestRunFile{}, newError(fwmanager.NotFound, fmt.Sprintf("project %q has no check run %q", projectID, runID))
 	}
 	out, err := m.cs.artifact.ReadTestRunFile(fwra.Context{Context: rc.Context}, testRunRef(run), filePath)
 	if err != nil {
@@ -14111,7 +14333,7 @@ func (m *deliveryManager) ReadTestRunFile(rc fwmanager.Context, projectID Projec
 
 // readProjectForActivityView reads the project as the ACTIVITY'S BRANCH holds it, falling
 // back to main when that branch answers NotFound. The testRun view needs it for the reason
-// the testing gate does (deliveryactivity.go, readTestingGateProject): the venue publishes
+// the testing gate does (deliveryactivity.go, readActivityBranchProject): the venue publishes
 // the run onto activity/<id>, which reaches main only in the walk's merge, so a view
 // reading main could not show a run while the activity is in flight — which is exactly
 // when the reviewer at the testing gate needs it. The branch read is designSessionAccess'
@@ -14157,8 +14379,8 @@ func (m *deliveryManager) readProjectForView(rc fwmanager.Context, projectID Pro
 
 // testRunView is the join (see the file comment), on the construction half because
 // the testing gate (Task 7) evaluates it from the activity child's worker.
-func (m *constructionManager) testRunView(rc fwmanager.Context, proj *projectstate.Project, run projectstate.TestRun) (DeliveryTestRunView, error) {
-	projected, err := m.projectScenarios(proj, run.Component)
+func (m *constructionManager) testRunView(rc fwmanager.Context, proj *projectstate.Project, run projectstate.CheckRun, contract string) (DeliveryTestRunView, error) {
+	projected, err := m.projectScenarios(proj, contract)
 	if err != nil {
 		return DeliveryTestRunView{}, err
 	}
@@ -14166,7 +14388,7 @@ func (m *constructionManager) testRunView(rc fwmanager.Context, proj *projectsta
 	if err != nil {
 		return DeliveryTestRunView{}, sdMapRAError(err, "artifactAccess.GetTestRunIndex")
 	}
-	return joinTestRun(run, projected, idx), nil
+	return joinTestRun(run, contract, projected, idx), nil
 }
 
 // projectScenarios runs the wired projector, refusing loudly when the composition
@@ -14183,25 +14405,31 @@ func (m *constructionManager) projectScenarios(proj *projectstate.Project, compo
 	return projected, nil
 }
 
-// joinTestRun is the pure join of one run, its projected scenarios and its artifact
-// index. Scenarios follows the projection's canonical order; a projected scenario the
-// run has no result for renders as `missing`, and a result naming no projected
-// scenario lands in Unknown (never in Scenarios: it has no title, guards or plan line
-// to render under). OutputRef points at the component's go test stream when the
-// artifact still holds one; an expired artifact has no readable files at all.
-func joinTestRun(run projectstate.TestRun, projected []scenario.Scenario, idx artifact.TestRunIndex) DeliveryTestRunView {
-	results := make(map[string]projectstate.ScenarioResult, len(run.Scenarios))
-	for _, r := range run.Scenarios {
-		results[r.Scenario] = r
+// joinTestRun is the pure join of one CheckRun's scenario verdicts for ONE contract (its
+// `scenario:<contract>:<id>` results), that contract's projected scenarios and the run's
+// artifact index. Scenarios follows the projection's canonical order; a projected
+// scenario the run has no result for renders as `missing`, and a result naming no
+// projected scenario lands in Unknown (never in Scenarios: it has no title, guards or
+// plan line to render under). A result's log (outputRef) is shown when the artifact
+// still holds it — a run recorded before per-check logs falls back to the contract's
+// go test stream — and an expired artifact has no readable files at all.
+func joinTestRun(run projectstate.CheckRun, contract string, projected []scenario.Scenario, idx artifact.TestRunIndex) DeliveryTestRunView {
+	results := map[string]projectstate.CheckResult{}
+	var order []string
+	for _, r := range run.Results {
+		if id, ok := scenarioIDOf(r, contract); ok {
+			results[id] = r
+			order = append(order, id)
+		}
 	}
-	outputRef := ""
+	legacyStream := ""
 	if !idx.Expired {
-		if stream := path.Join(run.Component, "go-test.jsonl"); slices.Contains(idx.Files, stream) {
-			outputRef = stream
+		if stream := path.Join(contract, "go-test.jsonl"); slices.Contains(idx.Files, stream) {
+			legacyStream = stream
 		}
 	}
 	view := DeliveryTestRunView{
-		Run:       testRunToContract(run),
+		Run:       testRunToContract(run, contract),
 		Scenarios: make([]TestRunScenarioView, 0, len(projected)),
 		Missing:   []string{},
 		Unknown:   []string{},
@@ -14220,31 +14448,41 @@ func joinTestRun(run projectstate.TestRun, projected []scenario.Scenario, idx ar
 		if r, ok := results[sc.ID]; ok {
 			item.Status = r.Status
 			item.DurationMs = int64(r.DurationMs)
-			item.VideoRef = r.VideoRef
-			item.TraceRef = r.TraceRef
-			item.OutputRef = outputRef
+			item.VideoRef = derefString(r.VideoRef, "")
+			item.TraceRef = derefString(r.TraceRef, "")
+			item.OutputRef = legacyStream
+			if ref := derefString(r.OutputRef, ""); ref != "" && !idx.Expired && slices.Contains(idx.Files, ref) {
+				item.OutputRef = ref
+			}
 		} else {
 			view.Missing = append(view.Missing, sc.ID)
 		}
 		view.Scenarios = append(view.Scenarios, item)
 	}
-	for _, r := range run.Scenarios {
-		if !seen[r.Scenario] {
-			view.Unknown = append(view.Unknown, r.Scenario)
+	for _, id := range order {
+		if !seen[id] {
+			view.Unknown = append(view.Unknown, id)
 		}
 	}
 	return view
 }
 
-// selectTestRun picks the run the view is about: runId when given (it must belong to
-// the activity), else the LATEST run recorded for the activity — latest by end time,
-// then start time, then recording order, never by slice position alone, because the
-// venue may record out of order.
-func selectTestRun(proj *projectstate.Project, activityID, runID string) (projectstate.TestRun, bool) {
-	var best projectstate.TestRun
-	found := false
-	for _, run := range testRuns(proj) {
-		if run.Activity != activityID {
+// integrationTaskID is the lifecycle task whose CheckRun carries the scenario verdicts:
+// the venue runs the scenario checks on the integration task (projectstate.TaskSpecFor
+// gives only that task scenario checks).
+const integrationTaskID = string(projectstate.TaskIntegration)
+
+// selectCheckRun picks the CheckRun of (activity, task) a view or the gate is about:
+// runID when given (it must belong to the activity and task); else the LATEST run whose
+// revision is one of attemptIDs; else — no attempt ids given, or none matching (a run
+// recorded before attempt-id revisions, whose revision is a commit sha) — the LATEST run
+// for (activity, task). Latest is by end time, then start time, then recording order,
+// never by slice position alone, because the venue may record out of order.
+func selectCheckRun(proj *projectstate.Project, activityID, taskID, runID string, attemptIDs []string) (projectstate.CheckRun, bool) {
+	var best, bestAt projectstate.CheckRun
+	found, foundAt := false, false
+	for _, run := range checkRuns(proj) {
+		if run.Activity != activityID || run.Task != taskID {
 			continue
 		}
 		if runID != "" {
@@ -14256,6 +14494,12 @@ func selectTestRun(proj *projectstate.Project, activityID, runID string) (projec
 		if !found || !runBefore(run, best) {
 			best, found = run, true
 		}
+		if slices.Contains(attemptIDs, run.Revision) && (!foundAt || !runBefore(run, bestAt)) {
+			bestAt, foundAt = run, true
+		}
+	}
+	if foundAt {
+		return bestAt, true
 	}
 	return best, found
 }
@@ -14264,9 +14508,9 @@ func selectTestRun(proj *projectstate.Project, activityID, runID string) (projec
 // activity names its component by the System's id ("review-engine"); the System resolves it
 // to its contractKey (projectstate.ContractKeyOf), and the component owns the contract under that
 // key plus every facet whose Component names it (projectStateAccess's four). Every name is
-// matched exactly — the key every reader of .serviceContracts and every recorded TestRun uses
-// (record-test-run records a run per contract, under the contract's own name), so there is
-// no spelling to fold. ok is false when the System does not resolve the component to a key:
+// matched exactly — the key every reader of .serviceContracts and every scenario check id uses
+// (projectstate.TaskSpecFor names them "scenario:<contract>:<id>"), so there is no spelling
+// to fold. ok is false when the System does not resolve the component to a key:
 // there is then no contract the gate could judge, and the gate holds saying so.
 func gateContracts(proj *projectstate.Project, componentID string) (contracts []string, ok bool) {
 	key, ok := projectstate.ContractKeyOf(proj, componentID)
@@ -14287,25 +14531,9 @@ func gateContracts(proj *projectstate.Project, componentID string) (contracts []
 	return contracts, true
 }
 
-// selectContractRun is the LATEST run the activity recorded for contract (selectTestRun's
-// ordering). A run's Component is the contract it was recorded for, by its exact name.
-func selectContractRun(proj *projectstate.Project, activityID, contract string) (projectstate.TestRun, bool) {
-	var best projectstate.TestRun
-	found := false
-	for _, run := range testRuns(proj) {
-		if run.Activity != activityID || run.Component != contract {
-			continue
-		}
-		if !found || !runBefore(run, best) {
-			best, found = run, true
-		}
-	}
-	return best, found
-}
-
 // runBefore reports whether a ended (or, failing that, started) strictly before b;
 // two runs with no usable times keep recording order (a is not before b).
-func runBefore(a, b projectstate.TestRun) bool {
+func runBefore(a, b projectstate.CheckRun) bool {
 	switch {
 	case a.EndedAt != nil && b.EndedAt != nil:
 		return a.EndedAt.Before(*b.EndedAt)
@@ -14315,24 +14543,24 @@ func runBefore(a, b projectstate.TestRun) bool {
 	return false
 }
 
-// testRunByID finds a run across every activity: run ids are venue-unique.
-func testRunByID(proj *projectstate.Project, runID string) (projectstate.TestRun, bool) {
-	for _, run := range testRuns(proj) {
+// checkRunByID finds a run across every activity and task: run ids are venue-unique.
+func checkRunByID(proj *projectstate.Project, runID string) (projectstate.CheckRun, bool) {
+	for _, run := range checkRuns(proj) {
 		if run.ID == runID {
 			return run, true
 		}
 	}
-	return projectstate.TestRun{}, false
+	return projectstate.CheckRun{}, false
 }
 
-func testRuns(proj *projectstate.Project) []projectstate.TestRun {
+func checkRuns(proj *projectstate.Project) []projectstate.CheckRun {
 	if proj == nil || proj.TestingState == nil {
 		return nil
 	}
-	return proj.TestingState.TestRuns
+	return proj.TestingState.CheckRuns
 }
 
-func testRunRef(run projectstate.TestRun) artifact.TestRunRef {
+func testRunRef(run projectstate.CheckRun) artifact.TestRunRef {
 	return artifact.TestRunRef{RunID: run.ID, Artifact: run.Artifact}
 }
 

@@ -1366,6 +1366,7 @@ func (a *localExecAccess) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (
 	revision := spec.DispatchInputs[dispatchInputRevisionKey]
 
 	plan := constructDispatchPlan(a.dispatchProjectID(spec), activityID, command, componentID, operatorNote, revision)
+	stampTaskSpecEnvelope(plan.rig, spec.DispatchInputs)
 	plan.agentStep = agentStepOf(spec)
 	return a.submitClaudeRun(rc, plan)
 }
@@ -1404,9 +1405,35 @@ func (a *localExecAccess) submitDesignJob(rc fwra.Context, spec PipelineSpec, jo
 	}
 	artifactKind := strings.TrimSpace(spec.DispatchInputs[dispatchInputArtifactKindKey])
 	plan := designDispatchPlan(a.dispatchProjectID(spec), jobMode, command, targetBranch, artifactKind)
+	stampTaskSpecEnvelope(plan.rig, spec.DispatchInputs)
+	for key, rigKey := range map[string]string{dispatchInputActivityIDKey: "AIARCH_ACTIVITY_ID", dispatchInputRevisionKey: rigRevisionKey} {
+		if v := strings.TrimSpace(spec.DispatchInputs[key]); v != "" {
+			plan.rig[rigKey] = v
+		}
+	}
 	plan.agentStep = agentStepOf(spec)
 	return a.submitClaudeRun(rc, plan)
 }
+
+// stampTaskSpecEnvelope stamps the task-spec envelope the Manager dispatched (the
+// lifecycle task and the hash of the spec it resolved) into the rig, each only when
+// carried, so the attached aiarch-state server's run_checks resolves the same task the
+// cloud templates' AIARCH_TASK_ID / AIARCH_SPEC_HASH name. Resolving and gating the spec on
+// this rail is the local sequence's (B6).
+func stampTaskSpecEnvelope(rig map[string]string, inputs map[string]string) {
+	for key, rigKey := range map[string]string{dispatchInputTaskIDKey: rigTaskIDKey, dispatchInputSpecHashKey: rigSpecHashKey} {
+		if v := strings.TrimSpace(inputs[key]); v != "" {
+			rig[rigKey] = v
+		}
+	}
+}
+
+// rigTaskIDKey / rigSpecHashKey are the rig variables of the task-spec envelope
+// (cmd/aiarch-state-mcp's envTaskID; the spec hash the job is held to).
+const (
+	rigTaskIDKey   = "AIARCH_TASK_ID"
+	rigSpecHashKey = "AIARCH_SPEC_HASH"
+)
 
 // submitClaudeRun converges the caller-supplied idempotencyKey on a single in-memory
 // run record and spawns the claude subprocess via the shared dispatch core from a
@@ -1513,8 +1540,8 @@ func agentStepOf(spec PipelineSpec) string {
 // It never rides the prompt, whose positional arguments it would corrupt.
 //
 // revision is the attempt the dispatch runs under (DispatchInputs["revision"]), stamped as
-// AIARCH_REVISION when the Manager carried one: the integration job's record-test-run
-// stamps it on the TestRun, and the testing gate matches it against the attempt its
+// AIARCH_REVISION when the Manager carried one: the integration job's record-check-run
+// stamps it on the CheckRun, and the testing gate matches it against the attempt its
 // round judges.
 func constructDispatchPlan(projectID, activityID, command, componentID, operatorNote, revision string) localDispatchPlan {
 	branch := localBranchName(activityID)
@@ -1545,7 +1572,7 @@ func constructDispatchPlan(projectID, activityID, command, componentID, operator
 // (its envOperatorNote).
 const rigOperatorNoteKey = "AIARCH_OPERATOR_NOTE"
 
-// rigRevisionKey is the rig variable record-test-run reads the run's revision from
+// rigRevisionKey is the rig variable record-check-run reads the run's revision from
 // (cmd/aiarch-state-mcp's envRevision).
 const rigRevisionKey = "AIARCH_REVISION"
 
@@ -1566,7 +1593,8 @@ const rigRevisionKey = "AIARCH_REVISION"
 //     MCP config" step stamps (and that cmd/aiarch-state-mcp/session.go reads):
 //     AIARCH_PROJECT_ID, AIARCH_ARTIFACT_KIND, AIARCH_JOB_MODE, AIARCH_TARGET_BRANCH,
 //     AIARCH_STATE_ROOT (the last stamped by dispatch = the worktree dir). NO
-//     AIARCH_COMPONENT_ID / AIARCH_ACTIVITY_ID (those are construct-only).
+//     AIARCH_COMPONENT_ID (construct-only); the task-spec envelope (AIARCH_ACTIVITY_ID,
+//     AIARCH_TASK_ID, AIARCH_SPEC_HASH, AIARCH_REVISION) is stamped by submitDesignJob.
 //   - prior_state_ref is NOT in the envelope: the design template stamps no such var
 //     (session.go reads none), it is the cloud CHECKOUT ref only, and the local
 //     worktree-on-target_branch already reproduces the same working state — so this arm
@@ -1629,6 +1657,15 @@ const (
 	// seated construct workflow's `revision` input (stamped as AIARCH_REVISION); this
 	// local arm stamps it into the rig (constructDispatchPlan).
 	dispatchInputRevisionKey = "revision"
+	// dispatchInputTaskIDKey / dispatchInputSpecHashKey are the agent task spec envelope
+	// both arms carry (the seated templates require them): the lifecycle task the job runs
+	// and the hash of the spec the Manager resolved for it. Stamped into the rig as
+	// AIARCH_TASK_ID / AIARCH_SPEC_HASH (stampTaskSpecEnvelope).
+	dispatchInputTaskIDKey   = "task_id"
+	dispatchInputSpecHashKey = "spec_hash"
+	// dispatchInputActivityIDKey is the activity a DESIGN job runs under (construct jobs
+	// carry it as the spec's ActivityID); stamped as AIARCH_ACTIVITY_ID.
+	dispatchInputActivityIDKey = "activity_id"
 )
 
 // dispatch performs the synchronous prep (git-worktree-add the plan's branch, write

@@ -2,6 +2,7 @@ package internal_test
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -175,9 +176,7 @@ func TestTaskSpecFrontendScopeCarriesContractPackagesAndManifests(t *testing.T) 
 		t.Fatalf("frontend construction extras %v", cons.EditScope.Extra)
 	}
 	contracts := make(map[string]projectstate.ServiceContract, len(p.ServiceContracts)+1)
-	for k, v := range p.ServiceContracts {
-		contracts[k] = v
-	}
+	maps.Copy(contracts, p.ServiceContracts)
 	contracts["webClientMcp"] = projectstate.ServiceContract{Component: "webClient", GoPackage: "internal/client/mcp/webclient"}
 	p.ServiceContracts = contracts
 	integ, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", "integration")
@@ -464,9 +463,7 @@ func setRateCardModel(t *testing.T, p *projectstate.Project, class, model string
 		t.Fatal("the committed planning assumptions did not decode")
 	}
 	card := make(map[string]projectstate.WorkerRateSpec, len(pa.RateCard)+1)
-	for k, v := range pa.RateCard {
-		card[k] = v
-	}
+	maps.Copy(card, pa.RateCard)
 	spec := card[class]
 	spec.ModelID = model
 	card[class] = spec

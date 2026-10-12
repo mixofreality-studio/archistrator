@@ -257,7 +257,7 @@ func judgedIntegration(before []projectstate.TaskAttempt) string {
 // committed document holds: the citation, the run's activity and revision, set equality
 // with the projection, and every status `pass`.
 func runReasons(proj *projectstate.Project, item projectstate.ActivityItem, pass projectstate.TaskAttempt, judged string, project componentScenarioProjector) []string {
-	if pass.Evidence.Kind != projectstate.EvidenceTestRun || pass.Evidence.Ref == "" {
+	if pass.Evidence.Kind != projectstate.EvidenceCheckRun || pass.Evidence.Ref == "" {
 		return []string{fmt.Sprintf("it cites no CheckRun (evidence %q %q)", pass.Evidence.Kind, pass.Evidence.Ref)}
 	}
 	run, ok := recordedRun(proj, pass.Evidence.Ref)

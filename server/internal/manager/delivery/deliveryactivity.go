@@ -648,8 +648,11 @@ func (wf *csWorkflows) runDesignJob(
 	return wf.observeDispatchedJob(ctx, tc, handle, task, tc.Attempt, jobLabelDesign, nil), nil
 }
 
-// submitDesignJob composes and submits ONE design job: the five dispatch inputs the seated
-// aiarch-design.yml declares, the per-project repo target, and that workflow file.
+// submitDesignJob composes and submits ONE design job: the dispatch inputs the seated
+// aiarch-design.yml declares — the five design parameters plus the task-spec envelope
+// (activity, task, spec hash, and the attempt the job runs under as its revision, the same
+// meaning construction's revision has, ruling R10) — the per-project repo target, and that
+// workflow file.
 func (wf *csWorkflows) submitDesignJob(
 	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind,
 ) (pipelineHandle, error) {
@@ -658,6 +661,11 @@ func (wf *csWorkflows) submitDesignJob(
 	if terr != nil {
 		return pipelineHandle{}, terr
 	}
+	specHash, err := wf.dispatchSpecHash(ctx, tc)
+	if err != nil {
+		return pipelineHandle{}, err
+	}
+	attemptID := projectstate.AttemptID(string(tc.In.ActivityID), projectstate.MethodTask(tc.Task.ID), tc.Attempt)
 	spec := agenticjob.PipelineSpec{
 		ProjectID: agenticjob.ProjectID(tc.In.ProjectID),
 		// A non-empty, well-formed step graph satisfies the RA's §2.1 pre-condition; the design
@@ -674,6 +682,10 @@ func (wf *csWorkflows) submitDesignJob(
 			dispatchInputTargetBranch:  branch,
 			dispatchInputPriorStateRef: "",
 			dispatchInputJobMode:       designJobMode(tc.Task),
+			dispatchInputActivityID:    string(tc.In.ActivityID),
+			dispatchInputTaskID:        tc.Task.ID,
+			dispatchInputSpecHash:      specHash,
+			dispatchInputRevision:      attemptID,
 		},
 		TargetRepo: target,
 	}
@@ -1470,6 +1482,10 @@ func (wf *csWorkflows) submitConstructionJob(
 			return constructionDispatch{obs: obs}, false, nil
 		}
 	}
+	specHash, err := wf.dispatchSpecHash(ctx, tc)
+	if err != nil {
+		return constructionDispatch{}, false, err
+	}
 	handle, err := wf.submitCarryingNotes(ctx, in, pipelineSpec{
 		ProjectID:   tc.In.ProjectID,
 		ActivityID:  string(tc.In.ActivityID),
@@ -1477,11 +1493,37 @@ func (wf *csWorkflows) submitConstructionJob(
 		Phase:       tc.Phase.ID,
 		Command:     tc.Task.Command,
 		Revision:    attemptID,
+		TaskID:      tc.Task.ID,
+		SpecHash:    specHash,
 	}, tc.State, attemptID, &tc.State.walk.gf, &tc.State.walk.headVersion)
 	if err != nil {
 		return constructionDispatch{}, false, err
 	}
 	return constructionDispatch{handle: handle}, true, nil
+}
+
+// dispatchSpecHash resolves the agent task spec of the task tc dispatches and returns its
+// hash, which the dispatch carries as spec_hash. The spec is resolved over the project as
+// the ACTIVITY BRANCH holds it (main when there is none yet) — the state the job checks out
+// and resolves the spec over again before it starts, refusing on a different hash.
+//
+// It is WORKFLOW CODE over one generated read (designSessionAccess.readProjectOnBranch) and
+// a pure function of what that read returned (projectstate.TaskSpecFor reads the project
+// and the embedded method assets only), so it replays deterministically — the testing
+// gate's own pattern; this package registers no handwritten activity. A spec that does not
+// resolve is a defect in the data no retry can change, so it is terminal.
+func (wf *csWorkflows) dispatchSpecHash(ctx workflow.Context, tc taskContext) (string, error) {
+	proj, err := wf.readActivityBranchProject(ctx, tc.In)
+	if err != nil {
+		return "", fmt.Errorf("resolving the task spec of %s/%s: %w", tc.In.ActivityID, tc.Task.ID, err)
+	}
+	spec, err := projectstate.TaskSpecFor(&proj, string(tc.In.ActivityID), tc.Task.ID)
+	if err != nil {
+		return "", temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("the agent task spec of %s/%s does not resolve: %s", tc.In.ActivityID, tc.Task.ID, err.Error()),
+			"TaskSpecUnresolved", err)
+	}
+	return spec.Hash, nil
 }
 
 // carryWalkFeedback turns the walk's own send-back notes into the ephemeral operator note the
@@ -3696,7 +3738,7 @@ func producedFromLedger(a projectstate.TaskAttempt) producedSubject {
 		out.StagedRef = a.Evidence.Ref
 	case projectstate.EvidenceEpisode:
 		out.EpisodeID = a.Evidence.Ref
-	case projectstate.EvidenceNone, projectstate.EvidenceArtifact, projectstate.EvidenceContract, projectstate.EvidenceTestRun:
+	case projectstate.EvidenceNone, projectstate.EvidenceArtifact, projectstate.EvidenceContract, projectstate.EvidenceCheckRun:
 		// A dispatch cites only the two kinds above (attemptEvidence); the others are a
 		// gate's own citations, and the round's subject then falls to the attempt itself.
 	}
@@ -5719,10 +5761,10 @@ func (wf *csWorkflows) passGateAttempt(
 		return nil
 	}
 	kind, ref := gateEvidence(gate.subject)
-	if gate.testRunID != "" {
+	if gate.checkRunID != "" {
 		// A scenario testing gate's pass cites the run it judged (spec §1 T4): the store
 		// refuses a testing pass without it, and no reader counts one.
-		kind, ref = projectstate.EvidenceTestRun, gate.testRunID
+		kind, ref = projectstate.EvidenceCheckRun, gate.checkRunID
 	}
 	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
 		AttemptID:    projectstate.AttemptID(string(in.ActivityID), gate.task, gate.number),
@@ -6149,8 +6191,8 @@ func (wf *csWorkflows) applyRecovering(
 // THE TESTING GATE (deterministic component testing design, §6.5).
 //
 // The `testing` review of a lifecycle that binds a test plan judges the venue's own
-// evidence, not an agent's claim: the deterministic scenario run the integration job
-// recorded (spec §6.1/§6.2, `record-test-run`). Before runGate lets that round pass — by
+// evidence, not an agent's claim: the scenario verdicts of the integration task's CheckRun
+// the venue recorded (agent task spec, `record-check-run`). Before runGate lets that round pass — by
 // a policy that asks for no human as much as by a human's approve — the run must be:
 //
 //  1. RECORDED for the activity at the integration attempt this round judges;
@@ -6166,14 +6208,14 @@ func (wf *csWorkflows) applyRecovering(
 // an approve over the resolved comment is the operator's recorded override.
 //
 // THE RUN IS READ OFF THE ACTIVITY BRANCH, because that is where the venue publishes it.
-// record-test-run writes the TestRun into the job's checkout and the publish pushes it
-// onto AIARCH_TARGET_BRANCH = activity/<id> (aiarch-construct.yml stamps that from the
+// record-check-run writes the CheckRun into the job's checkout and the job commits and pushes
+// it onto activity/<id> (aiarch-construct.yml stamps that from the
 // activity id; the local executor's constructDispatchPlan stamps the same). That branch
 // reaches main only when finalizeWalk merges it — after every task, this gate included —
 // so a gate reading main could never see a run before the round had already passed, and
-// would hold every service and frontend activity with "no test run is recorded". The read
+// would hold every service and frontend activity with "no check run is recorded". The read
 // is readProjectOnBranch on activity/<id> — named from the activity id exactly as the venue
-// names it, not resolved through designVenue (readTestingGateProject says why) — and falls
+// names it, not resolved through designVenue (readActivityBranchProject says why) — and falls
 // back to main only when the branch answers NotFound (a branch that is gone, or a boot
 // where nothing cut one), which cannot pass a run the judged dispatch did not produce
 // because the attempt id is this walk's own. The run crosses the Temporal boundary in
@@ -6187,22 +6229,10 @@ func (wf *csWorkflows) applyRecovering(
 // EARLIER attempt is a run the judged dispatch did not produce, whatever its commit, which
 // is exactly the staleness Review Focus 1 names.
 //
-// EARMARK — SPEC DRIFT NEEDING A RULING, NOT SILENT ADOPTION. Spec §6.1 defines
-// TestRun.Revision as "the construction revision tested" and record-test-run documents
-// AIARCH_REVISION as "the commit the scenario tests ran against"; this gate redefines it as
-// the judged integration attempt id. Either Task 3 / method-assets adopt that meaning (the
-// venue stamps the attempt id, which its checkout already holds on the activity's row) or
-// the walk must learn a SHA (a staged ref the construction arm does not carry today).
-// Until one is ruled, every cloud run reads as "stale" here.
-//
-// EARMARK — THE VENUE RECORDS NOTHING TODAY, FOR TWO REASONS, and both halves must land
-// before any cloud run reaches this gate: (1) the construct template's "Record test run"
-// step runs AFTER claude-code-action has already published, writes only the runner's
-// working tree (applyConstructionMutation → writeProjectBytes), and no later step commits
-// or pushes it — the record needs its own commit + push to the target branch; (2)
-// AIARCH_REVISION is unset by the template, so record-test-run exits 1 before writing at
-// all. Until both are fixed every service and frontend activity holds here for a human.
-// Fail-closed, visibly.
+// Both former earmarks here are settled by the agent task spec: the venue stamps the
+// dispatch's attempt id as the CheckRun's revision (pipelineSpec.Revision → AIARCH_REVISION,
+// ruling R15), and the construct template records the run with record-check-run and commits
+// and pushes it onto the activity branch whether its checks are red or green.
 //
 // THE EVALUATION IS WORKFLOW-SIDE OVER THE GENERATED INVOKERS — two reads
 // (designSessionAccess.readProjectOnBranch, artifactAccess.getTestRunIndex) and a pure
@@ -6251,7 +6281,7 @@ func scenarioTestingGate(lc methodassets.Lifecycle, t methodassets.LifecycleTask
 }
 
 // lifecycleBindsTestPlan reports whether a lifecycle carries a test-plan task — whether its
-// `testing` review judges a scenario run, and so passes only on a cited, qualifying TestRun
+// `testing` review judges a scenario run, and so passes only on a cited, qualifying CheckRun
 // (spec §1 T4; projectstate.QualifiedAttempts).
 func lifecycleBindsTestPlan(lc methodassets.Lifecycle) bool {
 	return slices.ContainsFunc(lc.Tasks, func(row methodassets.LifecycleTask) bool {
@@ -6260,19 +6290,19 @@ func lifecycleBindsTestPlan(lc methodassets.Lifecycle) bool {
 }
 
 // testingPassCitesRun reports whether the ledger holds a `testing` pass that cites the
-// TestRun its gate judged — the only pass T4 lets the testing task read passed on.
+// CheckRun its gate judged — the only pass T4 lets the testing task read passed on.
 func testingPassCitesRun(attempts []projectstate.TaskAttempt) bool {
 	return slices.ContainsFunc(attempts, func(a projectstate.TaskAttempt) bool {
 		return a.Task == projectstate.TaskTesting && a.Outcome == projectstate.OutcomePassed &&
-			a.Evidence.Kind == projectstate.EvidenceTestRun && a.Evidence.Ref != ""
+			a.Evidence.Kind == projectstate.EvidenceCheckRun && a.Evidence.Ref != ""
 	})
 }
 
 // testingGateEvidence is what the gate reads for ONE contract the activity's component
-// owns: how many scenarios are projected onto it, the contract's latest run joined with that
-// projection and its artifact index (Run), the files that artifact holds, and — when the index
-// could not be read at all — the read's own failure. Run is nil when no run is recorded for
-// the contract.
+// owns: how many scenarios are projected onto it, the integration CheckRun's verdicts for
+// that contract joined with that projection and the run's artifact index (Run), the files
+// that artifact holds, and — when the index could not be read at all — the read's own
+// failure. Run is nil when the activity has no integration CheckRun recorded.
 type testingGateEvidence struct {
 	Contract  string
 	Projected int
@@ -6302,47 +6332,49 @@ func testingGateHold(ev testingGateEvidence, currentRevision string) string {
 			ev.Contract)
 	}
 	if ev.Run == nil {
-		return fmt.Sprintf("no test run is recorded for %s on this activity; the venue's integration job records one per contract with record-test-run", ev.Contract)
+		return fmt.Sprintf("no integration check run is recorded on this activity, so nothing ran the scenarios of %s; the venue's integration job records one with record-check-run", ev.Contract)
 	}
 	run := ev.Run.Run
 	if currentRevision == "" {
-		return fmt.Sprintf("test run %s cannot be matched: the walk holds no integration attempt for this round to judge", run.Id)
+		return fmt.Sprintf("check run %s cannot be matched: the walk holds no integration attempt for this round to judge", run.Id)
 	}
 	if run.Revision != currentRevision {
-		return fmt.Sprintf("test run %s was recorded at revision %q, not at the integration attempt this round judges (%q); re-run the scenarios",
+		return fmt.Sprintf("check run %s was recorded at revision %q, not at the integration attempt this round judges (%q); re-run the scenarios",
 			run.Id, run.Revision, currentRevision)
 	}
 	if ev.IndexErr != nil {
-		return fmt.Sprintf("the artifact %q of test run %s could not be indexed: %s", ev.Run.Artifact, run.Id, ev.IndexErr.Error())
+		return fmt.Sprintf("the artifact %q of check run %s could not be indexed: %s", ev.Run.Artifact, run.Id, ev.IndexErr.Error())
 	}
 	if ev.Run.Expired {
-		return fmt.Sprintf("the artifact %q of test run %s has expired; re-run the scenarios", ev.Run.Artifact, run.Id)
+		return fmt.Sprintf("the artifact %q of check run %s has expired; re-run the scenarios", ev.Run.Artifact, run.Id)
 	}
 	if len(ev.Run.Missing) > 0 {
-		return fmt.Sprintf("test run %s never ran projected scenario(s): %s", run.Id, strings.Join(ev.Run.Missing, ", "))
+		return fmt.Sprintf("check run %s never ran projected scenario(s) of %s: %s", run.Id, ev.Contract, strings.Join(ev.Run.Missing, ", "))
 	}
 	if len(ev.Run.Unknown) > 0 {
-		return fmt.Sprintf("test run %s reports result(s) for no projected scenario: %s", run.Id, strings.Join(ev.Run.Unknown, ", "))
+		return fmt.Sprintf("check run %s reports result(s) for no projected scenario of %s: %s", run.Id, ev.Contract, strings.Join(ev.Run.Unknown, ", "))
 	}
 	if reason := testingGateStatuses(run.Id, ev.Run.Scenarios); reason != "" {
 		return reason
 	}
 	if lost := testingGateLostFiles(ev.Run.Scenarios, ev.Files); len(lost) > 0 {
-		return fmt.Sprintf("test run %s names video/trace file(s) its artifact does not hold: %s", run.Id, strings.Join(lost, ", "))
+		return fmt.Sprintf("check run %s names video/trace file(s) its artifact does not hold: %s", run.Id, strings.Join(lost, ", "))
 	}
 	return ""
 }
 
-// testingGateStatuses is rule 3: every status `pass`. Failures and skips are named
-// separately — "skipped: <ids>" is the sentence spec §3.1 gives a skip — and anything
-// outside the three statuses record-test-run admits is reported as what it is.
+// testingGateStatuses is rule 3: every status `pass`. Failures, timeouts and skips are
+// named separately — "skipped: <ids>" is the sentence spec §3.1 gives a skip — and anything
+// outside the four statuses record-check-run admits is reported as what it is.
 func testingGateStatuses(runID string, scenarios []TestRunScenarioView) string {
-	var failed, skipped, other []string
+	var failed, timedOut, skipped, other []string
 	for _, sc := range scenarios {
 		switch sc.Status {
 		case scenarioStatusPass:
 		case scenarioStatusFail:
 			failed = append(failed, sc.Id)
+		case scenarioStatusTimeout:
+			timedOut = append(timedOut, sc.Id)
 		case scenarioStatusSkip:
 			skipped = append(skipped, sc.Id)
 		default:
@@ -6353,6 +6385,9 @@ func testingGateStatuses(runID string, scenarios []TestRunScenarioView) string {
 	if len(failed) > 0 {
 		parts = append(parts, "failed: "+strings.Join(failed, ", "))
 	}
+	if len(timedOut) > 0 {
+		parts = append(parts, "timed out: "+strings.Join(timedOut, ", "))
+	}
 	if len(skipped) > 0 {
 		parts = append(parts, "skipped: "+strings.Join(skipped, ", "))
 	}
@@ -6362,7 +6397,7 @@ func testingGateStatuses(runID string, scenarios []TestRunScenarioView) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("test run %s did not pass — %s", runID, strings.Join(parts, "; "))
+	return fmt.Sprintf("check run %s did not pass — %s", runID, strings.Join(parts, "; "))
 }
 
 // testingGateLostFiles is rule 4's second half: every video/trace a result names must be
@@ -6381,24 +6416,26 @@ func testingGateLostFiles(scenarios []TestRunScenarioView, files []string) []str
 }
 
 const (
-	scenarioStatusPass = "pass"
-	scenarioStatusFail = "fail"
-	scenarioStatusSkip = "skip"
+	scenarioStatusPass    = "pass"
+	scenarioStatusFail    = "fail"
+	scenarioStatusSkip    = "skip"
+	scenarioStatusTimeout = "timeout"
 )
 
 // readTestingGateEvidence reads the gate's evidence through the generated invokers, ONE
 // entry per contract the activity's component owns (gateContracts): the project as the
-// ACTIVITY BRANCH holds it, the contract's latest run there (selectContractRun), the
-// projection onto the contract, and the run's artifact index. An index read that fails is
-// EVIDENCE, not a walk failure: the gate holds naming it, because a run whose artifact cannot
-// be read cannot render either.
+// ACTIVITY BRANCH holds it, the integration task's CheckRun there (selectCheckRun — the
+// latest recorded at the judged attempt, else the latest, which the revision rule then
+// holds on), the projection onto each contract, and the run's artifact index, read once.
+// An index read that fails is EVIDENCE, not a walk failure: the gate holds naming it,
+// because a run whose artifact cannot be read cannot render either.
 //
-// PER CONTRACT, NOT THE ACTIVITY'S LATEST RUN (dct5 round-2 ruling). A component with several
-// contracts (projectStateAccess's four facets) records one run per contract, so judging only
-// the activity's latest run let a green facet mask a red one. Every contract's latest run is
-// judged, and all must hold.
-func (wf *csWorkflows) readTestingGateEvidence(ctx workflow.Context, in deliveryActivityInput) ([]testingGateEvidence, error) {
-	proj, err := wf.readTestingGateProject(ctx, in)
+// PER CONTRACT, NOT THE RUN AS A WHOLE (dct5 round-2 ruling). A component with several
+// contracts (projectStateAccess's four facets) has its scenarios under each contract's own
+// `scenario:<contract>:` checks, so each contract is joined and judged on its own, and all
+// must hold: a green facet cannot mask a red one.
+func (wf *csWorkflows) readTestingGateEvidence(ctx workflow.Context, in deliveryActivityInput, revision string) ([]testingGateEvidence, error) {
+	proj, err := wf.readActivityBranchProject(ctx, in)
 	if err != nil {
 		// The state itself unreadable IS a walk failure — a store fault, not a fact about
 		// the run — and so is a projection that refuses (below): both are defects in the
@@ -6409,6 +6446,25 @@ func (wf *csWorkflows) readTestingGateEvidence(ctx workflow.Context, in delivery
 	if !resolved {
 		return []testingGateEvidence{{Contract: in.Activity.ComponentID, Unresolved: true}}, nil
 	}
+	run, found := selectCheckRun(&proj, string(in.ActivityID), integrationTaskID, "", []string{revision})
+	var (
+		idx  artifact.TestRunIndex
+		ierr error
+	)
+	if found {
+		idx, ierr = wf.Acts.ArtifactGetTestRunIndex(ctx, testRunRef(run))
+		if ierr != nil {
+			// A terminal RA refusal lands here — NotFound (the venue never uploaded it) and
+			// ContractMisuse are the preset's non-retryable kinds (testRunIndexActivityOptions)
+			// — and it means one thing to the gate: the evidence cannot be read. Indexed as
+			// nothing, so the join still renders Missing/Unknown for the comment. A
+			// NON-terminal fault (an infrastructure error) does NOT land here: the preset sets
+			// no MaxAttempts, so per framework-go's ActivityPreset the index read retries
+			// without limit and the walk waits at the activity rather than holding with a
+			// comment — the package's convention for every RA read.
+			idx = artifact.TestRunIndex{}
+		}
+	}
 	out := make([]testingGateEvidence, 0, len(contracts))
 	for _, contract := range contracts {
 		projected, err := wf.Scenarios(&proj, contract)
@@ -6416,21 +6472,8 @@ func (wf *csWorkflows) readTestingGateEvidence(ctx workflow.Context, in delivery
 			return nil, fmt.Errorf("testing gate: projecting scenarios onto %q: %w", contract, err)
 		}
 		ev := testingGateEvidence{Contract: contract, Projected: len(projected)}
-		run, ok := selectContractRun(&proj, string(in.ActivityID), contract)
-		if ok {
-			idx, ierr := wf.Acts.ArtifactGetTestRunIndex(ctx, testRunRef(run))
-			if ierr != nil {
-				// A terminal RA refusal lands here — NotFound (the venue never uploaded it) and
-				// ContractMisuse are the preset's non-retryable kinds (testRunIndexActivityOptions)
-				// — and it means one thing to the gate: the evidence cannot be read. Indexed as
-				// nothing, so the join still renders Missing/Unknown for the comment. A
-				// NON-terminal fault (an infrastructure error) does NOT land here: the preset sets
-				// no MaxAttempts, so per framework-go's ActivityPreset the index read retries
-				// without limit and the walk waits at the activity rather than holding with a
-				// comment — the package's convention for every RA read.
-				idx = artifact.TestRunIndex{}
-			}
-			view := joinTestRun(run, projected, idx)
+		if found {
+			view := joinTestRun(run, contract, projected, idx)
 			ev.Run, ev.Files, ev.IndexErr = &view, idx.Files, ierr
 		}
 		out = append(out, ev)
@@ -6438,8 +6481,10 @@ func (wf *csWorkflows) readTestingGateEvidence(ctx workflow.Context, in delivery
 	return out, nil
 }
 
-// readTestingGateProject reads the project as the venue left it: on the ACTIVITY BRANCH,
-// activity/<id>, falling back to main when that branch answers NotFound.
+// readActivityBranchProject reads the project as the venue left it: on the ACTIVITY BRANCH,
+// activity/<id>, falling back to main when that branch answers NotFound. Two readers need
+// exactly that state: the testing gate (the venue's run is published there) and the
+// dispatch's task spec (the job checks that state out and resolves the spec over it).
 //
 // THE BRANCH IS NAMED FROM THE ACTIVITY ID AND NOT RESOLVED THROUGH designVenue, because
 // that is how the venue names it: aiarch-construct.yml stamps AIARCH_TARGET_BRANCH from
@@ -6454,15 +6499,15 @@ func (wf *csWorkflows) readTestingGateEvidence(ctx workflow.Context, in delivery
 // EMPTY subtree, which decodes NotFound (a branch the rail has already deleted; a boot
 // where nothing cut one), and main is then the only place a run can be. It cannot pass a
 // stale run, because the revision the gate matches is the attempt id this walk opened.
-func (wf *csWorkflows) readTestingGateProject(ctx workflow.Context, in deliveryActivityInput) (projectstate.Project, error) {
+func (wf *csWorkflows) readActivityBranchProject(ctx workflow.Context, in deliveryActivityInput) (projectstate.Project, error) {
 	branch := activityBranchName(in.ActivityID)
 	proj, err := wf.readProjectOnBranch(ctx, in.ProjectID, branch)
 	if err == nil || !isReadNotFound(err) {
 		return proj, err
 	}
-	workflow.GetLogger(ctx).Info("delivery.gate.testingReadsMain",
+	workflow.GetLogger(ctx).Info("delivery.activityBranch.readsMain",
 		"activityId", in.ActivityID, "branch", branch,
-		"reason", "the activity branch holds no project state; the venue's run is read off main")
+		"reason", "the activity branch holds no project state; main is read instead")
 	return wf.readProject(ctx, in.ProjectID)
 }
 
@@ -6476,28 +6521,27 @@ func (wf *csWorkflows) testingGateHeld(
 	if !scenarioTestingGate(lc, t) {
 		return false, nil
 	}
-	evidence, err := wf.readTestingGateEvidence(ctx, in)
+	revision := judgedSubject(ws, t).AttemptID
+	evidence, err := wf.readTestingGateEvidence(ctx, in, revision)
 	if err != nil {
 		return false, err
 	}
-	revision := judgedSubject(ws, t).AttemptID
-	cited := make([]string, 0, len(evidence))
+	cited := ""
 	for _, ev := range evidence {
 		reason := testingGateHold(ev, revision)
 		if reason == "" {
-			cited = append(cited, ev.Run.Run.Id)
+			cited = ev.Run.Run.Id
 			continue
 		}
-		gate.testRunID = ""
+		gate.checkRunID = ""
 		if err := wf.holdTestingGate(ctx, in, t, state, gate, ev, reason); err != nil {
 			return false, err
 		}
 		return true, nil
 	}
-	// Not held means every contract's run was found and every §6.5 rule holds for each: they
-	// are the runs the pass will cite (passGateAttempt) — one id for a component with one
-	// contract, the facets' ids in contract order otherwise.
-	gate.testRunID = strings.Join(cited, ",")
+	// Not held means the integration CheckRun was found and every §6.5 rule holds for each
+	// contract's verdicts in it: it is the run the pass will cite (passGateAttempt).
+	gate.checkRunID = cited
 	return false, nil
 }
 
@@ -6510,11 +6554,11 @@ func (wf *csWorkflows) holdTestingGate(
 	ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask,
 	state *constructState, gate *gateLedger, ev testingGateEvidence, reason string,
 ) error {
-	anchor := "$.testRuns"
+	anchor := "$.testingState.checkRuns"
 	anchorText := "no run recorded"
 	if ev.Run != nil {
-		anchor = fmt.Sprintf("$.testRuns[id=%s]", ev.Run.Run.Id)
-		anchorText = "test run " + ev.Run.Run.Id
+		anchor = fmt.Sprintf("$.testingState.checkRuns[id=%s]", ev.Run.Run.Id)
+		anchorText = "check run " + ev.Run.Run.Id
 	}
 	workflow.GetLogger(ctx).Warn("delivery.gate.testingHeld", "activityId", in.ActivityID, "taskId", t.ID,
 		"roundId", gate.roundID, "reason", reason)
