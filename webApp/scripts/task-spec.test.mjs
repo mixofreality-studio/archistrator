@@ -138,18 +138,44 @@ void test('mapTaskSpec: check sources keep only the members that apply', () => {
   assert.deepEqual(out.checks[0].source, { rulePrefixes: ['GLOSS-'], ruleSlot: 'glossary' });
 });
 
-void test('mapTaskSpec: a status or kind outside the contract is refused loudly', () => {
-  assert.throws(
-    () =>
-      wire.mapTaskSpec(
-        wireSpec({ checkRun: { ...wireRun, results: [{ ...wireRun.results[0], status: 'ok' }] } })
-      ),
-    /check status/
+void test('mapTaskSpec: an unrecognised kind, status or model source maps to unknown, never throws', () => {
+  const out = wire.mapTaskSpec(
+    wireSpec({
+      model: { ...wireSpec().model, source: 'x' },
+      checks: [{ id: 'c', kind: 'lint', title: 't', timeoutSec: 1, source: {} }],
+      checkRun: { ...wireRun, results: [{ ...wireRun.results[0], status: 'cancelled' }] },
+    })
   );
-  assert.throws(
-    () => wire.mapTaskSpec(wireSpec({ model: { ...wireSpec().model, source: 'x' } })),
-    /model source/
+  assert.equal(out.model.source, 'unknown');
+  assert.equal(out.checks[0].kind, 'unknown');
+  assert.equal(out.checkRun.results[0].status, 'unknown');
+});
+
+void test('mapTestRunPanels: fileUrl is per run, and members carry no testRuns', () => {
+  const panel = (id) => ({
+    run: {
+      id,
+      activity: 'a',
+      component: 'c',
+      revision: 'r',
+      artifact: 'art-' + id,
+      scenarios: null,
+    },
+    scenarios: null,
+    missing: null,
+    unknown: null,
+    expired: false,
+    artifact: 'art-' + id,
+  });
+  const out = wire.mapTestRunPanels(
+    { testRun: panel('r1'), testRuns: [panel('r1'), panel('r2')] },
+    (runId, path) => `/runs/${runId}/${path}`
   );
+  assert.equal(out.fileUrl('v.webm'), '/runs/r1/v.webm');
+  assert.equal(out.testRuns.length, 2);
+  assert.equal(out.testRuns[1].fileUrl('t.zip'), '/runs/r2/t.zip');
+  for (const m of out.testRuns) assert.equal('testRuns' in m, false);
+  assert.deepEqual(wire.mapTestRunPanels({ testRun: panel('r1') }, () => '').testRuns, []);
 });
 
 /** An OpsClient whose one view answer is `view`; records the queries it saw. */
@@ -207,6 +233,6 @@ void test('useTaskSpec: a view with no taskSpec is an empty_body error', async (
   const { ops } = opsAnswering({ kind: 'taskSpec' });
   await assert.rejects(
     new QueryClient().fetchQuery(hook.taskSpecQueryOptions(ops, 'p', 'a', 't', 1)),
-    (e) => e.code === 'empty_body' || /no taskSpec/.test(e.message)
+    (e) => e.code === 'empty_body'
   );
 });

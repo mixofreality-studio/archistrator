@@ -28,41 +28,41 @@
             "task": "stpReview",
             "identity": {
               "kind": "review",
-              "title": "Test plan review",
-              "phase": "construction",
-              "command": "testing-plan-integration",
-              "agent": "test-engineer",
-              "workerClass": "senior",
-              "artifactKind": "testPlan",
-              "exitCriterion": "plan approved",
-              "mode": "review"
+              "title": "Test Plan Review",
+              "phase": "test_plan",
+              "command": "",
+              "agent": "",
+              "workerClass": "",
+              "artifactKind": "STP",
+              "exitCriterion": "Every projected scenario is bound and the TP-* rules pass",
+              "mode": ""
             },
             "model": {
-              "id": "sonnet",
-              "source": "charter",
-              "estimate": { "tokensIn": 42000, "tokensOut": 6000, "usd": 0.35 }
+              "id": "",
+              "source": "",
+              "estimate": {
+                "tokensIn": 0,
+                "tokensOut": 0,
+                "usd": 0
+              }
             },
             "prompt": {
-              "text": "/testing-plan-integration C-billing-state-access",
-              "tokens": 310,
-              "charter": "You are the test engineer.",
-              "skills": ["the-method-testing"]
+              "text": "",
+              "tokens": 0,
+              "charter": "",
+              "skills": []
             },
             "tools": {
-              "mcp": ["mcp__aiarch-state__getCommittedSlot"],
-              "builtin": ["Read", "Grep"]
+              "mcp": [],
+              "builtin": []
             },
-            "editScope": { "components": null, "extra": null, "stateOnly": true },
-            "checks": [
-              {
-                "id": "rule:testplan",
-                "kind": "rule",
-                "title": "Test plan rules (TP-*)",
-                "source": { "rulePrefixes": ["TP-"], "ruleSlot": "phaseArtifacts" },
-                "timeoutSec": 60
-              }
-            ],
-            "hash": "sha256-preview",
+            "editScope": {
+              "components": [],
+              "extra": [],
+              "stateOnly": true
+            },
+            "checks": [],
+            "hash": "2aba60dc94906d1262e8ffb9395a7a00104f0f6abfef0711f0ee2e963e4e0de3",
             "specChanged": false
           }
         }

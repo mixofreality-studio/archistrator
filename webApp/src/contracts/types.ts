@@ -1200,15 +1200,19 @@ export interface TestRunPanelView {
    * each its own panel. Empty on a member of this list, and on a server that
    * predates the list.
    */
-  testRuns: TestRunPanelView[];
+  testRuns: TestRunPanelMember[];
 }
+
+/** One judged contract's panel: a TestRunPanelView with no list of its own. */
+export type TestRunPanelMember = Omit<TestRunPanelView, 'testRuns'>;
 
 // --- The per-task AgentTaskSpec view (agent task spec §4.4) -----------------
 
 /** One check a task must pass. The id is scenario:<contractKey>:<scenarioId>, rule:<scope> or command:<name>. */
 export interface SpecCheckView {
   id: string;
-  kind: 'rule' | 'command' | 'scenario';
+  /** 'unknown' is a kind this app does not know; shown neutrally. */
+  kind: 'rule' | 'command' | 'scenario' | 'unknown';
   title: string;
   /** What the check runs; members that do not apply to its kind are absent. */
   source: {
@@ -1227,7 +1231,8 @@ export interface SpecCheckView {
 export interface CheckResultView {
   checkId: string;
   kind: string;
-  status: 'pass' | 'fail' | 'skip' | 'timeout';
+  /** 'unknown' is a status this app does not know; it is never read as a pass. */
+  status: 'pass' | 'fail' | 'skip' | 'timeout' | 'unknown';
   durationMs: number;
   outputRef?: string;
   traceRef?: string;
@@ -1271,7 +1276,7 @@ export interface TaskSpecView {
   };
   model: {
     id: string;
-    source: 'projectOverride' | 'charter';
+    source: 'projectOverride' | 'charter' | 'unknown';
     estimate: { tokensIn: number; tokensOut: number; usd: number };
   };
   prompt: { text: string; tokens: number; charter: string; skills: string[] };

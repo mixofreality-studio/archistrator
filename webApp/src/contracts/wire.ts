@@ -24,7 +24,6 @@
  * still breaks tsc here rather than drifting silently.
  */
 import type { components } from './schema';
-import { ApiError } from './errors';
 import {
   ACTIVITY_TYPE_ORDINAL_TO_APP,
   ARTIFACT_KIND_APP_TO_ORDINAL,
@@ -112,6 +111,7 @@ import type {
   TestArgView,
   TestExpectView,
   TestRunPanelView,
+  TestRunPanelMember,
   TaskSpecView,
   SpecCheckView,
   CheckResultView,
@@ -913,6 +913,13 @@ export function mapTestRunPanel(
   w: Schemas['DeliveryDeliveryTestRunView'],
   fileUrl: (path: string) => string
 ): TestRunPanelView {
+  return { ...mapTestRunPanelMember(w, fileUrl), testRuns: [] };
+}
+
+function mapTestRunPanelMember(
+  w: Schemas['DeliveryDeliveryTestRunView'],
+  fileUrl: (path: string) => string
+): TestRunPanelMember {
   return {
     run: mapTestRun(w.run),
     scenarios: arr(w.scenarios).map(mapTestRunScenario),
@@ -921,7 +928,6 @@ export function mapTestRunPanel(
     expired: w.expired,
     artifact: w.artifact,
     fileUrl,
-    testRuns: [],
   };
 }
 
@@ -937,31 +943,24 @@ export function mapTestRunPanels(
   },
   fileUrl: (runId: string, path: string) => string
 ): TestRunPanelView {
-  const one = (r: Schemas['DeliveryDeliveryTestRunView']): TestRunPanelView =>
-    mapTestRunPanel(r, (path) => fileUrl(r.run.id, path));
+  const one = (r: Schemas['DeliveryDeliveryTestRunView']): TestRunPanelMember =>
+    mapTestRunPanelMember(r, (path) => fileUrl(r.run.id, path));
   return { ...one(w.testRun), testRuns: arr(w.testRuns).map(one) };
 }
 
-const CHECK_KINDS: readonly SpecCheckView['kind'][] = ['rule', 'command', 'scenario'];
-const CHECK_STATUSES: readonly CheckResultView['status'][] = ['pass', 'fail', 'skip', 'timeout'];
-const MODEL_SOURCES: readonly TaskSpecView['model']['source'][] = ['projectOverride', 'charter'];
-
 /**
  * The wire types these members as bare strings; the app narrows them. A value
- * outside the set is contract drift and fails loudly rather than rendering as a
- * guess (a check that "passed" because its status was unrecognised would lie).
+ * this app does not know degrades to an explicit 'unknown' member (as every other
+ * enum-string mapper here does) so one new server value cannot reject the whole
+ * spec, and an unrecognised check status is never read as a pass.
  */
-function oneOf<T extends string>(what: string, allowed: readonly T[], v: string): T {
-  const hit = allowed.find((a) => a === v);
-  if (hit === undefined) {
-    throw new ApiError(
-      200,
-      'bad_body',
-      `taskSpec ${what} ${JSON.stringify(v)} is not one of ${allowed.join(', ')}`
-    );
-  }
-  return hit;
+function known<T extends string>(allowed: readonly T[], v: string): T | 'unknown' {
+  return allowed.find((a) => a === v) ?? 'unknown';
 }
+
+const CHECK_KINDS = ['rule', 'command', 'scenario'] as const;
+const CHECK_STATUSES = ['pass', 'fail', 'skip', 'timeout'] as const;
+const MODEL_SOURCES = ['projectOverride', 'charter'] as const;
 
 function mapSpecCheck(w: Schemas['DeliveryTaskSpecCheckView']): SpecCheckView {
   const s = w.source;
@@ -969,7 +968,7 @@ function mapSpecCheck(w: Schemas['DeliveryTaskSpecCheckView']): SpecCheckView {
   const argv = arr(s.argv);
   return {
     id: w.id,
-    kind: oneOf('check kind', CHECK_KINDS, w.kind),
+    kind: known(CHECK_KINDS, w.kind),
     title: w.title,
     source: {
       ...(rulePrefixes.length > 0 ? { rulePrefixes } : {}),
@@ -988,7 +987,7 @@ function mapCheckResult(w: Schemas['DeliveryCheckResultView']): CheckResultView 
   return {
     checkId: w.checkId,
     kind: w.kind,
-    status: oneOf('check status', CHECK_STATUSES, w.status),
+    status: known(CHECK_STATUSES, w.status),
     durationMs: w.durationMs,
     ...(w.outputRef !== undefined && w.outputRef !== '' ? { outputRef: w.outputRef } : {}),
     ...(w.traceRef !== undefined && w.traceRef !== '' ? { traceRef: w.traceRef } : {}),
@@ -1032,7 +1031,7 @@ export function mapTaskSpec(w: Schemas['DeliveryDeliveryTaskSpecView']): TaskSpe
     },
     model: {
       id: w.model.id,
-      source: oneOf('model source', MODEL_SOURCES, w.model.source),
+      source: known(MODEL_SOURCES, w.model.source),
       estimate: {
         tokensIn: w.model.estimate.tokensIn,
         tokensOut: w.model.estimate.tokensOut,

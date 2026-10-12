@@ -170,6 +170,8 @@ const NO_SUMMARY_READ = [
   'landing/resting.json',
   'plan/loading.json',
   'plan/unfixtured-read.json',
+  'task-spec/construction-run.json',
+  'task-spec/construction.json',
 ];
 
 void test('every preview fixture describes the contracts the model actually holds', () => {
