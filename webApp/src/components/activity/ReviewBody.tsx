@@ -72,15 +72,20 @@ import {
 } from './activityCopy.ts';
 import { AmendingNotice } from '../design/GeneratingScene';
 import { StaleBasisHeaderChip } from '../design/StaleBasisChip';
-import type { TaskFacts } from './activityViewToGraph.ts';
+import type { TaskSpecCheckEvidence } from './TaskSpecPanel';
 import type { LifecycleRevision } from './lifecycleGraphTypes.ts';
 import { ARCHITECTURE_ACTIVITY_ID, type TaskArtifact } from './taskArtifactFor.ts';
 import { SubmitBar } from '../design/SubmitBar';
-import type { ArtifactActivityVM, TestingArtifactData } from '../construction/artifactRenderers';
+import type {
+  ArtifactActivityVM,
+  AsyncArtifactData,
+  TestingArtifactData,
+} from '../construction/artifactRenderers';
 import type { ContractJoin } from '../../contracts/serviceContracts';
 import { ACTIVITY_PATH } from '../../contracts/routePaths.ts';
 import type { components } from '../../contracts/schema.ts';
 import type {
+  TaskSpecView,
   ArtifactModelEnvelope,
   ArtifactSlotView,
   ProjectStateWithGit,
@@ -90,7 +95,9 @@ import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 export function ReviewBody({
   title,
-  facts,
+  spec,
+  episodeCostUsd,
+  checkEvidence,
   revisions,
   revision,
   onRevision,
@@ -131,7 +138,12 @@ export function ReviewBody({
   onNavigate,
 }: {
   title: string;
-  facts: TaskFacts;
+  /** The task's computed AgentTaskSpec, fetched by the container. */
+  spec: AsyncArtifactData<TaskSpecView>;
+  /** The selected revision's episode cost, when one was captured. */
+  episodeCostUsd?: number | undefined;
+  /** The spec's run evidence: the log texts and the file endpoint. */
+  checkEvidence: TaskSpecCheckEvidence;
   revisions: readonly LifecycleRevision[];
   revision: number;
   onRevision: (n: number) => void;
@@ -257,9 +269,9 @@ export function ReviewBody({
       sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}
     >
       <TaskHeader
-        facts={facts}
         revision={revision}
         revisions={revisions}
+        spec={{ spec, episodeCostUsd, ...checkEvidence }}
         title={title}
         onRevision={onRevision}
       />

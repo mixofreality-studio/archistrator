@@ -12,10 +12,18 @@ export function StatTile({
 }: {
   label: string;
   value: string | number;
-  tone?: 'good' | 'bad' | 'neutral';
+  /** `danger` is the hard-failure tone (a timeout): the danger ink on plain paper. */
+  tone?: 'good' | 'bad' | 'danger' | 'neutral';
   t: Tokens;
 }): ReactNode {
-  const fg = tone === 'good' ? t.committedFg : tone === 'bad' ? t.awaitingFg : t.ink;
+  const fg =
+    tone === 'good'
+      ? t.committedFg
+      : tone === 'bad'
+        ? t.awaitingFg
+        : tone === 'danger'
+          ? t.dangerFg
+          : t.ink;
   const bg = tone === 'good' ? t.committedBg : tone === 'bad' ? t.awaitingBg : t.paperAlt;
   return (
     <Paper sx={{ p: 1.25, minWidth: 96, bgcolor: bg, border: `1px solid ${t.line}` }}>

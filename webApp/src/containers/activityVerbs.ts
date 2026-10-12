@@ -181,8 +181,8 @@ export function verbsFor(input: {
   variant?: string | undefined;
   taskId: string;
   lifecyclePhase: string;
-  /** The RESOLVED kind from `taskFactsFor` (Task 2) — a review task has none of its
-   *  own. It no longer chooses an OP; it only says whether this gate judges a design
+  /** The RESOLVED kind from the task spec (`identity.artifactKind`): a review task's is
+   *  its judged dispatch's, resolved server-side. It no longer chooses an OP; it only says whether this gate judges a design
    *  artifact the SPA knows, which is what decides the design verbs. */
   artifactKind?: string | undefined;
 }): VerbsFor {

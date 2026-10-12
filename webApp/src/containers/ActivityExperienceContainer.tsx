@@ -120,7 +120,6 @@ import {
 } from '../components/activity/activitySelection.ts';
 import {
   activityViewToGraph,
-  taskFactsFor,
   type ActivityViewWire,
 } from '../components/activity/activityViewToGraph.ts';
 import { latestRevision, revisionOnNavigate } from '../components/activity/lifecycleGraphTypes.ts';
@@ -155,6 +154,7 @@ import {
 import { activityViewSignature } from '../hooks/activityViewPolling';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
 import { useComponentScenarios, useTestRun, useTestRunOutputs } from '../hooks/useTestRun';
+import { checkRunFileUrl, useCheckRunOutputs, useTaskSpec } from '../hooks/useTaskSpec';
 import type { TestingArtifactData } from '../components/construction/artifactRenderers';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { isNoSessionError } from '../hooks/sessionPolling';
@@ -279,7 +279,6 @@ export function ActivityExperienceContainer({
   const nodes = graph?.nodes ?? [];
   const sel = selectionFor(nodes, task, rev);
   const node = sel === undefined ? undefined : nodes.find((n) => n.id === sel.taskId);
-  const facts = view !== undefined && sel !== undefined ? taskFactsFor(view, sel.taskId) : {};
   const revisionWire = revisionWireFor(view, sel);
   const taskGate = taskGateFor(view, sel);
   // Reading HISTORY: everything that would change something goes away below, and
@@ -326,6 +325,21 @@ export function ActivityExperienceContainer({
     { projectId, byActivity: true, targetRef: activityId },
     revisionWire?.episodeId
   );
+  // The selected task's computed AgentTaskSpec, with the run recorded for the
+  // revision on screen (none ⇒ "not run", R35), and that run's check logs.
+  const taskSpec = useTaskSpec(projectId, activityId, sel?.taskId, sel?.revision);
+  const checkOutputs = useCheckRunOutputs(projectId, taskSpec.data);
+  const spec = { data: taskSpec.data, error: taskSpec.error, isLoading: taskSpec.isLoading };
+  const checkEvidence = {
+    activityId,
+    outputs: checkOutputs,
+    fileUrl: checkRunFileUrl(projectId, taskSpec.data),
+  };
+  // The artifact kind is the spec's: a review's is its judged dispatch's, resolved
+  // server-side. '' (a task that names none) is no kind.
+  const specArtifactKind = taskSpec.data?.identity.artifactKind;
+  const artifactKind =
+    specArtifactKind !== undefined && specArtifactKind.length > 0 ? specArtifactKind : undefined;
 
   // --- write ops: one hook per delivery op (activityVerbs.ts names which) ----
   const submitDecision = useSubmitReviewDecision(projectId);
@@ -437,14 +451,14 @@ export function ActivityExperienceContainer({
     variant: view?.variant,
     taskId: sel?.taskId ?? '',
     lifecyclePhase: node?.phase ?? '',
-    artifactKind: facts.artifactKind,
+    artifactKind,
   });
   const artifact = taskArtifactFor({
     type: view?.type ?? '',
     variant: view?.variant,
     taskId: sel?.taskId ?? '',
     componentId: view?.componentId,
-    artifactKind: facts.artifactKind,
+    artifactKind,
   });
 
   // The two testing-phase reads (spec §6.4), fired only on the phase that renders
@@ -953,10 +967,11 @@ export function ActivityExperienceContainer({
         ) : node.kind === 'dispatch' ? (
           <DispatchBody
             attemptIds={revisionWire?.attemptIds ?? []}
+            checkEvidence={checkEvidence}
             emptyNote={
               revisionWire === undefined ? notDispatchedYet(node.state === 'locked') : undefined
             }
-            facts={facts}
+            episodeCostUsd={timeline.data?.record.costUsd}
             revision={sel.revision}
             revisions={node.revisions}
             // The SELECTED revision is being produced — not merely "the task is
@@ -967,6 +982,7 @@ export function ActivityExperienceContainer({
               revisionWire?.outcome === 'running' ||
               (revisionWire === undefined && node.state === 'running')
             }
+            spec={spec}
             timeline={timeline.data}
             timelineError={timeline.error}
             timelineLoading={timeline.isLoading}
@@ -993,10 +1009,10 @@ export function ActivityExperienceContainer({
             approveCopy={verbs.approveCopy}
             artifact={artifact}
             askPending={askQuestionsMut.isPending}
+            checkEvidence={checkEvidence}
             contractJoin={contractJoin}
             costBasis={costBasis.length > 0 ? costBasis : undefined}
             decisionPending={decisionPending}
-            facts={facts}
             // What is rendered is the CURRENT artifact, not the one this revision
             // judged: there is no op that reads an artifact as of `subjectRef.ref`
             // (GAP-5). The caption says so, and its presence is what puts the
@@ -1031,6 +1047,7 @@ export function ActivityExperienceContainer({
             }
             sdpDecisionError={sdpDecision.error?.message}
             slots={gateSlots}
+            spec={spec}
             stagedChangeRequests={changeRequestCount}
             stagedQuestions={questionCount}
             // Advisory, non-blocking, and only where a mutation is possible: a

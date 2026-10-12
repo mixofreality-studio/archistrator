@@ -41,17 +41,20 @@ import {
   subAttemptsLine,
 } from './activityCopy.ts';
 import { episodeFactsFor } from './episodeFacts.ts';
-import type { TaskFacts } from './activityViewToGraph.ts';
+import type { TaskSpecCheckEvidence } from './TaskSpecPanel';
 import type { LifecycleRevision } from './lifecycleGraphTypes.ts';
 import { EpisodeTimeline as EpisodeTimelineView } from '../episodes/EpisodeTimeline';
 import { GeneratingScene } from '../design/GeneratingScene';
-import type { EpisodeTimeline } from '../../contracts/types';
+import type { EpisodeTimeline, TaskSpecView } from '../../contracts/types';
+import type { AsyncArtifactData } from '../construction/artifactRenderers';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 export function DispatchBody({
   title,
-  facts,
+  spec,
+  episodeCostUsd,
+  checkEvidence,
   revisions,
   revision,
   onRevision,
@@ -68,7 +71,12 @@ export function DispatchBody({
   emptyNote,
 }: {
   title: string;
-  facts: TaskFacts;
+  /** The task's computed AgentTaskSpec, fetched by the container. */
+  spec: AsyncArtifactData<TaskSpecView>;
+  /** The selected revision's episode cost, when one was captured. */
+  episodeCostUsd?: number | undefined;
+  /** The spec's run evidence: the log texts and the file endpoint. */
+  checkEvidence: TaskSpecCheckEvidence;
   revisions: readonly LifecycleRevision[];
   revision: number;
   onRevision: (n: number) => void;
@@ -84,6 +92,7 @@ export function DispatchBody({
 }): ReactNode {
   const t = useTokens();
   const subAttempts = subAttemptsLine(attemptIds.length);
+  const workerClass = spec.data?.identity.workerClass;
   // Neither running nor fetching nor failed, and still no timeline: the revision
   // reached the gate with no episode behind it (a backfilled or reconstructed
   // row). Said out loud — an empty timeline reads as "the agent did nothing".
@@ -96,9 +105,9 @@ export function DispatchBody({
       sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}
     >
       <TaskHeader
-        facts={facts}
         revision={revision}
         revisions={revisions}
+        spec={{ spec, episodeCostUsd, ...checkEvidence }}
         title={title}
         onRevision={onRevision}
       />
@@ -108,7 +117,9 @@ export function DispatchBody({
           artifact={title}
           footerNote={DISPATCH_JOB_NOTE}
           roleLine={
-            facts.workerClass !== undefined ? dispatchRoleLine(facts.workerClass, title) : undefined
+            workerClass !== undefined && workerClass.length > 0
+              ? dispatchRoleLine(workerClass, title)
+              : undefined
           }
         />
       ) : emptyNote !== undefined ? (

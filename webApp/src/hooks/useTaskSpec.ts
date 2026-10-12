@@ -7,13 +7,20 @@
  * `revision` is the task revision N (a number). With one given and no run
  * matching it the view carries no `checkRun`, which the panel shows as "not run".
  */
-import { useQuery, type UseQueryOptions, type UseQueryResult } from '@tanstack/react-query';
+import {
+  useQueries,
+  useQuery,
+  type UseQueryOptions,
+  type UseQueryResult,
+} from '@tanstack/react-query';
+import { fetchTestRunFileText, testRunFileUrl } from '../api/testRunFiles';
 import type { OpsClient } from '../api/ops.gen';
 import { useOpsClient } from '../api/opsContext';
 import type { OpBody, OpResult } from '../api/opTypes';
 import { ApiError } from '../contracts/errors';
 import { mapTaskSpec } from '../contracts/wire';
 import type { TaskSpecView } from '../contracts/types';
+import type { AsyncView } from './useTestRun';
 
 type ProjectView = OpResult<'deliveryQueryProjectView'>;
 type ProjectViewQuery = OpBody<'deliveryQueryProjectView'>['query'];
@@ -68,4 +75,52 @@ export function useTaskSpec(
 ): UseQueryResult<TaskSpecView> {
   const { ops } = useOpsClient();
   return useQuery<TaskSpecView>(taskSpecQueryOptions(ops, projectId, activityId, taskId, revision));
+}
+
+/** The distinct output logs a spec's run recorded, in result order. */
+export function checkOutputRefsOf(spec: TaskSpecView | undefined): string[] {
+  const refs: string[] = [];
+  for (const r of spec?.checkRun?.results ?? []) {
+    const ref = r.outputRef ?? '';
+    if (ref.length > 0 && !refs.includes(ref)) refs.push(ref);
+  }
+  return refs;
+}
+
+/** The file endpoint's URL for one file of the spec's run ('' with no run). */
+export function checkRunFileUrl(
+  projectId: string,
+  spec: TaskSpecView | undefined
+): (path: string) => string {
+  const runId = spec?.checkRun?.id ?? '';
+  return (path) => (runId.length > 0 ? testRunFileUrl(projectId, runId, path) : '');
+}
+
+/**
+ * The run's check logs, one query per distinct `outputRef`, keyed by the ref —
+ * the same arrangement `useTestRunOutputs` keeps for a test run, against the
+ * spec's CheckRun (a test run IS a check run, so the one file endpoint serves both).
+ */
+export function useCheckRunOutputs(
+  projectId: string,
+  spec: TaskSpecView | undefined
+): Record<string, AsyncView<string>> {
+  const refs = checkOutputRefsOf(spec);
+  const runId = spec?.checkRun?.id ?? '';
+  const fileUrl = checkRunFileUrl(projectId, spec);
+  return useQueries({
+    queries: refs.map((ref) => ({
+      queryKey: ['testRunFile', runId, ref],
+      queryFn: async (): Promise<string> => fetchTestRunFileText(fileUrl(ref)),
+      enabled: projectId.length > 0 && runId.length > 0,
+      staleTime: Infinity,
+    })),
+    combine: (results) =>
+      Object.fromEntries(
+        results.map((r, i) => [
+          refs[i] ?? '',
+          { data: r.data, error: r.error, isLoading: r.isLoading },
+        ])
+      ),
+  });
 }

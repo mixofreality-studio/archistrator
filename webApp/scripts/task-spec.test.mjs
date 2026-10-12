@@ -29,6 +29,8 @@ async function bundle(entry, out) {
     platform: 'node',
     packages: 'external',
     jsx: 'automatic',
+    // The hooks reach the file endpoint's URL builder, which reads Vite's env.
+    define: { 'import.meta.env': '{}' },
     logLevel: 'error',
   });
   return import(pathToFileURL(out).href);

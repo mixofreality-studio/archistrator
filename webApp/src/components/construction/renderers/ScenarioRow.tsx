@@ -22,14 +22,24 @@ function traceViewerUrl(fileUrl: string): string {
   return `${TRACE_VIEWER}?trace=${encodeURIComponent(absolute)}`;
 }
 
-export function StatusChip({ status, t }: { status: string; t: Tokens }): ReactNode {
+/** `label` overrides the text where the status word is not what a reader says
+ *  (the task spec panel's `not-run` reads "not run"); the tone is the status'. */
+export function StatusChip({
+  status,
+  t,
+  label,
+}: {
+  status: string;
+  t: Tokens;
+  label?: string;
+}): ReactNode {
   const tone = statusTone(status);
   const good = tone === 'good';
   const bad = tone === 'bad';
   return (
     <Chip
       data-scenario-status={status}
-      label={status}
+      label={label ?? status}
       size="small"
       sx={{
         height: 18,

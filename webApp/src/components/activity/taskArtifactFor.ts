@@ -206,7 +206,7 @@ export function taskArtifactFor(input: {
   variant?: string | undefined;
   taskId: string;
   componentId?: string | undefined;
-  /** The RESOLVED kind from `taskFactsFor` — a review task has none of its own. */
+  /** The RESOLVED kind from the task spec (`identity.artifactKind`); a review task's is its judged dispatch's. */
   artifactKind?: string | undefined;
 }): TaskArtifact {
   // 1. A DESIGN activity's artifact is a committed slot, named by the resolved

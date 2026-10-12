@@ -106,11 +106,17 @@ export function useTestRun(
   });
 }
 
-/** The distinct `go test -json` streams a run's scenarios name, in first-seen order. */
+/**
+ * The distinct `go test -json` streams a run's scenarios name, in first-seen
+ * order — across every judged contract (R36), which all view the ONE run, so a
+ * ref names the same file whichever member the panel has on screen.
+ */
 export function outputRefsOf(panel: TestRunPanelView | undefined): string[] {
   const refs: string[] = [];
-  for (const s of panel?.scenarios ?? []) {
-    if (s.outputRef.length > 0 && !refs.includes(s.outputRef)) refs.push(s.outputRef);
+  for (const m of [panel, ...(panel?.testRuns ?? [])]) {
+    for (const s of m?.scenarios ?? []) {
+      if (s.outputRef.length > 0 && !refs.includes(s.outputRef)) refs.push(s.outputRef);
+    }
   }
   return refs;
 }

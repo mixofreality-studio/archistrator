@@ -297,7 +297,7 @@ export const ACTIVITY_LOADING = 'Reading this activity…';
  * A charter the table does not know is shown VERBATIM rather than mangled by a
  * generic de-hyphenator, which turns `ui-designer` into "Ui designer".
  */
-const ROLE_LABEL: Readonly<Record<string, string>> = {
+export const ROLE_LABEL: Readonly<Record<string, string>> = {
   'system-architect': 'System architect',
   'product-manager': 'Product manager',
   'project-manager': 'Project manager',
@@ -428,3 +428,14 @@ export function questionAnswerNotice(input: {
  */
 export const NO_EPISODE_CAPTURED =
   'No episode was captured for this revision, so there is no turn-by-turn timeline to show.';
+
+// --- The task spec panel (agent task spec §5, TaskSpecPanel.tsx) ------------
+
+/** A task whose spec carries no checks at all (a human review, a state-only step). */
+export const SPEC_NO_CHECKS = 'No checks for this task';
+/** A task whose edit scope is the state tools alone: it writes no file. */
+export const SPEC_STATE_ONLY = 'Writes through state tools only';
+/** The run on screen judged a different spec than the one shown. */
+export const SPEC_CHANGED = 'spec changed since this run';
+/** A check with no result in the run on screen, or no run at all (R35). */
+export const SPEC_NOT_RUN = 'not run';

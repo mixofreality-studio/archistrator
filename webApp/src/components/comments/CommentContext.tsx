@@ -446,11 +446,16 @@ export function testPlanBindingAnchor(component: string, scenarioId: string): st
 export function testPlanStepAnchor(component: string, scenarioId: string, seq: number): string {
   return `${testPlanBindingAnchor(component, scenarioId)}.steps[seq=${String(seq)}]`;
 }
-/** One scenario's result in a recorded test run →
- *  `$.testRuns[id=<run>].scenarios[scenario=<id>]` — under the run the testing
- *  gate's own system comment anchors at (`$.testRuns[id=<run>]`, spec §6.5). */
-export function testRunScenarioAnchor(runId: string, scenarioId: string): string {
-  return `$.testRuns[id=${runId}].scenarios[scenario=${scenarioId}]`;
+/** One scenario's result in a recorded check run → the run's result for the
+ *  scenario check `scenario:<contract>:<id>` (agent task spec §4.5: a TestRun is a
+ *  CheckRun, and a scenario verdict is one of its results). */
+export function testRunScenarioAnchor(runId: string, contract: string, scenarioId: string): string {
+  return `$.testingState.checkRuns[id=${runId}].results[checkId=scenario:${contract}:${scenarioId}]`;
+}
+/** One check of a task's spec, addressed by the task rather than by a run: a
+ *  check that never ran still has a place to comment on. */
+export function taskSpecCheckAnchor(activityId: string, taskId: string, checkId: string): string {
+  return `$.testingState.checkRuns[activity=${activityId}][task=${taskId}].results[checkId=${checkId}]`;
 }
 
 // Re-export for convenience (extracted to disabledCommentContext.ts so it's testable).

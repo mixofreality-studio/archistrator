@@ -3,7 +3,9 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import ButtonBase from '@mui/material/ButtonBase';
 import Chip from '@mui/material/Chip';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
+import Select from '@mui/material/Select';
 import Typography from '@mui/material/Typography';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
@@ -25,9 +27,15 @@ import { isNoRecordedRun, summarize, venueRunUrl } from './testRunPanelLogic.ts'
  *
  * Read through `testing.testRun` / `testing.outputs` (the `testRun` project
  * view and the file endpoint), fetched by the container — never from the row.
+ *
+ * The gate judges EVERY contract the activity's component owns (R36), each its
+ * own member of `testRuns`. With more than one, a dropdown chooses which
+ * contract's verdicts are on screen (a contract count is dynamic, so a
+ * dropdown, never tabs); the primary is shown first.
  */
 export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps): ReactNode {
   const [selectedId, setSelectedId] = useState<string>('');
+  const [contract, setContract] = useState<string>('');
   const q = testing?.testRun;
   if (q === undefined || q.isLoading) {
     return (
@@ -51,7 +59,8 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
       </Typography>
     );
   }
-  const panel = q.data;
+  const members = q.data.testRuns;
+  const panel = members.find((m) => m.run.component === contract) ?? q.data;
   if (panel.expired) {
     return (
       <Paper
@@ -99,6 +108,9 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
           tone={counts.skip > 0 ? 'bad' : 'neutral'}
           value={counts.skip}
         />
+        {counts.timeout > 0 ? (
+          <StatTile label="timeout" t={t} tone="danger" value={counts.timeout} />
+        ) : null}
         <Box
           sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}
         >
@@ -145,6 +157,33 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
         </Box>
       </Box>
 
+      {members.length > 1 ? (
+        <Select
+          inputProps={{ 'aria-label': 'Contract' }}
+          renderValue={(c) => `Contract ${c}`}
+          size="small"
+          sx={{ alignSelf: 'flex-start', fontFamily: t.mono, fontWeight: 700, fontSize: 12 }}
+          value={panel.run.component}
+          onChange={(e) => {
+            setContract(e.target.value);
+            setSelectedId('');
+          }}
+        >
+          {members.map((m) => {
+            const c = summarize(m.scenarios);
+            return (
+              <MenuItem
+                key={m.run.component}
+                sx={{ fontFamily: t.mono, fontSize: 12 }}
+                value={m.run.component}
+              >
+                {`${m.run.component} · ${String(c.pass)} pass · ${String(c.fail + c.timeout)} fail`}
+              </MenuItem>
+            );
+          })}
+        </Select>
+      ) : null}
+
       {panel.missing.length > 0 ? (
         <Typography
           data-testid={UI_IDENTIFIERS.Construction.TEST_RUN_MISSING}
@@ -166,7 +205,7 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
           kind: 'node',
           label: `scenario:${s.id}`,
           source: `Test run ${panel.run.id} · ${s.id}`,
-          jsonPath: testRunScenarioAnchor(panel.run.id, s.id),
+          jsonPath: testRunScenarioAnchor(panel.run.id, panel.run.component, s.id),
         })}
         getKey={(s) => s.id}
         getLabel={(s) => `scenario ${s.id} ${s.status}`}

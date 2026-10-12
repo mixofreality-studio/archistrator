@@ -1,8 +1,8 @@
 /**
  * The ONE translation between the `QueryActivityView` wire shape and the
- * lifecycle graph's props vocabulary — and the ONE place the four facts the
- * wire does not carry (worker class, command, exit criterion, artifact kind)
- * are joined in from the generated lifecycle table.
+ * lifecycle graph's props vocabulary. (The task's facts — worker class,
+ * command, exit criterion, artifact kind — are the server's AgentTaskSpec now,
+ * read by `useTaskSpec`; nothing here joins them in.)
  *
  * The two vocabularies differ on purpose. The wire says a task `passed` and a
  * lifecycle phase is `completed`; the graph says a node is `done` and a phase
@@ -14,7 +14,7 @@
  * Pure and React-free: `node --test` loads it directly.
  */
 import type { components } from '../../contracts/schema.ts';
-import { lifecycleFor, type LifecycleDef, type LifecycleTaskDef } from './lifecycles.gen.ts';
+import { lifecycleFor, type LifecycleDef } from './lifecycles.gen.ts';
 import type {
   LifecycleNode,
   LifecycleNodeState,
@@ -66,63 +66,6 @@ export const OUTCOME_TEXT: Readonly<Record<OutcomeWire, string>> = {
 export function lifecycleKeyFor(type: string, variant: string | undefined): string {
   if (type !== 'testing') return type;
   return `testing:${variant !== undefined && variant.length > 0 ? variant : 'none'}`;
-}
-
-/** The dispatch header's facts for one task — every one a join, none on the wire. */
-export interface TaskFacts {
-  workerClass?: string | undefined;
-  command?: string | undefined;
-  /** Resolved, never raw — see {@link artifactKindOf}. */
-  artifactKind?: string | undefined;
-  /** The binary exit criterion of the task's lifecycle phase. */
-  exitCriterion?: string | undefined;
-}
-
-/**
- * WHICH ARTIFACT A TASK IS ABOUT.
- *
- * A REVIEW task carries no `artifactKind` of its own — it carries `reviews`,
- * naming the dispatch it judges, and that dispatch is what names the artifact.
- * Verified across all fourteen lifecycles: `missionReview`, `glossaryReview`,
- * `volatilitiesReview`, `coreUseCasesReview`, `architectureReview`, `srsReview`,
- * `designReview`, `codeReview`, `stpReview` and `testing` all have `reviews` and
- * no `artifactKind`. The ONE exception is `projectDesign`'s `sdpReview`, which
- * carries `artifactKind: 'SdpReview'` and NO `reviews`, because the SDP is
- * computed and there is no dispatch to judge (spec §6/R7).
- *
- * Reading `task.artifactKind` alone therefore returns `undefined` for every
- * design review in the product — and the review body's whole verb table keys on
- * it. The chain is: the task's own kind, then its `reviews` target's, then its
- * `revisionGroup` sibling's (the group a draft and its review share, which is
- * the same answer by another road and survives a lifecycle that ever omits
- * `reviews`).
- */
-export function artifactKindOf(def: LifecycleDef, task: LifecycleTaskDef): string | undefined {
-  if (task.artifactKind !== undefined) return task.artifactKind;
-  if (task.reviews !== undefined) {
-    const judged = def.tasks.find((t) => t.id === task.reviews);
-    if (judged?.artifactKind !== undefined) return judged.artifactKind;
-  }
-  const sibling = def.tasks.find(
-    (t) =>
-      t.id !== task.id && t.revisionGroup === task.revisionGroup && t.artifactKind !== undefined
-  );
-  return sibling?.artifactKind;
-}
-
-export function taskFactsFor(view: ActivityViewWire, taskId: string): TaskFacts {
-  const def: LifecycleDef | undefined = lifecycleFor(lifecycleKeyFor(view.type, view.variant));
-  if (def === undefined) return {};
-  const task: LifecycleTaskDef | undefined = def.tasks.find((t) => t.id === taskId);
-  if (task === undefined) return {};
-  const phase = def.phases.find((p) => p.id === task.phase);
-  const artifactKind = artifactKindOf(def, task);
-  return {
-    ...(task.workerClass !== undefined ? { workerClass: task.workerClass } : {}),
-    ...(task.command !== undefined ? { command: task.command } : {}),
-    ...(artifactKind !== undefined ? { artifactKind } : {}),
-    ...(phase !== undefined ? { exitCriterion: phase.exitCriterion } : {}),
-  };
 }
 
 function revisionOf(r: RevisionWire): LifecycleRevision {
