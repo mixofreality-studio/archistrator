@@ -435,6 +435,11 @@ export const NO_EPISODE_CAPTURED =
 export const SPEC_NO_CHECKS = 'No checks for this task';
 /** A task whose edit scope is the state tools alone: it writes no file. */
 export const SPEC_STATE_ONLY = 'Writes through state tools only';
+/**
+ * The path the edit-scope gate admits beside a task's own scope (M2): the state
+ * document, written through the state tools. Shown under every file scope.
+ */
+export const SPEC_STATE_PATHS = '.aiarch/state/** (through state tools)';
 /** The run on screen judged a different spec than the one shown. */
 export const SPEC_CHANGED = 'spec changed since this run';
 /** A check with no result in the run on screen, or no run at all (R35). */

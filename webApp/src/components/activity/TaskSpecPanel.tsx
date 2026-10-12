@@ -41,6 +41,7 @@ import {
   SPEC_NOT_RUN,
   SPEC_OUTPUT_LOADING,
   SPEC_STATE_ONLY,
+  SPEC_STATE_PATHS,
   specOutputFailed,
   specReadFailed,
 } from './activityCopy.ts';
@@ -55,6 +56,7 @@ import {
   KIND_LABEL,
   modelSourceTip,
   scenarioViewOf,
+  showsStatePaths,
   sourceLabel,
   specSections,
   type CheckRowState,
@@ -520,6 +522,11 @@ function EditScope({ spec, t }: { spec: TaskSpecView; t: Tokens }): ReactNode {
             <li key={p}>{p}</li>
           ))}
         </Box>
+      ) : null}
+      {showsStatePaths(spec) ? (
+        <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+          {SPEC_STATE_PATHS}
+        </Typography>
       ) : null}
     </Section>
   );

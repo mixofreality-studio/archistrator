@@ -285,6 +285,13 @@ test('specSections: a no-command review shows role (if any), exit criterion and 
   });
 });
 
+test('showsStatePaths: every file scope lists the state document, a state-only one does not (M2)', () => {
+  const files = { editScope: { stateOnly: false, components: [], extra: ['**'] } };
+  const stateOnly = { editScope: { stateOnly: true, components: [], extra: [] } };
+  assert.equal(logic.showsStatePaths(files), true);
+  assert.equal(logic.showsStatePaths(stateOnly), false);
+});
+
 test('anchors: the persisted comment addresses of a spec check and a run scenario', () => {
   assert.equal(
     anchors.taskSpecCheckAnchor('C-billing-engine', 'construction', 'command:gofmt'),

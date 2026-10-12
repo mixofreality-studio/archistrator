@@ -116,6 +116,15 @@ export function specSections(spec: TaskSpecView): SpecSections {
   };
 }
 
+/**
+ * Whether MAY EDIT shows the state document's line (M2): the edit-scope gate
+ * admits `.aiarch/state/**` for every task, so a task with a file scope lists it
+ * beside its own paths. A state-only task already says so in its one line.
+ */
+export function showsStatePaths(spec: TaskSpecView): boolean {
+  return !spec.editScope.stateOnly;
+}
+
 export function formatUsd(n: number): string {
   return n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`;
 }
