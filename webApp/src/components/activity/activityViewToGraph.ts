@@ -1,8 +1,10 @@
 /**
  * The ONE translation between the `QueryActivityView` wire shape and the
- * lifecycle graph's props vocabulary. (The task's facts — worker class,
- * command, exit criterion, artifact kind — are the server's AgentTaskSpec now,
- * read by `useTaskSpec`; nothing here joins them in.)
+ * lifecycle graph's props vocabulary. The task's facts (worker class, command,
+ * exit criterion, artifact kind) are the server's AgentTaskSpec, read by
+ * `useTaskSpec`; the ONE fact also derived here is the artifact kind, from the
+ * generated lifecycle table, as the fallback the gate verbs use while the spec
+ * read is in flight or failed (R47).
  *
  * The two vocabularies differ on purpose. The wire says a task `passed` and a
  * lifecycle phase is `completed`; the graph says a node is `done` and a phase
@@ -14,7 +16,7 @@
  * Pure and React-free: `node --test` loads it directly.
  */
 import type { components } from '../../contracts/schema.ts';
-import { lifecycleFor, type LifecycleDef } from './lifecycles.gen.ts';
+import { lifecycleFor, type LifecycleDef, type LifecycleTaskDef } from './lifecycles.gen.ts';
 import type {
   LifecycleNode,
   LifecycleNodeState,
@@ -66,6 +68,45 @@ export const OUTCOME_TEXT: Readonly<Record<OutcomeWire, string>> = {
 export function lifecycleKeyFor(type: string, variant: string | undefined): string {
   if (type !== 'testing') return type;
   return `testing:${variant !== undefined && variant.length > 0 ? variant : 'none'}`;
+}
+
+/**
+ * WHICH ARTIFACT A TASK IS ABOUT, from the generated lifecycle table — the
+ * fallback for the task spec's `identity.artifactKind` while that read is in
+ * flight or failed (R47). The server's resolver derives the same answer the same
+ * way (A3's MethodSpecFor), and scripts/task-spec-panel.test.mjs pins that the
+ * two agree on every resolver fixture.
+ *
+ * A REVIEW task carries no `artifactKind` of its own — it carries `reviews`,
+ * naming the dispatch it judges, and that dispatch is what names the artifact.
+ * The ONE exception is `projectDesign`'s `sdpReview`, which carries
+ * `artifactKind: 'SdpReview'` and NO `reviews`, because the SDP is computed and
+ * there is no dispatch to judge (spec §6/R7). The chain is: the task's own
+ * kind, then its `reviews` target's, then its `revisionGroup` sibling's (the
+ * group a draft and its review share).
+ */
+export function artifactKindOf(def: LifecycleDef, task: LifecycleTaskDef): string | undefined {
+  if (task.artifactKind !== undefined) return task.artifactKind;
+  if (task.reviews !== undefined) {
+    const judged = def.tasks.find((t) => t.id === task.reviews);
+    if (judged?.artifactKind !== undefined) return judged.artifactKind;
+  }
+  const sibling = def.tasks.find(
+    (t) =>
+      t.id !== task.id && t.revisionGroup === task.revisionGroup && t.artifactKind !== undefined
+  );
+  return sibling?.artifactKind;
+}
+
+/** {@link artifactKindOf} for one task of one activity, by its lifecycle key. */
+export function lifecycleArtifactKindOf(
+  type: string,
+  variant: string | undefined,
+  taskId: string
+): string | undefined {
+  const def = lifecycleFor(lifecycleKeyFor(type, variant));
+  const task = def?.tasks.find((t) => t.id === taskId);
+  return def === undefined || task === undefined ? undefined : artifactKindOf(def, task);
 }
 
 function revisionOf(r: RevisionWire): LifecycleRevision {

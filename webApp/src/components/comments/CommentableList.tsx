@@ -37,6 +37,7 @@ import Tooltip from '@mui/material/Tooltip';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import { useComments, type Anchor } from './CommentContext';
 import { useRegisterAnchor } from './AnchorRegistry';
+import { keyBelongsToNestedControl, type KeyTargetNode } from './rowKeys.ts';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
@@ -236,6 +237,11 @@ export function CommentableList<T>({
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent, item: T, index: number): void => {
+      // A key meant for a button, link or field INSIDE the row is that control's:
+      // the row neither arms a comment on it nor cancels its default (R48).
+      if (keyBelongsToNestedControl(e.key, e.target as unknown as KeyTargetNode, e.currentTarget)) {
+        return;
+      }
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();

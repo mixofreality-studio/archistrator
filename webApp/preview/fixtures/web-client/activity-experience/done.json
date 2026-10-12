@@ -20,6 +20,13 @@
       }
     },
     "deliveryQueryProjectView": {
+      "taskSpec": {
+        "error": {
+          "status": 409,
+          "code": "failed_precondition",
+          "message": "the agent task spec of N-STP/testing does not resolve: no activity \"N-STP\" in the committed activity list"
+        }
+      },
       "designHealth": {
         "result": {
           "kind": "designHealth",

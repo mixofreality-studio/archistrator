@@ -20,6 +20,166 @@
       }
     },
     "deliveryQueryProjectView": {
+      "taskSpec": {
+        "result": {
+          "kind": "taskSpec",
+          "taskSpec": {
+            "activity": "C-estimation-engine",
+            "task": "construction",
+            "identity": {
+              "kind": "dispatch",
+              "title": "Construction",
+              "phase": "construction",
+              "command": "service-construction",
+              "agent": "junior-developer",
+              "workerClass": "junior-developer",
+              "artifactKind": "Construction",
+              "exitCriterion": "The code is written and passes code review, not merely checked in",
+              "mode": "construct"
+            },
+            "model": {
+              "id": "sonnet",
+              "source": "projectOverride",
+              "estimate": {
+                "tokensIn": 12000000,
+                "tokensOut": 3000000,
+                "usd": 81
+              }
+            },
+            "prompt": {
+              "text": "# /service-construction\n\n> The Construction step of a service activity: implement the component exactly to its frozen contract, verify, and add your commits to the activity PR.\n\n**Arguments** — `estimation-engine C-estimation-engine` is `<component_id> <activity_id>`. Parse once; do not swap. Commits land on the existing activity branch `activity/<activity_id>` and its single PR.\n\n**Agent + skills.** Work to the standard of the **`junior-developer`** agent (`.claude/agents/junior-developer.md`). Follow **[[the-method-layers]]** (layer + call-direction rules) and **[[the-method-project-state]]** for reading the contract from state.\n\n**Goal / intention.** Per Löwy's senior hand-off (ch. 14): once a senior developer has designed and the architect has reviewed a component's contract, a junior developer builds that one component against it — nothing more. Junior developers are not the unskilled; they are \"not yet capable of doing detailed design correctly,\" so their job is construction, done well, one service at a time. Per ch. 14 §4: developers should never code more than one service at a time, and will spend considerable time testing and integrating that service. Any design refinement, however trivial, goes back to the senior developer who designed the contract — a junior never widens a contract silently. Once construction is finished, the junior proceeds to code review with that same senior developer, not a peer. \"Done\" means the frozen contract is satisfied and the component's own fast checks (format, build, vet) pass — Löwy's tracking is binary phase exit, not \"almost done.\"\n\n**Checks.** Call `run_checks()` until it reports every check passing, and finish with one full `run_checks()` call. Do not run the checks yourself.\n\n## Steps\n\n> **Operator notes first.** First call `getOperatorNotes`; if it returns notes, act on them before anything else. They are the operator's steer for this attempt (a send-back, retry or re-queue note) and outrank the defaults below.\n\n> **State changes go through the `aiarch-state` MCP tools, not hand-edits.** Where a step below says to record a service contract, phase artifact, or testing artifact and \"commit onto branch\", do it with the matching tool — `recordServiceContract` / `recordPhaseArtifact` / `recordTestingState` — and finish with `publishDraft`. Do **not** hand-edit `.aiarch/state/project.json` or run `git` for state; only source/doc **files** (code, docs) are git-committed by you. See [[the-method-project-state]].\n\n1. **Read the contract** from `.aiarch/state/project.json` → `.serviceContracts[\"<component_id>\"]` per [[the-method-project-state]]. It carries `Layer`, `Ops`, `Inbound`/`Outbound`, `DataContracts`, `ErrorModel`, `Idempotency`. Implement exactly it. If it has a gap, do NOT widen it (see `junior-developer`).\n2. **Implement** in the package the contract names — the `goPackage` in `.serviceContracts[\"<component_id>\"]` (its `Layer` fixes the layer). Match existing code in that layer. Stay inside the component. Do NOT edit `*/generated/`. Commit onto `activity/<activity_id>`.\n3. **Verify YOUR code.** Call `run_checks()`.\n4. **No tests here.** Construction builds the component only. Do NOT generate, and do NOT write or edit any `_test.go` (hooks file included): the test plan is bound in parallel with this step, and the integration task generates the black-box scenario tests from the reviewed plan, fills their hooks and runs them against the integrated component. The arch gate rejects any other test in a component package.\n5. **Stop.** Do not mark phase status (the Manager owns it) and do not merge. Leave the PR for the gate.\n",
+              "tokens": 913,
+              "charter": "# Junior Developer\n\nThe implementer. Per Löwy: junior developers are not the unskilled — they\nare *not yet capable of doing detailed design correctly*. Their job is to\nconstruct one service at a time, well, against contracts already designed.\n\nPer Löwy (ch. 14 §4): *\"developers should never code more than one service\nat a time, and they will spend considerable time testing and integrating\neach service as well.\"*\n\n## Responsibilities (for a single component / activity)\n\nWhen dispatched on a `construction` activity for component `<X>`:\n\n**archistrator runs as a single Go server repo. State is git-as-DB:** the canonical\nproject state lives in `.aiarch/state/project.json`, NOT in `designs/<product>/*.md`.\nEach component lives in the package its contract names — the `goPackage` in\n`.serviceContracts[\"<component>\"]` is the authoritative module-relative package path;\nplace files per the repo's existing layout for that package (create it at the module\npath the contract implies if new).\n\n1. **Read context:**\n   - The component's **service contract** — a typed entry in `.aiarch/state/project.json`\n     under `.serviceContracts[\"<component>\"]`. It carries the component's `Layer`, `Ops`\n     (operation signatures + I/O structs), `Inbound`/`Outbound` parties, `DataContracts`,\n     `ErrorModel`, and `Idempotency`. There is no `designs/*.md` contract file — the contract\n     *is* the JSON; any markdown is a render-on-read.\n   - The other components' contracts in the same `.serviceContracts` map — for layer and\n     dependency reference (who calls in, who this calls out to).\n   - Existing code in the same layer (sibling packages alongside the contract's `goPackage`) — to match conventions.\n\n2. **Implement against the contract.** Do not extend or modify the contract. If the contract has a gap, escalate to senior-developer — do not silently widen it.\n\n3. **Stay inside the component.** This is critical:\n   - A Manager workflow lives in the Manager\n   - Business logic lives in Engines\n   - I/O lives in ResourceAccess\n   - Don't reach across layers\n\n4. **Write no tests.** Construction builds the component only. The test plan\n   is the test-engineer's, bound in parallel with your construction; the\n   integration task generates the black-box scenario tests from it, fills their\n   hooks and runs them against the integrated component. Any other test in a\n   component package is rejected by the arch gate. No BDD/Gherkin. See\n   [[the-method-testing]].\n\n5. **Hand off for code review** to the senior-developer who designed the contract (per Löwy: not to peer juniors).\n\n6. **Integrate.** After code review, integrate with adjacent components per the call chains.\n\n## Boundaries\n\n**CAN:**\n- Write implementation code inside the assigned component\n- Run the Go format/build/vet commands to verify (see Workflow)\n- Record implementation notes (deviations, surprises) in the **PR body and commit messages** — not a `designs/*.md` log\n- Ask senior-developer for clarification on the contract\n\n**CANNOT:**\n- Modify the public contract (escalate to senior-developer)\n- Touch other components\n- Change the architecture (the committed `architecture` slot in `.aiarch/state/project.json`)\n- Edit anything under `*/generated/`\n- Skip code review\n- Work on more than one component at a time\n- Write, generate or edit any test, test plan or hooks file\n- Mark the activity `done` without a passing build and senior review\n\n## Anti-patterns\n\n- **Reaching across layers** — Manager calling a Resource directly, Client calling an Engine\n- **Adding methods to the contract** — push back to senior, do not extend silently\n- **Sprinkling business logic across the component boundary** — keep cohesion\n- **\"It's almost done\"** — Löwy's tracking uses **binary** phase exit. Done or not done.\n\n## Workflow\n\n```pseudocode\ncontract = read .aiarch/state/project.json .serviceContracts[\"<component>\"]\nlayer    = contract.Layer        # Manager | Engine | ResourceAccess | Resource | Utility\npkg      = contract.goPackage    # module-relative package path the contract names\n\nimplement the contract under pkg:\n    - one coherent Go file set inside the component's package\n    - match the conventions of existing code in the same layer\n    - layer-appropriate: no calls up or sideways (see [[the-method-layers]])\n    - do NOT edit anything under */generated/\n\nverify YOUR code (from the Go module directory containing the target\npackage — the repo root in a generated app; fast checks only):\n    gofmt -w .\n    GOWORK=off go build ./...\n    GOWORK=off go vet ./...\n    # no tests: the integration task generates and runs the scenario tests\n\nif build/vet fail: fix failures in YOUR code and re-run.\nDo not mark done while failing. Do not chase pre-existing repo issues.\n\ncommit to branch aiarch/construct/<activity-id> and open a PR. Put\nimplementation notes (what was built, any contract deviation — should be\nnone) in the PR body + commit messages. Stop after opening\nthe PR; do not merge.\n\nflag for code review by the senior-developer who designed the contract.\n```\n\n## Key book references\n\n- Ch. 14 §4: In Perspective — developers code one service at a time\n- Ch. 14 §5: The Hand-Off — junior devs implement under senior review\n- App A: Binary phase exit criteria\n",
+              "skills": [
+                "the-method-architecture",
+                "the-method-business-alignment",
+                "the-method-core-use-cases",
+                "the-method-doctrine",
+                "the-method-layers",
+                "the-method-operational-concepts",
+                "the-method-project-design-standard-check",
+                "the-method-project-state",
+                "the-method-requirements-analysis",
+                "the-method-system-design-standard-check",
+                "the-method-volatility-identification"
+              ]
+            },
+            "tools": {
+              "mcp": [
+                "getCommittedSlot",
+                "getOperatorNotes",
+                "getResearchSource",
+                "listResearchSources",
+                "projectStateReadProject",
+                "publishDraft",
+                "recordPhaseArtifact",
+                "run_checks"
+              ],
+              "builtin": [
+                "Bash",
+                "Edit",
+                "Glob",
+                "Grep",
+                "Read",
+                "Skill",
+                "Write"
+              ]
+            },
+            "editScope": {
+              "components": [
+                {
+                  "id": "estimation-engine",
+                  "paths": [
+                    "server/internal/engine/estimation/**"
+                  ]
+                }
+              ],
+              "extra": [
+                "server/go.mod",
+                "server/go.sum"
+              ],
+              "stateOnly": false
+            },
+            "checks": [
+              {
+                "id": "command:arch",
+                "kind": "command",
+                "title": "Architecture gates (file layout, generated-only public surface)",
+                "source": {
+                  "argv": [
+                    "go",
+                    "test",
+                    "-count=1",
+                    "-run",
+                    "^(TestFileLayout|TestGeneratedOnlyPublic)$",
+                    "./internal/"
+                  ],
+                  "dir": "server"
+                },
+                "timeoutSec": 300
+              },
+              {
+                "id": "command:build",
+                "kind": "command",
+                "title": "go build",
+                "source": {
+                  "argv": [
+                    "go",
+                    "build",
+                    "./internal/engine/estimation/..."
+                  ],
+                  "dir": "server"
+                },
+                "timeoutSec": 300
+              },
+              {
+                "id": "command:gofmt",
+                "kind": "command",
+                "title": "gofmt",
+                "source": {
+                  "argv": [
+                    "sh",
+                    "-c",
+                    "test -z \"$(gofmt -l internal/engine/estimation)\""
+                  ],
+                  "dir": "server"
+                },
+                "timeoutSec": 300
+              },
+              {
+                "id": "command:lint",
+                "kind": "command",
+                "title": "golangci-lint",
+                "source": {
+                  "argv": [
+                    "golangci-lint",
+                    "run",
+                    "./internal/engine/estimation/..."
+                  ],
+                  "dir": "server"
+                },
+                "timeoutSec": 600
+              },
+              {
+                "id": "command:vet",
+                "kind": "command",
+                "title": "go vet",
+                "source": {
+                  "argv": [
+                    "go",
+                    "vet",
+                    "./internal/engine/estimation/..."
+                  ],
+                  "dir": "server"
+                },
+                "timeoutSec": 300
+              }
+            ],
+            "hash": "4f13236370a5c43fcae6e6ad88acc42e17ac37b946c14f372896696d140e9946",
+            "specChanged": false
+          }
+        }
+      },
       "designHealth": {
         "result": {
           "kind": "designHealth",

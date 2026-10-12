@@ -20,6 +20,53 @@
       }
     },
     "deliveryQueryProjectView": {
+      "taskSpec": {
+        "result": {
+          "kind": "taskSpec",
+          "taskSpec": {
+            "activity": "C-billing-state-access",
+            "task": "designReview",
+            "identity": {
+              "kind": "review",
+              "title": "Design Review",
+              "phase": "detailed_design",
+              "command": "",
+              "agent": "",
+              "workerClass": "",
+              "artifactKind": "DetailedDesign",
+              "exitCriterion": "The service contract is designed and passes design review",
+              "mode": ""
+            },
+            "model": {
+              "id": "",
+              "source": "",
+              "estimate": {
+                "tokensIn": 0,
+                "tokensOut": 0,
+                "usd": 0
+              }
+            },
+            "prompt": {
+              "text": "",
+              "tokens": 0,
+              "charter": "",
+              "skills": []
+            },
+            "tools": {
+              "mcp": [],
+              "builtin": []
+            },
+            "editScope": {
+              "components": [],
+              "extra": [],
+              "stateOnly": true
+            },
+            "checks": [],
+            "hash": "d4ac39becea12ebf951613cdfee9d2d88bea5669b98a771639f32e3553a39c23",
+            "specChanged": false
+          }
+        }
+      },
       "designHealth": {
         "result": {
           "kind": "designHealth",

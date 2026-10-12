@@ -7,9 +7,11 @@
  * `revision` is the task revision N (a number). With one given and no run
  * matching it the view carries no `checkRun`, which the panel shows as "not run".
  */
+import { useEffect, useRef } from 'react';
 import {
   useQueries,
   useQuery,
+  useQueryClient,
   type UseQueryOptions,
   type UseQueryResult,
 } from '@tanstack/react-query';
@@ -71,10 +73,64 @@ export function useTaskSpec(
   projectId: string,
   activityId: string,
   taskId: string | undefined,
-  revision: number | undefined
+  revision: number | undefined,
+  /**
+   * The poll while the selected revision's episode is running — the activity
+   * screen's own live cadence — else `false` (R48). A run recorded mid-episode
+   * then shows without a reload.
+   */
+  refetchInterval: number | false = false
 ): UseQueryResult<TaskSpecView> {
   const { ops } = useOpsClient();
-  return useQuery<TaskSpecView>(taskSpecQueryOptions(ops, projectId, activityId, taskId, revision));
+  return useQuery<TaskSpecView>({
+    ...taskSpecQueryOptions(ops, projectId, activityId, taskId, revision),
+    refetchInterval,
+  });
+}
+
+/**
+ * The selected task's episode, said as one comparable string: which selection it
+ * is, then `running`, the terminal episode (`<id>:<outcome>`), or `idle` (no
+ * episode on screen yet).
+ */
+export function episodeSignal(
+  selection: string,
+  running: boolean,
+  record: { episodeId: string; outcome: string } | undefined
+): string {
+  const state = running
+    ? 'running'
+    : record !== undefined
+      ? `${record.episodeId}:${record.outcome}`
+      : 'idle';
+  return `${selection}|${state}`;
+}
+
+/**
+ * Whether the spec must be re-read: the SAME selection's episode moved to a new
+ * terminal state (it finished, or a new attempt finished). A change of selection
+ * is a new query key already, and the first observation is not a change.
+ */
+export function taskSpecRefreshDue(prev: string | undefined, next: string): boolean {
+  if (prev === undefined || prev === next) return false;
+  const [prevSel] = prev.split('|');
+  const [nextSel, nextState] = next.split('|');
+  return prevSel === nextSel && nextState !== 'running' && nextState !== 'idle';
+}
+
+/**
+ * Re-reads the activity's task specs when the selected task's episode reaches a
+ * terminal state (R48): the run its job recorded lands under the same revision,
+ * so the query key does not change and nothing else would refetch it.
+ */
+export function useTaskSpecRefresh(projectId: string, activityId: string, signal: string): void {
+  const client = useQueryClient();
+  const prev = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const due = taskSpecRefreshDue(prev.current, signal);
+    prev.current = signal;
+    if (due) void client.invalidateQueries({ queryKey: ['taskSpec', projectId, activityId] });
+  }, [client, projectId, activityId, signal]);
 }
 
 /** The distinct output logs a spec's run recorded, in result order. */
@@ -97,15 +153,19 @@ export function checkRunFileUrl(
 }
 
 /**
- * The run's check logs, one query per distinct `outputRef`, keyed by the ref —
- * the same arrangement `useTestRunOutputs` keeps for a test run, against the
- * spec's CheckRun (a test run IS a check run, so the one file endpoint serves both).
+ * The run's check logs, one query per WANTED `outputRef` (a row the reader
+ * expanded, R48), keyed by the ref — the same arrangement `useTestRunOutputs`
+ * keeps for a test run, against the spec's CheckRun (a test run IS a check run,
+ * so the one file endpoint serves both). React Query caches each log, so
+ * collapsing and re-expanding a row does not fetch it again.
  */
 export function useCheckRunOutputs(
   projectId: string,
-  spec: TaskSpecView | undefined
+  spec: TaskSpecView | undefined,
+  /** The refs an expanded row asked for: nothing else is fetched (R48). */
+  wanted: ReadonlySet<string>
 ): Record<string, AsyncView<string>> {
-  const refs = checkOutputRefsOf(spec);
+  const refs = checkOutputRefsOf(spec).filter((ref) => wanted.has(ref));
   const runId = spec?.checkRun?.id ?? '';
   const fileUrl = checkRunFileUrl(projectId, spec);
   return useQueries({

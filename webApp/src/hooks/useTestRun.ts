@@ -109,7 +109,8 @@ export function useTestRun(
 /**
  * The distinct `go test -json` streams a run's scenarios name, in first-seen
  * order — across every judged contract (R36), which all view the ONE run, so a
- * ref names the same file whichever member the panel has on screen.
+ * ref names the same file whichever member the panel has on screen. These are
+ * the refs that MAY be fetched; `useTestRunOutputs` fetches only the wanted ones.
  */
 export function outputRefsOf(panel: TestRunPanelView | undefined): string[] {
   const refs: string[] = [];
@@ -122,9 +123,11 @@ export function outputRefsOf(panel: TestRunPanelView | undefined): string[] {
 }
 
 export function useTestRunOutputs(
-  panel: TestRunPanelView | undefined
+  panel: TestRunPanelView | undefined,
+  /** The refs an open Output tab asked for: nothing else is fetched (R48). */
+  wanted: ReadonlySet<string>
 ): Record<string, AsyncView<string>> {
-  const refs = outputRefsOf(panel);
+  const refs = outputRefsOf(panel).filter((ref) => wanted.has(ref));
   const runId = panel?.run.id ?? '';
   return useQueries({
     queries: refs.map((ref) => ({

@@ -79,7 +79,7 @@
  * polled: it means the committed plan has no such activity, which the screen
  * says outright instead of spinning forever.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -120,6 +120,7 @@ import {
 } from '../components/activity/activitySelection.ts';
 import {
   activityViewToGraph,
+  lifecycleArtifactKindOf,
   type ActivityViewWire,
 } from '../components/activity/activityViewToGraph.ts';
 import { latestRevision, revisionOnNavigate } from '../components/activity/lifecycleGraphTypes.ts';
@@ -154,7 +155,14 @@ import {
 import { activityViewSignature } from '../hooks/activityViewPolling';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
 import { useComponentScenarios, useTestRun, useTestRunOutputs } from '../hooks/useTestRun';
-import { checkRunFileUrl, useCheckRunOutputs, useTaskSpec } from '../hooks/useTaskSpec';
+import {
+  checkRunFileUrl,
+  episodeSignal,
+  useCheckRunOutputs,
+  useTaskSpec,
+  useTaskSpecRefresh,
+} from '../hooks/useTaskSpec';
+import { ACTIVITY_LIVE_POLL_MS } from '../hooks/activityViewPolling';
 import type { TestingArtifactData } from '../components/construction/artifactRenderers';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { isNoSessionError } from '../hooks/sessionPolling';
@@ -327,19 +335,52 @@ export function ActivityExperienceContainer({
   );
   // The selected task's computed AgentTaskSpec, with the run recorded for the
   // revision on screen (none ⇒ "not run", R35), and that run's check logs.
-  const taskSpec = useTaskSpec(projectId, activityId, sel?.taskId, sel?.revision);
-  const checkOutputs = useCheckRunOutputs(projectId, taskSpec.data);
+  // While the selected revision's episode runs, the spec polls at the screen's
+  // live cadence; when the episode lands terminal, it is re-read once (R48).
+  const selectedRunning =
+    revisionWire?.outcome === 'running' ||
+    (revisionWire === undefined && node?.state === 'running');
+  const taskSpec = useTaskSpec(
+    projectId,
+    activityId,
+    sel?.taskId,
+    sel?.revision,
+    selectedRunning ? ACTIVITY_LIVE_POLL_MS : false
+  );
+  useTaskSpecRefresh(
+    projectId,
+    activityId,
+    episodeSignal(
+      `${sel?.taskId ?? ''}/${String(sel?.revision ?? '')}`,
+      selectedRunning,
+      timeline.data?.record
+    )
+  );
+  // Logs are fetched only once a reader opens them (an expanded check row, an
+  // open Output tab), then cached (R48). The set only grows.
+  const [wantedOutputs, setWantedOutputs] = useState<ReadonlySet<string>>(() => new Set());
+  const wantOutput = useCallback((ref: string) => {
+    setWantedOutputs((cur) => (cur.has(ref) ? cur : new Set([...cur, ref])));
+  }, []);
+  const checkOutputs = useCheckRunOutputs(projectId, taskSpec.data, wantedOutputs);
   const spec = { data: taskSpec.data, error: taskSpec.error, isLoading: taskSpec.isLoading };
   const checkEvidence = {
     activityId,
     outputs: checkOutputs,
     fileUrl: checkRunFileUrl(projectId, taskSpec.data),
+    onWantOutput: wantOutput,
   };
-  // The artifact kind is the spec's: a review's is its judged dispatch's, resolved
-  // server-side. '' (a task that names none) is no kind.
-  const specArtifactKind = taskSpec.data?.identity.artifactKind;
+  // The artifact kind: the spec's once it has loaded and names one (a review's is
+  // its judged dispatch's, resolved server-side), else the generated lifecycle
+  // table's — so the gate's verbs and artifact panel never wait on, or degrade
+  // with, the spec read (R47).
+  const specArtifactKind = taskSpec.data?.identity.artifactKind ?? '';
   const artifactKind =
-    specArtifactKind !== undefined && specArtifactKind.length > 0 ? specArtifactKind : undefined;
+    specArtifactKind.length > 0
+      ? specArtifactKind
+      : view !== undefined && sel !== undefined
+        ? lifecycleArtifactKindOf(view.type, view.variant, sel.taskId)
+        : undefined;
 
   // --- write ops: one hook per delivery op (activityVerbs.ts names which) ----
   const submitDecision = useSubmitReviewDecision(projectId);
@@ -476,7 +517,7 @@ export function ActivityExperienceContainer({
     projectId,
     testingPhase === 'integration' ? activityId : undefined
   );
-  const testRunOutputs = useTestRunOutputs(testRunQuery.data);
+  const testRunOutputs = useTestRunOutputs(testRunQuery.data, wantedOutputs);
   const testing: TestingArtifactData | undefined =
     testingPhase === 'test_plan' || testingPhase === 'integration'
       ? {
@@ -492,6 +533,7 @@ export function ActivityExperienceContainer({
             isLoading: testRunQuery.isLoading,
           },
           outputs: testRunOutputs,
+          wantOutput,
         }
       : undefined;
 

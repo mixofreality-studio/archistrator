@@ -933,8 +933,11 @@ function mapTestRunPanelMember(
 
 /**
  * The `testRun` project view with its `testRuns` list: the primary panel, plus
- * one panel per contract the gate judges (spec R36). `fileUrl` is told which run
- * a path belongs to, since each contract's run has its own artifact.
+ * one panel per contract the gate judges (spec R36). Every member views the ONE
+ * CheckRun the server selected (queryTestRunView hands the same run to each
+ * contract), so all members share a run id and an artifact, and an `outputRef`
+ * names the same file whichever member is on screen. `fileUrl` still takes the
+ * run id from each member's own `run.id` rather than assuming that.
  */
 export function mapTestRunPanels(
   w: {

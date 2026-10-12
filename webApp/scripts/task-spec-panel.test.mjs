@@ -9,7 +9,7 @@
  */
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -19,6 +19,9 @@ let logic;
 let wire;
 let specHook;
 let runHook;
+let graph;
+let rowKeys;
+let anchors;
 
 async function bundle(entry, out) {
   await build({
@@ -43,6 +46,9 @@ before(async () => {
   wire = await bundle('src/contracts/wire.ts', join(dir, 'wire.mjs'));
   specHook = await bundle('src/hooks/useTaskSpec.ts', join(dir, 'spec-hook.mjs'));
   runHook = await bundle('src/hooks/useTestRun.ts', join(dir, 'run-hook.mjs'));
+  graph = await bundle('src/components/activity/activityViewToGraph.ts', join(dir, 'graph.mjs'));
+  rowKeys = await bundle('src/components/comments/rowKeys.ts', join(dir, 'row-keys.mjs'));
+  anchors = await bundle('src/components/comments/CommentContext.tsx', join(dir, 'anchors.mjs'));
 });
 
 const FIXTURES = join(root, 'preview', 'fixtures', 'web-client');
@@ -67,10 +73,16 @@ test('checkRows: a spec with no checkRun is all not-run (R35)', () => {
     assert.equal(r.state, 'not-run');
     assert.equal(r.result, undefined);
   }
-  assert.deepEqual(logic.checkCounts(rows), { passed: 0, failed: 0, notRun: rows.length });
+  assert.deepEqual(logic.checkCounts(rows), {
+    passed: 0,
+    failed: 0,
+    timedOut: 0,
+    notRun: rows.length,
+  });
+  assert.equal(logic.countsLine(logic.checkCounts(rows)), '0 passed · 0 failed · 5 not run');
 });
 
-test('checkRows: mixed results join by check id; timeout counts as failed', () => {
+test('checkRows: mixed results join by check id; a timeout is counted apart', () => {
   const spec = fixtureSpec('task-spec/construction-run.json');
   const rows = logic.checkRows(spec);
   const byId = Object.fromEntries(rows.map((r) => [r.check.id, r.state]));
@@ -85,7 +97,9 @@ test('checkRows: mixed results join by check id; timeout counts as failed', () =
     rows.find((r) => r.check.id === 'command:gofmt').result.outputRef,
     'command-gofmt.log'
   );
-  assert.deepEqual(logic.checkCounts(rows), { passed: 3, failed: 2, notRun: 0 });
+  const counts = logic.checkCounts(rows);
+  assert.deepEqual(counts, { passed: 3, failed: 1, timedOut: 1, notRun: 0 });
+  assert.equal(logic.countsLine(counts), '3 passed · 1 failed · 1 timed out · 0 not run');
   assert.equal(spec.specChanged, true);
 });
 
@@ -119,7 +133,7 @@ test('checkRows: an unknown kind and an unknown status survive, never as a pass 
   const [row] = logic.checkRows(spec);
   assert.equal(row.check.kind, 'unknown');
   assert.equal(row.state, 'unknown');
-  assert.deepEqual(logic.checkCounts([row]), { passed: 0, failed: 0, notRun: 0 });
+  assert.deepEqual(logic.checkCounts([row]), { passed: 0, failed: 0, timedOut: 0, notRun: 0 });
   assert.equal(logic.sourceLabel(row.check), 'probe:x');
 });
 
@@ -157,7 +171,12 @@ test('formatTokens: plain below 1k, k from 1k, M from 1M', () => {
   assert.equal(logic.formatTokens(1000), '1k');
   assert.equal(logic.formatTokens(911), '911');
   assert.equal(logic.formatTokens(12_345), '12k');
-  assert.equal(logic.formatTokens(999_999), '1000k');
+  // The unit follows the ROUNDED value: nothing reads "1000k".
+  assert.equal(logic.formatTokens(999_499), '999k');
+  assert.equal(logic.formatTokens(999_500), '1.0M');
+  assert.equal(logic.formatTokens(999_999), '1.0M');
+  assert.equal(logic.formatTokens(1499), '1k');
+  assert.equal(logic.formatTokens(1500), '2k');
   assert.equal(logic.formatTokens(1_000_000), '1.0M');
   assert.equal(logic.formatTokens(12_000_000), '12.0M');
 });
@@ -236,4 +255,133 @@ test('outputRefsOf: covers every judged contract (R36)', () => {
   const primary = member('billing', ['a.jsonl']);
   const panel = { ...primary, testRuns: [primary, member('ledger', ['b.jsonl', 'a.jsonl', ''])] };
   assert.deepEqual(runHook.outputRefsOf(panel), ['a.jsonl', 'b.jsonl']);
+});
+
+test('specSections: a no-command review shows role (if any), exit criterion and checks only', () => {
+  const review = fixtureSpec('activity-experience/service-parallel-testplan.json');
+  assert.deepEqual(logic.specSections(review), {
+    role: false,
+    command: false,
+    model: false,
+    cost: false,
+    exitCriterion: true,
+    prompt: false,
+    tools: false,
+    editScope: false,
+  });
+  const withRole = { ...review, identity: { ...review.identity, workerClass: 'system-architect' } };
+  assert.equal(logic.specSections(withRole).role, true);
+  assert.equal(logic.specSections(withRole).editScope, false);
+  const construction = fixtureSpec('task-spec/construction.json');
+  assert.deepEqual(logic.specSections(construction), {
+    role: true,
+    command: true,
+    model: true,
+    cost: true,
+    exitCriterion: true,
+    prompt: true,
+    tools: true,
+    editScope: true,
+  });
+});
+
+test('anchors: the persisted comment addresses of a spec check and a run scenario', () => {
+  assert.equal(
+    anchors.taskSpecCheckAnchor('C-billing-engine', 'construction', 'command:gofmt'),
+    '$.testingState.checkRuns[activity=C-billing-engine][task=construction].results[checkId=command:gofmt]'
+  );
+  assert.equal(
+    anchors.testRunScenarioAnchor('cr-1', 'billingStateAccess', 'bill-P1'),
+    '$.testingState.checkRuns[id=cr-1].results[checkId=scenario:billingStateAccess:bill-P1]'
+  );
+});
+
+/**
+ * R47: the gate verbs read the spec's artifact kind once loaded and the generated
+ * table's while it is not, so the two must agree. Every resolver-generated
+ * fixture answer is checked against artifactKindOf for the same lifecycle task.
+ */
+test('artifactKindOf agrees with the resolver on every fixture (R47)', () => {
+  const dir = join(FIXTURES, 'activity-experience');
+  let checked = 0;
+  for (const f of readdirSync(dir).filter((n) => n.endsWith('.json'))) {
+    const fx = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    const answer = fx.ops.deliveryQueryProjectView?.taskSpec;
+    assert.ok(answer !== undefined, `${f} has no taskSpec answer`);
+    if (answer.result === undefined) continue; // a refused resolve (an activity no longer planned)
+    const spec = answer.result.taskSpec;
+    const view = fx.ops.deliveryQueryActivityView.result;
+    assert.equal(
+      graph.lifecycleArtifactKindOf(view.type, view.variant, spec.task),
+      spec.identity.artifactKind,
+      `${f}: ${view.type}/${spec.task}`
+    );
+    checked += 1;
+  }
+  for (const f of ['construction.json', 'construction-run.json']) {
+    const spec = fixtureSpec(`task-spec/${f}`);
+    assert.equal(
+      graph.lifecycleArtifactKindOf('service', undefined, spec.task),
+      spec.identity.artifactKind
+    );
+    checked += 1;
+  }
+  assert.ok(checked >= 15, `checked ${String(checked)}`);
+});
+
+test("keyBelongsToNestedControl: Enter/Space on a control inside the row is the control's (R48)", () => {
+  const row = { tagName: 'DIV', parentElement: null, getAttribute: () => null };
+  const inner = { tagName: 'DIV', parentElement: row, getAttribute: () => null };
+  const button = { tagName: 'BUTTON', parentElement: inner, getAttribute: () => null };
+  const span = { tagName: 'SPAN', parentElement: button, getAttribute: () => null };
+  const roleButton = {
+    tagName: 'DIV',
+    parentElement: row,
+    getAttribute: (n) => (n === 'role' ? 'button' : null),
+  };
+  const text = { tagName: 'P', parentElement: inner, getAttribute: () => null };
+  assert.equal(rowKeys.keyBelongsToNestedControl('Enter', button, row), true);
+  assert.equal(rowKeys.keyBelongsToNestedControl(' ', span, row), true);
+  assert.equal(rowKeys.keyBelongsToNestedControl('c', roleButton, row), true);
+  assert.equal(rowKeys.keyBelongsToNestedControl('Enter', row, row), false);
+  assert.equal(rowKeys.keyBelongsToNestedControl('Enter', text, row), false);
+  assert.equal(rowKeys.keyBelongsToNestedControl('ArrowDown', button, row), false);
+  // The walk stops at the row: an interactive ancestor OUTSIDE the row does not count.
+  const outer = { tagName: 'BUTTON', parentElement: null, getAttribute: () => null };
+  const rowInButton = { ...row, parentElement: outer };
+  const t2 = { tagName: 'P', parentElement: rowInButton, getAttribute: () => null };
+  assert.equal(rowKeys.keyBelongsToNestedControl('Enter', t2, rowInButton), false);
+});
+
+test("taskSpecRefreshDue: re-read once when the same selection's episode turns terminal (R48)", () => {
+  const sig = (sel, running, rec) => specHook.episodeSignal(sel, running, rec);
+  const ep = { episodeId: 'e1', outcome: 'succeeded' };
+  assert.equal(specHook.taskSpecRefreshDue(undefined, sig('construction/1', false, ep)), false);
+  assert.equal(
+    specHook.taskSpecRefreshDue(sig('construction/1', true), sig('construction/1', false, ep)),
+    true
+  );
+  assert.equal(
+    specHook.taskSpecRefreshDue(sig('construction/1', true), sig('construction/1', false)),
+    false
+  );
+  assert.equal(
+    specHook.taskSpecRefreshDue(sig('construction/1', false), sig('construction/1', false, ep)),
+    true
+  );
+  assert.equal(
+    specHook.taskSpecRefreshDue(sig('construction/1', false, ep), sig('construction/1', false, ep)),
+    false
+  );
+  assert.equal(
+    specHook.taskSpecRefreshDue(sig('construction/1', false, ep), sig('codeReview/1', false, ep)),
+    false
+  );
+  assert.equal(
+    specHook.taskSpecRefreshDue(
+      sig('construction/1', false, ep),
+      sig('construction/1', false, { episodeId: 'e2', outcome: 'failed' })
+    ),
+    true
+  );
 });

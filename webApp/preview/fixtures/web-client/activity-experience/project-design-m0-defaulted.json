@@ -20,6 +20,53 @@
       }
     },
     "deliveryQueryProjectView": {
+      "taskSpec": {
+        "result": {
+          "kind": "taskSpec",
+          "taskSpec": {
+            "activity": "projectDesign",
+            "task": "sdpReview",
+            "identity": {
+              "kind": "review",
+              "title": "SDP Review · M0",
+              "phase": "sdp",
+              "command": "",
+              "agent": "",
+              "workerClass": "",
+              "artifactKind": "SdpReview",
+              "exitCriterion": "The derived plan and its cost are approved — M0",
+              "mode": ""
+            },
+            "model": {
+              "id": "",
+              "source": "",
+              "estimate": {
+                "tokensIn": 0,
+                "tokensOut": 0,
+                "usd": 0
+              }
+            },
+            "prompt": {
+              "text": "",
+              "tokens": 0,
+              "charter": "",
+              "skills": []
+            },
+            "tools": {
+              "mcp": [],
+              "builtin": []
+            },
+            "editScope": {
+              "components": [],
+              "extra": [],
+              "stateOnly": true
+            },
+            "checks": [],
+            "hash": "b5884024d47ded81a5f9f631ad08ebf02c15aa5ffe6c93a9dd2c42bf33a5629c",
+            "specChanged": false
+          }
+        }
+      },
       "designHealth": {
         "result": {
           "kind": "designHealth",

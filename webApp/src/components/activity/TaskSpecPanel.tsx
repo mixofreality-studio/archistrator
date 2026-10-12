@@ -17,7 +17,7 @@
  *
  * Pure and props-only: the container owns the spec read and the log reads.
  */
-import { type ReactNode, useId, useState } from 'react';
+import { type ReactNode, useEffect, useId, useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import Chip from '@mui/material/Chip';
@@ -35,13 +35,19 @@ import { ScenarioDetail, StatusChip } from '../construction/renderers/ScenarioRo
 import {
   ROLE_LABEL,
   SPEC_CHANGED,
+  SPEC_LOADING,
   SPEC_NO_CHECKS,
+  SPEC_NO_OUTPUT,
   SPEC_NOT_RUN,
+  SPEC_OUTPUT_LOADING,
   SPEC_STATE_ONLY,
+  specOutputFailed,
+  specReadFailed,
 } from './activityCopy.ts';
 import {
   checkCounts,
   checkRows,
+  countsLine,
   formatDuration,
   formatTokens,
   formatUsd,
@@ -50,6 +56,7 @@ import {
   modelSourceTip,
   scenarioViewOf,
   sourceLabel,
+  specSections,
   type CheckRowState,
 } from './taskSpecPanelLogic.ts';
 import type { TaskSpecView } from '../../contracts/types';
@@ -66,10 +73,15 @@ export interface TaskSpecPanelProps {
   outputs: Record<string, AsyncArtifactData<string>>;
   /** The file endpoint's URL for one file of the run (video, trace, log). */
   fileUrl: (path: string) => string;
+  /** Asks the container for one log: called when a row expands over it (R48). */
+  onWantOutput: (ref: string) => void;
 }
 
 /** What the panel needs beside the spec to show a run's evidence: the bodies carry it through. */
-export type TaskSpecCheckEvidence = Pick<TaskSpecPanelProps, 'activityId' | 'outputs' | 'fileUrl'>;
+export type TaskSpecCheckEvidence = Pick<
+  TaskSpecPanelProps,
+  'activityId' | 'outputs' | 'fileUrl' | 'onWantOutput'
+>;
 
 function Label({ children, t }: { children: ReactNode; t: Tokens }): ReactNode {
   return (
@@ -105,11 +117,12 @@ function MonoChip({
   label: string;
   t: Tokens;
   onClick?: () => void;
+  /** A clickable chip DISCLOSES a list, so it states `aria-expanded`. */
   pressed?: boolean;
 }): ReactNode {
   return (
     <Chip
-      aria-pressed={onClick !== undefined ? pressed === true : undefined}
+      aria-expanded={onClick !== undefined ? pressed === true : undefined}
       label={label}
       size="small"
       sx={{
@@ -249,17 +262,23 @@ function Frame({ children }: { children: ReactNode }): ReactNode {
 function CheckLog({
   row,
   outputs,
+  onWantOutput,
   t,
 }: {
   row: CheckRowState;
   outputs: Record<string, AsyncArtifactData<string>>;
+  onWantOutput: (ref: string) => void;
   t: Tokens;
 }): ReactNode {
   const ref = row.result?.outputRef ?? '';
+  // Mounted only under an expanded row: the log is fetched now, not before.
+  useEffect(() => {
+    if (ref.length > 0) onWantOutput(ref);
+  }, [ref, onWantOutput]);
   if (ref.length === 0) {
     return (
       <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
-        No output recorded for this check.
+        {SPEC_NO_OUTPUT}
       </Typography>
     );
   }
@@ -267,14 +286,14 @@ function CheckLog({
   if (stream === undefined || stream.isLoading) {
     return (
       <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
-        Loading output…
+        {SPEC_OUTPUT_LOADING}
       </Typography>
     );
   }
   if (stream.error !== null) {
     return (
       <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.dangerFg }}>
-        {`Could not read ${ref}: ${stream.error.message}`}
+        {specOutputFailed(ref, stream.error.message)}
       </Typography>
     );
   }
@@ -288,6 +307,7 @@ function CheckRow({
   onToggle,
   outputs,
   fileUrl,
+  onWantOutput,
   t,
 }: {
   row: CheckRowState;
@@ -295,6 +315,7 @@ function CheckRow({
   onToggle: () => void;
   outputs: Record<string, AsyncArtifactData<string>>;
   fileUrl: (path: string) => string;
+  onWantOutput: (ref: string) => void;
   t: Tokens;
 }): ReactNode {
   const { check, result } = row;
@@ -369,9 +390,10 @@ function CheckRow({
               outputs={outputs}
               scenario={scenarioViewOf(check, result)}
               t={t}
+              onWantOutput={onWantOutput}
             />
           ) : (
-            <CheckLog outputs={outputs} row={row} t={t} />
+            <CheckLog outputs={outputs} row={row} t={t} onWantOutput={onWantOutput} />
           )}
         </Box>
       ) : null}
@@ -384,12 +406,14 @@ function Checks({
   activityId,
   outputs,
   fileUrl,
+  onWantOutput,
   t,
 }: {
   spec: TaskSpecView;
   activityId: string;
   outputs: Record<string, AsyncArtifactData<string>>;
   fileUrl: (path: string) => string;
+  onWantOutput: (ref: string) => void;
   t: Tokens;
 }): ReactNode {
   const [openId, setOpenId] = useState<string>('');
@@ -400,7 +424,7 @@ function Checks({
       <Label t={t}>CHECKS</Label>
       {rows.length > 0 ? (
         <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
-          {`${String(counts.passed)} passed · ${String(counts.failed)} failed · ${String(counts.notRun)} not run`}
+          {countsLine(counts)}
         </Typography>
       ) : null}
       {spec.specChanged && spec.checkRun !== undefined ? (
@@ -453,6 +477,7 @@ function Checks({
                   onToggle={() => {
                     setOpenId((cur) => (cur === r.check.id ? '' : r.check.id));
                   }}
+                  onWantOutput={onWantOutput}
                 />
               )}
             />
@@ -506,15 +531,16 @@ function SpecBody({
   activityId,
   outputs,
   fileUrl,
+  onWantOutput,
 }: TaskSpecPanelProps & { spec: { data: TaskSpecView } }): ReactNode {
   const t = useTokens();
   const s = spec.data;
   const { identity, model, prompt, tools } = s;
-  const agentic = identity.command.length > 0;
+  const show = specSections(s);
   return (
     <>
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 3, flexWrap: 'wrap' }}>
-        {identity.workerClass.length > 0 ? (
+        {show.role ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <RoleAvatar seed={identity.workerClass} size={26} />
             <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.ink }}>
@@ -522,8 +548,8 @@ function SpecBody({
             </Typography>
           </Box>
         ) : null}
-        {agentic ? <Fact label="COMMAND">{`/${identity.command}`}</Fact> : null}
-        {agentic && model.id.length > 0 ? (
+        {show.command ? <Fact label="COMMAND">{`/${identity.command}`}</Fact> : null}
+        {show.model ? (
           <Fact label="MODEL">
             <Tooltip title={modelSourceTip(model.source)}>
               <Chip
@@ -543,14 +569,14 @@ function SpecBody({
             </Tooltip>
           </Fact>
         ) : null}
-        {agentic ? (
+        {show.cost ? (
           <Fact label="COST">
             {`est ${formatUsd(model.estimate.usd)}${
               episodeCostUsd !== undefined ? ` · actual ${formatUsd(episodeCostUsd)}` : ''
             }`}
           </Fact>
         ) : null}
-        {identity.exitCriterion.length > 0 ? (
+        {show.exitCriterion ? (
           <Box sx={{ minWidth: 240, flexBasis: 320, flexGrow: 1 }}>
             <Label t={t}>EXIT CRITERION</Label>
             <Typography sx={{ fontSize: 13.5, color: t.ink, lineHeight: 1.45 }}>
@@ -560,7 +586,7 @@ function SpecBody({
         ) : null}
       </Box>
 
-      {prompt.text.length > 0 ? (
+      {show.prompt ? (
         <Disclosure t={t} title={`PROMPT · ~${formatTokens(prompt.tokens)} tokens`}>
           <Pre t={t}>{prompt.text}</Pre>
           {prompt.charter.length > 0 ? (
@@ -580,7 +606,7 @@ function SpecBody({
         </Disclosure>
       ) : null}
 
-      {agentic && (tools.mcp.length > 0 || tools.builtin.length > 0) ? (
+      {show.tools ? (
         <Section label="TOOLS">
           {(
             [
@@ -605,9 +631,16 @@ function SpecBody({
         </Section>
       ) : null}
 
-      {agentic ? <EditScope spec={s} t={t} /> : null}
+      {show.editScope ? <EditScope spec={s} t={t} /> : null}
 
-      <Checks activityId={activityId} fileUrl={fileUrl} outputs={outputs} spec={s} t={t} />
+      <Checks
+        activityId={activityId}
+        fileUrl={fileUrl}
+        outputs={outputs}
+        spec={s}
+        t={t}
+        onWantOutput={onWantOutput}
+      />
     </>
   );
 }
@@ -626,14 +659,14 @@ export function TaskSpecPanel(props: TaskSpecPanelProps): ReactNode {
     return (
       <Frame>
         <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
-          {`Could not read this task's spec: ${spec.error.message}`}
+          {specReadFailed(spec.error.message)}
         </Typography>
       </Frame>
     );
   }
   return (
     <Frame>
-      <Skeleton aria-label="Reading this task's spec" height={20} variant="text" width="60%" />
+      <Skeleton aria-label={SPEC_LOADING} height={20} variant="text" width="60%" />
     </Frame>
   );
 }

@@ -177,7 +177,9 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
                 sx={{ fontFamily: t.mono, fontSize: 12 }}
                 value={m.run.component}
               >
-                {`${m.run.component} · ${String(c.pass)} pass · ${String(c.fail + c.timeout)} fail`}
+                {`${m.run.component} · ${String(c.pass)} pass · ${String(c.fail)} fail${
+                  c.timeout > 0 ? ` · ${String(c.timeout)} timed out` : ''
+                }`}
               </MenuItem>
             );
           })}
@@ -270,6 +272,7 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
           outputs={outputs}
           scenario={selected}
           t={t}
+          onWantOutput={testing?.wantOutput}
         />
       ) : null}
     </Box>

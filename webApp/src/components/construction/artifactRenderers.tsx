@@ -43,8 +43,11 @@ export interface TestingArtifactData {
   component: string;
   scenarios: AsyncArtifactData<ScenarioView[]>;
   testRun: AsyncArtifactData<TestRunPanelView>;
-  /** The run's `go test -json` streams by `outputRef`, for the Output tab. */
+  /** The run's `go test -json` streams by `outputRef`, for the Output tab — only
+   *  the ones asked for through `wantOutput` (R48). */
   outputs: Record<string, AsyncArtifactData<string>>;
+  /** Asks for one stream: the Output tab calls it when it opens over a ref. */
+  wantOutput: (ref: string) => void;
 }
 
 export interface ArtifactRendererProps {

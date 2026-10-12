@@ -439,3 +439,17 @@ export const SPEC_STATE_ONLY = 'Writes through state tools only';
 export const SPEC_CHANGED = 'spec changed since this run';
 /** A check with no result in the run on screen, or no run at all (R35). */
 export const SPEC_NOT_RUN = 'not run';
+/** An expanded check whose result recorded no log. */
+export const SPEC_NO_OUTPUT = 'No output recorded for this check.';
+/** An expanded check whose log is being fetched. */
+export const SPEC_OUTPUT_LOADING = 'Loading output…';
+/** An expanded check whose log could not be read. */
+export function specOutputFailed(ref: string, message: string): string {
+  return `Could not read ${ref}: ${message}`;
+}
+/** The spec read is in flight (the skeleton's accessible name). */
+export const SPEC_LOADING = "Reading this task's spec";
+/** The spec read failed: said inline, never blocking the episode below. */
+export function specReadFailed(message: string): string {
+  return `Could not read this task's spec: ${message}`;
+}

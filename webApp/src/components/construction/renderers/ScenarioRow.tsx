@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -123,15 +123,23 @@ export function ScenarioDetail({
   fileUrl,
   outputs,
   t,
+  onWantOutput,
 }: {
   scenario: TestRunScenarioView;
   fileUrl: (path: string) => string;
   outputs: Record<string, AsyncArtifactData<string>>;
   t: Tokens;
+  /** Asks the container to fetch a stream: called once the Output tab is open
+   *  over one, so a stream nobody reads is never downloaded (R48). */
+  onWantOutput?: ((ref: string) => void) | undefined;
 }): ReactNode {
   const tabs = tabsFor(scenario);
   const [tab, setTab] = useState<ScenarioTab>('Output');
   const active: ScenarioTab = tabs.includes(tab) ? tab : 'Output';
+  const ref = scenario.outputRef;
+  useEffect(() => {
+    if (active === 'Output' && ref.length > 0) onWantOutput?.(ref);
+  }, [active, ref, onWantOutput]);
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
