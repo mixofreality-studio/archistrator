@@ -1385,6 +1385,40 @@ func TestLocalRailGeneratesTheScenarioTestsInTheModuleDir(t *testing.T) {
 	}
 }
 
+// TestLocalRailRunsNoGitConfigAPriorRunPlanted (R44): the shared git dir is
+// agent-writable, so a prior run could plant a smudge filter, an fsmonitor command or a
+// hooks dir in its config. Adding the next run's worktree and checking it out runs none
+// of them. The run is one the job refuses before the agent (a drifted spec), so the only
+// git the shared repo sees is the executor's own.
+func TestLocalRailRunsNoGitConfigAPriorRunPlanted(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	commitFile(t, v.env.clone, ".gitattributes", "*.txt filter=planted\n")
+	commitFile(t, v.env.clone, "tracked.txt", "tracked\n")
+	markers := t.TempDir()
+	marker := func(name string) string { return filepath.Join(markers, name) }
+	fsmonitor := writeExecutable(t, filepath.Join(markers, "bin", "fsmonitor"), "#!/bin/sh\ntouch "+marker("fsmonitor")+"\n")
+	hooks := filepath.Join(markers, "hooks")
+	for _, hook := range []string{"post-checkout", "reference-transaction"} {
+		writeExecutable(t, filepath.Join(hooks, hook), "#!/bin/sh\ntouch "+marker(hook)+"\n")
+	}
+	runGit(t, v.env.clone, "config", "filter.planted.smudge", "sh -c 'touch "+marker("smudge")+"; cat'")
+	runGit(t, v.env.clone, "config", "filter.planted.required", "true")
+	runGit(t, v.env.clone, "config", "core.fsmonitor", fsmonitor)
+	runGit(t, v.env.clone, "config", "core.hooksPath", hooks)
+
+	v.set(t, "spec-hash", strings.Repeat("0", 64)+"\n")
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, "task spec drifted") {
+		t.Fatalf("run ended %s (%q), want the drifted-spec refusal after the worktree was added", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	for _, name := range []string{"smudge", "fsmonitor", "post-checkout", "reference-transaction"} {
+		if _, err := os.Stat(marker(name)); err == nil {
+			t.Errorf("the planted %s ran when the executor added and checked out the worktree", name)
+		}
+	}
+}
+
 // commitFile commits content at rel on the clone's main.
 func commitFile(t *testing.T, clone, rel, content string) {
 	t.Helper()

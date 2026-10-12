@@ -2317,6 +2317,52 @@ func gateGit(args ...string) *exec.Cmd {
 	return cmd
 }
 
+// checkoutGit is a gateGit call that also populates a working tree (reset, clean): on
+// top of gateGit's isolation it switches off every filter driver the repo's config
+// defines (ruling R44). The shared git dir is agent-writable, so a smudge, clean or
+// process filter planted in its config would otherwise run on the next checkout; an
+// empty command with required=false makes git copy the blob through unfiltered.
+// configDir is any directory of the repo whose config is read.
+func checkoutGit(configDir string, args ...string) (*exec.Cmd, error) {
+	overrides, err := filterDriverOverrides(configDir)
+	if err != nil {
+		return nil, err
+	}
+	return gateGit(append(overrides, args...)...), nil
+}
+
+// filterDriverOverrides is the `-c` pairs that neutralise each filter driver the repo's
+// config (read isolated, as gateGit reads it) names.
+func filterDriverOverrides(configDir string) ([]string, error) {
+	list := gateGit("config", "--get-regexp", `^filter\..+\.(smudge|clean|process|required)$`)
+	out, err := gitExec(configDir, list)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil // no filter driver configured
+		}
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var overrides []string
+	for line := range strings.SplitSeq(out, "\n") {
+		key, _, _ := strings.Cut(strings.TrimSpace(line), " ")
+		name, ok := strings.CutPrefix(key, "filter.")
+		if !ok || strings.LastIndex(name, ".") < 0 {
+			continue
+		}
+		name = name[:strings.LastIndex(name, ".")]
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		overrides = append(overrides,
+			"-c", "filter."+name+".smudge=", "-c", "filter."+name+".clean=",
+			"-c", "filter."+name+".process=", "-c", "filter."+name+".required=false")
+	}
+	return overrides, nil
+}
+
 // generateScenarioTests is step 3: for the integration task the JOB generates the
 // black-box scenario tests from the reviewed plan before the agent runs (the agent
 // wires the component, fills the hooks and commits the generated tests with its
@@ -2463,10 +2509,14 @@ func resetToBranchTip(workDir, branch string) error {
 	if err := pointWorktreeHead(workDir, plumbing.NewBranchReferenceName(branch)); err != nil {
 		return err
 	}
-	if _, err := gitExec(workDir, gateGit("reset", "--quiet", "--hard")); err != nil {
+	reset, err := checkoutGit(workDir, "reset", "--quiet", "--hard")
+	if err != nil {
 		return err
 	}
-	_, err := gitExec(workDir, gateGit("clean", "-fdq"))
+	if _, err := gitExec(workDir, reset); err != nil {
+		return err
+	}
+	_, err = gitExec(workDir, gateGit("clean", "-fdq"))
 	return err
 }
 
@@ -4595,8 +4645,12 @@ func addWorktree(repoPath, branch, parentDir string) (beforeSHA, gitDir string, 
 	if err != nil {
 		return "", "", err
 	}
-	add := exec.Command("git", "worktree", "add", "--quiet", "--detach", "--no-checkout", localWorktreeName)
-	add.Env = append(os.Environ(), "GIT_DIR="+gitDir)
+	// Both git calls that touch the new worktree run isolated (ruling R44): the shared
+	// git dir is in the agent's sandbox write allowlist, so a hook, fsmonitor command or
+	// filter driver a PRIOR run planted in its config must not run here, and never with
+	// this process's full environment.
+	add := gateGit("worktree", "add", "--quiet", "--detach", "--no-checkout", localWorktreeName)
+	add.Env = append(add.Env, "GIT_DIR="+gitDir)
 	if _, err := gitExec(parentDir, add); err != nil {
 		return "", "", err
 	}
@@ -4604,7 +4658,11 @@ func addWorktree(repoPath, branch, parentDir string) (beforeSHA, gitDir string, 
 	if err := pointWorktreeHead(workDir, ref); err != nil {
 		return "", "", err
 	}
-	if _, err := gitExec(workDir, exec.Command("git", "reset", "--quiet", "--hard")); err != nil {
+	reset, err := checkoutGit(workDir, "reset", "--quiet", "--hard")
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := gitExec(workDir, reset); err != nil {
 		return "", "", err
 	}
 	return tip.String(), gitDir, nil
