@@ -85,14 +85,17 @@ import (
 
 // init hands the process to the venue's double when the venue started this test
 // binary under one of the names it runs (see the venue section): as `claude`, the
-// scripted agent; as `aiarch-state-mcp`, the venue's state tool. Started any other
-// way, it is the test binary and init does nothing.
+// scripted agent; as `aiarch-state-mcp`, the venue's state tool; as `make`, the
+// scenario-test generation the executor runs before an integration agent. Started any
+// other way, it is the test binary and init does nothing.
 func init() {
 	switch filepath.Base(os.Args[0]) {
 	case agentName:
 		os.Exit(runScriptedAgent())
 	case stateToolName:
 		os.Exit(runVenueStateTool())
+	case makeName:
+		os.Exit(testinfra.RunMakeDouble(os.Args[1:]))
 	}
 }
 
@@ -382,13 +385,21 @@ func kindOf(name string) (projectstate.ArtifactKind, bool) {
 //     tool over MCP (putDraftModel / setCritiqueVerdict / respondToReviewComment, then
 //     publishDraft); the detailed-design job records the component's contract and the
 //     test-plan job its test plan (recordServiceContract / recordPhaseArtifact, the
-//     app's committed ones); the integration job records its check run with the state
-//     tool's record-check-run; any other construction job commits its work. Its stdout
-//     is the stream-json a real run writes, so the venue mines the episode from it.
+//     app's committed ones); any other construction job — integration's wiring among
+//     them — commits its work. Its stdout is the stream-json a real run writes, so the
+//     venue mines the episode from it.
+//
+// The EXECUTOR itself holds every lifecycle run to its task spec with the real state
+// tool — task-spec before the agent (a drifted hash refuses the run), edit-scope and
+// record-check-run after it — as the seated templates do. Two of the steps it runs reach
+// toolchains a scenario venue has no module for, and those are doubled: `run-checks`
+// (a green result for every check the spec holds; testinfra.RunChecksDouble) and
+// `make gen-tests` (testinfra.RunMakeDouble).
 
 const (
 	agentName     = "claude"
 	stateToolName = "aiarch-state-mcp"
+	makeName      = "make"
 	venueFile     = "venue.json"
 )
 
@@ -435,7 +446,7 @@ func buildVenue(moduleRoot string) (string, venueRig, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", venueRig{}, err
 	}
-	for _, name := range []string{agentName, stateToolName} {
+	for _, name := range []string{agentName, stateToolName, makeName} {
 		link := filepath.Join(dir, name)
 		_ = os.Remove(link)
 		if err := os.Symlink(exe, link); err != nil {
@@ -501,7 +512,6 @@ type venue struct {
 	repo      workingRepo
 	stateTool string // what the venue is configured with: the double on PATH
 	tool      string // the real state tool
-	results   string // where the integration step's check runs are kept
 
 	mu        sync.Mutex
 	submitted []agentJob
@@ -523,7 +533,7 @@ func openVenue(t *testing.T, h *scenariohost.Host, repo workingRepo) *venue {
 		t.Fatalf("hooks: claude resolves to %q (%v), want the scripted agent in %s", got, err, dir)
 	}
 	v := &venue{t: t, repo: repo, stateTool: filepath.Join(dir, stateToolName), tool: rigState.Tool,
-		results: t.TempDir(), release: make(chan struct{})}
+		release: make(chan struct{})}
 	currentMu.Lock()
 	currentVenue = v
 	currentMu.Unlock()
@@ -672,11 +682,9 @@ func streamEvents(failed bool) string {
 	return string(initEv) + "\n" + string(resultEv) + "\n"
 }
 
-// perform is what a succeeding run does in its worktree.
+// perform is what a succeeding run does in its worktree (the executor has already held
+// the dispatch to its task spec).
 func (v *venue) perform(n int, j agentJob) error {
-	if err := testinfra.VerifyTaskSpec(v.tool, venueJob(j)); err != nil {
-		return err
-	}
 	switch j.Mode {
 	case "draft":
 		return v.draft(j)
@@ -695,10 +703,7 @@ func (v *venue) perform(n int, j agentJob) error {
 
 // construct is a construction job's work, by the lifecycle task's command.
 func (v *venue) construct(n int, j agentJob) error {
-	switch {
-	case strings.HasSuffix(j.Command, "-integration"):
-		return v.integrate(n, j)
-	case strings.HasSuffix(j.Command, "-detailed-design"):
+	if strings.HasSuffix(j.Command, "-detailed-design") {
 		contract, err := v.sourceJSON(readSource(v.t).ServiceContracts[fixtureContract])
 		if err != nil {
 			return err
@@ -708,13 +713,14 @@ func (v *venue) construct(n int, j agentJob) error {
 			return err
 		})
 	}
-	// Every other step — the test plan included — is a change on the activity branch.
+	// Every other step — the test plan and integration's wiring included — is a change on
+	// the activity branch; the executor's gates record integration's check run.
 	// The test plan is not recorded from the app's own: the app's plan binds the
 	// scenarios projected over the app's System, and the scenario project's System
 	// builds only review-engine, so its projection differs and the app's bindings
 	// would not validate against it (TP-STATE). The integration step reads the
 	// scenario project's own projection instead (integrate).
-	return commitWork(n, j)
+	return v.commitWork(n, j)
 }
 
 // sourceJSON decodes one source-data document, refusing an absent one.
@@ -778,55 +784,28 @@ func (v *venue) answer(j agentJob) error {
 	})
 }
 
-// integrate is the integration step's venue write, the construct template's gate in
-// miniature: the task spec resolved in the worktree exactly as the job resolves it
-// (task-spec), every check it holds — the scenario checks are every scenario projected
-// onto the component — ran green against the integration attempt the activity row holds
-// pending, the results written where run-checks writes them, and that run recorded with
-// record-check-run and published.
-func (v *venue) integrate(n int, j agentJob) error {
-	revision := j.env["AIARCH_REVISION"]
-	if revision == "" {
-		ledger, lerr := readMainProject(j.dir)
-		if lerr != nil {
-			return lerr
-		}
-		revision = ledger.pendingAttempt(j.Activity, "integration")
-	}
-	if revision == "" {
-		return fmt.Errorf("no pending integration attempt on %s", j.Activity)
-	}
-	runID := fmt.Sprintf("dct-run-%04d", n+1)
-	dir := filepath.Join(v.results, runID)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
-	}
-	specPath := filepath.Join(dir, "spec.json")
-	if _, err := testinfra.ResolveTaskSpec(v.tool, venueJob(j), specPath); err != nil {
-		return err
-	}
-	resultsPath, err := testinfra.WritePassingResults(specPath, filepath.Join(dir, "results.json"))
-	if err != nil {
-		return err
-	}
-	record := exec.Command(v.tool, "record-check-run", "--spec", specPath, "--results", resultsPath,
-		"--run-id", runID, "--artifact", dir, "--revision", revision)
-	record.Dir = j.dir
-	record.Env = toolEnv(j)
-	if out, err := record.CombinedOutput(); err != nil {
-		return fmt.Errorf("record-check-run: %w\n%s", err, out)
-	}
-	return v.withStateTool(j, func(*stateSession) error { return nil })
-}
-
 // venueJob is the job as the shared venue double (testinfra) takes it.
 func venueJob(j agentJob) testinfra.VenueJob {
 	return testinfra.VenueJob{Mode: j.Mode, Command: j.Command, Activity: j.Activity, Dir: j.dir, Env: j.env}
 }
 
-// commitWork is a construction step's work: a change on the activity branch.
-func commitWork(n int, j agentJob) error {
-	rel := filepath.Join("work", j.Activity, j.Command+".md")
+// commitWork is a construction step's work: a change on the activity branch, inside the
+// task's edit scope (testinfra.WorkPath) as a real agent's is.
+func (v *venue) commitWork(n int, j agentJob) error {
+	tmp, err := os.MkdirTemp("", "dct-work-spec-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	specPath := filepath.Join(tmp, "spec.json")
+	if _, err := testinfra.ResolveTaskSpec(v.tool, venueJob(j), specPath); err != nil {
+		return err
+	}
+	spec, err := testinfra.ReadSpec(specPath)
+	if err != nil {
+		return err
+	}
+	rel := filepath.FromSlash(testinfra.WorkPath(spec, j.Activity, j.Command))
 	p := filepath.Join(j.dir, rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		return err
@@ -837,7 +816,7 @@ func commitWork(n int, j agentJob) error {
 	if _, err := runGit(j.dir, "add", rel); err != nil {
 		return err
 	}
-	_, err := runGit(j.dir, "-c", "user.name=scripted-agent", "-c", "user.email=scripted-agent@aiarch.local",
+	_, err = runGit(j.dir, "-c", "user.name=scripted-agent", "-c", "user.email=scripted-agent@aiarch.local",
 		"commit", "-q", "-m", j.Command+" "+j.Activity)
 	return err
 }
@@ -978,24 +957,7 @@ func (s *stateSession) close() error {
 
 // worktreeProject is the part of the worktree's project.json the agent reads.
 type worktreeProject struct {
-	Slots             map[string]worktreeSlot `json:"slots"`
-	ActivityExecution map[string]struct {
-		Attempts []struct {
-			AttemptID string `json:"attemptId"`
-			Task      string `json:"task"`
-			Outcome   string `json:"outcome"`
-		} `json:"attempts"`
-	} `json:"activityExecution"`
-}
-
-// readMainProject reads the project as main holds it, from a worktree of the repo.
-func readMainProject(dir string) (worktreeProject, error) {
-	var doc worktreeProject
-	out, err := runGit(dir, "show", "main:.aiarch/state/project.json")
-	if err != nil {
-		return doc, err
-	}
-	return doc, json.Unmarshal([]byte(out), &doc)
+	Slots map[string]worktreeSlot `json:"slots"`
 }
 
 func readWorktreeProject(dir string) (worktreeProject, error) {
@@ -1015,17 +977,6 @@ type worktreeSlot struct {
 		Type   string `json:"type"`
 		Status string `json:"status"`
 	} `json:"reviewThread"`
-}
-
-// pendingAttempt is the id of the activity's pending attempt at task.
-func (p worktreeProject) pendingAttempt(activity, task string) string {
-	id := ""
-	for _, a := range p.ActivityExecution[activity].Attempts {
-		if a.Task == task && a.Outcome == string(projectstate.OutcomePending) {
-			id = a.AttemptID
-		}
-	}
-	return id
 }
 
 // runScriptedAgent is the process the venue starts as `claude`: it asks the test
@@ -1060,12 +1011,16 @@ func runScriptedAgent() int {
 }
 
 // runVenueStateTool is the process the venue starts as `aiarch-state-mcp`: the real
-// state tool, unless the scenario scripts the venue to refuse this job's seat.
+// state tool, unless the scenario scripts the venue to refuse this job's seat, and but
+// for the check gate's runner, which is the venue's (testinfra.RunChecksDouble).
 func runVenueStateTool() int {
 	r, err := readVenueRig(filepath.Dir(os.Args[0]))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "venue:", err)
 		return 1
+	}
+	if len(os.Args) > 1 && os.Args[1] == "run-checks" {
+		return testinfra.RunChecksDouble(os.Args[2:], os.Stdout)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "seat-assets" {
 		req := seatRequest{}

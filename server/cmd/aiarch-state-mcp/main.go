@@ -46,10 +46,11 @@ func runOneShotCommand(argv []string) (handled bool, err error) {
 	// the pinned binary generation renders it, so the pin is the provenance.
 	case "seat-assets":
 		return true, wrapOneShot("seat-assets", runSeatAssets(argv[1:]))
-	// `step-tools` prints a step's built-in tool deny list so the CLOUD rail can
-	// pass --disallowedTools without restating the manifest in YAML. The local
-	// executor calls the manifest in-process (disallowedBuiltinTools); both read
-	// the SAME method-assets manifest, so the two rails cannot diverge.
+	// `step-tools` prints a step's built-in tool deny list so the CLOUD rail's answer
+	// job (the one job with no task spec, R30) can pass --disallowedTools without
+	// restating the manifest in YAML. The local executor calls the manifest
+	// in-process (answerJobDeniedTools); both read the SAME method-assets manifest,
+	// so the two rails cannot diverge.
 	case "step-tools":
 		return true, wrapOneShot("step-tools", runStepTools(argv[1:], os.Stdout))
 	// The task-spec venue subcommands the construct and design workflows run around

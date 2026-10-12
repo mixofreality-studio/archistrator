@@ -69,6 +69,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -1365,10 +1366,63 @@ func (a *localExecAccess) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (
 	operatorNote := spec.DispatchInputs[dispatchInputOperatorNoteKey]
 	revision := spec.DispatchInputs[dispatchInputRevisionKey]
 
+	envelope, err := taskSpecEnvelopeOf(activityID, spec.DispatchInputs)
+	if err != nil {
+		return "", err
+	}
 	plan := constructDispatchPlan(a.dispatchProjectID(spec), activityID, command, componentID, operatorNote, revision)
 	stampTaskSpecEnvelope(plan.rig, spec.DispatchInputs)
+	plan.taskSpec = envelope
 	plan.agentStep = agentStepOf(spec)
 	return a.submitClaudeRun(rc, plan)
+}
+
+// dispatchedTaskSpec is the task-spec envelope a lifecycle dispatch carries: the
+// activity and task the spec was resolved for and the hash the Manager resolved. The
+// local sequence resolves the spec again over the worktree and holds the run to it
+// (resolveTaskSpec, runGates). Zero for an ANSWER job (ruling R30): an answer job is
+// no lifecycle task and runs without a spec, exactly as before the task-spec wave. Zero
+// too for a dispatch that carries no envelope at all (taskSpecEnvelopeOf's earmark).
+type dispatchedTaskSpec struct {
+	activityID, taskID, hash string
+}
+
+// gated reports whether the run is held to a task spec.
+func (s dispatchedTaskSpec) gated() bool { return s.taskID != "" }
+
+// specHashShape is a sha256 hex digest, the shape the seated templates' "Validate
+// dispatch inputs" step holds spec_hash to.
+var specHashShape = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// taskSpecEnvelopeOf reads the task-spec envelope off a lifecycle dispatch. An envelope
+// that is present must be whole and well formed — the activity, the task and a sha256
+// spec hash, the shapes the seated templates' first step holds them to — or the dispatch
+// is refused at Submit.
+//
+// EARMARK (deviation from the templates, which REQUIRE the envelope on every construct,
+// draft and critique job): a dispatch carrying NEITHER task_id NOR spec_hash runs ungated,
+// as before the task spec. Both Managers always send the envelope (deliveryManager's
+// dispatch inputs), so production dispatches are always gated; the ungated path exists
+// only because the agenticJobAccess component test plan's bindings predate the envelope.
+// Once those bindings carry task_id/spec_hash/revision (a data edit of the plan plus
+// `make gen-tests`), delete this branch and refuse an absent envelope like a malformed one.
+func taskSpecEnvelopeOf(activityID string, inputs map[string]string) (dispatchedTaskSpec, error) {
+	s := dispatchedTaskSpec{
+		activityID: strings.TrimSpace(activityID),
+		taskID:     strings.TrimSpace(inputs[dispatchInputTaskIDKey]),
+		hash:       strings.TrimSpace(inputs[dispatchInputSpecHashKey]),
+	}
+	switch {
+	case s.taskID == "" && s.hash == "":
+		return dispatchedTaskSpec{}, nil
+	case s.activityID == "":
+		return dispatchedTaskSpec{}, fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: a lifecycle dispatch names no activity (DispatchInputs["activity_id"])`)
+	case s.taskID == "":
+		return dispatchedTaskSpec{}, fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: missing DispatchInputs["task_id"]: a lifecycle run is held to its task spec`)
+	case !specHashShape.MatchString(s.hash):
+		return dispatchedTaskSpec{}, fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: DispatchInputs["spec_hash"] is not a sha256 hex digest`)
+	}
+	return s, nil
 }
 
 // dispatchProjectID resolves the AIARCH_PROJECT_ID to stamp on a dispatch: the
@@ -1406,6 +1460,15 @@ func (a *localExecAccess) submitDesignJob(rc fwra.Context, spec PipelineSpec, jo
 	artifactKind := strings.TrimSpace(spec.DispatchInputs[dispatchInputArtifactKindKey])
 	plan := designDispatchPlan(a.dispatchProjectID(spec), jobMode, command, targetBranch, artifactKind)
 	stampTaskSpecEnvelope(plan.rig, spec.DispatchInputs)
+	// An answer job is no lifecycle task (ruling R30): no spec, no gates, the step
+	// manifest's deny list as before. Every other design job is held to its spec.
+	if jobMode != designJobModeAnswer {
+		envelope, err := taskSpecEnvelopeOf(spec.DispatchInputs[dispatchInputActivityIDKey], spec.DispatchInputs)
+		if err != nil {
+			return "", err
+		}
+		plan.taskSpec = envelope
+	}
 	plan.agentStep = agentStepOf(spec)
 	return a.submitClaudeRun(rc, plan)
 }
@@ -1416,7 +1479,7 @@ func (a *localExecAccess) submitDesignJob(rc fwra.Context, spec PipelineSpec, jo
 // resolves the same task the cloud templates' AIARCH_* envelope names. The ONE place the
 // envelope's keys are mapped, for both arms: a construct dispatch carries the activity and
 // revision through constructDispatchPlan as well, with the same values. Resolving and
-// gating the spec on this rail is the local sequence's (B6).
+// gating the spec on this rail is the local sequence's (dispatch, runGates).
 func stampTaskSpecEnvelope(rig map[string]string, inputs map[string]string) {
 	for key, rigKey := range map[string]string{
 		dispatchInputActivityIDKey: rigActivityIDKey,
@@ -1429,6 +1492,10 @@ func stampTaskSpecEnvelope(rig map[string]string, inputs map[string]string) {
 		}
 	}
 }
+
+// designJobModeAnswer is the job_mode of an answer job — the one design job that is
+// not a lifecycle task and so runs without a task spec (ruling R30).
+const designJobModeAnswer = "answer"
 
 // rigActivityIDKey / rigTaskIDKey / rigSpecHashKey are rig variables of the task-spec
 // envelope (cmd/aiarch-state-mcp's envActivityID / envTaskID; the spec hash the job is held to).
@@ -1465,11 +1532,21 @@ func (a *localExecAccess) submitClaudeRun(rc fwra.Context, plan localDispatchPla
 	// caller's idempotencyKey (dedupToken), so it is deterministic across retries:
 	// the same activity re-dispatched writes the SAME <episodeId>.jsonl (truncated,
 	// see openEpisodeTrace) and the handle the caller already holds names it.
-	if err := a.dispatch(run, plan, token); err != nil {
+	refused, err := a.dispatch(run, plan, token)
+	if err != nil {
 		a.mu.Lock()
 		delete(a.runs, token)
 		a.mu.Unlock()
 		return "", err
+	}
+	if refused != "" {
+		// The job itself refused to start the agent (its task spec drifted, or the
+		// integration tests could not be generated): a TERMINAL failed run, as the
+		// cloud job fails at that step — not a submit error a retry would repeat.
+		run.mu.Lock()
+		run.status = localRunFailed
+		run.diagnostic = refused
+		run.mu.Unlock()
 	}
 	return handle, nil
 }
@@ -1500,19 +1577,19 @@ type localDispatchPlan struct {
 	// (aiarch-construct.yml's prompt step). Design: "/<command>" with no args
 	// (aiarch-design.yml's draft step).
 	prompt string
-	// model, when non-empty, pins the claude model for this dispatch (ANTHROPIC_MODEL in
-	// claude's env — claudeCommand keeps argv fixed).
-	// Empty means "whatever the CLI resolves", which is the ambient subscription
-	// default and the behaviour every dispatch had before this field existed.
-	model string
 	// command is the bare slash-command slug (no leading "/", no arguments) this
-	// dispatch runs — the STEP MANIFEST KEY. It drives three scoping decisions
-	// that all have to agree, which is why it is carried once here rather than
-	// re-parsed out of prompt at each site: the seated .claude subset
-	// (seatPromptSurface), the MCP tool surface (stamped as AIARCH_COMMAND in
-	// rig, read by cmd/aiarch-state-mcp), and the built-in tool complement (the
-	// settings file's permissions.deny).
+	// dispatch runs — the STEP MANIFEST KEY. It drives the scoping decisions that
+	// all have to agree, which is why it is carried once here rather than re-parsed
+	// out of prompt at each site: the seated .claude subset (seatPromptSurface), the
+	// MCP tool surface (stamped as AIARCH_COMMAND in rig, read by
+	// cmd/aiarch-state-mcp), and, for an answer job only, the built-in tool
+	// complement (the settings file's permissions.deny).
 	command string
+	// taskSpec is the task-spec envelope the run is held to: the job resolves the
+	// spec over its worktree, refuses a drifted one, runs the agent on the spec's
+	// model and built-in tools, and gates the result on its edit scope and checks.
+	// Zero for an answer job (ruling R30).
+	taskSpec dispatchedTaskSpec
 	// agentStep is the spec step this one agent run realises (agentStepOf) — the
 	// step a failed run is attributed to.
 	agentStep string
@@ -1606,7 +1683,6 @@ const rigRevisionKey = "AIARCH_REVISION"
 //     prompt, vs the construct step's "/<command> <component> <activity>".
 func designDispatchPlan(projectID, jobMode, command, targetBranch, artifactKind string) localDispatchPlan {
 	return localDispatchPlan{
-		model:         designModelFromEnv(),
 		branch:        targetBranch,
 		worktreeLabel: "design session-branch",
 		command:       command,
@@ -1671,18 +1747,41 @@ const (
 	dispatchInputActivityIDKey = "activity_id"
 )
 
-// dispatch performs the synchronous prep (git-worktree-add the plan's branch, write
-// the ephemeral --mcp-config + sandbox --settings, start claude) and, once the
-// subprocess is genuinely running, hands the rest off to awaitCompletion in a
-// goroutine. Any failure here is a genuine, pre-spawn submit failure. It is the SHARED
-// core of both the construct arm and the design arm — everything arm-specific (branch,
-// create-off-main policy, AIARCH_* rig, prompt) arrives in the plan; this function is
-// arm-agnostic. episodeID is the submit dedup token (see submitClaudeRun): it names
-// the per-episode trace file this dispatch tees claude's whole stdout stream into.
-func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episodeID string) error {
+// dispatch performs the synchronous prep (git-worktree-add the plan's branch, seat the
+// prompt surface, write the ephemeral --mcp-config + sandbox --settings, resolve and hold
+// the run to its task spec, start claude) and, once the subprocess is genuinely running,
+// hands the rest off to awaitCompletion in a goroutine. It is the SHARED core of both the
+// construct arm and the design arm — everything arm-specific (branch, create-off-main
+// policy, AIARCH_* rig, prompt, task-spec envelope) arrives in the plan; this function is
+// arm-agnostic. episodeID is the submit dedup token (see submitClaudeRun): it names the
+// per-episode trace file this dispatch tees claude's whole stdout stream into.
+//
+// THE LOCAL SEQUENCE mirrors the seated construct and design templates step for step, so
+// the two venues gate a run the same way:
+//
+//  1. keep check output out of commits (R28: .git/info/exclude);
+//  2. resolve the task spec over the worktree — the unmerged branch tip the server hashed
+//     (R31/R34; this rail never merges main into it) — and REFUSE the run when its hash
+//     differs from the dispatched one; capture the edit-scope base and main SHAs (R26);
+//  3. for the integration task, generate the scenario tests;
+//  4. run the agent on the spec's model and built-in tool allowlist;
+//  5. the edit-scope gate;
+//  6. the check gate;
+//  7. the CheckRun record, red or green.
+//
+// Steps 5–7 are awaitCompletion's runGates: they run whatever the agent's outcome (the
+// templates' always()) and fail the run on a red gate.
+//
+// An answer job (ruling R30) skips 2, 3 and 5–7 and runs as before, on the step manifest's
+// deny list.
+//
+// Return values: a non-nil error is a genuine pre-spawn submit failure (no run record
+// survives it, so a retry starts clean); a non-empty refused is the job's own refusal to
+// start the agent — a terminal failed run, as the cloud job fails at that step.
+func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episodeID string) (refused string, err error) {
 	branch := plan.branch
 	if a.claudeBin == "" {
-		return fwra.Wrap(fwra.Infrastructure, a.claudeLookErr, "localexec: failed to start claude subprocess (the Claude Code CLI was not on PATH when this executor was built)")
+		return "", fwra.Wrap(fwra.Infrastructure, a.claudeLookErr, "localexec: failed to start claude subprocess (the Claude Code CLI was not on PATH when this executor was built)")
 	}
 
 	// The worktree lives under a throwaway parent temp dir (NEVER inside the
@@ -1691,10 +1790,11 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	// is a SUBDIR of the parent (localWorktreeName) because `git worktree add`
 	// wants a path it can own; git disambiguates the .git/worktrees entry name
 	// itself if two dispatches' basenames collide. The parent also holds claude's
-	// two config files, at fixed names BESIDE the worktree (claudeCommand says why).
+	// two config files and the resolved task spec, at fixed names BESIDE the
+	// worktree (claudeCommand says why).
 	parentDir, err := os.MkdirTemp("", "aiarch-construct-*")
 	if err != nil {
-		return fwra.Wrap(fwra.Infrastructure, err, "localexec: create work dir")
+		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: create work dir")
 	}
 	workDir := filepath.Join(parentDir, localWorktreeName)
 	ownWorkDir := true
@@ -1711,7 +1811,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	beforeSHA, gitDir, addErr := addWorktree(a.repoPath, branch, parentDir)
 	a.gitMu.Unlock()
 	if addErr != nil {
-		return fwra.Wrap(fwra.Infrastructure, addErr, "localexec: add "+plan.worktreeLabel+" worktree")
+		return "", fwra.Wrap(fwra.Infrastructure, addErr, "localexec: add "+plan.worktreeLabel+" worktree")
 	}
 
 	// Materialize the .claude prompt surface into the worktree BEFORE spawning claude —
@@ -1725,7 +1825,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	// worktree cleanup runs) and a retry re-seats from scratch, exactly like the worktree-add
 	// failure above.
 	if err := seatPromptSurface(workDir, plan.command); err != nil {
-		return err
+		return "", err
 	}
 
 	// rig is the SAME fixed AIARCH_* ambient-context envelope stamped on BOTH
@@ -1738,21 +1838,38 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	rig := plan.rig
 	rig["AIARCH_STATE_ROOT"] = workDir
 	if err := writeStateMCPConfig(parentDir, a.stateMCPBin, rig); err != nil {
-		return err
+		return "", err
 	}
+
+	// Steps 1–3 of the local sequence (see the doc comment): the task spec the agent
+	// runs on, and the gate inputs captured before the agent can move any ref.
+	var gate *localGate
+	if plan.taskSpec.gated() {
+		g, why, err := a.prepareGate(plan.taskSpec, parentDir, workDir, beforeSHA, rig)
+		if err != nil || why != "" {
+			return why, err
+		}
+		gate = g
+	}
+
 	// Worktree-mode filesystem scope (see the SECURITY POSTURE doc block): the
 	// sandboxed Bash tool must be able to write (a) the worktree itself (cwd —
 	// also the sandbox's own default, declared explicitly so the posture does not
 	// depend on cwd inference) and (b) the SHARED repo's git dir — a worktree's
 	// `git commit` writes .git/worktrees/<id> metadata, shared objects, and the
-	// activity branch ref, all of which live OUTSIDE the worktree cwd.
-	if err := writeClaudeSettings(parentDir, claudeSettings{
+	// activity branch ref, all of which live OUTSIDE the worktree cwd. A gated run's
+	// built-in tools are the spec's --tools allowlist (claudeCommand); only an answer
+	// job keeps the step manifest's deny list (ruling R30).
+	settings := claudeSettings{
 		sandboxed:       !allowUnsandboxedFromEnv(),
 		allowedDomains:  sandboxAllowedDomains(a.repoURL),
 		allowWritePaths: []string{workDir, gitDir},
-		disallowedTools: disallowedBuiltinTools(plan.command),
-	}); err != nil {
-		return err
+	}
+	if gate == nil {
+		settings.disallowedTools = answerJobDeniedTools(plan.command)
+	}
+	if err := writeClaudeSettings(parentDir, settings); err != nil {
+		return "", err
 	}
 
 	// The per-episode trace sink, opened AFTER gitDir is known because THE TRUST
@@ -1762,7 +1879,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	// record survives it, so a retry against a fixed configuration starts clean.
 	tracePath, traceFile, err := a.openEpisodeTrace(episodeID, gitDir)
 	if err != nil {
-		return err
+		return "", err
 	}
 	ownTrace := true
 	defer func() {
@@ -1773,9 +1890,9 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	}()
 
 	runCtx, runCancel := context.WithTimeout(context.Background(), a.runTimeout)
-	cmd := claudeCommand(runCtx, a.claudeBin)
+	cmd := claudeCommand(runCtx, a.claudeBin, gate.agentModel(), gate.agentTools())
 	cmd.Dir = workDir
-	cmd.Env = claudeSubprocessEnv(rig, plan.model)
+	cmd.Env = claudeSubprocessEnv(rig)
 	// The prompt rides stdin, never argv (claudeCommand says why).
 	cmd.Stdin = strings.NewReader(plan.prompt)
 	// SIGTERM-then-bounded-pipe-close, the SAME shutdown mechanism serverchild.go's
@@ -1797,15 +1914,508 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 
 	if err := cmd.Start(); err != nil {
 		runCancel()
-		return fwra.Wrap(fwra.Infrastructure, err, "localexec: failed to start claude subprocess")
+		return "", fwra.Wrap(fwra.Infrastructure, err, "localexec: failed to start claude subprocess")
 	}
 
-	// Ownership of parentDir (the worktree + claude's config files) and the trace
-	// file passes to awaitCompletion.
+	// Ownership of parentDir (the worktree, claude's config files and the resolved
+	// spec) and the trace file passes to awaitCompletion.
 	ownWorkDir = false
 	ownTrace = false
-	go a.awaitCompletion(runCtx, run, cmd, runCancel, branch, beforeSHA, parentDir, workDir, sink, &tail, &stderr)
-	return nil
+	go a.awaitCompletion(runCtx, run, cmd, runCancel, completionScope{
+		branch: branch, beforeSHA: beforeSHA, parentDir: parentDir, workDir: workDir, gate: gate,
+	}, sink, &tail, &stderr)
+	return "", nil
+}
+
+// ---------------------------------------------------------------------------
+// THE TASK SPEC ON THE LOCAL RAIL (agent task spec §5.2; dispatch's doc comment).
+// The seated construct and design templates hold every lifecycle job to the task spec
+// the server dispatched: they resolve it again over their checkout and refuse a drifted
+// one, run the agent on its model and built-in tools, then gate the agent's commits on
+// its edit scope and its checks and record the check run as evidence, red or green.
+// This rail runs the same sequence through the same binary (aiarch-state-mcp's
+// task-spec, edit-scope, run-checks and record-check-run), so a local run and a cloud
+// run of one task are judged alike. The gates are drift guardrails, not a security
+// boundary (ruling R27): the agent shares the machine with them.
+// ---------------------------------------------------------------------------
+
+// completionScope is what awaitCompletion needs of the dispatch beyond the process: the
+// branch and its tip before the agent, the dirs to remove, and the gates (nil for an
+// answer job, which has none).
+type completionScope struct {
+	branch, beforeSHA  string
+	parentDir, workDir string
+	gate               *localGate
+}
+
+// localGate is one gated run's resolved task spec and the gate inputs the job captured
+// before the agent could move any ref (R26).
+type localGate struct {
+	stateMCPBin string
+	// specPath is the spec task-spec wrote, beside the worktree (never inside it,
+	// where the agent could stage or rewrite it).
+	specPath string
+	// env is the gate subprocesses' env: this process's own (the toolchain the checks
+	// need) with the run's AIARCH_* rig on top — record-check-run writes the state
+	// document the rig's AIARCH_STATE_ROOT names, at the rig's AIARCH_REVISION.
+	env []string
+	// model and builtin are the spec's model id and built-in tool allowlist.
+	model   string
+	builtin []string
+	// integration marks the integration task, whose scenario tests the job generates
+	// before the agent; genTestsDir is where (the module dir the spec's generated-tests
+	// check runs in).
+	integration bool
+	genTestsDir string
+	// baseSHA is the branch tip before the agent and mainSHA main's tip then ("" when
+	// the repo has no main: the edit scope then judges the whole base..head diff).
+	baseSHA, mainSHA string
+	revision         string
+	// resultsRoot is the absolute dir a local CheckRun's results are kept under
+	// (localResultsDir): the artifact the run records.
+	resultsRoot string
+}
+
+// The fixed names and bounds of the local sequence.
+const (
+	// localSpecFile is the resolved spec's name in dispatch's parentDir.
+	localSpecFile = "spec.json"
+	// checkResultsDir / testResultsDir are where run-checks writes its results and the
+	// scenario checks their result trees, at the worktree root (the cloud artifact's
+	// two roots). Both are kept out of commits (excludeCheckOutput).
+	checkResultsDir = "check-results"
+	testResultsDir  = "test-results"
+	// localResultsRoot is the dir, in the shared repo's own checkout, a local
+	// CheckRun's results are kept under (`.aiarch/test-results/<run>`, the artifact
+	// access's local test-run store layout).
+	localResultsRoot = ".aiarch/test-results"
+	// localTaskIntegration is the lifecycle task whose scenario tests the job
+	// generates before the agent (the templates key it on the task, not the phase).
+	localTaskIntegration = "integration"
+	// gateStepTimeout bounds one task-spec, edit-scope or record-check-run call and the
+	// scenario-test generation; checkGateTimeout bounds the check gate (the templates'
+	// timeout-minutes: 45).
+	gateStepTimeout  = 15 * time.Minute
+	checkGateTimeout = 45 * time.Minute
+)
+
+// specModelShape / specToolShape are the plain shapes the templates hold the spec's
+// model id and each built-in tool name to before they reach claude's argv: a model
+// starts with a letter or digit (so it is never read as a flag), a tool name holds no
+// comma (the list separator) or space.
+var (
+	specModelShape = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:\[\]-]*$`)
+	specToolShape  = regexp.MustCompile(`^[A-Za-z0-9_():*.-]+$`)
+)
+
+// resolvedTaskSpec is the slice of the spec JSON task-spec writes that the local
+// sequence reads (the RA decodes it itself: it may not import projectstate's types).
+type resolvedTaskSpec struct {
+	Model struct {
+		ID string `json:"id"`
+	} `json:"model"`
+	Tools struct {
+		Builtin *[]string `json:"builtin"`
+	} `json:"tools"`
+	Checks []struct {
+		Source struct {
+			Argv []string `json:"argv"`
+			Dir  string   `json:"dir"`
+		} `json:"source"`
+	} `json:"checks"`
+}
+
+// excludeCheckOutput keeps the check output out of every commit (ruling R28): it
+// appends /test-results/ and /check-results/ to the repository's info/exclude, each
+// once, so an agent's `git add -A` cannot stage them. A linked worktree shares its
+// repository's exclude file, so this is the same file the cloud runner's clone uses.
+func excludeCheckOutput(workDir string) error {
+	out, err := gitExec(workDir, exec.Command("git", "rev-parse", "--git-path", "info/exclude"))
+	if err != nil {
+		return err
+	}
+	path := strings.TrimSpace(out)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(workDir, path)
+	}
+	dir, name := filepath.Dir(path), filepath.Base(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	existing, err := readFileInDir(dir, name)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	add := excludeLinesMissing(string(existing), "/"+testResultsDir+"/", "/"+checkResultsDir+"/")
+	if add == "" {
+		return nil
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	f, err := root.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(add); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// prepareGate is steps 1–3 of the local sequence for a gated run: check output kept out
+// of commits, the task spec resolved and held to the dispatched hash with the edit-scope
+// SHAs captured, and the integration task's scenario tests generated. It returns the
+// gate, or why the job refuses to start the agent, or a genuine pre-spawn error.
+func (a *localExecAccess) prepareGate(s dispatchedTaskSpec, parentDir, workDir, beforeSHA string, rig map[string]string) (*localGate, string, error) {
+	if err := excludeCheckOutput(workDir); err != nil {
+		return nil, "", fwra.Wrap(fwra.Infrastructure, err, "localexec: keep check output out of commits")
+	}
+	g, why := a.resolveTaskSpec(s, parentDir, workDir, rig)
+	if why != "" {
+		return nil, why, nil
+	}
+	g.baseSHA = beforeSHA
+	if why := generateScenarioTests(g, workDir); why != "" {
+		return nil, why, nil
+	}
+	return g, "", nil
+}
+
+// agentModel / agentTools are the model and built-in allowlist the agent runs on: the
+// spec's, or none for an ungated run (nil gate), which then runs on the CLI's default
+// model and the answer job's deny list.
+func (g *localGate) agentModel() string {
+	if g == nil {
+		return ""
+	}
+	return g.model
+}
+
+func (g *localGate) agentTools() []string {
+	if g == nil {
+		return nil
+	}
+	return g.builtin
+}
+
+// excludeLinesMissing is what to append to an exclude file holding existing so that it
+// holds each of lines once: the lines it lacks (after a newline when existing does not
+// end in one), or "" when it holds them all.
+func excludeLinesMissing(existing string, lines ...string) string {
+	have := map[string]bool{}
+	for line := range strings.SplitSeq(existing, "\n") {
+		have[line] = true
+	}
+	var add strings.Builder
+	for _, line := range lines {
+		if !have[line] {
+			add.WriteString(line + "\n")
+		}
+	}
+	if add.Len() == 0 {
+		return ""
+	}
+	if existing != "" && !strings.HasSuffix(existing, "\n") {
+		return "\n" + add.String()
+	}
+	return add.String()
+}
+
+// resolveTaskSpec is step 2 of the local sequence: it resolves the task spec over the
+// worktree with the state tool's task-spec — the same code the server hashed with — and
+// returns the gate it holds the run to, or why the job refuses to start the agent: the
+// spec does not resolve, its hash differs from the dispatched one ("task spec drifted"),
+// its model or tools are not plain, or main cannot be read. main's tip is captured here,
+// before the agent runs (R26).
+func (a *localExecAccess) resolveTaskSpec(s dispatchedTaskSpec, parentDir, workDir string, rig map[string]string) (*localGate, string) {
+	g := &localGate{
+		stateMCPBin: a.stateMCPBin,
+		specPath:    filepath.Join(parentDir, localSpecFile),
+		env:         gateEnv(rig),
+		integration: s.taskID == localTaskIntegration,
+		revision:    rig[rigRevisionKey],
+		resultsRoot: localResultsDir(a.repoPath),
+	}
+	res := g.run(gateStepTimeout, workDir, "task-spec", "--activity", s.activityID, "--task", s.taskID, "--root", workDir, "--out", g.specPath)
+	if res.code != 0 {
+		return nil, "the task spec of " + s.activityID + "/" + s.taskID + " could not be resolved: " + res.detail()
+	}
+	if got := strings.TrimSpace(res.stdout); got != s.hash {
+		return nil, "task spec drifted: dispatched " + s.hash + ", the job resolved " + singleLine(outputHead(got, 80))
+	}
+	if why := g.readSpec(); why != "" {
+		return nil, why
+	}
+	a.gitMu.Lock()
+	mainSHA, err := revParseBranch(a.repoPath, localMainBranch)
+	a.gitMu.Unlock()
+	switch {
+	case err == nil:
+		g.mainSHA = mainSHA
+	case !errors.Is(err, plumbing.ErrReferenceNotFound):
+		return nil, "main could not be read before the agent ran: " + err.Error()
+	}
+	return g, ""
+}
+
+// readSpec reads the spec task-spec wrote into the gate: the model and built-in tools,
+// each held to its plain shape, and the module dir the generated-tests check runs in. It
+// returns why the spec cannot be run on, or "".
+func (g *localGate) readSpec() string {
+	raw, err := readFileInDir(filepath.Dir(g.specPath), filepath.Base(g.specPath))
+	if err != nil {
+		return "the resolved task spec could not be read: " + err.Error()
+	}
+	var spec resolvedTaskSpec
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		return "the resolved task spec is not a task spec: " + err.Error()
+	}
+	if len(spec.Model.ID) > 128 || !specModelShape.MatchString(spec.Model.ID) {
+		return "the task spec's model is not a model id"
+	}
+	if spec.Tools.Builtin == nil {
+		return "the task spec has no tools.builtin list"
+	}
+	if len(strings.Join(*spec.Tools.Builtin, ",")) > 4096 || slices.ContainsFunc(*spec.Tools.Builtin, func(tool string) bool {
+		return !specToolShape.MatchString(tool)
+	}) {
+		return "the task spec's built-in tools are not a tool list"
+	}
+	g.model, g.builtin = spec.Model.ID, *spec.Tools.Builtin
+	for _, c := range spec.Checks {
+		if slices.Equal(c.Source.Argv, []string{"make", "gen-tests-check"}) {
+			g.genTestsDir = c.Source.Dir
+		}
+	}
+	if g.genTestsDir != "" && !filepath.IsLocal(g.genTestsDir) {
+		return "the task spec's module dir " + g.genTestsDir + " is not inside the repo"
+	}
+	return ""
+}
+
+// localResultsDir is where this executor keeps local CheckRun results: the shared repo's
+// checkout under .aiarch/test-results, made absolute because the artifact a run records
+// must resolve from whatever directory the server reads it in. The dir ignores itself
+// (ensureTracesDir's "*" .gitignore), like the episode traces beside it: results are
+// evidence the testing gate reads from disk before the activity merges, never a commit.
+func localResultsDir(repoPath string) string {
+	dir := filepath.Join(repoPath, filepath.FromSlash(localResultsRoot))
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
+}
+
+// gateEnv is the gate subprocesses' env: this process's own with the rig on top (a
+// later entry wins in an exec env, so the rig's AIARCH_* values are the ones read).
+func gateEnv(rig map[string]string) []string {
+	env := os.Environ()
+	for k, v := range rig {
+		env = append(env, k+"="+v)
+	}
+	return env
+}
+
+// generateScenarioTests is step 3: for the integration task the JOB generates the
+// black-box scenario tests from the reviewed plan before the agent runs (the agent
+// wires the component, fills the hooks and commits the generated tests with its
+// wiring). It returns why the job refuses to start the agent, or "".
+func generateScenarioTests(g *localGate, workDir string) string {
+	if !g.integration {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gateStepTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "make", "gen-tests")
+	cmd.Dir = filepath.Join(workDir, g.genTestsDir)
+	cmd.Env = append(slices.Clone(g.env), "GOWORK=off")
+	cmd.WaitDelay = localExecWaitDelay
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "the scenario tests could not be generated (make gen-tests): " + singleLine(outputTail(err.Error()+": "+string(out), 600))
+	}
+	return ""
+}
+
+// gateToolResult is one state-tool call's outcome: its output and exit code (-1 when
+// it did not run to an exit — it could not start, or its time bound killed it).
+type gateToolResult struct {
+	stdout, stderr string
+	code           int
+	err            error
+}
+
+// detail is the call's bounded, single-line failure detail: its stderr, else its error.
+func (r gateToolResult) detail() string {
+	text := strings.TrimSpace(r.stderr)
+	if text == "" && r.err != nil {
+		text = r.err.Error()
+	}
+	return singleLine(outputTail(text, 600))
+}
+
+// run runs one state-tool subcommand in dir, bounded by timeout.
+func (g *localGate) run(timeout time.Duration, dir string, args ...string) gateToolResult {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := commandOf(ctx, g.stateMCPBin, args...)
+	cmd.Dir = dir
+	cmd.Env = g.env
+	cmd.WaitDelay = localExecWaitDelay
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	res := gateToolResult{stdout: stdout.String(), stderr: stderr.String(), err: err}
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+	case errors.As(err, &exitErr) && ctx.Err() == nil:
+		res.code = exitErr.ExitCode()
+	default:
+		res.code = -1
+	}
+	return res
+}
+
+// runGates is steps 5–7 of the local sequence, over the branch tip the agent left
+// (headSHA): the edit-scope gate, the check gate over exactly what the agent committed,
+// and the CheckRun record (evidence red or green, committed onto the branch). It
+// returns why the gates fail the run — the edit scope, then the FIRST check that did
+// not pass — or "" when every gate is green. Each gate runs whatever the one before it
+// found, as the templates' always() steps do.
+func runGates(g *localGate, workDir, headSHA string) string {
+	var failures []string
+	scope := []string{"edit-scope", "--spec", g.specPath, "--base", g.baseSHA, "--head", headSHA}
+	if g.mainSHA != "" {
+		scope = append(scope, "--main", g.mainSHA)
+	} else {
+		scope = append(scope, "--no-main")
+	}
+	switch res := g.run(gateStepTimeout, workDir, scope...); res.code {
+	case 0:
+	case 1:
+		failures = append(failures, "the edit scope gate failed: "+res.detail())
+	default:
+		failures = append(failures, "the edit scope gate could not run: "+res.detail())
+	}
+
+	// The check gate judges exactly what the agent committed: the worktree back on the
+	// branch tip with nothing the agent left uncommitted, and no stale results from the
+	// agent's own run_checks calls.
+	if err := resetToBranchTip(workDir); err != nil {
+		return strings.Join(append(failures, "the checks could not run: "+err.Error()), "; ")
+	}
+	for _, dir := range []string{testResultsDir, checkResultsDir} {
+		if err := os.RemoveAll(filepath.Join(workDir, dir)); err != nil {
+			return strings.Join(append(failures, "the checks could not run: "+err.Error()), "; ")
+		}
+	}
+	res := g.run(checkGateTimeout, workDir, "run-checks", "--gate", "--spec", g.specPath, "--out", checkResultsDir)
+	switch res.code {
+	case 0:
+	case 1:
+		failures = append(failures, firstFailingCheck(workDir, res))
+	default:
+		// An internal error (or a killed run) leaves no results to record.
+		return strings.Join(append(failures, "the checks could not run: "+res.detail()), "; ")
+	}
+	if why := recordCheckRun(g, workDir); why != "" {
+		failures = append(failures, why)
+	}
+	return strings.Join(failures, "; ")
+}
+
+// resetToBranchTip points the worktree back at its branch (the agent may have checked
+// out something else) and drops whatever the agent left uncommitted.
+func resetToBranchTip(workDir string) error {
+	head, err := gitExec(workDir, exec.Command("git", "symbolic-ref", "--quiet", "HEAD"))
+	if err != nil {
+		return fmt.Errorf("the worktree's branch: %w", err)
+	}
+	ref := plumbing.ReferenceName(strings.TrimSpace(head))
+	if err := pointWorktreeHead(workDir, ref); err != nil {
+		return err
+	}
+	if _, err := gitExec(workDir, exec.Command("git", "reset", "--quiet", "--hard")); err != nil {
+		return err
+	}
+	_, err = gitExec(workDir, exec.Command("git", "clean", "-fdq"))
+	return err
+}
+
+// firstFailingCheck names the first check in run-checks' results that did not pass —
+// the red run's reason.
+func firstFailingCheck(workDir string, res gateToolResult) string {
+	raw, err := readFileInDir(filepath.Join(workDir, checkResultsDir), "results.json")
+	if err == nil {
+		var results []struct {
+			CheckID string `json:"checkId"`
+			Status  string `json:"status"`
+		}
+		if json.Unmarshal(raw, &results) == nil {
+			for _, r := range results {
+				if r.Status != "pass" {
+					return "check " + r.CheckID + " did not pass (" + r.Status + ")"
+				}
+			}
+		}
+	}
+	return "the checks did not pass: " + res.detail()
+}
+
+// recordCheckRun is step 7: the gate's results become the task's CheckRun on the state
+// document (record-check-run, under a local run id), the results tree is kept in the
+// results dir the local test-run store reads (the run's artifact), and the record is
+// committed onto the branch. It returns why the record failed, or "".
+func recordCheckRun(g *localGate, workDir string) string {
+	runID := "local-" + time.Now().UTC().Format("20060102T150405.000Z")
+	if err := ensureTracesDir(g.resultsRoot); err != nil {
+		return "the check results could not be kept: " + err.Error()
+	}
+	artifact := filepath.Join(g.resultsRoot, runID)
+	for _, dir := range []string{checkResultsDir, testResultsDir} {
+		src := filepath.Join(workDir, dir)
+		if _, err := os.Stat(src); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err := os.CopyFS(filepath.Join(artifact, dir), os.DirFS(src)); err != nil {
+			return "the check results could not be kept: " + err.Error()
+		}
+	}
+	args := []string{"record-check-run", "--spec", g.specPath, "--results", filepath.Join(checkResultsDir, "results.json"),
+		"--run-id", runID, "--artifact", artifact}
+	if g.revision != "" {
+		args = append(args, "--revision", g.revision)
+	}
+	if res := g.run(gateStepTimeout, workDir, args...); res.code != 0 {
+		return "the check run could not be recorded: " + res.detail()
+	}
+	if err := commitCheckRun(workDir, runID); err != nil {
+		return "the check run could not be committed: " + err.Error()
+	}
+	return ""
+}
+
+// commitCheckRun commits the recorded state document onto the worktree's branch. The
+// run id reaches git only through the message on stdin.
+func commitCheckRun(workDir, runID string) error {
+	if _, err := os.Stat(filepath.Join(workDir, filepath.FromSlash(localStateDocPath))); err != nil {
+		return nil // a repo with no state document has nothing to record onto
+	}
+	if _, err := gitExec(workDir, exec.Command("git", "add", "--", localStateDocPath)); err != nil {
+		return err
+	}
+	if _, err := gitExec(workDir, exec.Command("git", "diff", "--cached", "--quiet")); err == nil {
+		return nil // nothing staged: the run changed nothing to record
+	}
+	commit := exec.Command("git", "-c", "user.name=aiarch-checks", "-c", "user.email=checks@aiarch.invalid",
+		"-c", "commit.gpgsign=false", "commit", "--no-verify", "--quiet", "-F", "-")
+	commit.Stdin = strings.NewReader("checks: record run " + runID + "\n")
+	_, err := gitExec(workDir, commit)
+	return err
 }
 
 // seatPromptSurface materializes the .claude prompt surface (commands/skills/agents +
@@ -2769,12 +3379,12 @@ func (a *localExecAccess) awaitCompletion(
 	run *localRun,
 	cmd *exec.Cmd,
 	runCancel context.CancelFunc,
-	branch, beforeSHA string,
-	parentDir, workDir string,
+	scope completionScope,
 	sink *traceSink,
 	stdout *tailBuffer,
 	stderr *bytes.Buffer,
 ) {
+	branch, beforeSHA, workDir := scope.branch, scope.beforeSHA, scope.workDir
 	tracePath := sink.path
 
 	waitErr := cmd.Wait()
@@ -2797,10 +3407,23 @@ func (a *localExecAccess) awaitCompletion(
 
 	a.gitMu.Lock()
 	afterSHA, revErr := revParseBranch(a.repoPath, branch)
+	a.gitMu.Unlock()
+
+	// Steps 5–7 of the local sequence (dispatch's doc comment): the gates run whatever
+	// the agent's outcome — the templates' always() — over the branch tip the agent
+	// left, and BEFORE the worktree comes down. afterSHA stays the AGENT's tip: the
+	// ref-advanced check below judges what the agent committed, not the record commit
+	// the gates add on top of it.
+	var gateFailure string
+	if scope.gate != nil && revErr == nil {
+		gateFailure = runGates(scope.gate, workDir, afterSHA)
+	}
+
+	a.gitMu.Lock()
 	removeErr := removeWorktree(a.repoPath, workDir)
 	a.gitMu.Unlock()
 
-	_ = os.RemoveAll(parentDir)
+	_ = os.RemoveAll(scope.parentDir)
 
 	// The TRACE-INTEGRITY marker: whether the captured artifact is complete is a fact
 	// about the trace, true no matter how the run itself ended.
@@ -2813,6 +3436,15 @@ func (a *localExecAccess) awaitCompletion(
 
 	timedOut := waitErr != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded)
 	status, diagnostic, stderrShown := localRunOutcome(waitErr, revErr, removeErr, timedOut, beforeSHA, afterSHA, stderr.String())
+	switch {
+	case gateFailure == "":
+	case status == localRunSucceeded:
+		// The agent did its part, but the job's gates refuse the result: a failed run
+		// whose diagnostic is the gate's, as the cloud job's "Fail on a red check".
+		status, diagnostic = localRunFailed, gateFailure
+	default:
+		diagnostic += "; " + gateFailure
+	}
 	if status == localRunFailed {
 		// The failure-path IO (temp-dir write) deliberately runs BEFORE the record
 		// lock, matching this function's existing discipline: every other blocking
@@ -3401,26 +4033,6 @@ func logFailedRun(branch, diagnostic, tracePath string, stderr []byte) {
 // read fresh per dispatch, never a code-path default.
 const localExecAllowUnsandboxedEnv = "ARCHISTRATOR_LOCAL_EXEC_ALLOW_UNSANDBOXED"
 
-// localExecDesignModelEnv pins the model every DESIGN dispatch runs at. Design jobs
-// are the expensive half of a run and they do NOT dispatch subagents: each command
-// tells the session to ADOPT its role ("read .claude/agents/system-architect.md and
-// act per that charter yourself... do NOT dispatch a subagent"), so the agent
-// charters' own `model:` lines never reach a CLI and the whole design rail runs at
-// whatever model the ambient subscription resolves. This is the one place that can
-// change it. Left unset, nothing changes.
-//
-// It is deliberately rail-scoped rather than role-scoped: inferring "architect vs
-// PM" in Go would duplicate a mapping that lives in the prompts, and a second copy
-// of a classification rule is exactly the drift that cost this codebase a week of
-// mis-dispatched construction commands.
-const localExecDesignModelEnv = "ARCHISTRATOR_LOCAL_EXEC_DESIGN_MODEL"
-
-// designModelFromEnv reads that override per dispatch (never cached), mirroring
-// allowUnsandboxedFromEnv's plain os.Getenv posture.
-func designModelFromEnv() string {
-	return strings.TrimSpace(os.Getenv(localExecDesignModelEnv))
-}
-
 // allowUnsandboxedFromEnv reports whether the operator has explicitly set the
 // escape hatch. Mirrors the plain os.Getenv-driven policy reads already
 // established in this package (e.g. claudeSubprocessEnv's ANTHROPIC_API_KEY
@@ -3433,22 +4045,25 @@ func allowUnsandboxedFromEnv() bool {
 // claudeCommand builds the headless claude invocation. This is the ONLY function in
 // the package that constructs the flag list — there is no second, unguarded call site.
 //
-// THE ARGV IS FIXED. Every value a dispatch varies reaches claude some other way, so
-// nothing caller-derived can ever be parsed as a flag:
+// THE ARGV IS FIXED but for the task spec's two values. Every value a dispatch varies
+// reaches claude some other way, so nothing caller-derived can ever be parsed as a flag:
 //
 //   - the prompt rides STDIN (`-p` with no prompt argument reads it there);
-//   - the model rides the ANTHROPIC_MODEL env var (claudeSubprocessEnv), which the
-//     CLI ranks just below --model and above every settings file;
+//   - the model and the built-in tool allowlist ride --model and --tools, exactly as
+//     the seated templates' claude_args pass them. Both come from the task spec the job
+//     resolved itself (resolveTaskSpec), never from the dispatch, and each is held to a
+//     plain shape first — the model starts with a letter or digit, the tool names use
+//     no comma or space — so neither can be read as a flag or split. They are omitted
+//     together for an answer job, which has no spec (ruling R30);
 //   - the two config files sit at FIXED NAMES beside the worktree (claudeMCPConfigFile,
 //     claudeSettingsFile, both in dispatch's parentDir): claude resolves a relative
 //     --settings / --mcp-config path against its cwd (the worktree), so "../<name>"
 //     addresses them. Beside, not inside: an agent running `git add -A` in the
 //     worktree can never stage them, and the sandbox's write allowlist (the worktree
 //     and the shared git dir) does not cover the parent;
-//   - the per-step built-in tool scoping and the sandbox are CONTENT of the settings
-//     file (writeClaudeSettings): permissions.deny removes a tool from the model's
-//     context exactly as --disallowedTools does (measured: the system/init event's
-//     tool list drops every denied tool, under --dangerously-skip-permissions too).
+//   - the sandbox, and an answer job's built-in tool deny list, are CONTENT of the
+//     settings file (writeClaudeSettings): permissions.deny removes a tool from the
+//     model's context exactly as --disallowedTools does.
 //
 // The binary is the one NewLocalExecAgenticJobAccess resolved on PATH at construction.
 //
@@ -3499,18 +4114,41 @@ func allowUnsandboxedFromEnv() bool {
 // single-object format did and is the LAST line, so every stdout consumer
 // (claudeOutputDetail → envelopeDetail's end-of-text scan) works against the bounded
 // tail.
-func claudeCommand(ctx context.Context, claudeBin string) *exec.Cmd {
-	return exec.CommandContext(ctx, claudeBin,
+//
+// model and builtin are the task spec's model id and built-in tool allowlist. An empty
+// model means an answer job with no spec: neither flag is passed and the CLI resolves
+// its own default model, as every dispatch did before the task spec. A spec always
+// names a model, so its allowlist is passed even when empty (`--tools ""`: no
+// built-ins at all).
+func claudeCommand(ctx context.Context, claudeBin, model string, builtin []string) *exec.Cmd {
+	args := []string{
 		"--dangerously-skip-permissions",
-		"--settings", "../"+claudeSettingsFile,
+		"--settings", "../" + claudeSettingsFile,
 		"--setting-sources", "project",
 		"--exclude-dynamic-system-prompt-sections",
-		"--mcp-config", "../"+claudeMCPConfigFile,
+		"--mcp-config", "../" + claudeMCPConfigFile,
 		"--strict-mcp-config", // Tier 1: ignore ambient user/project MCP config; attach ONLY the rig's server.
 		"--output-format", "stream-json",
 		"--verbose",
-		"-p",
-	)
+	}
+	if model != "" {
+		args = append(args, "--model", model, "--tools", strings.Join(builtin, ","))
+	}
+	return commandOf(ctx, claudeBin, append(args, "-p")...)
+}
+
+// commandOf builds the subprocess that runs bin with args — the ONE place the
+// local sequence's subprocesses with non-constant arguments are built: claude, whose
+// --model and --tools values come from the resolved task spec held to plain shapes
+// (localGate.readSpec), and the configured state tool, whose arguments are its own
+// subcommand flags with the dispatch's validated ids, the SHAs git reported and paths
+// this executor made. No argv reaches a shell, and no value can be read as a flag (each
+// follows its flag, which takes the next argument whole). The argv is set on Args, the
+// os/exec field that holds it, rather than spread into CommandContext.
+func commandOf(ctx context.Context, bin string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, bin)
+	cmd.Args = append([]string{bin}, args...)
+	return cmd
 }
 
 // The fixed names of the two files dispatch writes beside the worktree (in its
@@ -3520,13 +4158,12 @@ const (
 	claudeMCPConfigFile = "aiarch-mcp.json"
 )
 
-// disallowedBuiltinTools returns the built-in tools to switch off for a step.
-// The candidate list and the per-step resolution both live in methodassets,
-// beside the manifest, so this rail and the GitHub Actions rail (which asks
-// `aiarch-state-mcp step-tools`) can never disagree about what a step may hold.
-// A Mission draft has no use for Workflow, Artifact, Cron*, Task*, or the
-// messaging tools, and each one's schema is pure prefix cost on every turn.
-func disallowedBuiltinTools(command string) []string {
+// answerJobDeniedTools returns the built-in tools to switch off for an ANSWER job,
+// the one job with no task spec and so no --tools allowlist (ruling R30). The
+// candidate list and the per-step resolution both live in methodassets, beside the
+// manifest, so this rail and the GitHub Actions rail's answer step (which asks
+// `aiarch-state-mcp step-tools`) can never disagree about what the step may hold.
+func answerJobDeniedTools(command string) []string {
 	if command == "" {
 		return nil
 	}
@@ -3557,8 +4194,9 @@ func disallowedBuiltinTools(command string) []string {
 //     auto-approve that retry with no prompt at all.
 //   - sandbox.network.allowedDomains is the ONLY network the sandboxed Bash
 //     tool's subprocesses can reach; see sandboxAllowedDomains below.
-//   - permissions.deny lists the built-in tools the step may not hold
-//     (disallowedBuiltinTools); a bare tool name removes the tool entirely.
+//   - permissions.deny lists the built-in tools an answer job may not hold
+//     (answerJobDeniedTools); a bare tool name removes the tool entirely. A gated
+//     run carries none: its spec's --tools allowlist is the whole built-in surface.
 type claudeSettingsJSON struct {
 	Sandbox     *sandboxConfigJSON   `json:"sandbox,omitempty"`
 	Permissions *settingsPermissions `json:"permissions,omitempty"`
@@ -3605,7 +4243,8 @@ type claudeSettings struct {
 	// the shared repo's git dir — see dispatch); empty omits the filesystem block
 	// entirely, keeping the sandbox's own default write scope.
 	allowWritePaths []string
-	// disallowedTools is the step's denied built-in tools (disallowedBuiltinTools).
+	// disallowedTools is an answer job's denied built-in tools (answerJobDeniedTools);
+	// empty for a gated run, whose --tools allowlist scopes the built-ins.
 	disallowedTools []string
 }
 
@@ -3717,9 +4356,9 @@ func sandboxAllowedDomains(repoURL string) []string {
 //     server's OWN env (writeStateMCPConfig), so anything that inspects this
 //     TOP-LEVEL process's env (rather than only the MCP server subprocess's)
 //     sees identical values.
-//   - ANTHROPIC_MODEL, set from the dispatch's own model (never from the
-//     parent's env) and only when one was chosen — the channel claudeCommand's
-//     fixed argv leaves for it.
+//
+// The model is not in the env at all: it rides claudeCommand's --model, from the task
+// spec, and nothing in the parent's env can override it.
 //
 // Nothing else crosses from the parent: no ANTHROPIC_API_KEY (this local
 // executor rides the operator's own `claude` OAuth session, never a
@@ -3729,8 +4368,8 @@ func sandboxAllowedDomains(repoURL string) []string {
 // secret. A stray secret exported into archistrator-server's own
 // environment can no longer leak into an autonomous,
 // --dangerously-skip-permissions agent process.
-func claudeSubprocessEnv(rig map[string]string, model string) []string {
-	out := make([]string, 0, 6+len(rig))
+func claudeSubprocessEnv(rig map[string]string) []string {
+	out := make([]string, 0, 5+len(rig))
 	if v := os.Getenv("PATH"); v != "" {
 		out = append(out, "PATH="+v)
 	}
@@ -3751,12 +4390,6 @@ func claudeSubprocessEnv(rig map[string]string, model string) []string {
 	}
 	for k, v := range rig {
 		out = append(out, k+"="+v)
-	}
-	// The dispatch's model (claudeCommand keeps it off argv). An empty model sets
-	// nothing, so the CLI resolves its own default exactly as it did before the
-	// knob existed.
-	if m := strings.TrimSpace(model); m != "" {
-		out = append(out, "ANTHROPIC_MODEL="+m)
 	}
 	return out
 }

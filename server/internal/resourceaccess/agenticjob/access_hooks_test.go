@@ -53,6 +53,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -88,7 +90,14 @@ const (
 func newSubject(t *testing.T, h *scenariohost.Host) agenticjob.AgenticJobAccess {
 	t.Helper()
 	root := t.TempDir()
+	stateMCP := writeExecutable(t, filepath.Join(root, "bin", "aiarch-state-mcp"),
+		"#!/bin/sh\n# rig double: seat-assets renders the .claude prompt surface; the agent double reads none.\nexit 0\n")
+	return buildSubject(t, h, root, stateMCP)
+}
 
+// buildSubject builds the subject in root with stateMCP as the rig binary it runs.
+func buildSubject(t *testing.T, h *scenariohost.Host, root, stateMCP string) agenticjob.AgenticJobAccess {
+	t.Helper()
 	gitBin, err := exec.LookPath("git")
 	if err != nil {
 		t.Fatalf("hooks: git not on PATH: %v", err)
@@ -100,8 +109,6 @@ func newSubject(t *testing.T, h *scenariohost.Host) agenticjob.AgenticJobAccess 
 	runGit(t, root, "clone", "--quiet", h.Repo.URL, clone)
 
 	agent := newAgentDouble(t, root, gitBin)
-	stateMCP := writeExecutable(t, filepath.Join(root, "bin", "aiarch-state-mcp"),
-		"#!/bin/sh\n# rig double: seat-assets renders the .claude prompt surface; the agent double reads none.\nexit 0\n")
 
 	t.Setenv("PATH", agent.binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	// Never let a scenario reach the real Claude Code CLI.
@@ -367,6 +374,8 @@ type agentDouble struct {
 	claude    string // the executable
 	failFlag  string // present ⇒ the next run fails
 	nextState string // present ⇒ the next run commits it as the state document
+	argv      string // the last run's argv, one argument per line
+	settings  string // a copy of the last run's --settings file
 }
 
 func newAgentDouble(t *testing.T, root, gitBin string) *agentDouble {
@@ -379,10 +388,15 @@ func newAgentDouble(t *testing.T, root, gitBin string) *agentDouble {
 		binDir:    filepath.Join(root, "agent-bin"),
 		failFlag:  filepath.Join(ctl, "fail-next"),
 		nextState: filepath.Join(ctl, "next-state.json"),
+		argv:      filepath.Join(ctl, "argv"),
+		settings:  filepath.Join(ctl, "settings.json"),
 	}
 	a.claude = writeExecutable(t, filepath.Join(a.binDir, "claude"), fmt.Sprintf(`#!/bin/sh
 # Agent double for the Claude Code CLI. Started by agenticJobAccess in the run's
-# worktree with the AIARCH_* rig in its environment.
+# worktree with the AIARCH_* rig in its environment. It keeps the argv it was
+# started with and the settings file beside the worktree, for the probes.
+printf '%%s\n' "$@" > %[6]q
+cp ../aiarch-settings.json %[7]q 2>/dev/null || :
 if [ -f %[1]q ]; then
   rm -f %[1]q
   echo "agent double: run failed (arranged by the scenario)" >&2
@@ -395,7 +409,7 @@ if [ -f %[2]q ]; then
 fi
 exec %[3]q -c user.name=agent-double -c user.email=agent-double@example.invalid -c commit.gpgsign=false \
   commit --allow-empty --no-verify --quiet -m "agent double: $AIARCH_COMMAND on $AIARCH_TARGET_BRANCH"
-`, a.failFlag, a.nextState, gitBin, filepath.Dir(stateDocPath), stateDocPath))
+`, a.failFlag, a.nextState, gitBin, filepath.Dir(stateDocPath), stateDocPath, a.argv, a.settings))
 	return a
 }
 
@@ -897,4 +911,457 @@ func stepSendBackChangeRequestsForARedraftP2S4(t *testing.T, h *scenariohost.Hos
 func probeSendBackChangeRequestsForARedraftP2S4N1(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess) (any, error) {
 	t.Helper()
 	return probeBranch(t, h, subject, "stp-aja-sbr-P2", missionSessionBranch)
+}
+
+// ---------------------------------------------------------------------------
+// The local task-spec sequence (agent task spec, Task B6)
+//
+// These tests are not projected from the test plan: its bindings predate the
+// task-spec envelope (task_id / spec_hash / revision), so no scenario dispatches
+// a gated run. They drive the subject the way the scenarios do — the real local
+// executor over a clone of the host's repo, the agent double first on PATH — with
+// one difference: the rig binary is a SCRIPTED state-tool double instead of a
+// no-op, because the gated sequence runs it (task-spec, edit-scope, run-checks,
+// record-check-run) and each test arranges what it answers. The double logs
+// every call it receives; the tests read the log, the agent double's argv and
+// settings, and the branch the run left.
+// ---------------------------------------------------------------------------
+
+// stpSpecHash is the hash the state-tool double resolves the task spec to by
+// default — the spec_hash a gated dispatch carries.
+const stpSpecHash = "99ec1af48d521c00697724d27aa29782b1abf3599c903327e1b13d526714b4eb"
+
+// stpTaskSpec is the spec the state-tool double's task-spec writes: the shape
+// task-spec writes, reduced to what the local sequence reads.
+const stpTaskSpec = `{
+  "activity": "C-review-engine",
+  "task": "construction",
+  "model": {"id": "sonnet"},
+  "tools": {"mcp": ["run_checks"], "builtin": ["Bash", "Edit", "Glob", "Grep", "Read", "Skill", "Write"]},
+  "editScope": {"components": [{"id": "review-engine", "paths": ["internal/engine/review/**"]}], "extra": [], "stateOnly": false},
+  "checks": [
+    {"id": "command:build", "kind": "command", "source": {"argv": ["go", "build", "./internal/engine/review/..."]}},
+    {"id": "command:vet", "kind": "command", "source": {"argv": ["go", "vet", "./internal/engine/review/..."]}}
+  ],
+  "hash": "` + stpSpecHash + `"
+}
+`
+
+// stpGreenResults / stpRedResults are what the double's run-checks writes.
+const (
+	stpGreenResults = `[{"checkId":"command:build","kind":"command","status":"pass","durationMs":1},{"checkId":"command:vet","kind":"command","status":"pass","durationMs":1}]`
+	stpRedResults   = `[{"checkId":"command:build","kind":"command","status":"pass","durationMs":1},{"checkId":"command:vet","kind":"command","status":"fail","durationMs":1}]`
+)
+
+// gateVenue is one gate test's subject and the state-tool double's control dir.
+type gateVenue struct {
+	subject agenticjob.AgenticJobAccess
+	env     *scenarioEnv
+	ctl     string
+}
+
+// newGateVenue builds the subject with the scripted state-tool double, answering
+// green by default: the spec resolves to stpSpecHash, the edit scope holds, every
+// check passes.
+func newGateVenue(t *testing.T, h *scenariohost.Host) *gateVenue {
+	t.Helper()
+	root := t.TempDir()
+	ctl := filepath.Join(root, "tool-ctl")
+	if err := os.MkdirAll(ctl, 0o750); err != nil {
+		t.Fatalf("hooks: %v", err)
+	}
+	tool := writeExecutable(t, filepath.Join(root, "bin", "aiarch-state-mcp"), fmt.Sprintf(`#!/bin/sh
+# State-tool double: logs each call, then answers the gated sequence's
+# subcommands as the test arranged in its control dir.
+ctl=%[1]q
+printf '%%s\n' "$*" >> "$ctl/calls.log"
+sub=$1; shift
+out=
+while [ $# -gt 0 ]; do
+  case "$1" in --out) out=$2; shift ;; esac
+  shift
+done
+case "$sub" in
+task-spec)
+  cp "$ctl/spec.json" "$out" || exit 2
+  cat "$ctl/spec-hash"
+  exit 0 ;;
+edit-scope)
+  if [ -f "$ctl/edit-scope-red" ]; then
+    echo "edit-scope: 1 changed path(s) lie outside the task's edit scope: stray.txt" >&2
+    exit 1
+  fi
+  exit 0 ;;
+run-checks)
+  mkdir -p "$out" && cp "$ctl/results.json" "$out/results.json" || exit 2
+  exit "$(cat "$ctl/run-checks-rc")" ;;
+esac
+exit 0
+`, ctl))
+	v := &gateVenue{ctl: ctl}
+	v.set(t, "spec.json", stpTaskSpec)
+	v.set(t, "spec-hash", stpSpecHash+"\n")
+	v.set(t, "results.json", stpGreenResults)
+	v.set(t, "run-checks-rc", "0")
+	v.subject = buildSubject(t, h, root, tool)
+	v.env = recorderOf(t, v.subject).scenario()
+	return v
+}
+
+func (v *gateVenue) set(t *testing.T, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(v.ctl, name), []byte(content), 0o600); err != nil {
+		t.Fatalf("hooks: %v", err)
+	}
+}
+
+// calls is every call the state-tool double received, in order.
+func (v *gateVenue) calls(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(v.ctl, "calls.log"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("hooks: %v", err)
+	}
+	return strings.Split(strings.TrimSpace(string(raw)), "\n")
+}
+
+// subcommands is the subcommand of each call, in order.
+func (v *gateVenue) subcommands(t *testing.T) []string {
+	t.Helper()
+	var subs []string
+	for _, c := range v.calls(t) {
+		if sub, _, _ := strings.Cut(c, " "); sub != "" {
+			subs = append(subs, sub)
+		}
+	}
+	return subs
+}
+
+// call is the first call of subcommand sub, or "".
+func (v *gateVenue) call(t *testing.T, sub string) string {
+	t.Helper()
+	for _, c := range v.calls(t) {
+		if strings.HasPrefix(c, sub+" ") {
+			return c
+		}
+	}
+	return ""
+}
+
+// agentArgv is the argv the agent double was last started with ("" when it never ran).
+func (v *gateVenue) agentArgv(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(v.env.agent.argv)
+	if os.IsNotExist(err) {
+		return ""
+	}
+	if err != nil {
+		t.Fatalf("hooks: %v", err)
+	}
+	return string(raw)
+}
+
+// runToEnd submits spec and polls until the run is terminal.
+func (v *gateVenue) runToEnd(t *testing.T, h *scenariohost.Host, spec agenticjob.PipelineSpec) agenticjob.PipelineObservation {
+	t.Helper()
+	rc := callContext(t, h, "1")
+	handle, err := v.subject.SubmitAgenticJob(rc, spec)
+	if err != nil {
+		t.Fatalf("SubmitAgenticJob: %v", err)
+	}
+	deadline := time.Now().Add(observeBudget)
+	for {
+		obs, err := v.subject.ObserveAgenticJob(rc, handle)
+		if err != nil {
+			t.Fatalf("ObserveAgenticJob: %v", err)
+		}
+		if agenticjob.PipelinePhaseIsTerminal(obs.Phase) {
+			return obs
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("run %s still %s after %s", handle, agenticjob.PipelinePhaseString(obs.Phase), observeBudget)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// constructSpec is a construction dispatch of C-review-engine's task, carrying the
+// task-spec envelope as deliveryManager sends it.
+func constructSpec(task string) agenticjob.PipelineSpec {
+	return agenticjob.PipelineSpec{
+		ProjectID:  "stp-gates",
+		ActivityID: "C-review-engine",
+		Steps:      []agenticjob.PipelineStep{{Name: "construct", Toolchain: "claude-code", Command: []string{"/service-" + task}}},
+		DispatchInputs: map[string]string{
+			"activity_id":  "C-review-engine",
+			"component_id": "reviewEngine",
+			"command":      "service-" + task,
+			"task_id":      task,
+			"spec_hash":    stpSpecHash,
+			"revision":     "C-review-engine:" + task + ":1",
+		},
+	}
+}
+
+// sameDir reports whether a and b name the same directory (the temp dir may be reached
+// through a symlink, as /var is on macOS).
+func sameDir(a, b string) bool {
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
+}
+
+// branchFiles lists the files at branch's tip in the clone.
+func branchFiles(t *testing.T, clone, branch string) []string {
+	t.Helper()
+	cmd := exec.Command("git", "ls-tree", "-r", "--name-only", "refs/heads/"+branch)
+	cmd.Dir = clone
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("hooks: ls-tree %s: %v", branch, err)
+	}
+	return strings.Split(strings.TrimSpace(string(out)), "\n")
+}
+
+var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// flagValue is the value following flag in a logged call.
+func flagValue(call, flag string) string {
+	fields := strings.Fields(call)
+	for i, f := range fields {
+		if f == flag && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	return ""
+}
+
+// TestLocalRailRunsTheAgentOnItsTaskSpec: a gated construction dispatch resolves its
+// spec, runs the agent on the spec's model and built-in allowlist (no deny list), then
+// gates the agent's commits — edit scope against SHAs captured before it ran, the check
+// gate, the record — and commits the CheckRun and its results onto the activity branch.
+func TestLocalRailRunsTheAgentOnItsTaskSpec(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	if got, want := v.subcommands(t), []string{"task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
+		t.Fatalf("state-tool calls %q, want %q", got, want)
+	}
+	spec := v.call(t, "task-spec")
+	if flagValue(spec, "--activity") != "C-review-engine" || flagValue(spec, "--task") != "construction" {
+		t.Errorf("task-spec call %q, want the dispatched activity and task", spec)
+	}
+	v.assertAgentOnSpec(t)
+	v.assertGatesJudgedTheAgent(t)
+	v.assertRunRecorded(t)
+}
+
+// assertAgentOnSpec: the agent ran on the spec's model and built-in allowlist, with no
+// deny list in argv or settings.
+func (v *gateVenue) assertAgentOnSpec(t *testing.T) {
+	t.Helper()
+	argv := v.agentArgv(t)
+	if !strings.Contains(argv, "--model\nsonnet\n--tools\nBash,Edit,Glob,Grep,Read,Skill,Write\n") {
+		t.Errorf("agent argv %q, want --model sonnet --tools Bash,Edit,Glob,Grep,Read,Skill,Write", argv)
+	}
+	if strings.Contains(argv, "--disallowedTools") {
+		t.Errorf("agent argv %q carries --disallowedTools", argv)
+	}
+	settings, err := os.ReadFile(v.env.agent.settings)
+	if err != nil {
+		t.Fatalf("hooks: %v", err)
+	}
+	if strings.Contains(string(settings), `"permissions"`) {
+		t.Errorf("settings %s deny built-ins, want the --tools allowlist alone", settings)
+	}
+}
+
+// assertGatesJudgedTheAgent: the edit scope judged the agent's commits from SHAs, and
+// the check gate ran.
+func (v *gateVenue) assertGatesJudgedTheAgent(t *testing.T) {
+	t.Helper()
+	scope := v.call(t, "edit-scope")
+	for _, flag := range []string{"--base", "--head", "--main"} {
+		if !fullSHA.MatchString(flagValue(scope, flag)) {
+			t.Errorf("edit-scope call %q: %s is not a full SHA", scope, flag)
+		}
+	}
+	if flagValue(scope, "--base") == flagValue(scope, "--head") {
+		t.Errorf("edit-scope call %q judges no agent commit", scope)
+	}
+	if gate := v.call(t, "run-checks"); !strings.Contains(gate, "--gate") {
+		t.Errorf("run-checks call %q, want the gate", gate)
+	}
+}
+
+// assertRunRecorded: the run was recorded under a local id at the dispatched revision,
+// its results were kept where the testing gate reads them before any merge (the shared
+// checkout's self-ignoring .aiarch/test-results, never a commit), and the check output
+// is kept out of commits.
+func (v *gateVenue) assertRunRecorded(t *testing.T) {
+	t.Helper()
+	rec := v.call(t, "record-check-run")
+	runID := flagValue(rec, "--run-id")
+	artifact := flagValue(rec, "--artifact")
+	if !strings.HasPrefix(runID, "local-") || flagValue(rec, "--revision") != "C-review-engine:construction:1" {
+		t.Errorf("record-check-run call %q, want a local run id and the dispatched revision", rec)
+	}
+	if want := filepath.Join(v.env.clone, ".aiarch", "test-results", runID); !sameDir(artifact, want) {
+		t.Errorf("record-check-run artifact %q, want the kept results dir %s", artifact, want)
+	}
+	if _, err := os.Stat(filepath.Join(artifact, "check-results", "results.json")); err != nil {
+		t.Errorf("the results of %s were not kept: %v", runID, err)
+	}
+	for _, f := range branchFiles(t, v.env.clone, reviewEngineBranch) {
+		if strings.HasPrefix(f, ".aiarch/test-results/") {
+			t.Errorf("activity branch commits %s, want results kept out of commits", f)
+		}
+	}
+	exclude, err := os.ReadFile(filepath.Join(v.env.clone, ".git", "info", "exclude"))
+	if err != nil {
+		t.Fatalf("hooks: %v", err)
+	}
+	for _, line := range []string{"/test-results/", "/check-results/"} {
+		if strings.Count(string(exclude), line+"\n") != 1 {
+			t.Errorf("info/exclude %q, want %s exactly once", exclude, line)
+		}
+	}
+}
+
+// TestLocalRailRefusesADriftedTaskSpec: the spec the worktree resolves hashes to
+// something other than the dispatched spec_hash — the run fails before the agent starts
+// and no gate runs.
+func TestLocalRailRefusesADriftedTaskSpec(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "spec-hash", strings.Repeat("0", 64)+"\n")
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, "task spec drifted") {
+		t.Fatalf("run ended %s (%q), want failed: task spec drifted", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	if argv := v.agentArgv(t); argv != "" {
+		t.Errorf("the agent ran (argv %q) on a drifted spec", argv)
+	}
+	if got := v.subcommands(t); !slices.Equal(got, []string{"task-spec"}) {
+		t.Errorf("state-tool calls %q, want task-spec alone", got)
+	}
+}
+
+// TestLocalRailFailsARedCheckAndStillRecordsIt: a check does not pass — the CheckRun is
+// recorded all the same (evidence red or green) and the run fails naming that check.
+func TestLocalRailFailsARedCheckAndStillRecordsIt(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "results.json", stpRedResults)
+	v.set(t, "run-checks-rc", "1")
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, "check command:vet did not pass (fail)") {
+		t.Fatalf("run ended %s (%q), want failed on command:vet", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	if v.call(t, "record-check-run") == "" {
+		t.Errorf("state-tool calls %q, want the red run recorded", v.subcommands(t))
+	}
+}
+
+// TestLocalRailFailsAnOutOfScopeEdit: the agent's commits leave the spec's edit scope —
+// the run fails on the edit-scope gate, and the check gate and the record still run.
+func TestLocalRailFailsAnOutOfScopeEdit(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "edit-scope-red", "")
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, "edit scope") || !strings.Contains(obs.Diagnostic, "stray.txt") {
+		t.Fatalf("run ended %s (%q), want failed on the edit scope", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	if got, want := v.subcommands(t), []string{"task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
+		t.Errorf("state-tool calls %q, want %q", got, want)
+	}
+}
+
+// TestLocalRailGatesAFailedAgentRun: the agent fails — the gates still run (the
+// templates' always()) and the run fails with the agent's own diagnostic.
+func TestLocalRailGatesAFailedAgentRun(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.env.agent.failNextRun(t)
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, "agent double: run failed") {
+		t.Fatalf("run ended %s (%q), want the agent's failure", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	if v.call(t, "record-check-run") == "" {
+		t.Errorf("state-tool calls %q, want the gates run after a failed agent", v.subcommands(t))
+	}
+}
+
+// TestLocalRailGeneratesTheScenarioTestsBeforeTheIntegrationAgent: the integration task
+// generates the scenario tests (make gen-tests, in the module dir the spec's
+// generated-tests check runs in) before the agent starts.
+func TestLocalRailGeneratesTheScenarioTestsBeforeTheIntegrationAgent(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "spec.json", strings.Replace(stpTaskSpec, `"checks": [`,
+		`"checks": [{"id": "command:gen-tests-check", "kind": "command", "source": {"argv": ["make", "gen-tests-check"]}},`, 1))
+	makeLog := filepath.Join(v.ctl, "make.log")
+	writeExecutable(t, filepath.Join(v.env.agent.binDir, "make"), fmt.Sprintf(`#!/bin/sh
+# make double: logs the target and whether the agent has run yet.
+if [ -f %[1]q ]; then ran=after-agent; else ran=before-agent; fi
+echo "$* $ran GOWORK=$GOWORK" >> %[2]q
+`, v.env.agent.argv, makeLog))
+	obs := v.runToEnd(t, h, constructSpec("integration"))
+	if obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	got, err := os.ReadFile(makeLog)
+	if err != nil {
+		t.Fatalf("make never ran: %v", err)
+	}
+	if strings.TrimSpace(string(got)) != "gen-tests before-agent GOWORK=off" {
+		t.Errorf("make ran as %q, want gen-tests once, before the agent, GOWORK=off", got)
+	}
+}
+
+// TestLocalRailRunsAnAnswerJobUngated: an answer job is no lifecycle task (ruling R30) —
+// no spec, no gates, no --model/--tools; the step manifest's deny list scopes it as
+// before. It stays ungated even when its dispatch names a task and a hash, as the
+// design template's answer steps do.
+func TestLocalRailRunsAnAnswerJobUngated(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	obs := v.runToEnd(t, h, agenticjob.PipelineSpec{
+		ProjectID:  "stp-gates",
+		ActivityID: "architecture",
+		Steps:      []agenticjob.PipelineStep{{Name: "agent", Toolchain: "claude-code", Command: []string{"/design-answer"}}},
+		DispatchInputs: map[string]string{
+			"artifact_kind": "System", "command": "design-answer", "target_branch": systemSessionBranch,
+			"prior_state_ref": systemSessionBranch, "job_mode": "answer",
+			"activity_id": "architecture", "task_id": "systemDraft", "spec_hash": stpSpecHash,
+		},
+	})
+	if obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	if got := v.subcommands(t); len(got) != 0 {
+		t.Errorf("state-tool calls %q, want none for an answer job", got)
+	}
+	if argv := v.agentArgv(t); strings.Contains(argv, "--model") || strings.Contains(argv, "--tools") {
+		t.Errorf("answer agent argv %q carries the task spec's flags", argv)
+	}
+}
+
+// TestLocalRailRefusesAHalfEnvelope: a dispatch naming its task but no well-formed spec
+// hash is refused at Submit — it can be held to no spec.
+func TestLocalRailRefusesAHalfEnvelope(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	spec := constructSpec("construction")
+	spec.DispatchInputs["spec_hash"] = "not-a-hash"
+	if _, err := v.subject.SubmitAgenticJob(callContext(t, h, "1"), spec); err == nil {
+		t.Fatal("SubmitAgenticJob accepted a malformed spec_hash")
+	}
+	if argv := v.agentArgv(t); argv != "" {
+		t.Errorf("the agent ran (argv %q) on a refused dispatch", argv)
+	}
 }

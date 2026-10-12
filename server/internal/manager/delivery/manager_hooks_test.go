@@ -91,14 +91,17 @@ import (
 
 // init hands the process to the venue's double when the venue started this test
 // binary under one of the names it runs (see the venue section): as `claude`, the
-// scripted agent; as `aiarch-state-mcp`, the venue's state tool. Started any other
-// way, it is the test binary and init does nothing.
+// scripted agent; as `aiarch-state-mcp`, the venue's state tool; as `make`, the
+// scenario-test generation the executor runs before an integration agent. Started any
+// other way, it is the test binary and init does nothing.
 func init() {
 	switch filepath.Base(os.Args[0]) {
 	case agentName:
 		os.Exit(runScriptedAgent())
 	case stateToolName:
 		os.Exit(runVenueStateTool())
+	case makeName:
+		os.Exit(testinfra.RunMakeDouble(os.Args[1:]))
 	}
 }
 
@@ -668,15 +671,21 @@ func awaitActivityState(t *testing.T, h *scenariohost.Host, subject delivery.Del
 //     its worktree what a real agent run does there: a design job drives the real state
 //     tool over MCP (putDraftModel / setCritiqueVerdict / respondToReviewComment, then
 //     publishDraft); a construction job commits its work; the integration job records
-//     its check run with the state tool's record-check-run (the venue's own write, a
-//     green result for every check the task spec holds — every scenario projected onto
-//     the component among them) and then publishes. Every job first resolves its task
-//     spec with task-spec and refuses a hash other than the dispatched spec_hash. Its stdout is the stream-json a real run writes, so the venue mines
-//     the episode from it.
+//     commits its wiring. Its stdout is the stream-json a real run writes, so the venue
+//     mines the episode from it.
+//
+// The EXECUTOR itself holds every lifecycle run to its task spec with the real state
+// tool — task-spec before the agent (a drifted hash refuses the run), edit-scope and
+// record-check-run after it — as the seated templates do. Two of the steps it runs reach
+// toolchains a scenario venue has no module for, and those are doubled: `run-checks`
+// (the venue's check runner writes a green result for every check the spec holds —
+// every scenario projected onto the component among them; testinfra.RunChecksDouble)
+// and `make gen-tests` (testinfra.RunMakeDouble).
 
 const (
 	agentName     = "claude"
 	stateToolName = "aiarch-state-mcp"
+	makeName      = "make"
 	venueFile     = "venue.json"
 )
 
@@ -723,7 +732,7 @@ func buildVenue(moduleRoot string) (string, venueRig, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", venueRig{}, err
 	}
-	for _, name := range []string{agentName, stateToolName} {
+	for _, name := range []string{agentName, stateToolName, makeName} {
 		link := filepath.Join(dir, name)
 		_ = os.Remove(link)
 		if err := os.Symlink(exe, link); err != nil {
@@ -743,6 +752,7 @@ func buildVenue(moduleRoot string) (string, venueRig, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/agent", serveAgent)
 	mux.HandleFunc("/seat", serveSeat)
+	mux.HandleFunc("/checks", serveChecks)
 	srv := httptest.NewServer(mux)
 	r := venueRig{URL: srv.URL, Tool: tool}
 	b, err := json.Marshal(r)
@@ -789,7 +799,6 @@ type venue struct {
 	repo      workingRepo
 	stateTool string // what the venue is configured with: the double on PATH
 	tool      string // the real state tool
-	results   string // where the integration step's check runs are kept
 
 	mu        sync.Mutex
 	submitted []agentJob
@@ -799,8 +808,9 @@ type venue struct {
 	contract  json.RawMessage            // the service contract the detailed design records
 	release   chan struct{}
 	inFlight  sync.WaitGroup
-	// narrow makes the integration step record a run that never ran one projected
-	// scenario (dropped), so the testing gate has a run to hold on.
+	// narrow makes the integration step's check gate run, and so record, a narrowed
+	// spec that never ran one projected scenario (dropped), so the testing gate has a
+	// run to hold on.
 	narrow  bool
 	dropped string
 }
@@ -817,7 +827,7 @@ func openVenue(t *testing.T, h *scenariohost.Host, repo workingRepo) *venue {
 		t.Fatalf("hooks: claude resolves to %q (%v), want the scripted agent in %s", got, err, dir)
 	}
 	v := &venue{t: t, repo: repo, stateTool: filepath.Join(dir, stateToolName), tool: rigState.Tool,
-		results: t.TempDir(), release: make(chan struct{}), drafts: source(t).drafts,
+		release: make(chan struct{}), drafts: source(t).drafts,
 		contract: source(t).contracts[drivenContract]}
 	currentMu.Lock()
 	currentVenue = v
@@ -903,6 +913,31 @@ func serveAgent(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// checksRequest is the venue check runner's exchange with this process: the spec the
+// executor's check gate runs, which the venue narrows when the scenario says so.
+type checksRequest struct {
+	Spec string `json:"spec"`
+}
+
+type checksResponse struct {
+	Error string `json:"error"`
+}
+
+func serveChecks(w http.ResponseWriter, r *http.Request) {
+	var req checksRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var resp checksResponse
+	if v := current(); v != nil {
+		if err := v.narrowSpec(req.Spec); err != nil {
+			resp.Error = err.Error()
+		}
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func serveSeat(w http.ResponseWriter, r *http.Request) {
 	var req seatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -967,12 +1002,9 @@ func streamEvents(failed bool) string {
 	return string(initEv) + "\n" + string(resultEv) + "\n"
 }
 
-// perform is what a succeeding run does in its worktree, once the dispatched task spec
-// checks out (testinfra.VerifyTaskSpec).
+// perform is what a succeeding run does in its worktree (the executor has already held
+// the dispatch to its task spec).
 func (v *venue) perform(n int, j agentJob) error {
-	if err := testinfra.VerifyTaskSpec(v.tool, venueJob(j)); err != nil {
-		return err
-	}
 	switch j.Mode {
 	case "draft":
 		return v.draft(j)
@@ -984,13 +1016,12 @@ func (v *venue) perform(n int, j agentJob) error {
 	case "answer":
 		return v.answer(j)
 	case "construct":
-		switch {
-		case strings.HasSuffix(j.Command, "-integration"):
-			return v.integrate(n, j)
-		case strings.HasSuffix(j.Command, "-detailed-design") && foldName(j.Component) == foldName(drivenContract):
+		if strings.HasSuffix(j.Command, "-detailed-design") && foldName(j.Component) == foldName(drivenContract) {
 			return v.recordContract(j)
 		}
-		return commitWork(n, j)
+		// Every other step — integration's wiring among them — is a change on the
+		// activity branch; the executor's gates record integration's check run.
+		return v.commitWork(n, j)
 	}
 	return fmt.Errorf("no script for job mode %q", j.Mode)
 }
@@ -1060,41 +1091,10 @@ func (v *venue) answer(j agentJob) error {
 	})
 }
 
-// integrate is the integration step's venue write, the construct template's gate in
-// miniature: the task spec resolved in the worktree exactly as the job resolves it
-// (task-spec), every check it holds — the scenario checks are every scenario projected
-// onto the component — ran green, the results written where run-checks writes them, and
-// that run recorded with record-check-run at the attempt the dispatch stamped
-// (AIARCH_REVISION) and published.
-func (v *venue) integrate(n int, j agentJob) error {
-	runID := fmt.Sprintf("dct-run-%04d", n+1)
-	dir := filepath.Join(v.results, runID)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
-	}
-	specPath := filepath.Join(dir, "spec.json")
-	if _, err := testinfra.ResolveTaskSpec(v.tool, venueJob(j), specPath); err != nil {
-		return err
-	}
-	if err := v.narrowSpec(specPath); err != nil {
-		return err
-	}
-	resultsPath, err := testinfra.WritePassingResults(specPath, filepath.Join(dir, "results.json"))
-	if err != nil {
-		return err
-	}
-	record := exec.Command(v.tool, "record-check-run", "--spec", specPath, "--results", resultsPath,
-		"--run-id", runID, "--artifact", dir)
-	record.Dir = j.dir
-	record.Env = toolEnv(j)
-	if out, err := record.CombinedOutput(); err != nil {
-		return fmt.Errorf("record-check-run: %w\n%s", err, out)
-	}
-	return v.withStateTool(j, func(*stateSession) error { return nil })
-}
-
-// narrowSpec, when the venue is set to narrow, drops the spec's first scenario check
-// (re-hashed, so record-check-run takes it) and remembers the scenario it dropped.
+// narrowSpec, when the venue is set to narrow, drops the integration spec's first
+// scenario check (re-hashed, so record-check-run takes it) and remembers the scenario it
+// dropped. The executor's check gate runs it on the spec file the executor resolved, so
+// the run the executor then records is the narrowed one.
 func (v *venue) narrowSpec(specPath string) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -1104,6 +1104,9 @@ func (v *venue) narrowSpec(specPath string) error {
 	spec, err := testinfra.ReadSpec(specPath)
 	if err != nil {
 		return err
+	}
+	if spec.Task != "integration" {
+		return nil
 	}
 	i := slices.IndexFunc(spec.Checks, func(c projectstate.SpecCheck) bool { return c.Kind == projectstate.CheckKindScenario })
 	if i < 0 {
@@ -1148,9 +1151,23 @@ func (v *venue) recordContract(j agentJob) error {
 	})
 }
 
-// commitWork is a construction step's work: a change on the activity branch.
-func commitWork(n int, j agentJob) error {
-	rel := filepath.Join("work", j.Activity, j.Command+".md")
+// commitWork is a construction step's work: a change on the activity branch, inside the
+// task's edit scope (testinfra.WorkPath) as a real agent's is.
+func (v *venue) commitWork(n int, j agentJob) error {
+	tmp, err := os.MkdirTemp("", "dct-work-spec-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	specPath := filepath.Join(tmp, "spec.json")
+	if _, err := testinfra.ResolveTaskSpec(v.tool, venueJob(j), specPath); err != nil {
+		return err
+	}
+	spec, err := testinfra.ReadSpec(specPath)
+	if err != nil {
+		return err
+	}
+	rel := filepath.FromSlash(testinfra.WorkPath(spec, j.Activity, j.Command))
 	p := filepath.Join(j.dir, rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		return err
@@ -1161,7 +1178,7 @@ func commitWork(n int, j agentJob) error {
 	if _, err := runGit(j.dir, "add", rel); err != nil {
 		return err
 	}
-	_, err := runGit(j.dir, "-c", "user.name=scripted-agent", "-c", "user.email=scripted-agent@aiarch.local",
+	_, err = runGit(j.dir, "-c", "user.name=scripted-agent", "-c", "user.email=scripted-agent@aiarch.local",
 		"commit", "-q", "-m", j.Command+" "+j.Activity)
 	return err
 }
@@ -1367,12 +1384,17 @@ func runScriptedAgent() int {
 }
 
 // runVenueStateTool is the process the venue starts as `aiarch-state-mcp`: the real
-// state tool, unless the scenario scripts the venue to refuse this job's seat.
+// state tool, unless the scenario scripts the venue to refuse this job's seat, and but
+// for the check gate's runner, which is the venue's (testinfra.RunChecksDouble — after
+// this process narrows the spec, when the scenario says so).
 func runVenueStateTool() int {
 	r, err := readVenueRig(filepath.Dir(os.Args[0]))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "venue:", err)
 		return 1
+	}
+	if len(os.Args) > 1 && os.Args[1] == "run-checks" {
+		return runVenueChecks(r)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "seat-assets" {
 		req := seatRequest{}
@@ -1395,6 +1417,28 @@ func runVenueStateTool() int {
 		fmt.Fprintln(os.Stderr, "venue:", err)
 	}
 	return 1
+}
+
+// runVenueChecks is the venue's check runner (the state tool's run-checks): this test
+// process narrows the spec first when the scenario says so (serveChecks), then the run
+// writes a green result for every check the spec holds (testinfra.RunChecksDouble).
+func runVenueChecks(r venueRig) int {
+	req := checksRequest{}
+	for i, a := range os.Args {
+		if a == "--spec" && i+1 < len(os.Args) {
+			req.Spec = os.Args[i+1]
+		}
+	}
+	var resp checksResponse
+	if err := post(r.URL+"/checks", req, &resp); err != nil {
+		fmt.Fprintln(os.Stderr, "venue:", err)
+		return 2
+	}
+	if resp.Error != "" {
+		fmt.Fprintln(os.Stderr, "venue:", resp.Error)
+		return 2
+	}
+	return testinfra.RunChecksDouble(os.Args[2:], os.Stdout)
 }
 
 func readVenueRig(dir string) (venueRig, error) {
@@ -2946,7 +2990,7 @@ func TestTestingGateHoldsOnARunMissingAProjectedScenario(t *testing.T) {
 	if !ok {
 		t.Fatalf("the testing gate holds no system comment: %+v", taskOf(view, "testing"))
 	}
-	if !strings.HasPrefix(hold.Anchor, "$.testingState.checkRuns[id=dct-run-") ||
+	if !strings.HasPrefix(hold.Anchor, "$.testingState.checkRuns[id=local-") ||
 		!strings.Contains(hold.Text, "never ran projected scenario(s)") || !strings.Contains(hold.Text, dropped) {
 		t.Fatalf("hold comment %q at %q, want one at the run naming the never-run %s", hold.Text, hold.Anchor, dropped)
 	}

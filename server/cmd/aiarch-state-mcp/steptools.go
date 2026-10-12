@@ -2,10 +2,11 @@ package main
 
 // steptools.go — the `step-tools` ONE-SHOT subcommand.
 //
-// WHY IT EXISTS. Both dispatch rails have to scope a step's BUILT-IN tool
-// surface (--disallowedTools), and both must scope it identically or the same
-// step behaves differently in CI than it does locally. The local executor can
-// call the manifest in Go (agenticjobaccess.disallowedBuiltinTools). A GitHub
+// WHY IT EXISTS. An ANSWER job has no task spec and so no --tools allowlist
+// (ruling R30): both dispatch rails scope its BUILT-IN tool surface with the step
+// manifest's deny list (--disallowedTools), and both must scope it identically or
+// the same step behaves differently in CI than it does locally. The local executor
+// can call the manifest in Go (agenticjobaccess.answerJobDeniedTools). A GitHub
 // Actions workflow cannot — it can only run binaries — so it asks THIS binary,
 // which reads the SAME methodassets manifest. The alternative, restating the
 // deny list in the workflow YAML, is exactly the duplication that would drift.

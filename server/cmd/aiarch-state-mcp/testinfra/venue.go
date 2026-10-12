@@ -1,16 +1,22 @@
-// Package testinfra is the scenario hooks' shared venue double over this state tool: what the seated
-// construct and design workflows do around an agent run, reduced to the calls a scripted
-// agent makes against the venue's REAL state tool (cmd/aiarch-state-mcp). The delivery
-// Manager's and the MCP client's hooks files both drive the same venue, so the agent task
-// spec steps live here once rather than once per hooks file.
+// Package testinfra is the scenario hooks' shared venue double over this state tool. The
+// delivery Manager's and the MCP client's hooks files both run the REAL local executor,
+// which holds every lifecycle run to its agent task spec with the REAL state tool
+// (cmd/aiarch-state-mcp: task-spec, edit-scope, record-check-run). What the venues double
+// is what lies outside this repo: the coding agent, and the toolchains the check gate and
+// the scenario-test generation run (RunChecksDouble, RunMakeDouble). The helpers live here
+// once rather than once per hooks file.
 package testinfra
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -53,35 +59,6 @@ func ResolveTaskSpec(tool string, j VenueJob, out string) (string, error) {
 	return strings.TrimSpace(string(got)), nil
 }
 
-// VerifyTaskSpec is the templates' first gate: the spec the job resolves over its
-// checkout must hash to the spec_hash the Manager dispatched, so what the panel shows is
-// what runs.
-//
-// An ANSWER job is exempt: it answers an AskQuestions round (AnswerJobWorkflow), which is
-// no lifecycle task, so the Manager resolves and dispatches no spec for it.
-func VerifyTaskSpec(tool string, j VenueJob) error {
-	if j.Mode == "answer" {
-		return nil
-	}
-	want := j.Env["AIARCH_SPEC_HASH"]
-	if len(want) != 64 {
-		return fmt.Errorf("the %s dispatch of %s carries spec hash %q, want a sha256 hex digest", j.Command, j.Activity, want)
-	}
-	tmp, err := os.MkdirTemp("", "dct-spec-")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.RemoveAll(tmp) }()
-	got, err := ResolveTaskSpec(tool, j, filepath.Join(tmp, "spec.json"))
-	if err != nil {
-		return err
-	}
-	if got != want {
-		return fmt.Errorf("task spec drifted for %s/%s: dispatched %s, the worktree resolves %s", j.Activity, j.Env["AIARCH_TASK_ID"], want, got)
-	}
-	return nil
-}
-
 // WritePassingResults writes run-checks' results file for the spec at specPath: one
 // passing result per check, which is what a green gate run records.
 func WritePassingResults(specPath, out string) (string, error) {
@@ -122,4 +99,68 @@ func WriteSpec(specPath string, spec projectstate.TaskSpec) error {
 		return err
 	}
 	return os.WriteFile(specPath, append(b, '\n'), 0o600)
+}
+
+// RunChecksDouble is the venues' `aiarch-state-mcp run-checks`: the check gate's runner
+// runs toolchains (go build, golangci-lint, the scenario tests themselves) that a scenario
+// venue has no module for, so the double writes what a green gate run writes — one passing
+// result per check the spec at --spec holds, in --out/results.json — prints run-checks'
+// status lines and exits 0. args are run-checks' own (after the subcommand).
+func RunChecksDouble(args []string, stdout io.Writer) int {
+	flags := flag.NewFlagSet("run-checks", flag.ContinueOnError)
+	flags.Bool("gate", false, "")
+	flags.Bool("failed-only", false, "")
+	specPath := flags.String("spec", "", "")
+	out := flags.String("out", "", "")
+	if err := flags.Parse(args); err != nil || *specPath == "" || *out == "" {
+		_, _ = fmt.Fprintln(os.Stderr, "venue run-checks: --spec and --out are required")
+		return 2
+	}
+	if err := os.MkdirAll(*out, 0o750); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "venue run-checks:", err)
+		return 2
+	}
+	if _, err := WritePassingResults(*specPath, filepath.Join(*out, "results.json")); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "venue run-checks:", err)
+		return 2
+	}
+	spec, err := ReadSpec(*specPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "venue run-checks:", err)
+		return 2
+	}
+	for _, c := range spec.Checks {
+		_, _ = fmt.Fprintf(stdout, "%-7s %s\n", "pass", c.ID)
+	}
+	return 0
+}
+
+// RunMakeDouble is the venues' `make`: the executor runs `make gen-tests` before an
+// integration agent, which regenerates the app's scenario tests from its plan — a toolchain
+// step a scenario venue has no module for. The double accepts exactly that target.
+func RunMakeDouble(args []string) int {
+	if !slices.Equal(args, []string{"gen-tests"}) {
+		_, _ = fmt.Fprintf(os.Stderr, "venue make: no target %q (the venue runs only gen-tests)\n", strings.Join(args, " "))
+		return 2
+	}
+	return 0
+}
+
+// WorkPath is where a scripted construction step commits its work: inside the task's edit
+// scope, as a real agent's change is — under the first component directory the spec lets
+// it edit, anywhere for an any-path scope, and among the state files for a state-only task
+// (the one path every scope permits).
+func WorkPath(spec projectstate.TaskSpec, activity, command string) string {
+	name := "scripted-" + command + ".md"
+	for _, c := range spec.EditScope.Components {
+		for _, p := range c.Paths {
+			if dir, ok := strings.CutSuffix(p, "/**"); ok {
+				return path.Join(dir, name)
+			}
+		}
+	}
+	if slices.Contains(spec.EditScope.Extra, "**") {
+		return path.Join("work", activity, name)
+	}
+	return path.Join(".aiarch/state/work", activity, name)
 }
