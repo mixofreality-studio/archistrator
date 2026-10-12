@@ -390,20 +390,7 @@ func TestIntegrationScopeAdmitsEveryGeneratedTestPath(t *testing.T) {
 	if p.ModuleDir != "server" {
 		t.Fatalf("moduleDir %q: this test assumes archistrator's server/ module", p.ModuleDir)
 	}
-	out, err := testgen.Generate(raw, testgen.Config{
-		ModulePath: "github.com/mixofreality-studio/archistrator/server",
-		UITestsDir: "../uitests/generated",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var generated []string
-	for _, m := range []map[string][]byte{out.Generated, out.HooksOnce} {
-		for k := range m {
-			generated = append(generated, path.Join(p.ModuleDir, k))
-		}
-	}
-	slices.Sort(generated)
+	generated := testgenOutputPaths(t, raw, p.ModuleDir)
 	if !slices.ContainsFunc(generated, func(g string) bool { return strings.HasSuffix(g, "_scenarios.gen_test.go") }) ||
 		!slices.ContainsFunc(generated, func(g string) bool { return strings.HasPrefix(g, "uitests/generated/") }) {
 		t.Fatalf("testgen produced no Go and/or Playwright output for this repo: %v", generated)
@@ -432,6 +419,27 @@ func TestIntegrationScopeAdmitsEveryGeneratedTestPath(t *testing.T) {
 	if scopeAdmits(s.EditScope, "server/internal/manager/delivery/deliverymanager.go") {
 		t.Error("agentic-job-access integration admits the delivery manager's hand-written code")
 	}
+}
+
+// testgenOutputPaths is every path the real testgen writes for raw, repo-relative: the
+// generated files and the seeded hooks files, sorted.
+func testgenOutputPaths(t *testing.T, raw []byte, moduleDir string) []string {
+	t.Helper()
+	out, err := testgen.Generate(raw, testgen.Config{
+		ModulePath: "github.com/mixofreality-studio/archistrator/server",
+		UITestsDir: "../uitests/generated",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, m := range []map[string][]byte{out.Generated, out.HooksOnce} {
+		for k := range m {
+			paths = append(paths, path.Join(moduleDir, k))
+		}
+	}
+	slices.Sort(paths)
+	return paths
 }
 
 // scopeAdmits matches p against the edit-scope grammar ("**", "<dir>/**", literal) the
