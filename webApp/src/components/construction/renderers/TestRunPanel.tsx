@@ -221,7 +221,12 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
                 display: 'flex',
                 width: '100%',
                 alignItems: 'center',
-                gap: 1,
+                // A long id or title, or several guard chips, wrap the trailing chips
+                // and duration onto a second line rather than squeezing the title to a
+                // word per line (R60).
+                flexWrap: 'wrap',
+                columnGap: 1,
+                rowGap: 0.25,
                 px: 0.75,
                 py: 0.5,
                 textAlign: 'left',
@@ -238,7 +243,19 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
                 {s.id}
               </Typography>
               <Typography
-                sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, minWidth: 0, flexGrow: 1 }}
+                sx={{
+                  fontFamily: t.body,
+                  fontSize: 12.5,
+                  color: t.ink,
+                  // At least 12rem, one line; a title longer than the row is cut with an
+                  // ellipsis and reads whole in its tooltip (R60).
+                  flex: '1 1 12rem',
+                  minWidth: '12rem',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={s.title}
               >
                 {s.title}
               </Typography>
@@ -249,6 +266,7 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
                   size="small"
                   sx={{
                     height: 18,
+                    flexShrink: 0,
                     fontFamily: t.mono,
                     fontSize: 9,
                     bgcolor: t.paperAlt,
