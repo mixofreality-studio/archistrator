@@ -199,6 +199,27 @@ jobs:
         with:
           fetch-depth: 0
 
+      # THE ACTIVITY BRANCH (ruling R31). The server hashed the task spec over the
+      # state on activity/<activity_id> (earlier tasks' artifacts live there, not on
+      # the dispatch ref), so the job works on that branch BEFORE the spec step
+      # hashes anything. Only when the branch does not exist yet (the activity's
+      # first task) does the job stay on the dispatch ref. ls-remote tells the two
+      # apart: exit 2 is "no such branch"; any other failure fails the step rather
+      # than silently hashing the wrong state. The spec step's base is this
+      # branch's tip, captured before the agent runs.
+      - name: Check out the activity branch
+        run: |
+          branch="activity/${AIARCH_ACTIVITY_ID}"
+          rc=0; git ls-remote --exit-code --heads origin "refs/heads/${branch}" > /dev/null || rc=$?
+          if [ "${rc}" = 0 ]; then
+            git fetch --no-tags origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+            git checkout -f -B "${branch}" "refs/remotes/origin/${branch}"
+          elif [ "${rc}" = 2 ]; then
+            echo "::notice::${branch} does not exist yet: this task runs on the dispatch ref"
+          else
+            echo "::error::could not read origin's ${branch} (git ls-remote exit ${rc})"; exit 1
+          fi
+
       - name: Set up Go (for the aiarch-state MCP server)
         uses: actions/setup-go@v5
         with:
@@ -392,6 +413,129 @@ jobs:
             echo "integration=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # THE CHECK TOOLCHAINS (ruling R51). The runner image carries Go (above) and
+      # nothing else the spec's checks may exec, and a check whose tool is missing
+      # fails red: the agent can neither fix that nor is it told to. So the job
+      # provisions exactly what THIS spec's checks run, decided from spec.json:
+      #   - a command check whose argv[0] is npm or npx: Node, then `npm ci` in
+      #     that check's dir;
+      #   - a command check whose argv[0] is golangci-lint: the pinned release;
+      #   - a scenario check on a contract with no Go package (a web client, run
+      #     by `npx playwright test` in uitests/): Node, `npm ci` in uitests/ and
+      #     the Playwright chromium browser.
+      # A Go-only spec provisions nothing more. All of it lands BEFORE the agent,
+      # so the agent's own run_checks finds the same tools the gate does. Every
+      # dir is a repo-relative path without `..` that exists in this checkout,
+      # and the dir list and Node version are held to a plain shape before they
+      # reach an output.
+      - name: Plan the check toolchains
+        id: tools
+        run: |
+          spec="${RUNNER_TEMP}/spec.json"
+          # The dirs of the npm/npx command checks ("" is the repo root).
+          dirs="$(jq -r '[.checks[]? | select((.source.argv[0]? // "") as $a | $a == "npm" or $a == "npx")
+            | (.source.dir // "") | if . == "" then "." else . end] | unique | .[]' "${spec}")" \
+            || { echo "::error::cannot read the checks of ${spec}"; exit 1; }
+          if jq -e 'any(.checks[]?; .source.argv[0]? == "golangci-lint")' "${spec}" > /dev/null; then
+            golangci=true
+          else
+            golangci=false
+          fi
+          # Scenario checks on a contract with no Go package run under Playwright
+          # in uitests/ (the aiarch-state-mcp scenario runner's web arm).
+          playwright=false
+          if jq -e 'any(.checks[]?; .kind == "scenario")' "${spec}" > /dev/null; then
+            web="$(jq -r --slurpfile p .aiarch/state/project.json \
+              '[.checks[]? | select(.kind == "scenario") | .source.contract // ""
+                | select(($p[0].serviceContracts[.].goPackage? // "") == "")] | length' "${spec}")" \
+              || { echo "::error::cannot read the scenario contracts from .aiarch/state/project.json"; exit 1; }
+            if [ "${web}" != 0 ]; then
+              playwright=true
+              dirs="$(printf '%s\nuitests\n' "${dirs}" | sed '/^$/d' | sort -u)"
+            fi
+          fi
+          npm_dirs=""
+          while IFS= read -r d; do
+            [ -n "${d}" ] || continue
+            case "${d}" in
+              /*|..|../*|*/..|*/../*) echo "::error::check dir must be a relative path without '..': ${d}"; exit 1 ;;
+            esac
+            # A length test, not an ERE interval: BSD grep caps intervals at 255.
+            if [ "${#d}" -gt 256 ] || ! printf '%s' "${d}" | grep -Ex -- '[A-Za-z0-9._/-]+' > /dev/null; then
+              echo "::error::check dir is not a plain path: ${d}"; exit 1
+            fi
+            [ -d "${d}" ] || { echo "::error::check dir is not a directory in this checkout: ${d}"; exit 1; }
+            npm_dirs="${npm_dirs:+${npm_dirs} }${d}"
+          done <<< "${dirs}"
+          # Node: the first check dir's .nvmrc, else its package.json engines.node,
+          # else the current LTS.
+          node_version=""
+          for d in ${npm_dirs}; do
+            if [ -f "${d}/.nvmrc" ]; then
+              node_version="$(head -n 1 "${d}/.nvmrc" | tr -d '[:space:]')"
+            elif [ -f "${d}/package.json" ]; then
+              node_version="$(jq -r '.engines.node // ""' "${d}/package.json")" \
+                || { echo "::error::${d}/package.json is not JSON"; exit 1; }
+            fi
+            [ -z "${node_version}" ] || break
+          done
+          node_version="${node_version:-lts/*}"
+          case "${node_version}" in *$'\n'*) echo "::error::the Node version is not one line"; exit 1 ;; esac
+          if ! printf '%s' "${node_version}" | grep -Ex -- '[A-Za-z0-9.*^~<>=/| -]{1,64}' > /dev/null; then
+            echo "::error::the Node version is not a version: ${node_version}"; exit 1
+          fi
+          if [ -n "${npm_dirs}" ]; then node=true; else node=false; fi
+          {
+            echo "node=${node}"
+            echo "node_version=${node_version}"
+            echo "npm_dirs=${npm_dirs}"
+            echo "golangci=${golangci}"
+            echo "playwright=${playwright}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node (for the spec's npm checks)
+        if: ${{ steps.tools.outputs.node == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.tools.outputs.node_version }}
+
+      - name: Install the check dirs' npm dependencies
+        if: ${{ steps.tools.outputs.node == 'true' }}
+        env:
+          NPM_DIRS: ${{ steps.tools.outputs.npm_dirs }}
+        run: |
+          for d in ${NPM_DIRS}; do
+            echo "npm ci in ${d}"
+            ( cd "${d}" && npm ci )
+          done
+
+      # golangci-lint, pinned to the release archistrator's own CI pins, from the
+      # release archive verified against a checksum held HERE (not one fetched
+      # beside the archive). Bump both together, deliberately.
+      - name: Install golangci-lint (for the spec's lint check)
+        if: ${{ steps.tools.outputs.golangci == 'true' }}
+        env:
+          GOLANGCI_LINT_VERSION: "2.13.2"
+          GOLANGCI_LINT_SHA256: "2277d43b98ec0054280f2ac26b53268bae97682444678a59a657dd565da021d6"
+        run: |
+          dest="${RUNNER_TEMP}/aiarch-tools"
+          archive="golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64"
+          mkdir -p "${dest}"
+          curl -sSfL -o "${RUNNER_TEMP}/${archive}.tar.gz" \
+            "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/${archive}.tar.gz"
+          echo "${GOLANGCI_LINT_SHA256}  ${RUNNER_TEMP}/${archive}.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/${archive}.tar.gz" -C "${RUNNER_TEMP}"
+          install -m 0755 "${RUNNER_TEMP}/${archive}/golangci-lint" "${dest}/golangci-lint"
+          echo "${dest}" >> "$GITHUB_PATH"
+          "${dest}/golangci-lint" version
+
+      # The web scenario checks run `npx playwright test` in uitests/, after the
+      # npm ci above installed its @playwright/test.
+      - name: Install the Playwright browser (for the spec's web scenario checks)
+        if: ${{ steps.tools.outputs.playwright == 'true' }}
+        working-directory: uitests
+        run: npx playwright install --with-deps chromium
+
       # DETERMINISTIC COMPONENT TESTING — the integration step (spec §12 B12, R2).
       # The deterministic half of integration is the JOB's: it generates the
       # black-box scenario tests from the reviewed plan BEFORE the agent (seeding
@@ -401,7 +545,20 @@ jobs:
         if: ${{ steps.spec.outputs.integration == 'true' }}
         env:
           GOWORK: "off"
-        run: make gen-tests
+        run: |
+          # R43: the target lives in the project's module dir (project.json moduleDir,
+          # repo-relative; "" = the repo root). The task spec does not carry it, so it
+          # is read from the checked-out state, then validated before it reaches make.
+          mod="$(jq -r '.moduleDir // ""' .aiarch/state/project.json)" || { echo "::error::cannot read moduleDir from .aiarch/state/project.json"; exit 1; }
+          case "${mod}" in
+            /*|..|../*|*/..|*/../*) echo "::error::moduleDir must be a relative path without '..': ${mod}"; exit 1 ;;
+          esac
+          if [ -z "${mod}" ]; then
+            make gen-tests
+          else
+            [ -d "${mod}" ] || { echo "::error::moduleDir is not a directory in this checkout: ${mod}"; exit 1; }
+            make -C "${mod}" gen-tests
+          fi
 
       - name: Run construction step (claude-code-action)
         # The agent's bound — claude must implement + publish within this window or
@@ -449,6 +606,16 @@ jobs:
       # token in its cleanup, so every git operation against origin after the
       # agent would fail auth (the design workflow's verify step hit this live,
       # run 28724503360). Point origin back at this run's own token first.
+      #
+      # POSTURE (ruling R27): these gates are DRIFT GUARDRAILS against an agent
+      # that wanders off its task's scope, NOT a security boundary against a
+      # hostile one. They run in the job the agent ran in, so an agent bent on
+      # it could rewrite what they read (spec.json in RUNNER_TEMP, the job env,
+      # the checkout). Each gate does re-check that spec.json still carries the
+      # hash the server dispatched (AIARCH_SPEC_HASH; the binary refuses a spec
+      # whose content does not hash to its own field), which stops a wandering
+      # rewrite, not a determined one. Real enforcement would be a separate gate
+      # job on a fresh runner that takes only the pushed branch (earmarked).
       # -----------------------------------------------------------------------
       - name: Restore the job's git credential
         if: ${{ always() && steps.spec.outcome == 'success' }}
@@ -469,6 +636,9 @@ jobs:
           AIARCH_BASE: ${{ steps.spec.outputs.base }}
           AIARCH_MAIN_SHA: ${{ steps.spec.outputs.main_sha }}
         run: |
+          # The spec the gate reads must still be the one the server dispatched.
+          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" && [ "${spec_hash}" = "${AIARCH_SPEC_HASH}" ] \
+            || { echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"; exit 2; }
           git fetch --no-tags origin "activity/${AIARCH_ACTIVITY_ID}"
           if [ -n "${AIARCH_MAIN_SHA}" ]; then
             "${MCP_BIN}" edit-scope --spec "${RUNNER_TEMP}/spec.json" --base "${AIARCH_BASE}" --head "$(git rev-parse FETCH_HEAD)" --main "${AIARCH_MAIN_SHA}"
@@ -498,6 +668,9 @@ jobs:
             echo "::error::activity/${AIARCH_ACTIVITY_ID} was never pushed: the agent published nothing, so no check ran and no CheckRun is recorded"
             exit 1
           fi
+          # The spec the gate reads must still be the one the server dispatched.
+          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" && [ "${spec_hash}" = "${AIARCH_SPEC_HASH}" ] \
+            || { echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"; exit 2; }
           git checkout -f -B "activity/${AIARCH_ACTIVITY_ID}" FETCH_HEAD
           git clean -fd
           rm -rf test-results check-results
@@ -526,6 +699,9 @@ jobs:
         env:
           MCP_BIN: ${{ steps.statemcp.outputs.bin }}
         run: |
+          # The spec the gate reads must still be the one the server dispatched.
+          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" && [ "${spec_hash}" = "${AIARCH_SPEC_HASH}" ] \
+            || { echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"; exit 2; }
           branch="activity/${AIARCH_ACTIVITY_ID}"
           run_id="gh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           record() {

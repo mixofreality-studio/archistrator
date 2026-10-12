@@ -180,18 +180,21 @@ on:
       # --- The agent task spec this job runs (spec 2026-10-11 §5) ---
       # The design activity and lifecycle task, and the hash of the spec the server
       # resolved for them. The job recomputes the spec and refuses to start when the
-      # hashes differ.
+      # hashes differ. All three are REQUIRED for a draft or critique job and ABSENT
+      # for an answer job (ruling R30): an answer job is not a lifecycle task and has
+      # no AgentTaskSpec, so the first step enforces presence by job_mode and the
+      # input declaration itself cannot require them.
       activity_id:
-        description: "design activity id this dispatch runs"
-        required: true
+        description: "design activity id this dispatch runs (draft and critique jobs; absent for answer)"
+        required: false
         type: string
       task_id:
-        description: "lifecycle task id this dispatch runs (e.g. draft)"
-        required: true
+        description: "lifecycle task id this dispatch runs, e.g. draft (draft and critique jobs; absent for answer)"
+        required: false
         type: string
       spec_hash:
-        description: "sha256 of the agent task spec the server resolved for this task"
-        required: true
+        description: "sha256 of the agent task spec the server resolved for this task (draft and critique jobs; absent for answer)"
+        required: false
         type: string
       # The attempt this job runs under ("<activity>:<task>:<n>"), recorded as the
       # CheckRun's revision. Validated as an id by the first step.
@@ -306,17 +309,26 @@ jobs:
             echo "::error::prior_state_ref is not a valid git ref"
             ok=0
           fi
-          if ! valid "${ACTIVITY_ID}" "${id_re}"; then
-            echo "::error::activity_id is not a valid activity id"
-            ok=0
+          # The task-spec envelope (R30): required for a draft or critique job, which
+          # run the spec; an answer job has no spec, so its ids are optional, but a
+          # value that IS supplied is held to the same shape.
+          if [ "${JOB_MODE}" != answer ] || [ -n "${ACTIVITY_ID}" ]; then
+            if ! valid "${ACTIVITY_ID}" "${id_re}"; then
+              echo "::error::activity_id is not a valid activity id"
+              ok=0
+            fi
           fi
-          if ! valid "${TASK_ID}" "${id_re}"; then
-            echo "::error::task_id is not a valid task id"
-            ok=0
+          if [ "${JOB_MODE}" != answer ] || [ -n "${TASK_ID}" ]; then
+            if ! valid "${TASK_ID}" "${id_re}"; then
+              echo "::error::task_id is not a valid task id"
+              ok=0
+            fi
           fi
-          if ! valid "${SPEC_HASH}" "${hash_re}"; then
-            echo "::error::spec_hash is not a sha256 hex digest"
-            ok=0
+          if [ "${JOB_MODE}" != answer ] || [ -n "${SPEC_HASH}" ]; then
+            if ! valid "${SPEC_HASH}" "${hash_re}"; then
+              echo "::error::spec_hash is not a sha256 hex digest"
+              ok=0
+            fi
           fi
           if [ -n "${REVISION}" ] && ! valid "${REVISION}" "${id_re}"; then
             echo "::error::revision is not a valid attempt id"
@@ -389,6 +401,81 @@ jobs:
           go install github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp@"${AIARCH_STATE_MCP_PIN}"
           echo "bin=${GOBIN}/aiarch-state-mcp" >> "$GITHUB_OUTPUT"
 
+      # THE SESSION-BRANCH TIP (ruling R34, the design twin of R31). The server hashed
+      # the task spec over the UNMERGED session-branch tip, so the job checks that tip
+      # out and resolves the spec on it BEFORE anything merges origin/main into it or
+      # self-heals it to main. The refresh step after the spec then merges as before.
+      - name: Check out the session branch tip
+        env:
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+        run: |
+          git fetch --no-tags origin "${TARGET_BRANCH}"
+          git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
+
+      # THE TASK SPEC (spec 2026-10-11 §5.2 step 1) — the construct workflow's step,
+      # over the UNMERGED session-branch tip (R34). The job recomputes the agent task spec
+      # from the SAME code the server ran and refuses to start when its hash differs
+      # from the dispatched one. The spec's model and built-in allowlist reach
+      # claude_args through step outputs, so each is held to a plain shape here.
+      # The edit-scope base is NOT taken here: it is the base SHA recorded after the
+      # refresh, the tip the agent starts from.
+      # NOT for an answer job (ruling R30): answer jobs are not lifecycle tasks and
+      # have no AgentTaskSpec, so this step and every gate that reads its spec are
+      # skipped, and the answer agent runs on the step-tools scope below.
+      - name: Resolve the task spec
+        id: spec
+        if: ${{ inputs.job_mode != 'answer' }}
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+        run: |
+          got="$("${MCP_BIN}" task-spec --activity "${AIARCH_ACTIVITY_ID}" --task "${AIARCH_TASK_ID}" --root . --out "${RUNNER_TEMP}/spec.json")"
+          if [ "${got}" != "${AIARCH_SPEC_HASH}" ]; then
+            echo "::error::task spec drifted: dispatched ${AIARCH_SPEC_HASH}, job resolved ${got}"; exit 1
+          fi
+          # jq -e: a missing field fails here instead of becoming the string "null".
+          model="$(jq -er .model.id "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no model.id"; exit 1; }
+          builtin="$(jq -er '.tools.builtin | join(",")' "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no tools.builtin list"; exit 1; }
+          # A whole-value match of at most $3 characters: no newline (grep matches
+          # per line), never "null". The bound is a length test, not an ERE
+          # interval: BSD grep caps intervals at 255.
+          plain() {
+            case "$1" in *$'\n'*|null) return 1 ;; esac
+            [ "${#1}" -le "$3" ] || return 1
+            printf '%s' "$1" | grep -Ex -- "$2" > /dev/null
+          }
+          if ! plain "${model}" '[A-Za-z0-9][]A-Za-z0-9._:[-]*' 128; then
+            echo "::error::the task spec's model is not a model id"; exit 1
+          fi
+          # An empty allowlist is valid: --tools '' means no built-ins.
+          if [ -n "${builtin}" ] && ! plain "${builtin}" '[A-Za-z0-9_,():*.-]*' 4096; then
+            echo "::error::the task spec's built-in tools are not a tool list"; exit 1
+          fi
+          echo "model=${model}" >> "$GITHUB_OUTPUT"
+          echo "builtin=${builtin}" >> "$GITHUB_OUTPUT"
+          # The edit-scope gate takes commit SHAs only (a ref name is refused), so
+          # main is pinned here, before the agent can move any ref. A shallow
+          # checkout cannot compute merge-base(main, head): deepen it to full
+          # history first (checkout's fetch-depth: 0 normally makes this a no-op),
+          # so every later fetch into this repo is complete too. main_sha is
+          # absent only when origin has no main (ls-remote exits 2); the gate then
+          # judges the whole base..head diff (--no-main).
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --no-tags --unshallow origin
+          fi
+          rc=0; git ls-remote --exit-code --heads origin refs/heads/main > /dev/null || rc=$?
+          if [ "${rc}" = 0 ]; then
+            git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+            main_sha="$(git rev-parse --verify "refs/remotes/origin/main^{commit}")"
+          elif [ "${rc}" = 2 ]; then
+            main_sha=""
+          else
+            echo "::error::could not read origin's main (git ls-remote exit ${rc})"; exit 1
+          fi
+          echo "main_sha=${main_sha}" >> "$GITHUB_OUTPUT"
+
+      # R34: this step runs on the unmerged session-branch tip, before the refresh
+      # below merges main. The agent still runs on the merged tree.
+
       # REFRESH-FROM-MAIN (F40 founder ruling 2026-07-05; F80 reconcile 2026-07-05). One
       # persistent session branch per artifact accumulates every draft/critique/redraft
       # until it merges (not a branch-per-attempt). The stale-base problem the old
@@ -432,7 +519,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch --no-tags origin main "${TARGET_BRANCH}"
-          git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
           if [ "${JOB_MODE}" = "answer" ]; then
             echo "answer job: on the session-branch tip, skipping merge-from-main (F80a)"
             exit 0
@@ -521,62 +607,6 @@ jobs:
             grep -qxF -- "${line}" "${exclude}" || printf '%s\n' "${line}" >> "${exclude}"
           done
 
-      # THE TASK SPEC (spec 2026-10-11 §5.2 step 1) — the construct workflow's step,
-      # over the refreshed session branch. The job recomputes the agent task spec
-      # from the SAME code the server ran and refuses to start when its hash differs
-      # from the dispatched one. The spec's model and built-in allowlist reach
-      # claude_args through step outputs, so each is held to a plain shape here.
-      # The edit-scope base is the base SHA recorded above.
-      - name: Resolve the task spec
-        id: spec
-        env:
-          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
-        run: |
-          got="$("${MCP_BIN}" task-spec --activity "${AIARCH_ACTIVITY_ID}" --task "${AIARCH_TASK_ID}" --root . --out "${RUNNER_TEMP}/spec.json")"
-          if [ "${got}" != "${AIARCH_SPEC_HASH}" ]; then
-            echo "::error::task spec drifted: dispatched ${AIARCH_SPEC_HASH}, job resolved ${got}"; exit 1
-          fi
-          # jq -e: a missing field fails here instead of becoming the string "null".
-          model="$(jq -er .model.id "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no model.id"; exit 1; }
-          builtin="$(jq -er '.tools.builtin | join(",")' "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no tools.builtin list"; exit 1; }
-          # A whole-value match of at most $3 characters: no newline (grep matches
-          # per line), never "null". The bound is a length test, not an ERE
-          # interval: BSD grep caps intervals at 255.
-          plain() {
-            case "$1" in *$'\n'*|null) return 1 ;; esac
-            [ "${#1}" -le "$3" ] || return 1
-            printf '%s' "$1" | grep -Ex -- "$2" > /dev/null
-          }
-          if ! plain "${model}" '[A-Za-z0-9][]A-Za-z0-9._:[-]*' 128; then
-            echo "::error::the task spec's model is not a model id"; exit 1
-          fi
-          # An empty allowlist is valid: --tools '' means no built-ins.
-          if [ -n "${builtin}" ] && ! plain "${builtin}" '[A-Za-z0-9_,():*.-]*' 4096; then
-            echo "::error::the task spec's built-in tools are not a tool list"; exit 1
-          fi
-          echo "model=${model}" >> "$GITHUB_OUTPUT"
-          echo "builtin=${builtin}" >> "$GITHUB_OUTPUT"
-          # The edit-scope gate takes commit SHAs only (a ref name is refused), so
-          # main is pinned here, before the agent can move any ref. A shallow
-          # checkout cannot compute merge-base(main, head): deepen it to full
-          # history first (checkout's fetch-depth: 0 normally makes this a no-op),
-          # so every later fetch into this repo is complete too. main_sha is
-          # absent only when origin has no main (ls-remote exits 2); the gate then
-          # judges the whole base..head diff (--no-main).
-          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
-            git fetch --no-tags --unshallow origin
-          fi
-          rc=0; git ls-remote --exit-code --heads origin refs/heads/main > /dev/null || rc=$?
-          if [ "${rc}" = 0 ]; then
-            git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
-            main_sha="$(git rev-parse --verify "refs/remotes/origin/main^{commit}")"
-          elif [ "${rc}" = 2 ]; then
-            main_sha=""
-          else
-            echo "::error::could not read origin's main (git ls-remote exit ${rc})"; exit 1
-          fi
-          echo "main_sha=${main_sha}" >> "$GITHUB_OUTPUT"
-
       # The MCP config claude-code-action passes to the Claude CLI (--mcp-config). The
       # ambient session context and the task-spec envelope (activity, task, spec hash,
       # and the attempt when the dispatch names one — run_checks resolves the
@@ -617,14 +647,15 @@ jobs:
                 AIARCH_JOB_MODE: $mode,
                 AIARCH_TARGET_BRANCH: $branch,
                 AIARCH_STATE_ROOT: $root,
-                AIARCH_COMMAND: $command,
-                AIARCH_ACTIVITY_ID: $activity,
-                AIARCH_TASK_ID: $task,
-                AIARCH_SPEC_HASH: $hash
-              } + (if $revision == "" then {} else {AIARCH_REVISION: $revision} end))}}}' \
+                AIARCH_COMMAND: $command
+              } + (if $activity == "" then {} else {AIARCH_ACTIVITY_ID: $activity} end)
+                + (if $task == "" then {} else {AIARCH_TASK_ID: $task} end)
+                + (if $hash == "" then {} else {AIARCH_SPEC_HASH: $hash} end)
+                + (if $revision == "" then {} else {AIARCH_REVISION: $revision} end))}}}' \
             > "${RUNNER_TEMP}/aiarch-mcp.json"
 
       - name: Draft the typed Method artifact (claude-code-action)
+        if: ${{ inputs.job_mode != 'answer' }}
         timeout-minutes: 25
         uses: anthropics/claude-code-action@v1
         with:
@@ -660,6 +691,42 @@ jobs:
           prompt: |
             /${{ inputs.command }}
 
+      # ANSWER JOBS (ruling R30). An answer job commits per-question responses and is
+      # not a lifecycle task: no spec, no model/allowlist, no gates. Its built-in tool
+      # scope is the SAME step-manifest deny list the local executor uses.
+      - name: Resolve the answer step's built-in tool scope
+        id: steptools
+        if: ${{ inputs.job_mode == 'answer' }}
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+          AIARCH_COMMAND: ${{ inputs.command }}
+        run: |
+          echo "disallowed=$("${MCP_BIN}" step-tools --command "${AIARCH_COMMAND}" --disallowed)" >> "$GITHUB_OUTPUT"
+
+      - name: Answer the review comments (claude-code-action)
+        if: ${{ inputs.job_mode == 'answer' }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          # The user's OAuth token, provisioned as a repo Actions secret by the
+          # Claude Code GitHub App (/install-github-app). NAME-only reference —
+          # aiarch never mints or sees this value.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Autonomous CI, exactly as the draft step above: --dangerously-skip-permissions
+          # auto-allows tool calls in the unattended runner; the trust boundary is the
+          # state tools' own validation and the REQUIRED `validate` check.
+          # An answer job has no task spec (ruling R30), so there is no --model or
+          # --tools allowlist: the built-in surface is the step manifest's deny list,
+          # resolved above, as it was before the task-spec wave.
+          claude_args: "--dangerously-skip-permissions --mcp-config ${{ runner.temp }}/aiarch-mcp.json --strict-mcp-config --setting-sources project --exclude-dynamic-system-prompt-sections --disallowedTools ${{ steps.steptools.outputs.disallowed }}"
+          # Thin prompt: NO drafting logic here. The intent lives entirely in the
+          # per-kind design command under .claude/commands/, which pulls its role
+          # agent + Method skill + the-method-project-state (the doctrine that ALL
+          # reads/writes go through the "aiarch-state" MCP tools, that publishDraft is
+          # the last call, and that no PR is opened by the agent). The Manager computed
+          # `command`; the workflow just runs it against the ambient design job.
+          prompt: |
+            /${{ inputs.command }}
+
       # Silent-failure guard. claude-code-action can exit SUCCESS while committing
       # nothing (observed live 2026-07-04, run 28724066929: draft job green, zero
       # commits, no PR — the Manager's observe loop only ever saw the validate failure).
@@ -677,7 +744,7 @@ jobs:
       # failed: target_branch becomes part of an API path here, and an unvalidated
       # value must not reach it.
       - name: Verify claude pushed a commit to the target branch
-        if: always() && steps.inputs.outcome == 'success' && steps.spec.outcome == 'success'
+        if: always() && steps.inputs.outcome == 'success' && (steps.spec.outcome == 'success' || inputs.job_mode == 'answer')
         env:
           TARGET_BRANCH: ${{ inputs.target_branch }}
           BASE_SHA: ${{ steps.base.outputs.sha }}
@@ -701,6 +768,16 @@ jobs:
       # resolved: they read it. claude-code-action revoked the token it pointed
       # origin at (see the verify step), so origin is pointed back at this run's
       # own token first.
+      #
+      # POSTURE (ruling R27): these gates are DRIFT GUARDRAILS against an agent
+      # that wanders off its task's scope, NOT a security boundary against a
+      # hostile one. They run in the job the agent ran in, so an agent bent on
+      # it could rewrite what they read (spec.json in RUNNER_TEMP, the job env,
+      # the checkout). Each gate does re-check that spec.json still carries the
+      # hash the server dispatched (AIARCH_SPEC_HASH; the binary refuses a spec
+      # whose content does not hash to its own field), which stops a wandering
+      # rewrite, not a determined one. Real enforcement would be a separate gate
+      # job on a fresh runner that takes only the pushed branch (earmarked).
       # -----------------------------------------------------------------------
       - name: Restore the job's git credential
         if: ${{ always() && steps.spec.outcome == 'success' }}
@@ -720,6 +797,9 @@ jobs:
           AIARCH_BASE: ${{ steps.base.outputs.sha }}
           AIARCH_MAIN_SHA: ${{ steps.spec.outputs.main_sha }}
         run: |
+          # The spec the gate reads must still be the one the server dispatched.
+          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" && [ "${spec_hash}" = "${AIARCH_SPEC_HASH}" ] \
+            || { echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"; exit 2; }
           git fetch --no-tags origin "${TARGET_BRANCH}"
           if [ -n "${AIARCH_MAIN_SHA}" ]; then
             "${MCP_BIN}" edit-scope --spec "${RUNNER_TEMP}/spec.json" --base "${AIARCH_BASE}" --head "$(git rev-parse FETCH_HEAD)" --main "${AIARCH_MAIN_SHA}"
@@ -747,6 +827,9 @@ jobs:
             echo "::error::${TARGET_BRANCH} was never pushed: the agent published nothing, so no check ran and no CheckRun is recorded"
             exit 1
           fi
+          # The spec the gate reads must still be the one the server dispatched.
+          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" && [ "${spec_hash}" = "${AIARCH_SPEC_HASH}" ] \
+            || { echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"; exit 2; }
           git checkout -f -B "${TARGET_BRANCH}" FETCH_HEAD
           git clean -fd
           rm -rf test-results check-results
@@ -772,6 +855,9 @@ jobs:
           MCP_BIN: ${{ steps.statemcp.outputs.bin }}
           TARGET_BRANCH: ${{ inputs.target_branch }}
         run: |
+          # The spec the gate reads must still be the one the server dispatched.
+          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" && [ "${spec_hash}" = "${AIARCH_SPEC_HASH}" ] \
+            || { echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"; exit 2; }
           branch="${TARGET_BRANCH}"
           run_id="gh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           record() {
@@ -792,7 +878,7 @@ jobs:
           fi
 
       - name: Fail on a red check
-        if: ${{ always() && steps.checks.outputs.rc != '0' }}
+        if: ${{ always() && inputs.job_mode != 'answer' && steps.checks.outputs.rc != '0' }}
         run: exit 1
 
   # ---------------------------------------------------------------------------
