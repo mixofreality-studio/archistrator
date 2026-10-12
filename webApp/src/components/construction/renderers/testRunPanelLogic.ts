@@ -28,16 +28,28 @@ export interface ScenarioStatusCounts {
   pass: number;
   fail: number;
   skip: number;
+  timeout: number;
 }
 
 export function summarize(scenarios: readonly { status: string }[]): ScenarioStatusCounts {
-  const out: ScenarioStatusCounts = { pass: 0, fail: 0, skip: 0 };
+  const out: ScenarioStatusCounts = { pass: 0, fail: 0, skip: 0, timeout: 0 };
   for (const s of scenarios) {
     if (s.status === 'pass') out.pass += 1;
     else if (s.status === 'fail') out.fail += 1;
     else if (s.status === 'skip') out.skip += 1;
+    else if (s.status === 'timeout') out.timeout += 1;
   }
   return out;
+}
+
+export type StatusTone = 'good' | 'bad' | 'neutral';
+
+/** pass is good; fail and timeout are bad; anything else (skip, unknown, or a
+ *  status this build has never heard of) is neutral, never a pass tone. */
+export function statusTone(status: string): StatusTone {
+  if (status === 'pass') return 'good';
+  if (status === 'fail' || status === 'timeout') return 'bad';
+  return 'neutral';
 }
 
 export type ScenarioTab = 'Output' | 'Video';
