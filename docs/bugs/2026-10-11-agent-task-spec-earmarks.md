@@ -83,3 +83,46 @@ R58 made the scripted agent honour its edit scope, and `execute-a-project-activi
 - **The test-plan task's recorded plan is refused.** For a `test_plan` task the agent records the design state's `phaseArtifacts.testPlan[<contract>]`, and the state tool's validation rejects it with TP-STATE findings, so that job exits 1 and retries.
 
 **To close:** give the uitests stack a check runner double (as the Go venue hooks do with `testinfra.RunChecksDouble`), or seed the test repo with a module the commands can build; and record a test plan that passes the TP rules (or skip the test-plan task in the script).
+
+## E11: the seated-workflows drift test renders with an empty AppSlug (R55)
+
+`TestSeatedWorkflowsEqualTheTemplates` renders the templates with `AppSlug ""`. Cloud sync-on-dispatch seats with `archistrator-bot`. If sync ever commits its slugged render into this repo, the drift test goes red. Decide at D3 whether this repo's seated copy should carry the production slug. The construct `allowed_bots:` renders empty today, the same as on main and in every prior seat, so that is not a regression.
+
+## E12: a stale workspace `aiarch-state-mcp` passes the version probe (final re-review m2)
+
+Under the workspace `go.work`, `method-assets` reports `(devel)` on both the server and the state tool, and `(devel)` == `(devel)`. A stale workspace binary therefore passes the R56 probe. Only a `TaskSpecSchemaVersion` bump (hand-maintained) or a tagged build tells them apart, so a schema-only change surfaces as "task spec drifted". Workspace-only: a `GOWORK=off` release build carries the real tag.
+
+**To close:** stamp the workspace build with the VCS revision of method-assets (`-buildvcs`), or have `make` rebuild the tool whenever method-assets or projectstate changes.
+
+## E13: the 81 converted CheckRuns carry absolute host artifact paths (final review M3)
+
+`.aiarch/state/project.json` holds 81 `"artifact": "/Users/..."` entries on the CheckRuns converted from TestRuns. They resolve only on the machine that wrote them. **The data fix awaits founder permission** (rewrite to repo-relative `.aiarch/test-results/<run>` or drop the entries).
+
+## E14: the testing gate does not compare `CheckRun.SpecHash` with the dispatched hash (final re-review M1(b))
+
+The CLI gates (spec, edit-scope, record) hold the job to the dispatched spec hash, but the Manager's testing gate accepts any recorded CheckRun for the task without comparing its `SpecHash` to the hash dispatched. A run recorded against a drifted spec can satisfy the gate. Never ruled in.
+
+**To close:** carry the dispatched hash into the gate's ledger and require equality (a mismatch holds, as no-run does). Replay-breaking, so it rides a drain.
+
+## D3 release checklist (R62; the order is binding)
+
+Execute in this order, from this section. The plan file lives on main in another session's tree and is not edited here.
+
+1. **Tag the platform**: `method-assets` v0.11.0, `framework-go-scenariohost` v0.4.0, `framework-go-app-generator` v0.13.0.
+2. **Bump the server `go.mod` pins** to those tags.
+3. **`make gen-tests`** (regenerates `uitests/generated`).
+4. **`GOWORK=off` build, the make targets, and regress against the baseline.** Without the workspace the pins must resolve; expect no new reds.
+5. **Message the session `archistrator-6b` before the merge** (coordinate every merge to main).
+6. **Merge to main.**
+7. **Push.**
+8. **Move `StateMcpModulePin`** (`server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go`) to the pushed main commit (R50, E7). Skipping this makes every cloud job refuse with "task spec drifted".
+9. **Re-seat the workflows and `.claude`**: `cd server && ATS_RESEAT_WORKFLOWS=1 go test ./internal -run TestSeatedWorkflowsEqualTheTemplates`, then the `.claude` materialization (see E11 on the slug).
+10. **Push.**
+11. **Drain** every in-flight `*:activity:*` workflow and the construct and design runs they observe, and any GitHub Actions run still on the old template, **before deploying**. The replay-breaking changes (final-review §5, plus the R54 ceiling):
+    - `dispatchSpecHash` schedules `DesignSessionReadProjectOnBranch` (plus a `readProject` fallback) before every design and construction submit: a new command ahead of `PipelineSubmitAgenticJob`.
+    - The testing gate calls `ArtifactGetTestRunIndex` once before the contract loop instead of once per contract with a run: the command count changes.
+    - The persisted evidence kind changes from `testRun` to `checkRun`, and `gateLedger.testRunID` becomes `checkRunID`.
+    - Histories recorded `ProjectEnvelope.TestingState.testRuns`; they decode to empty `checkRuns`, so replay takes the hold branch.
+    - The observe ladder ceiling moved (R54, R64: 105m to 150m, 32 to 41 polls), which changes the timer schedule.
+    - Not a replay break, but order-sensitive: the new dispatch inputs (`task_id`, `spec_hash`, `revision`) are rejected with a 422 by an old seated workflow. The managed-scaffold sync re-seats before dispatch.
+12. **Deploy.**
