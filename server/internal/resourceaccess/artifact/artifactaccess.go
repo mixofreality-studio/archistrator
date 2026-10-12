@@ -376,7 +376,39 @@ func NewGitLocalArtifactAccess(repoURL string) ArtifactAccess {
 	if err != nil {
 		return erroringArtifactAccess{err: err}
 	}
-	return NewGitArtifactAccess(blob, localGitAuth())
+	return &localArtifactAccess{
+		ArtifactAccess: NewGitArtifactAccess(blob, localGitAuth()),
+		runs:           localTestRunStore{repoRoot: localRepoRoot(repoURL)},
+	}
+}
+
+// localRepoRoot is the on-disk directory a LOCAL repoURL names: a file:// URL's path, or
+// the plain path itself. A local test run's artifact resolves against it.
+func localRepoRoot(repoURL string) string {
+	if p, ok := strings.CutPrefix(repoURL, "file://"); ok {
+		return p
+	}
+	return repoURL
+}
+
+// localArtifactAccess is the LOCAL-profile artifactAccess: the generated git-backed
+// store for construction outputs plus the directory test-run store rooted at the repo it
+// serves (the generated receiver has no field for that root).
+type localArtifactAccess struct {
+	ArtifactAccess
+	runs testRunStore
+}
+
+var _ ArtifactAccess = (*localArtifactAccess)(nil)
+
+// GetTestRunIndex serves a local test run from its directory under the repo.
+func (l *localArtifactAccess) GetTestRunIndex(rc fwra.Context, run TestRunRef) (TestRunIndex, error) {
+	return l.runs.index(rc.Context, run)
+}
+
+// ReadTestRunFile reads one file of a local test run's directory under the repo.
+func (l *localArtifactAccess) ReadTestRunFile(rc fwra.Context, run TestRunRef, path string) (ConstructionOutput, error) {
+	return l.runs.read(rc.Context, run, path)
 }
 
 // NewGitHubCloudArtifactAccess builds the CLOUD-profile artifactAccess: a satellite
@@ -480,41 +512,21 @@ type testRunStore interface {
 	read(ctx context.Context, run TestRunRef, path string) (ConstructionOutput, error)
 }
 
-// GetTestRunIndex serves the LOCAL profile from the generated receiver: a file://
-// store's test runs are directories. A non-local resolver means this receiver was
-// built without the Actions-backed store the cloud profile needs
-// (NewGitHubCloudArtifactAccess wraps it in one), so the call is refused rather
-// than answered with an empty run a gate could mistake for evidence.
-func (g *GitArtifactAccess) GetTestRunIndex(rc fwra.Context, run TestRunRef) (TestRunIndex, error) {
-	store, err := g.localTestRuns(rc.Context)
-	if err != nil {
-		return TestRunIndex{}, err
-	}
-	return store.index(rc.Context, run)
+// GetTestRunIndex on the bare generated receiver is refused: a test run is served only by
+// a profile wrapper that knows where runs live — the LOCAL one (NewGitLocalArtifactAccess:
+// directories under the repo it serves) or the CLOUD one (NewGitHubCloudArtifactAccess:
+// Actions artifacts) — never answered with an empty run a gate could mistake for evidence.
+func (g *GitArtifactAccess) GetTestRunIndex(fwra.Context, TestRunRef) (TestRunIndex, error) {
+	return TestRunIndex{}, errBareTestRuns
 }
 
-// ReadTestRunFile reads one file of a LOCAL test-run directory; see GetTestRunIndex
-// for the profile rule.
-func (g *GitArtifactAccess) ReadTestRunFile(rc fwra.Context, run TestRunRef, path string) (ConstructionOutput, error) {
-	store, err := g.localTestRuns(rc.Context)
-	if err != nil {
-		return ConstructionOutput{}, err
-	}
-	return store.read(rc.Context, run, path)
+// ReadTestRunFile on the bare generated receiver is refused; see GetTestRunIndex.
+func (g *GitArtifactAccess) ReadTestRunFile(fwra.Context, TestRunRef, string) (ConstructionOutput, error) {
+	return ConstructionOutput{}, errBareTestRuns
 }
 
-// localTestRuns resolves the profile: a GitAuth.Local resolver ⇒ the directory
-// store; anything else is the cloud profile reached without its wrapper.
-func (g *GitArtifactAccess) localTestRuns(ctx context.Context) (testRunStore, error) {
-	auth, err := g.auth(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if !auth.Local {
-		return nil, fwra.New(fwra.ContractMisuse, "artifact: test-run ops on a non-local store need the GitHub Actions client; build the cloud profile with NewGitHubCloudArtifactAccess")
-	}
-	return localTestRunStore{}, nil
-}
+// errBareTestRuns is the bare receiver's refusal of the test-run ops.
+var errBareTestRuns = fwra.New(fwra.ContractMisuse, "artifact: test-run ops need a profile's test-run store; build the artifactAccess with NewGitLocalArtifactAccess or NewGitHubCloudArtifactAccess")
 
 // cloudArtifactAccess is the CLOUD-profile artifactAccess: the generated git-backed
 // store for construction outputs plus the Actions-backed test-run store.
@@ -593,39 +605,38 @@ func testRunMIME(p string) string {
 	}
 }
 
-// localTestRunStore is the LOCAL variant: TestRunRef.Artifact is the results
-// directory (`.aiarch/test-results/<run>`), absolute or relative to the server
-// process's working directory — which `serve` pins to the state repo.
-type localTestRunStore struct{}
-
-func (localTestRunStore) root(run TestRunRef) (string, error) {
-	if strings.TrimSpace(run.Artifact) == "" {
-		return "", fwra.New(fwra.ContractMisuse, "artifact: local test run needs its results directory in TestRunRef.Artifact")
-	}
-	info, err := os.Stat(run.Artifact)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return "", fwra.New(fwra.NotFound, "artifact: test-run directory not found: "+run.Artifact)
-		}
-		return "", fwra.Wrap(fwra.Infrastructure, err, "artifact: stat test-run directory")
-	}
-	if !info.IsDir() {
-		return "", fwra.New(fwra.ContractMisuse, "artifact: test-run artifact is not a directory: "+run.Artifact)
-	}
-	return run.Artifact, nil
+// localTestRunStore is the LOCAL variant: TestRunRef.Artifact is the results directory
+// RELATIVE TO THE REPO the store serves (`.aiarch/test-results/<run>`), never to the
+// process's working directory. An absolute artifact, or one that climbs out of the repo
+// (`..`), is refused: a CheckRun names its own results, and the delivery file endpoint
+// must not serve whatever directory a recorded artifact points at.
+type localTestRunStore struct {
+	repoRoot string
 }
 
-// open roots every read of the run at its results directory: an *os.Root
-// refuses any name (a "..", an absolute path or a symlink) that would escape
-// it, so neither a caller's path nor a planted link can read outside the run.
+// open roots every read of the run at its results directory, itself opened through an
+// *os.Root on the repo: a ".." or a symlink in the artifact cannot leave the repo, and a
+// caller's file path or a planted link cannot leave the run.
 func (s localTestRunStore) open(run TestRunRef) (*os.Root, error) {
-	dir, err := s.root(run)
-	if err != nil {
-		return nil, err
+	artifact := strings.TrimSpace(run.Artifact)
+	if artifact == "" {
+		return nil, fwra.New(fwra.ContractMisuse, "artifact: local test run needs its results directory in TestRunRef.Artifact")
 	}
-	r, err := os.OpenRoot(dir)
+	rel := filepath.FromSlash(artifact)
+	if !filepath.IsLocal(rel) {
+		return nil, fwra.New(fwra.ContractMisuse, "artifact: a local test run's artifact must be a path inside the repo, got "+artifact)
+	}
+	repo, err := os.OpenRoot(s.repoRoot)
 	if err != nil {
-		return nil, fwra.Wrap(fwra.Infrastructure, err, "artifact: open test-run directory")
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "artifact: open the repo the test runs live in")
+	}
+	defer func() { _ = repo.Close() }()
+	r, err := repo.OpenRoot(rel)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fwra.New(fwra.NotFound, "artifact: test-run directory not found: "+artifact)
+		}
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "artifact: open test-run directory "+artifact)
 	}
 	return r, nil
 }

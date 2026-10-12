@@ -18,16 +18,17 @@
 //     idempotency) — checks that a second store collapses to the same address,
 //     then retrieves by it as the caller does.
 //   - A GetTestRunIndex step reads a LOCAL test run: TestRunRef.Artifact is the
-//     results directory relative to the server's working directory (the state
-//     repo `serve` pins it to). The hook lays that directory down in a fresh
-//     working directory and moves the scenario into it for its duration, so a
-//     later unhooked ReadTestRunFile step reads the same run.
+//     results directory relative to the repo the store serves (never to the
+//     process's working directory). The hook lays that directory down in the
+//     host's repo for the scenario's duration, so a later unhooked
+//     ReadTestRunFile step reads the same run.
 package artifact_test
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
@@ -92,12 +93,12 @@ func retrieveStored(t *testing.T, h *scenariohost.Host, subject artifact.Artifac
 }
 
 // arrangeTestRun lays down the LOCAL test run run.Artifact names — the
-// component's results.json plus the scenario's log — in a fresh working
-// directory, and moves the scenario there until it ends.
-func arrangeTestRun(t *testing.T, run artifact.TestRunRef, scenario string) {
+// component's results.json plus the scenario's log — in the host's repo, until
+// the scenario ends.
+func arrangeTestRun(t *testing.T, h *scenariohost.Host, run artifact.TestRunRef, scenario string) {
 	t.Helper()
-	wd := t.TempDir()
-	root := filepath.Join(wd, run.Artifact)
+	root := filepath.Join(repoDir(h), run.Artifact)
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	results, err := json.Marshal([]map[string]any{{"scenario": scenario, "status": "pass", "durationMs": 1}})
 	if err != nil {
 		t.Fatalf("arrange test run: encode results: %v", err)
@@ -115,14 +116,18 @@ func arrangeTestRun(t *testing.T, run artifact.TestRunRef, scenario string) {
 			t.Fatalf("arrange test run: %v", err)
 		}
 	}
-	t.Chdir(wd)
+}
+
+// repoDir is the on-disk directory of the host's repo (its file:// URL's path).
+func repoDir(h *scenariohost.Host) string {
+	return strings.TrimPrefix(h.Repo.URL, "file://")
 }
 
 // indexTestRun arranges the run and reads its index as the delivery manager
 // does when a review task opens.
 func indexTestRun(t *testing.T, h *scenariohost.Host, subject artifact.ArtifactAccess, run artifact.TestRunRef, scenario string) (any, error) {
 	t.Helper()
-	arrangeTestRun(t, run, scenario)
+	arrangeTestRun(t, h, run, scenario)
 	return subject.GetTestRunIndex(callContext(t, h, "index"), run)
 }
 
@@ -246,4 +251,68 @@ func stepOperateADeliveredSystemP5S1(t *testing.T, h *scenariohost.Host, subject
 func stepViewLiveDeploymentHealthP1S1(t *testing.T, h *scenariohost.Host, subject artifact.ArtifactAccess, in inputViewLiveDeploymentHealthP1S1) (any, error) {
 	t.Helper()
 	return retrieveStored(t, h, subject, in.ContentAddress, healthManifest, mimeYAML)
+}
+
+// ---------------------------------------------------------------------------
+// Where a LOCAL test run is read from (agent task spec, Task B6 fix round 1)
+//
+// Not projected from the test plan: the local executor records a CheckRun's
+// artifact as `.aiarch/test-results/<run>`, relative to the repo, and the store
+// must resolve exactly that — against the repo it serves, not the process's
+// working directory — and refuse anything that leaves the repo.
+// ---------------------------------------------------------------------------
+
+// TestLocalTestRunResolvesAgainstTheRepoNotTheCwd: a repo-relative artifact is found
+// under the repo while the process sits in an unrelated directory, and a run laid
+// down only under the cwd is not found.
+func TestLocalTestRunResolvesAgainstTheRepoNotTheCwd(t *testing.T) {
+	h := scenariohost.Start(t)
+	subject := newSubject(t, h)
+	run := artifact.TestRunRef{RunID: "local-run", Artifact: ".aiarch/test-results/local-run"}
+	arrangeTestRun(t, h, run, "repo-relative")
+	t.Chdir(t.TempDir())
+	idx, err := subject.GetTestRunIndex(callContext(t, h, "index"), run)
+	if err != nil {
+		t.Fatalf("GetTestRunIndex: %v", err)
+	}
+	if len(idx.Files) != 2 || len(idx.Results) == 0 {
+		t.Fatalf("index %+v, want the run laid down under the repo", idx)
+	}
+
+	elsewhere := artifact.TestRunRef{RunID: "cwd-run", Artifact: "cwd-results"}
+	if err := os.MkdirAll(filepath.Join(".", elsewhere.Artifact), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subject.GetTestRunIndex(callContext(t, h, "index-cwd"), elsewhere); err == nil {
+		t.Fatal("a run under the process's working directory was served")
+	}
+}
+
+// TestLocalTestRunRefusesAnArtifactOutsideTheRepo: an absolute artifact and one that
+// climbs out of the repo are refused as contract misuse, even when the directory they
+// name exists and holds a results file.
+func TestLocalTestRunRefusesAnArtifactOutsideTheRepo(t *testing.T) {
+	h := scenariohost.Start(t)
+	subject := newSubject(t, h)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "results.json"), []byte(`[]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	escape, err := filepath.Rel(repoDir(h), outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifactPath := range []string{outside, escape, "../" + filepath.Base(outside)} {
+		_, err := subject.GetTestRunIndex(callContext(t, h, "index"), artifact.TestRunRef{RunID: "outside", Artifact: artifactPath})
+		if err == nil {
+			t.Errorf("artifact %q outside the repo was served", artifactPath)
+			continue
+		}
+		if !strings.Contains(err.Error(), "inside the repo") {
+			t.Errorf("artifact %q: error %v, want a refusal of a path outside the repo", artifactPath, err)
+		}
+		if _, rerr := subject.ReadTestRunFile(callContext(t, h, "read"), artifact.TestRunRef{RunID: "outside", Artifact: artifactPath}, "results.json"); rerr == nil {
+			t.Errorf("artifact %q outside the repo: a file was read", artifactPath)
+		}
+	}
 }

@@ -3012,6 +3012,7 @@ func TestTestingGatePassCitesTheJudgedRun(t *testing.T) {
 		t.Fatalf("tick the pump: %v", err)
 	}
 	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
+	assertTaskSpecEnvelopes(t, s.venue.jobs(), "construct")
 	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "gate-pass-read"), planProject)
 	if err != nil {
 		t.Fatal(err)
@@ -3033,6 +3034,42 @@ func TestTestingGatePassCitesTheJudgedRun(t *testing.T) {
 	if run.ID != cited || run.Revision != judged || run.Task != "integration" || v.TaskSpec.SpecChanged {
 		t.Fatalf("integration revision 1 shows run %s at %q (task %s, specChanged %v), want the cited run %s at the judged attempt %q",
 			run.ID, run.Revision, run.Task, v.TaskSpec.SpecChanged, cited, judged)
+	}
+}
+
+// TestEveryDesignDispatchCarriesItsTaskSpecEnvelope (R41): a design draft the subject
+// dispatches carries the whole task-spec envelope — activity, task, spec hash and the
+// attempt it runs under — so the local executor holds it to its spec rather than running
+// it ungated. The construction arm is pinned by TestTestingGatePassCitesTheJudgedRun.
+func TestEveryDesignDispatchCarriesItsTaskSpecEnvelope(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h, "architecture")
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	arrangeProject(t, h, subject, s, "architecture")
+	assertTaskSpecEnvelopes(t, s.venue.jobs(), "draft")
+}
+
+// assertTaskSpecEnvelopes fails t unless jobs hold at least one job of mode, and every
+// job but an answer job (ruling R30) was dispatched with the whole task-spec envelope.
+func assertTaskSpecEnvelopes(t *testing.T, jobs []agentJob, mode string) {
+	t.Helper()
+	seen := false
+	for _, j := range jobs {
+		seen = seen || j.Mode == mode
+		if j.Mode == "answer" {
+			continue
+		}
+		hash := j.env["AIARCH_SPEC_HASH"]
+		if j.env["AIARCH_ACTIVITY_ID"] == "" || j.env["AIARCH_TASK_ID"] == "" || j.env["AIARCH_REVISION"] == "" ||
+			len(hash) != 64 || strings.Trim(hash, "0123456789abcdef") != "" {
+			t.Errorf("the %s %s dispatch of %s carries envelope activity=%q task=%q hash=%q revision=%q, want all four",
+				j.Mode, j.Command, j.Activity, j.env["AIARCH_ACTIVITY_ID"], j.env["AIARCH_TASK_ID"], hash, j.env["AIARCH_REVISION"])
+		}
+	}
+	if !seen {
+		t.Errorf("no %s job was dispatched among %d", mode, len(jobs))
 	}
 }
 
@@ -3082,12 +3119,19 @@ func testingHold(v delivery.ActivityView) (delivery.ReviewThreadComment, bool) {
 // leaves running — the project's pump and the driven activity's walk — what RunScenario
 // does for a projected scenario, so a gate the test left held cannot answer the next
 // test's pump start for the same project. A terminate of a closed execution is a no-op.
-func endHeldWorkflows(t *testing.T, h *scenariohost.Host) {
+//
+// held names further activities whose walk the test leaves held (the driven activity's
+// is always ended).
+func endHeldWorkflows(t *testing.T, h *scenariohost.Host, held ...string) {
 	t.Helper()
+	ids := []string{planProject + ":nextActivity", planProject + ":activity:" + drivenActivity}
+	for _, a := range held {
+		ids = append(ids, planProject+":activity:"+a)
+	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		for _, id := range []string{planProject + ":nextActivity", planProject + ":activity:" + drivenActivity} {
+		for _, id := range ids {
 			_ = h.TemporalClient().TerminateWorkflow(ctx, id, "", "test ended")
 		}
 	})

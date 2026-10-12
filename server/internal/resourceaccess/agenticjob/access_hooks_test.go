@@ -376,6 +376,7 @@ type agentDouble struct {
 	nextState string // present ⇒ the next run commits it as the state document
 	argv      string // the last run's argv, one argument per line
 	settings  string // a copy of the last run's --settings file
+	switchTo  string // present ⇒ after its commit, the next run switches to a scratch branch and commits there
 }
 
 func newAgentDouble(t *testing.T, root, gitBin string) *agentDouble {
@@ -390,6 +391,7 @@ func newAgentDouble(t *testing.T, root, gitBin string) *agentDouble {
 		nextState: filepath.Join(ctl, "next-state.json"),
 		argv:      filepath.Join(ctl, "argv"),
 		settings:  filepath.Join(ctl, "settings.json"),
+		switchTo:  filepath.Join(ctl, "switch-next"),
 	}
 	a.claude = writeExecutable(t, filepath.Join(a.binDir, "claude"), fmt.Sprintf(`#!/bin/sh
 # Agent double for the Claude Code CLI. Started by agenticJobAccess in the run's
@@ -407,9 +409,17 @@ if [ -f %[2]q ]; then
   mv %[2]q %[5]q || exit 1
   %[3]q add %[5]q || exit 1
 fi
-exec %[3]q -c user.name=agent-double -c user.email=agent-double@example.invalid -c commit.gpgsign=false \
-  commit --allow-empty --no-verify --quiet -m "agent double: $AIARCH_COMMAND on $AIARCH_TARGET_BRANCH"
-`, a.failFlag, a.nextState, gitBin, filepath.Dir(stateDocPath), stateDocPath, a.argv, a.settings))
+%[3]q -c user.name=agent-double -c user.email=agent-double@example.invalid -c commit.gpgsign=false \
+  commit --allow-empty --no-verify --quiet -m "agent double: $AIARCH_COMMAND on $AIARCH_TARGET_BRANCH" || exit 1
+if [ -f %[8]q ]; then
+  rm -f %[8]q
+  %[3]q switch --quiet -c scratch || exit 1
+  echo stray > stray.txt
+  %[3]q add stray.txt || exit 1
+  %[3]q -c user.name=agent-double -c user.email=agent-double@example.invalid -c commit.gpgsign=false \
+    commit --no-verify --quiet -m "agent double: left on scratch" || exit 1
+fi
+`, a.failFlag, a.nextState, gitBin, filepath.Dir(stateDocPath), stateDocPath, a.argv, a.settings, a.switchTo))
 	return a
 }
 
@@ -976,9 +986,11 @@ func newGateVenue(t *testing.T, h *scenariohost.Host) *gateVenue {
 ctl=%[1]q
 printf '%%s\n' "$*" >> "$ctl/calls.log"
 sub=$1; shift
+env > "$ctl/env-$sub"
 out=
+run=
 while [ $# -gt 0 ]; do
-  case "$1" in --out) out=$2; shift ;; esac
+  case "$1" in --out) out=$2; shift ;; --run-id) run=$2; shift ;; esac
   shift
 done
 case "$sub" in
@@ -993,8 +1005,12 @@ edit-scope)
   fi
   exit 0 ;;
 run-checks)
+  git symbolic-ref HEAD > "$ctl/checked-ref"
   mkdir -p "$out" && cp "$ctl/results.json" "$out/results.json" || exit 2
   exit "$(cat "$ctl/run-checks-rc")" ;;
+record-check-run)
+  mkdir -p .aiarch/state && printf '{"recorded":"%%s"}\n' "$run" > .aiarch/state/project.json || exit 2
+  exit 0 ;;
 esac
 exit 0
 `, ctl))
@@ -1103,14 +1119,6 @@ func constructSpec(task string) agenticjob.PipelineSpec {
 	}
 }
 
-// sameDir reports whether a and b name the same directory (the temp dir may be reached
-// through a symlink, as /var is on macOS).
-func sameDir(a, b string) bool {
-	ra, errA := filepath.EvalSymlinks(a)
-	rb, errB := filepath.EvalSymlinks(b)
-	return errA == nil && errB == nil && ra == rb
-}
-
 // branchFiles lists the files at branch's tip in the clone.
 func branchFiles(t *testing.T, clone, branch string) []string {
 	t.Helper()
@@ -1139,7 +1147,8 @@ func flagValue(call, flag string) string {
 // TestLocalRailRunsTheAgentOnItsTaskSpec: a gated construction dispatch resolves its
 // spec, runs the agent on the spec's model and built-in allowlist (no deny list), then
 // gates the agent's commits — edit scope against SHAs captured before it ran, the check
-// gate, the record — and commits the CheckRun and its results onto the activity branch.
+// gate, the record — commits the CheckRun onto the activity branch, and keeps the run's
+// results (uncommitted) where the testing gate reads them.
 func TestLocalRailRunsTheAgentOnItsTaskSpec(t *testing.T) {
 	h := scenariohost.Start(t)
 	v := newGateVenue(t, h)
@@ -1197,22 +1206,22 @@ func (v *gateVenue) assertGatesJudgedTheAgent(t *testing.T) {
 	}
 }
 
-// assertRunRecorded: the run was recorded under a local id at the dispatched revision,
-// its results were kept where the testing gate reads them before any merge (the shared
-// checkout's self-ignoring .aiarch/test-results, never a commit), and the check output
-// is kept out of commits.
+// assertRunRecorded: the run was recorded under a local id naming the dispatched attempt,
+// at the dispatched revision, with its repo-relative artifact; its results were kept
+// where the testing gate reads them before any merge (the shared checkout's
+// self-ignoring .aiarch/test-results, never a commit); the record itself was committed
+// onto the activity branch; and the check output is kept out of commits.
 func (v *gateVenue) assertRunRecorded(t *testing.T) {
 	t.Helper()
 	rec := v.call(t, "record-check-run")
 	runID := flagValue(rec, "--run-id")
-	artifact := flagValue(rec, "--artifact")
-	if !strings.HasPrefix(runID, "local-") || flagValue(rec, "--revision") != "C-review-engine:construction:1" {
-		t.Errorf("record-check-run call %q, want a local run id and the dispatched revision", rec)
+	if !strings.HasPrefix(runID, "local-C-review-engine:construction:1-") || flagValue(rec, "--revision") != "C-review-engine:construction:1" {
+		t.Errorf("record-check-run call %q, want a local run id naming the attempt, and the dispatched revision", rec)
 	}
-	if want := filepath.Join(v.env.clone, ".aiarch", "test-results", runID); !sameDir(artifact, want) {
-		t.Errorf("record-check-run artifact %q, want the kept results dir %s", artifact, want)
+	if got := flagValue(rec, "--artifact"); got != ".aiarch/test-results/"+runID {
+		t.Errorf("record-check-run artifact %q, want the repo-relative .aiarch/test-results/%s", got, runID)
 	}
-	if _, err := os.Stat(filepath.Join(artifact, "check-results", "results.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(v.env.clone, ".aiarch", "test-results", runID, "check-results", "results.json")); err != nil {
 		t.Errorf("the results of %s were not kept: %v", runID, err)
 	}
 	for _, f := range branchFiles(t, v.env.clone, reviewEngineBranch) {
@@ -1220,6 +1229,7 @@ func (v *gateVenue) assertRunRecorded(t *testing.T) {
 			t.Errorf("activity branch commits %s, want results kept out of commits", f)
 		}
 	}
+	v.assertRecordedOn(t, reviewEngineBranch, runID)
 	exclude, err := os.ReadFile(filepath.Join(v.env.clone, ".git", "info", "exclude"))
 	if err != nil {
 		t.Fatalf("hooks: %v", err)
@@ -1229,6 +1239,30 @@ func (v *gateVenue) assertRunRecorded(t *testing.T) {
 			t.Errorf("info/exclude %q, want %s exactly once", exclude, line)
 		}
 	}
+}
+
+// assertRecordedOn: branch's tip is the record commit of runID, carrying the state
+// document the record wrote.
+func (v *gateVenue) assertRecordedOn(t *testing.T, branch, runID string) {
+	t.Helper()
+	if got := gitOut(t, v.env.clone, "log", "-1", "--format=%s", "refs/heads/"+branch); got != "checks: record run "+runID {
+		t.Errorf("%s's tip is %q, want the record commit of %s", branch, got, runID)
+	}
+	if got := gitOut(t, v.env.clone, "show", "refs/heads/"+branch+":"+stateDocPath); !strings.Contains(got, runID) {
+		t.Errorf("%s's state document %q, want the record of %s", branch, got, runID)
+	}
+}
+
+// gitOut is git's trimmed stdout in dir.
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("hooks: git %s: %v", strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // TestLocalRailRefusesADriftedTaskSpec: the spec the worktree resolves hashes to
@@ -1302,14 +1336,7 @@ func TestLocalRailGatesAFailedAgentRun(t *testing.T) {
 func TestLocalRailGeneratesTheScenarioTestsBeforeTheIntegrationAgent(t *testing.T) {
 	h := scenariohost.Start(t)
 	v := newGateVenue(t, h)
-	v.set(t, "spec.json", strings.Replace(stpTaskSpec, `"checks": [`,
-		`"checks": [{"id": "command:gen-tests-check", "kind": "command", "source": {"argv": ["make", "gen-tests-check"]}},`, 1))
-	makeLog := filepath.Join(v.ctl, "make.log")
-	writeExecutable(t, filepath.Join(v.env.agent.binDir, "make"), fmt.Sprintf(`#!/bin/sh
-# make double: logs the target and whether the agent has run yet.
-if [ -f %[1]q ]; then ran=after-agent; else ran=before-agent; fi
-echo "$* $ran GOWORK=$GOWORK" >> %[2]q
-`, v.env.agent.argv, makeLog))
+	makeLog := v.makeDouble(t, 0)
 	obs := v.runToEnd(t, h, constructSpec("integration"))
 	if obs.Phase != agenticjob.PhaseSucceeded {
 		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
@@ -1318,9 +1345,23 @@ echo "$* $ran GOWORK=$GOWORK" >> %[2]q
 	if err != nil {
 		t.Fatalf("make never ran: %v", err)
 	}
-	if strings.TrimSpace(string(got)) != "gen-tests before-agent GOWORK=off" {
-		t.Errorf("make ran as %q, want gen-tests once, before the agent, GOWORK=off", got)
+	if strings.TrimSpace(string(got)) != "gen-tests before-agent GOWORK=off in wt" {
+		t.Errorf("make ran as %q, want gen-tests once, before the agent, GOWORK=off, at the repo root", got)
 	}
+}
+
+// makeDouble puts a `make` first on PATH that logs its target, whether the agent has run
+// yet, GOWORK and the directory it ran in, then exits rc. It returns the log's path.
+func (v *gateVenue) makeDouble(t *testing.T, rc int) string {
+	t.Helper()
+	makeLog := filepath.Join(v.ctl, "make.log")
+	writeExecutable(t, filepath.Join(v.env.agent.binDir, "make"), fmt.Sprintf(`#!/bin/sh
+# make double: logs the target, whether the agent has run yet, GOWORK and its dir.
+if [ -f %[1]q ]; then ran=after-agent; else ran=before-agent; fi
+echo "$* $ran GOWORK=$GOWORK in $(basename "$PWD")" >> %[2]q
+exit %[3]d
+`, v.env.agent.argv, makeLog, rc))
+	return makeLog
 }
 
 // TestLocalRailRunsAnAnswerJobUngated: an answer job is no lifecycle task (ruling R30) —
@@ -1351,17 +1392,152 @@ func TestLocalRailRunsAnAnswerJobUngated(t *testing.T) {
 	}
 }
 
-// TestLocalRailRefusesAHalfEnvelope: a dispatch naming its task but no well-formed spec
-// hash is refused at Submit — it can be held to no spec.
+// TestLocalRailRefusesAHalfEnvelope: a dispatch whose envelope is partial or malformed —
+// a task without a hash, a hash without a task, a hash that is not a digest, an id or a
+// revision outside the templates' id shape — is refused at Submit: it can be held to no
+// spec, and the agent never starts.
 func TestLocalRailRefusesAHalfEnvelope(t *testing.T) {
 	h := scenariohost.Start(t)
+	for name, mutate := range map[string]func(map[string]string){
+		"task without hash":    func(in map[string]string) { delete(in, "spec_hash") },
+		"hash without task":    func(in map[string]string) { delete(in, "task_id") },
+		"malformed hash":       func(in map[string]string) { in["spec_hash"] = "not-a-hash" },
+		"task id not an id":    func(in map[string]string) { in["task_id"] = "../construction" },
+		"revision not an id":   func(in map[string]string) { in["revision"] = "a\nb" },
+		"revision with spaces": func(in map[string]string) { in["revision"] = "C-review-engine construction 1" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := newGateVenue(t, h)
+			spec := constructSpec("construction")
+			mutate(spec.DispatchInputs)
+			if _, err := v.subject.SubmitAgenticJob(callContext(t, h, "1"), spec); err == nil {
+				t.Fatal("SubmitAgenticJob accepted the envelope")
+			}
+			if argv := v.agentArgv(t); argv != "" {
+				t.Errorf("the agent ran (argv %q) on a refused dispatch", argv)
+			}
+		})
+	}
+}
+
+// TestLocalRailGatesTheActivityBranchWhateverTheAgentLeftCheckedOut: the agent commits,
+// then switches to a scratch branch and commits there. The check gate still runs on the
+// activity branch and the CheckRun lands on it; the scratch branch gets no record.
+func TestLocalRailGatesTheActivityBranchWhateverTheAgentLeftCheckedOut(t *testing.T) {
+	h := scenariohost.Start(t)
 	v := newGateVenue(t, h)
-	spec := constructSpec("construction")
-	spec.DispatchInputs["spec_hash"] = "not-a-hash"
-	if _, err := v.subject.SubmitAgenticJob(callContext(t, h, "1"), spec); err == nil {
-		t.Fatal("SubmitAgenticJob accepted a malformed spec_hash")
+	if err := os.WriteFile(v.env.agent.switchTo, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	checked, err := os.ReadFile(filepath.Join(v.ctl, "checked-ref"))
+	if err != nil {
+		t.Fatalf("the check gate never ran: %v", err)
+	}
+	if got := strings.TrimSpace(string(checked)); got != "refs/heads/"+reviewEngineBranch {
+		t.Errorf("the check gate ran on %s, want refs/heads/%s", got, reviewEngineBranch)
+	}
+	runID := flagValue(v.call(t, "record-check-run"), "--run-id")
+	v.assertRecordedOn(t, reviewEngineBranch, runID)
+	if got := gitOut(t, v.env.clone, "log", "-1", "--format=%s", "refs/heads/scratch"); got != "agent double: left on scratch" {
+		t.Errorf("scratch's tip is %q, want the agent's own commit and no record", got)
+	}
+}
+
+// TestLocalRailKeepsTheServersSecretsFromTheGates: a secret in the server's environment
+// reaches none of the gate subprocesses (the check gate runs code the agent wrote), while
+// the toolchain and the rig do.
+func TestLocalRailKeepsTheServersSecretsFromTheGates(t *testing.T) {
+	h := scenariohost.Start(t)
+	t.Setenv("ARCHISTRATOR_STRIPE_SECRET_KEY", "sk_test_should_not_leak")
+	t.Setenv("GOFLAGS", "-mod=mod")
+	v := newGateVenue(t, h)
+	if obs := v.runToEnd(t, h, constructSpec("construction")); obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	for _, sub := range []string{"task-spec", "edit-scope", "run-checks", "record-check-run"} {
+		env, err := os.ReadFile(filepath.Join(v.ctl, "env-"+sub))
+		if err != nil {
+			t.Fatalf("%s never ran: %v", sub, err)
+		}
+		if strings.Contains(string(env), "sk_test_should_not_leak") {
+			t.Errorf("%s ran with the server's secret in its env", sub)
+		}
+		for _, want := range []string{"GOFLAGS=-mod=mod", "AIARCH_TASK_ID=construction", "PATH="} {
+			if !strings.Contains(string(env), want) {
+				t.Errorf("%s ran without %s", sub, want)
+			}
+		}
+	}
+}
+
+// TestLocalRailGatesARunWhoseScenarioTestsDidNotGenerate: make gen-tests fails — the
+// agent never starts, the gates still run and record (the templates' always()), and the
+// run fails with the generation's reason.
+func TestLocalRailGatesARunWhoseScenarioTestsDidNotGenerate(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.makeDouble(t, 2)
+	obs := v.runToEnd(t, h, constructSpec("integration"))
+	if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, "scenario tests could not be generated") {
+		t.Fatalf("run ended %s (%q), want failed: the scenario tests could not be generated", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
 	}
 	if argv := v.agentArgv(t); argv != "" {
-		t.Errorf("the agent ran (argv %q) on a refused dispatch", argv)
+		t.Errorf("the agent ran (argv %q) without its scenario tests", argv)
+	}
+	if got, want := v.subcommands(t), []string{"task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
+		t.Errorf("state-tool calls %q, want %q", got, want)
+	}
+}
+
+// TestLocalRailGatesADesignDraft: a design draft dispatch is held to its spec like a
+// construction one — resolved on the session branch, run on the spec's model, gated and
+// recorded onto the session branch.
+func TestLocalRailGatesADesignDraft(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	obs := v.runToEnd(t, h, agenticjob.PipelineSpec{
+		ProjectID:  "stp-gates",
+		ActivityID: "architecture",
+		Steps:      []agenticjob.PipelineStep{{Name: "agent", Toolchain: "claude-code", Command: []string{"/system-draft"}}},
+		DispatchInputs: map[string]string{
+			"artifact_kind": "System", "command": "system-draft", "target_branch": systemSessionBranch,
+			"prior_state_ref": "", "job_mode": "draft",
+			"activity_id": "architecture", "task_id": "systemDraft", "spec_hash": stpSpecHash, "revision": "architecture:systemDraft:1",
+		},
+	})
+	if obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	if got, want := v.subcommands(t), []string{"task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
+		t.Fatalf("state-tool calls %q, want %q", got, want)
+	}
+	spec := v.call(t, "task-spec")
+	if flagValue(spec, "--activity") != "architecture" || flagValue(spec, "--task") != "systemDraft" {
+		t.Errorf("task-spec call %q, want the design activity and task", spec)
+	}
+	if !strings.Contains(v.agentArgv(t), "--model\nsonnet\n") {
+		t.Errorf("design agent argv %q, want the spec's model", v.agentArgv(t))
+	}
+	v.assertRecordedOn(t, systemSessionBranch, flagValue(v.call(t, "record-check-run"), "--run-id"))
+}
+
+// TestLocalRailJudgesTheWholeDiffWithoutMain: a repo with no main — the edit-scope gate
+// judges the whole base..head diff (--no-main), as the templates do when origin has none.
+func TestLocalRailJudgesTheWholeDiffWithoutMain(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	runGit(t, v.env.clone, "branch", reviewEngineBranch, "main")
+	runGit(t, v.env.clone, "checkout", "--quiet", "--detach")
+	runGit(t, v.env.clone, "branch", "-D", "main")
+	if obs := v.runToEnd(t, h, constructSpec("construction")); obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	scope := v.call(t, "edit-scope")
+	if !strings.Contains(scope, "--no-main") || strings.Contains(scope, "--main ") {
+		t.Errorf("edit-scope call %q, want --no-main and no --main", scope)
 	}
 }
