@@ -3039,8 +3039,9 @@ func TestTestingGatePassCitesTheJudgedRun(t *testing.T) {
 
 // TestEveryDesignDispatchCarriesItsTaskSpecEnvelope (R41): a design draft the subject
 // dispatches carries the whole task-spec envelope — activity, task, spec hash and the
-// attempt it runs under — so the local executor holds it to its spec rather than running
-// it ungated. The construction arm is pinned by TestTestingGatePassCitesTheJudgedRun.
+// attempt it runs under — so the local executor holds it to its spec; since E1 it refuses
+// a lifecycle dispatch that carries none. The construction arm is pinned by
+// TestTestingGatePassCitesTheJudgedRun.
 func TestEveryDesignDispatchCarriesItsTaskSpecEnvelope(t *testing.T) {
 	h := scenariohost.Start(t)
 	endHeldWorkflows(t, h, "architecture")

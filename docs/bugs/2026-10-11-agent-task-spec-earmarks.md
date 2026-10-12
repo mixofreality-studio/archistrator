@@ -3,7 +3,15 @@
 These items were deferred during the agent-task-spec wave (plan `docs/superpowers/plans/2026-10-11-agent-task-spec.md`).
 Each one names what triggers it and what closes it.
 
-## E1: the local rail still runs a dispatch with no envelope ungated (ruling R41)
+## E1: the local rail still runs a dispatch with no envelope ungated (ruling R41). RESOLVED 2026-10-12
+
+**Resolution.** The founder permitted the data edit ("yes to E1", 2026-10-12).
+- The 23 non-answer `SubmitAgenticJob` bindings now carry `activity_id`, `task_id`, `spec_hash` and `revision`. Each task is the lifecycle task the command drafts (`missionDraft`, `coreUseCasesDraft`, `architectureDraft`, `construction`; `codeReview` for the review-phase dispatches; `activityListDraft`/`networkDraft` for the scope-change redrafts). Each revision is the Manager's attempt id `<activity>:<task>:<n>`, with n = 2 for a redraft, a requeue or a re-dispatch after a failure or a sendBack. Each hash is a per-(project, activity, task) sha256. The 4 answer bindings are unchanged (R30).
+- The agenticJobAccess scenarios are regenerated (testgen run in the workspace, R29). Their rig double now answers the gated sequence green over the stamped envelope and records nothing, so every lifecycle scenario runs gated. A stale-version double fails 14 of the 20 scenarios, which proves it.
+- `taskSpecEnvelopeOf` no longer has the ungated branch or the WARN. A dispatch with no envelope is refused at Submit ("carries no task spec envelope"), as a partial one is. `TestLocalRailRefusesADispatchWithNoEnvelope` pins this on the construct, draft and critique arms. No test pinned the WARN itself; the two Manager-level R41 tests stay.
+
+The original text follows.
+
 
 **What.** `agenticjob.taskSpecEnvelopeOf` lets one kind of dispatch through ungated: a lifecycle dispatch that carries neither `task_id` nor `spec_hash`. Such a run gets no spec, no `--model`/`--tools`, no edit scope and no checks.
 

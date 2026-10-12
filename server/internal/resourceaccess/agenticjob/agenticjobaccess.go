@@ -1390,9 +1390,9 @@ func (a *localExecAccess) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (
 // dispatchedTaskSpec is the task-spec envelope a lifecycle dispatch carries: the
 // activity and task the spec was resolved for and the hash the Manager resolved. The
 // local sequence resolves the spec again over the worktree and holds the run to it
-// (resolveTaskSpec, runGates). Zero for an ANSWER job (ruling R30): an answer job is
-// no lifecycle task and runs without a spec, exactly as before the task-spec wave. Zero
-// too for a dispatch that carries no envelope at all (taskSpecEnvelopeOf's earmark).
+// (resolveTaskSpec, runGates). Zero for an ANSWER job (ruling R30) alone: an answer job
+// is no lifecycle task and runs without a spec, exactly as before the task-spec wave.
+// Every other dispatch carries a whole envelope or is refused (taskSpecEnvelopeOf).
 type dispatchedTaskSpec struct {
 	activityID, taskID, hash string
 }
@@ -1408,28 +1408,21 @@ func validDispatchID(v string) bool {
 	return len(v) <= 128 && !strings.ContainsAny(v, "\r\n") && dispatchIDShape.MatchString(v)
 }
 
-// gated reports whether the run is held to a task spec.
+// gated reports whether the run is held to a task spec: every run but an answer job (R30).
 func (s dispatchedTaskSpec) gated() bool { return s.taskID != "" }
 
 // specHashShape is a sha256 hex digest, the shape the seated templates' "Validate
 // dispatch inputs" step holds spec_hash to.
 var specHashShape = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-// taskSpecEnvelopeOf reads the task-spec envelope off a lifecycle dispatch. An envelope
-// that is present must be whole and well formed — the activity, the task and the
+// taskSpecEnvelopeOf reads the task-spec envelope off a lifecycle dispatch. Every
+// lifecycle dispatch — construct, draft and critique alike, as the seated templates
+// require — must carry the whole envelope, well formed: the activity, the task and the
 // revision in the templates' id shape (the revision optional) and a sha256 spec hash, the
-// shapes the seated templates' first step holds them to — or the dispatch is refused at
-// Submit.
-//
-// EARMARK (deviation from the templates, which REQUIRE the envelope on every construct,
-// draft and critique job): a dispatch carrying NEITHER task_id NOR spec_hash runs ungated,
-// as before the task spec. Both Managers always send the envelope (deliveryManager's
-// dispatch inputs), so production dispatches are always gated; the ungated path exists
-// only because the agenticJobAccess component test plan's bindings predate the envelope.
-// Once those bindings carry task_id/spec_hash/revision (a data edit of the plan plus
-// `make gen-tests`), delete this branch and refuse an absent envelope like a malformed one
-// (ruling R41; docs/bugs/2026-10-11-agent-task-spec-earmarks.md). Until then every
-// ungated dispatch is logged at WARN, so the bypass is never silent.
+// shapes the seated templates' first step holds them to. A dispatch with no envelope at
+// all is refused at Submit exactly as a partial or malformed one is: it can be held to no
+// spec (ruling R41, closed by earmark E1). Only an answer job runs without one (R30):
+// submitDesignJob never reads an answer job's envelope.
 func taskSpecEnvelopeOf(activityID string, inputs map[string]string) (dispatchedTaskSpec, error) {
 	s := dispatchedTaskSpec{
 		activityID: strings.TrimSpace(activityID),
@@ -1439,9 +1432,7 @@ func taskSpecEnvelopeOf(activityID string, inputs map[string]string) (dispatched
 	revision := inputs[dispatchInputRevisionKey]
 	switch {
 	case s.taskID == "" && s.hash == "":
-		slog.Warn("localexec: a lifecycle dispatch carries no task spec envelope; it runs UNGATED (no spec, no edit scope, no checks)",
-			"activity", s.activityID, "command", inputs[dispatchInputCommandKey])
-		return dispatchedTaskSpec{}, nil
+		return dispatchedTaskSpec{}, fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: a lifecycle dispatch carries no task spec envelope (DispatchInputs["task_id"], ["spec_hash"]): a lifecycle run is held to its task spec`)
 	case !validDispatchID(s.activityID):
 		return dispatchedTaskSpec{}, fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: a lifecycle dispatch names no valid activity id (DispatchInputs["activity_id"])`)
 	case !validDispatchID(s.taskID):
@@ -2107,7 +2098,7 @@ func excludeCheckOutput(workDir string) error {
 // of commits, the task spec resolved and held to the dispatched hash with the edit-scope
 // SHAs captured, and the integration task's scenario tests generated. It returns the
 // gate (its genFailure set when the tests could not be generated) — nil for an ungated
-// run — or why the job refuses to start the agent, or a genuine pre-spawn error.
+// (answer-job) run — or why the job refuses to start the agent, or a genuine pre-spawn error.
 func (a *localExecAccess) prepareGate(s dispatchedTaskSpec, parentDir, workDir, branch, beforeSHA string, rig map[string]string) (*localGate, string, error) {
 	if !s.gated() {
 		return nil, "", nil

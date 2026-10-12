@@ -31,9 +31,13 @@
 // commits nothing) or agentDouble.writeNextRun (the run's commit writes the
 // given state document, as the agent's state tools do). Where that commit
 // lands is the component's work, and the probes check it. The rig binary
-// (aiarch-state-mcp, which the component runs for `seat-assets` before the
-// agent starts) is a no-op double for the same reason: it belongs to the
-// agent's runtime, not to this component.
+// (aiarch-state-mcp) is a double for the same reason: it belongs to the agent's
+// runtime, not to this component. Every lifecycle binding carries the task-spec
+// envelope (task_id / spec_hash / revision), so the component runs its gated
+// sequence through that binary (version, task-spec, edit-scope, run-checks,
+// record-check-run); the scenario double answers it green — the spec resolves to
+// the hash the dispatch carries, the scope holds, the checks pass — and its record
+// adds nothing to the state document, so a probe reads exactly what the agent left.
 //
 // HANDLES: the bindings name handles symbolically ("<scenario>-handle-N" = the
 // handle step N's SubmitAgenticJob returned). The subject is wrapped in a
@@ -91,9 +95,35 @@ func newSubject(t *testing.T, h *scenariohost.Host) agenticjob.AgenticJobAccess 
 	t.Helper()
 	root := t.TempDir()
 	stateMCP := writeExecutable(t, filepath.Join(root, "bin", "aiarch-state-mcp"),
-		"#!/bin/sh\n# rig double: seat-assets renders the .claude prompt surface; the agent double reads none.\nexit 0\n")
+		strings.ReplaceAll(scenarioStateTool, "@VERSION@", projectstate.StateToolVersion()))
 	return buildSubject(t, h, root, stateMCP)
 }
+
+// scenarioStateTool is the scenarios' rig double (@VERSION@ is the server's state-tool
+// version). seat-assets renders the .claude prompt surface the agent double never reads;
+// the gated sequence's subcommands answer green over the envelope the run was stamped
+// with (the AIARCH_* rig variables the gate env carries); record-check-run records
+// nothing, so the state document stays the agent's.
+const scenarioStateTool = `#!/bin/sh
+# rig double: answers the local gated sequence green; records nothing.
+sub=$1; shift
+out=
+while [ $# -gt 0 ]; do
+  case "$1" in --out) out=$2; shift ;; esac
+  shift
+done
+case "$sub" in
+version)
+  printf '%s\n' '@VERSION@' ;;
+task-spec)
+  printf '{"activity":"%s","task":"%s","model":{"id":"sonnet"},"tools":{"mcp":["run_checks"],"builtin":["Bash","Edit","Glob","Grep","Read","Skill","Write"]},"editScope":{"components":[],"extra":[],"stateOnly":false},"checks":[],"hash":"%s"}\n' \
+    "$AIARCH_ACTIVITY_ID" "$AIARCH_TASK_ID" "$AIARCH_SPEC_HASH" > "$out" || exit 2
+  printf '%s\n' "$AIARCH_SPEC_HASH" ;;
+run-checks)
+  mkdir -p "$out" && printf '[]\n' > "$out/results.json" || exit 2 ;;
+esac
+exit 0
+`
 
 // buildSubject builds the subject in root with stateMCP as the rig binary it runs.
 func buildSubject(t *testing.T, h *scenariohost.Host, root, stateMCP string) agenticjob.AgenticJobAccess {
@@ -600,7 +630,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 
 // stepAddAUseCaseToAnInFlightProjectP1S2 — Add a Use Case to an In-Flight Project — [variation] · [no], step 2: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":2,"node":"reconcile","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"","call":"add-a-use-case-to-an-in-flight-project/reconcile/5"},"expectedOutputs":null,"expectedStates":[{"node":"stale-artifacts-reconciled","object":"Stale downstream artifacts","inState":"[amended or acknowledged unaffected]"}],"hints":["The acknowledgement is acknowledgeStaleBasis with the literal 'reviewed — unaffected' (em dash, as in the dynamic view). The diagram label uses a hyphen; bind to the em dash. The acknowledgement is audited, so it is observable state."]}
-// Binding (JSON): {"seq":2,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-auc-P1\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P1-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[{"for":"stale-artifacts-reconciled","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aja-auc-P1","schemaRef":"#/$defs/ProjectID"}],"expect":{"result":"{\"id\":\"stp-aja-auc-P1\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":2,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-auc-P1\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P1-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\",\"activity_id\":\"architecture\",\"task_id\":\"architectureDraft\",\"spec_hash\":\"ac5bd38ae9f1adaa138e37a69c15fcf4b7192c43ad965474d944fd8aacb198bb\",\"revision\":\"architecture:architectureDraft:2\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[{"for":"stale-artifacts-reconciled","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aja-auc-P1","schemaRef":"#/$defs/ProjectID"}],"expect":{"result":"{\"id\":\"stp-aja-auc-P1\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}}],"unobservable":[],"hook":true}
 // Arrangement: the agent redrafts the stale System on its session branch.
 func stepAddAUseCaseToAnInFlightProjectP1S2(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputAddAUseCaseToAnInFlightProjectP1S2) (any, error) {
 	t.Helper()
@@ -617,7 +647,7 @@ func probeAddAUseCaseToAnInFlightProjectP1S2N1(t *testing.T, h *scenariohost.Hos
 
 // stepAddAUseCaseToAnInFlightProjectP2S2 — Add a Use Case to an In-Flight Project — [variation] · [yes], step 2: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":2,"node":"reconcile","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"","call":"add-a-use-case-to-an-in-flight-project/reconcile/5"},"expectedOutputs":null,"expectedStates":[{"node":"stale-artifacts-reconciled","object":"Stale downstream artifacts","inState":"[amended or acknowledged unaffected]"}],"hints":["The acknowledgement is acknowledgeStaleBasis with the literal 'reviewed — unaffected' (em dash, as in the dynamic view). The diagram label uses a hyphen; bind to the em dash. The acknowledgement is audited, so it is observable state."]}
-// Binding (JSON): {"seq":2,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-auc-P2\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P2-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[{"for":"stale-artifacts-reconciled","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aja-auc-P2","schemaRef":"#/$defs/ProjectID"}],"expect":{"result":"{\"id\":\"stp-aja-auc-P2\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":2,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-auc-P2\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P2-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\",\"activity_id\":\"architecture\",\"task_id\":\"architectureDraft\",\"spec_hash\":\"e66b0c4b19fe5d29bc919bceb55119e4dbfcce17e95d1a60f4c8c3ea16ef8abd\",\"revision\":\"architecture:architectureDraft:2\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[{"for":"stale-artifacts-reconciled","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aja-auc-P2","schemaRef":"#/$defs/ProjectID"}],"expect":{"result":"{\"id\":\"stp-aja-auc-P2\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}}],"unobservable":[],"hook":true}
 // Arrangement: the agent redrafts the stale System on its session branch.
 func stepAddAUseCaseToAnInFlightProjectP2S2(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputAddAUseCaseToAnInFlightProjectP2S2) (any, error) {
 	t.Helper()
@@ -634,7 +664,7 @@ func probeAddAUseCaseToAnInFlightProjectP2S2N1(t *testing.T, h *scenariohost.Hos
 
 // stepAddAUseCaseToAnInFlightProjectP3S2 — Add a Use Case to an In-Flight Project — [core: rare] · [no], step 2: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":2,"node":"reconcile","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"","call":"add-a-use-case-to-an-in-flight-project/reconcile/5"},"expectedOutputs":null,"expectedStates":[{"node":"stale-artifacts-reconciled","object":"Stale downstream artifacts","inState":"[amended or acknowledged unaffected]"}],"hints":["The acknowledgement is acknowledgeStaleBasis with the literal 'reviewed — unaffected' (em dash, as in the dynamic view). The diagram label uses a hyphen; bind to the em dash. The acknowledgement is audited, so it is observable state."]}
-// Binding (JSON): {"seq":2,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-auc-P3\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P3-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P3\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[{"for":"stale-artifacts-reconciled","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aja-auc-P3","schemaRef":"#/$defs/ProjectID"}],"expect":{"result":"{\"id\":\"stp-aja-auc-P3\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":2,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-auc-P3\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P3-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\",\"activity_id\":\"architecture\",\"task_id\":\"architectureDraft\",\"spec_hash\":\"1db410723132661645abaaad2121f1fb1aa70d21027513e379c1166a94b64f1e\",\"revision\":\"architecture:architectureDraft:2\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P3\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[{"for":"stale-artifacts-reconciled","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aja-auc-P3","schemaRef":"#/$defs/ProjectID"}],"expect":{"result":"{\"id\":\"stp-aja-auc-P3\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}}],"unobservable":[],"hook":true}
 // Arrangement: the agent redrafts the stale System on its session branch.
 func stepAddAUseCaseToAnInFlightProjectP3S2(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputAddAUseCaseToAnInFlightProjectP3S2) (any, error) {
 	t.Helper()
@@ -651,7 +681,7 @@ func probeAddAUseCaseToAnInFlightProjectP3S2N1(t *testing.T, h *scenariohost.Hos
 
 // stepAddAUseCaseToAnInFlightProjectP4S2 — Add a Use Case to an In-Flight Project — [core: rare] · [yes], step 2: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":2,"node":"reconcile","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"","call":"add-a-use-case-to-an-in-flight-project/reconcile/5"},"expectedOutputs":null,"expectedStates":[{"node":"stale-artifacts-reconciled","object":"Stale downstream artifacts","inState":"[amended or acknowledged unaffected]"}],"hints":["The acknowledgement is acknowledgeStaleBasis with the literal 'reviewed — unaffected' (em dash, as in the dynamic view). The diagram label uses a hyphen; bind to the em dash. The acknowledgement is audited, so it is observable state."]}
-// Binding (JSON): {"seq":2,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-auc-P4\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P4-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P4\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[{"for":"stale-artifacts-reconciled","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aja-auc-P4","schemaRef":"#/$defs/ProjectID"}],"expect":{"result":"{\"id\":\"stp-aja-auc-P4\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":2,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-auc-P4\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-auc-P4-2\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\",\"activity_id\":\"architecture\",\"task_id\":\"architectureDraft\",\"spec_hash\":\"937773054d878ec929316b01e90a9b0ce94976d9f0fbb1702098d070a58447ac\",\"revision\":\"architecture:architectureDraft:2\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-auc-P4\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[{"for":"stale-artifacts-reconciled","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aja-auc-P4","schemaRef":"#/$defs/ProjectID"}],"expect":{"result":"{\"id\":\"stp-aja-auc-P4\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}}],"unobservable":[],"hook":true}
 // Arrangement: the agent redrafts the stale System on its session branch.
 func stepAddAUseCaseToAnInFlightProjectP4S2(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputAddAUseCaseToAnInFlightProjectP4S2) (any, error) {
 	t.Helper()
@@ -731,7 +761,7 @@ func stepExecuteAProjectActivityP1S2(t *testing.T, h *scenariohost.Host, subject
 
 // stepExecuteAProjectActivityP2S1 — Execute a Project Activity — dispatch · no · no: exhausted · yes, step 1: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":1,"node":"dispatch-task","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"SubmitAgenticJob","call":"execute-a-project-activity/dispatch-task/3"},"expectedOutputs":[{"node":"dispatch-task","kind":"inferred","to":"","label":"Dispatch the task's agentic job; stage its artifact on the activity branch"}],"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-epa-P2\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P2-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P2\"},\"WorkflowFile\":\"aiarch-construct.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":["dispatch-task"],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-epa-P2\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P2-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\",\"task_id\":\"construction\",\"spec_hash\":\"aac66c4bec395e8c2f7b0db533d19201abda040669e7d3a6bc48e9c53d77c7ec\",\"revision\":\"C-review-engine:construction:1\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P2\"},\"WorkflowFile\":\"aiarch-construct.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":["dispatch-task"],"hook":true}
 // Arrangement: the agent run fails.
 func stepExecuteAProjectActivityP2S1(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputExecuteAProjectActivityP2S1) (any, error) {
 	t.Helper()
@@ -758,7 +788,7 @@ func stepExecuteAProjectActivityP3S2(t *testing.T, h *scenariohost.Host, subject
 
 // stepExecuteAProjectActivityP5S1 — Execute a Project Activity — dispatch · no · yes: retry · yes, step 1: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":1,"node":"dispatch-task","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"SubmitAgenticJob","call":"execute-a-project-activity/dispatch-task/3"},"expectedOutputs":[{"node":"dispatch-task","kind":"inferred","to":"","label":"Dispatch the task's agentic job; stage its artifact on the activity branch"}],"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-epa-P5\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P5-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P5\"},\"WorkflowFile\":\"aiarch-construct.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":["dispatch-task"],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-epa-P5\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P5-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\",\"task_id\":\"construction\",\"spec_hash\":\"66efb25c471ff57b84b88b4170666134ea8f57a7943f5ca6368b8c43afd32621\",\"revision\":\"C-review-engine:construction:1\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P5\"},\"WorkflowFile\":\"aiarch-construct.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":["dispatch-task"],"hook":true}
 // Arrangement: the agent run fails.
 func stepExecuteAProjectActivityP5S1(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputExecuteAProjectActivityP5S1) (any, error) {
 	t.Helper()
@@ -785,7 +815,7 @@ func stepExecuteAProjectActivityP5S4(t *testing.T, h *scenariohost.Host, subject
 
 // stepExecuteAProjectActivityP6S1 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes, step 1: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":1,"node":"dispatch-task","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"SubmitAgenticJob","call":"execute-a-project-activity/dispatch-task/3"},"expectedOutputs":[{"node":"dispatch-task","kind":"inferred","to":"","label":"Dispatch the task's agentic job; stage its artifact on the activity branch"}],"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-epa-P6\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P6-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P6\"},\"WorkflowFile\":\"aiarch-construct.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":["dispatch-task"],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-epa-P6\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-epa-P6-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\",\"task_id\":\"construction\",\"spec_hash\":\"17a48e072bae3bbe5ec5286b35126e863897b7f220aa7b260ed7d5999f4438b3\",\"revision\":\"C-review-engine:construction:1\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-epa-P6\"},\"WorkflowFile\":\"aiarch-construct.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":["dispatch-task"],"hook":true}
 // Arrangement: the agent run fails.
 func stepExecuteAProjectActivityP6S1(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputExecuteAProjectActivityP6S1) (any, error) {
 	t.Helper()
@@ -821,7 +851,7 @@ func stepExecuteAProjectActivityP7S4(t *testing.T, h *scenariohost.Host, subject
 
 // stepReplanUnderScopeChangeP1S1 — Replan Under Scope Change — [yes], step 1: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":1,"node":"back-to-design","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"SubmitAgenticJob","call":"replan-under-scope-change/back-to-design/5"},"expectedOutputs":[{"node":"notify-returned-to-design","kind":"sendSignal","to":"architect-user","label":"Notify the architect: not a scope change, returned to system design"}],"expectedStates":[{"node":"system-amendment-open","object":"System design amendment session","inState":"[open at the System]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-rsc-P1\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-rsc-P1-1\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-rsc-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[{"for":"system-amendment-open","component":"designSessionAccess","operation":"ReadProjectOnBranch","inputs":[{"name":"projectID","value":"stp-aja-rsc-P1","schemaRef":"#/$defs/ProjectID"},{"name":"branch","value":"aiarch/session/architecture-system"}],"expect":{"result":"{\"id\":\"stp-aja-rsc-P1\",\"slots\":{\"5\":{\"status\":1}}}","errorExpected":false}}],"unobservable":["notify-returned-to-design"],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-rsc-P1\",\"ActivityID\":\"architecture\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/system-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-architecture\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/architecture-system\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-rsc-P1-1\",\"artifact_kind\":\"System\",\"command\":\"system-draft\",\"target_branch\":\"aiarch/session/architecture-system\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\",\"activity_id\":\"architecture\",\"task_id\":\"architectureDraft\",\"spec_hash\":\"135aad0f04468f2f153cec901d91eba0cffdb8f6b8d5488d7a263f0f209f0675\",\"revision\":\"architecture:architectureDraft:2\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-rsc-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[{"for":"system-amendment-open","component":"designSessionAccess","operation":"ReadProjectOnBranch","inputs":[{"name":"projectID","value":"stp-aja-rsc-P1","schemaRef":"#/$defs/ProjectID"},{"name":"branch","value":"aiarch/session/architecture-system"}],"expect":{"result":"{\"id\":\"stp-aja-rsc-P1\",\"slots\":{\"5\":{\"status\":1}}}","errorExpected":false}}],"unobservable":["notify-returned-to-design"],"hook":true}
 // Arrangement: the agent drafts the System amendment on its session branch.
 func stepReplanUnderScopeChangeP1S1(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputReplanUnderScopeChangeP1S1) (any, error) {
 	t.Helper()
@@ -838,7 +868,7 @@ func probeReplanUnderScopeChangeP1S1N1(t *testing.T, h *scenariohost.Host, subje
 
 // stepRequeueAFailedConstructionActivityP1S1 — Requeue a Failed Construction Activity, step 1: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":1,"node":"resume-activity","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"SubmitAgenticJob","call":"requeue-a-failed-construction-activity/resume-activity/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-rfa-P1\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-rfa-P1-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\",\"operator_note\":\"requeue: the prior attempt failed on a flaky venue step; resume from the staged branch\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-rfa-P1\"},\"WorkflowFile\":\"aiarch-construct.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-rfa-P1\",\"ActivityID\":\"C-review-engine\",\"Steps\":[{\"Name\":\"construct\",\"Toolchain\":\"claude-code\",\"Command\":[\"/service-construction\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-C-review-engine\"]}],\"Edges\":[],\"WorkspaceRef\":\"activity/C-review-engine\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-rfa-P1-1\",\"activity_id\":\"C-review-engine\",\"component_id\":\"reviewEngine\",\"command\":\"service-construction\",\"phase\":\"construction\",\"role\":\"senior-developer\",\"operator_note\":\"requeue: the prior attempt failed on a flaky venue step; resume from the staged branch\",\"task_id\":\"construction\",\"spec_hash\":\"9825e9ec438964df0da03f358879d52a82feb912d35c69a65591a49e29596a5b\",\"revision\":\"C-review-engine:construction:2\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-rfa-P1\"},\"WorkflowFile\":\"aiarch-construct.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arrangement: a prior attempt staged work on the activity branch; the re-queued run resumes from it.
 func stepRequeueAFailedConstructionActivityP1S1(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputRequeueAFailedConstructionActivityP1S1) (any, error) {
 	t.Helper()
@@ -847,7 +877,7 @@ func stepRequeueAFailedConstructionActivityP1S1(t *testing.T, h *scenariohost.Ho
 
 // stepSendBackChangeRequestsForARedraftP1S1 — Send Back Change Requests for a Redraft — [yes], step 1: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":1,"node":"redraft","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"","call":"send-back-change-requests-for-a-redraft/redraft/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-sbr-P1\",\"ActivityID\":\"requirements\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/mission-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-requirements\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/requirements-mission\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-sbr-P1-1\",\"artifact_kind\":\"Mission\",\"command\":\"mission-draft\",\"target_branch\":\"aiarch/session/requirements-mission\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-sbr-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-sbr-P1\",\"ActivityID\":\"requirements\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/mission-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-requirements\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/requirements-mission\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-sbr-P1-1\",\"artifact_kind\":\"Mission\",\"command\":\"mission-draft\",\"target_branch\":\"aiarch/session/requirements-mission\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\",\"activity_id\":\"requirements\",\"task_id\":\"missionDraft\",\"spec_hash\":\"6782d4e679fa4f1fe3ae0ec42d1f958242e4732ceffc4f4100b6f73b1a226a9d\",\"revision\":\"requirements:missionDraft:1\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-sbr-P1\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arrangement: the change request is open on the Mission draft; the agent redrafts, answering it.
 func stepSendBackChangeRequestsForARedraftP1S1(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputSendBackChangeRequestsForARedraftP1S1) (any, error) {
 	t.Helper()
@@ -873,7 +903,7 @@ func probeSendBackChangeRequestsForARedraftP1S2N1(t *testing.T, h *scenariohost.
 
 // stepSendBackChangeRequestsForARedraftP2S1 — Send Back Change Requests for a Redraft — [no: iterate] · [yes], step 1: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":1,"node":"redraft","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"","call":"send-back-change-requests-for-a-redraft/redraft/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-sbr-P2\",\"ActivityID\":\"requirements\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/mission-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-requirements\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/requirements-mission\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-sbr-P2-1\",\"artifact_kind\":\"Mission\",\"command\":\"mission-draft\",\"target_branch\":\"aiarch/session/requirements-mission\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-sbr-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-sbr-P2\",\"ActivityID\":\"requirements\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/mission-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-requirements\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/requirements-mission\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-sbr-P2-1\",\"artifact_kind\":\"Mission\",\"command\":\"mission-draft\",\"target_branch\":\"aiarch/session/requirements-mission\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\",\"activity_id\":\"requirements\",\"task_id\":\"missionDraft\",\"spec_hash\":\"9384ede66b65ec54675a7d7f6339541904b0d754b526310b1d35208aeddba69f\",\"revision\":\"requirements:missionDraft:1\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-sbr-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arrangement: the change request is open on the Mission draft; the agent redrafts, answering it.
 func stepSendBackChangeRequestsForARedraftP2S1(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputSendBackChangeRequestsForARedraftP2S1) (any, error) {
 	t.Helper()
@@ -899,7 +929,7 @@ func probeSendBackChangeRequestsForARedraftP2S2N1(t *testing.T, h *scenariohost.
 
 // stepSendBackChangeRequestsForARedraftP2S3 — Send Back Change Requests for a Redraft — [no: iterate] · [yes], step 3: SubmitAgenticJob
 // Projected stimulus (JSON): {"seq":3,"node":"redraft","input":{"kind":"call","from":"delivery-manager","to":"agenticjobaccess","op":"","call":"send-back-change-requests-for-a-redraft/redraft/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":3,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-sbr-P2\",\"ActivityID\":\"requirements\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/mission-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-requirements\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/requirements-mission\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-sbr-P2-3\",\"artifact_kind\":\"Mission\",\"command\":\"mission-draft\",\"target_branch\":\"aiarch/session/requirements-mission\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-sbr-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":3,"operation":"SubmitAgenticJob","inputs":[{"name":"spec","value":"{\"ProjectID\":\"stp-aja-sbr-P2\",\"ActivityID\":\"requirements\",\"Steps\":[{\"Name\":\"agent\",\"Toolchain\":\"claude-code\",\"Command\":[\"/mission-draft\"],\"Resources\":{\"CPUMillis\":2000,\"MemMiB\":4096,\"GPUs\":0},\"CacheKeys\":[\"aiarch-requirements\"]}],\"Edges\":[],\"WorkspaceRef\":\"aiarch/session/requirements-mission\",\"DispatchInputs\":{\"idempotency_token\":\"stp-aja-sbr-P2-3\",\"artifact_kind\":\"Mission\",\"command\":\"mission-draft\",\"target_branch\":\"aiarch/session/requirements-mission\",\"prior_state_ref\":\"main\",\"job_mode\":\"draft\",\"activity_id\":\"requirements\",\"task_id\":\"missionDraft\",\"spec_hash\":\"9384ede66b65ec54675a7d7f6339541904b0d754b526310b1d35208aeddba69f\",\"revision\":\"requirements:missionDraft:2\"},\"TargetRepo\":{\"Owner\":\"stp-org\",\"Name\":\"stp-aja-sbr-P2\"},\"WorkflowFile\":\"aiarch-design.yml\"}","schemaRef":"#/$defs/PipelineSpec"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arrangement: the reviewer re-opened the change request (iterate); the agent redrafts, answering it again.
 func stepSendBackChangeRequestsForARedraftP2S3(t *testing.T, h *scenariohost.Host, subject agenticjob.AgenticJobAccess, in inputSendBackChangeRequestsForARedraftP2S3) (any, error) {
 	t.Helper()
@@ -926,13 +956,13 @@ func probeSendBackChangeRequestsForARedraftP2S4N1(t *testing.T, h *scenariohost.
 // ---------------------------------------------------------------------------
 // The local task-spec sequence (agent task spec, Task B6)
 //
-// These tests are not projected from the test plan: its bindings predate the
-// task-spec envelope (task_id / spec_hash / revision), so no scenario dispatches
-// a gated run. They drive the subject the way the scenarios do — the real local
-// executor over a clone of the host's repo, the agent double first on PATH — with
-// one difference: the rig binary is a SCRIPTED state-tool double instead of a
-// no-op, because the gated sequence runs it (task-spec, edit-scope, run-checks,
-// record-check-run) and each test arranges what it answers. The double logs
+// These tests are not projected from the test plan: its bindings carry the
+// task-spec envelope, so every scenario dispatches a gated run, but the scenario
+// rig double always answers green and records nothing. These drive the subject the
+// way the scenarios do — the real local executor over a clone of the host's repo,
+// the agent double first on PATH — with one difference: the rig binary is a
+// SCRIPTED state-tool double, because each test arranges what the gated sequence
+// (task-spec, edit-scope, run-checks, record-check-run) is answered. The double logs
 // every call it receives; the tests read the log, the agent double's argv and
 // settings, and the branch the run left.
 // ---------------------------------------------------------------------------
@@ -1529,6 +1559,49 @@ func TestLocalRailRefusesAHalfEnvelope(t *testing.T) {
 			mutate(spec.DispatchInputs)
 			if _, err := v.subject.SubmitAgenticJob(callContext(t, h, "1"), spec); err == nil {
 				t.Fatal("SubmitAgenticJob accepted the envelope")
+			}
+			if argv := v.agentArgv(t); argv != "" {
+				t.Errorf("the agent ran (argv %q) on a refused dispatch", argv)
+			}
+		})
+	}
+}
+
+// TestLocalRailRefusesADispatchWithNoEnvelope (R41, earmark E1 closed): a lifecycle
+// dispatch that carries no task-spec envelope at all — neither task_id nor spec_hash nor
+// revision — is refused at Submit, on the construct arm and on the design arm's draft
+// and critique jobs alike: it can be held to no spec, so the state tool is never asked
+// and the agent never starts. An answer job stays exempt
+// (TestLocalRailRunsAnAnswerJobUngated).
+func TestLocalRailRefusesADispatchWithNoEnvelope(t *testing.T) {
+	h := scenariohost.Start(t)
+	designSpec := func(mode, command string) agenticjob.PipelineSpec {
+		return agenticjob.PipelineSpec{
+			ProjectID:  "stp-gates",
+			ActivityID: "architecture",
+			Steps:      []agenticjob.PipelineStep{{Name: "agent", Toolchain: "claude-code", Command: []string{"/" + command}}},
+			DispatchInputs: map[string]string{
+				"artifact_kind": "System", "command": command, "target_branch": systemSessionBranch,
+				"prior_state_ref": "main", "job_mode": mode, "activity_id": "architecture",
+			},
+		}
+	}
+	for name, spec := range map[string]agenticjob.PipelineSpec{
+		"construct": constructSpec("construction"),
+		"draft":     designSpec("draft", "system-draft"),
+		"critique":  designSpec("critique", "system-critique"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := newGateVenue(t, h)
+			for _, key := range []string{"task_id", "spec_hash", "revision"} {
+				delete(spec.DispatchInputs, key)
+			}
+			_, err := v.subject.SubmitAgenticJob(callContext(t, h, "1"), spec)
+			if err == nil || !strings.Contains(err.Error(), "carries no task spec envelope") {
+				t.Fatalf("SubmitAgenticJob = %v, want the no-envelope refusal", err)
+			}
+			if got := v.subcommands(t); len(got) != 0 {
+				t.Errorf("state-tool calls %q on a refused dispatch, want none", got)
 			}
 			if argv := v.agentArgv(t); argv != "" {
 				t.Errorf("the agent ran (argv %q) on a refused dispatch", argv)
