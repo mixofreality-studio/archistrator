@@ -24,8 +24,9 @@
 #   - NO `${{ ... }}` expression is ever expanded inside a `run:` body. Every input
 #     and github.* value a script needs is mapped through that step's `env:`, where
 #     the runner assigns it as data and no shell ever parses it.
-#   - The ids that still reach `prompt:` and a step output (activity_id,
-#     component_id, command) are validated by the FIRST step, before any use.
+#   - The ids that still reach `prompt:`, a step output or $GITHUB_ENV (activity_id,
+#     component_id, command, task_id, spec_hash, revision) are validated by the FIRST
+#     step, before any use.
 #   - The MCP config is built by `jq -n --arg ...` from env, never a heredoc of JSON.
 name: aiarch-construct
 
@@ -55,6 +56,19 @@ on:
         description: "slash command to run (e.g. service-construction) — computed by the Manager from type/variant/phase"
         required: true
         type: string
+      # The agent task spec this job runs (spec 2026-10-11 §5): the lifecycle task id
+      # and the hash of the spec the server resolved for it. The job recomputes the
+      # spec from the same code and refuses to start when the hashes differ, so the
+      # model, prompt, tools, edit scope and checks the panel showed are the ones
+      # this run uses.
+      task_id:
+        description: "lifecycle task id this dispatch runs (e.g. integrate)"
+        required: true
+        type: string
+      spec_hash:
+        description: "sha256 of the agent task spec the server resolved for this task"
+        required: true
+        type: string
       phase:
         description: "App-A method phase for this dispatch (also encoded in `command`)"
         required: false
@@ -73,11 +87,11 @@ on:
         required: false
         type: string
       # The attempt this job runs under ("<activity>:<task>:<n>"), minted by the
-      # dispatching Manager. The integration step's record-test-run stamps it on the
-      # TestRun as its revision, and the testing gate matches it against the attempt
-      # its round judges (DCT plan 5 r2). Validated as an id by the first step.
+      # dispatching Manager. record-check-run stamps it on the CheckRun as its
+      # revision, and the testing gate matches it against the attempt its round
+      # judges (DCT plan 5 r2). Validated as an id by the first step.
       revision:
-        description: "the attempt this job runs under; recorded as the TestRun's revision"
+        description: "the attempt this job runs under; recorded as the CheckRun's revision"
         required: false
         type: string
 
@@ -88,21 +102,23 @@ permissions:
   # action fails with "Could not fetch an OIDC token".
   id-token: write
 
-# One in-flight construction run per dedup token — belt-and-braces alongside the
-# RA's own run-name convergence.
+# One in-flight construction run per ACTIVITY (ruling R12): every run of an
+# activity pushes to the same activity/<id> branch (the agent's publish and the
+# CheckRun record), so its runs queue rather than race. Never cancel in
+# progress: a cancelled run would leave a half-published branch. The RA's
+# run-name convergence (above) remains the dedup anchor.
 concurrency:
-  group: aiarch-cp-${{ inputs.idempotency_token }}
+  group: aiarch-construct-${{ inputs.activity_id }}
   cancel-in-progress: false
 
 jobs:
   construct:
     runs-on: ubuntu-latest
-    # Bound the run — claude must implement + open the PR within this window or the
-    # job is killed (no silent multi-hour grinds). 12 min was observed cutting off
-    # substantive components (a ~900 LOC component with an external integration + tests)
-    # mid-implement before commit+PR; 25 gives runway to land the PR while still
-    # bounding any runaway. Keep this >= the prompt's stated budget below.
-    timeout-minutes: 25
+    # Bound the whole job (ruling R12). The agent's own 25-minute bound and the
+    # check gate's 45-minute bound live on their steps; the rest is setup and the
+    # record, so a slow or hung check is recorded red instead of the job being
+    # killed before it records.
+    timeout-minutes: 90
 
     steps:
       # FIRST: prove the ids are ids before anything uses them. activity_id,
@@ -115,6 +131,8 @@ jobs:
           ACTIVITY_ID: ${{ inputs.activity_id }}
           COMPONENT_ID: ${{ inputs.component_id }}
           COMMAND: ${{ inputs.command }}
+          TASK_ID: ${{ inputs.task_id }}
+          SPEC_HASH: ${{ inputs.spec_hash }}
           REVISION: ${{ inputs.revision }}
         run: |
           # valid VALUE ERE: a whole-line match of at most 128 characters, and a value
@@ -138,6 +156,7 @@ jobs:
           id_seg='[A-Za-z0-9][A-Za-z0-9_:-]*([.][A-Za-z0-9_:-]+)*'
           id_re="${id_seg}(/${id_seg})*"
           command_re='[a-z0-9][a-z0-9-]{0,63}'
+          hash_re='[0-9a-f]{64}'
           ok=1
           if ! valid "${ACTIVITY_ID}" "${id_re}"; then
             echo "::error::activity_id is not a valid activity id"
@@ -151,6 +170,14 @@ jobs:
             echo "::error::command is not a valid command slug"
             ok=0
           fi
+          if ! valid "${TASK_ID}" "${id_re}"; then
+            echo "::error::task_id is not a valid task id"
+            ok=0
+          fi
+          if ! valid "${SPEC_HASH}" "${hash_re}"; then
+            echo "::error::spec_hash is not a sha256 hex digest"
+            ok=0
+          fi
           if [ -n "${REVISION}" ] && ! valid "${REVISION}" "${id_re}"; then
             echo "::error::revision is not a valid attempt id"
             ok=0
@@ -158,6 +185,14 @@ jobs:
           if [ "${ok}" != 1 ]; then
             exit 1
           fi
+          # Validated (no newline can reach $GITHUB_ENV): every later step reads
+          # these from the job env, never from an expression in its script.
+          {
+            printf 'AIARCH_ACTIVITY_ID=%s\n' "${ACTIVITY_ID}"
+            printf 'AIARCH_TASK_ID=%s\n' "${TASK_ID}"
+            printf 'AIARCH_SPEC_HASH=%s\n' "${SPEC_HASH}"
+            printf 'AIARCH_REVISION=%s\n' "${REVISION}"
+          } >> "$GITHUB_ENV"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -223,9 +258,11 @@ jobs:
 
       # The MCP config claude-code-action passes to the Claude CLI (--mcp-config). The
       # ambient CONSTRUCTION context (project id, job mode, component id, activity id,
-      # target branch, state root, command) is baked in as env on the MCP server
-      # process from the dispatch inputs + the repo name, and the operator's note rides
-      # beside it when the dispatch carries one. The agent supplies NONE of these.
+      # target branch, state root, command) and the task-spec envelope (task id, spec
+      # hash, and the attempt when the dispatch names one — run_checks resolves the
+      # session's spec from these) are baked in as env on the MCP server process from
+      # the dispatch inputs + the repo name, and the operator's note rides beside them
+      # when the dispatch carries one. The agent supplies NONE of these.
       # jq builds the JSON from --arg values, so no value — the note least of all —
       # can break the document or reach a shell.
       - name: Write the aiarch-state MCP config
@@ -236,6 +273,9 @@ jobs:
           AIARCH_ACTIVITY_ID: ${{ inputs.activity_id }}
           AIARCH_STATE_ROOT: ${{ github.workspace }}
           AIARCH_COMMAND: ${{ inputs.command }}
+          AIARCH_TASK_ID: ${{ inputs.task_id }}
+          AIARCH_SPEC_HASH: ${{ inputs.spec_hash }}
+          AIARCH_REVISION: ${{ inputs.revision }}
           AIARCH_OPERATOR_NOTE: ${{ inputs.operator_note }}
         run: |
           jq -n \
@@ -245,6 +285,9 @@ jobs:
             --arg activity "${AIARCH_ACTIVITY_ID}" \
             --arg root "${AIARCH_STATE_ROOT}" \
             --arg command "${AIARCH_COMMAND}" \
+            --arg task "${AIARCH_TASK_ID}" \
+            --arg hash "${AIARCH_SPEC_HASH}" \
+            --arg revision "${AIARCH_REVISION}" \
             --arg note "${AIARCH_OPERATOR_NOTE}" \
             '{mcpServers: {"aiarch-state": {command: $bin, env: ({
                 AIARCH_PROJECT_ID: $project,
@@ -253,52 +296,120 @@ jobs:
                 AIARCH_ACTIVITY_ID: $activity,
                 AIARCH_TARGET_BRANCH: ("activity/" + $activity),
                 AIARCH_STATE_ROOT: $root,
-                AIARCH_COMMAND: $command
-              } + (if $note == "" then {} else {AIARCH_OPERATOR_NOTE: $note} end))}}}' \
+                AIARCH_COMMAND: $command,
+                AIARCH_TASK_ID: $task,
+                AIARCH_SPEC_HASH: $hash
+              } + (if $revision == "" then {} else {AIARCH_REVISION: $revision} end)
+                + (if $note == "" then {} else {AIARCH_OPERATOR_NOTE: $note} end))}}}' \
             > "${RUNNER_TEMP}/aiarch-mcp.json"
 
-      # Resolve this step's built-in tool deny list from the SAME method-assets
-      # step manifest the local executor uses, so the two dispatch rails scope
-      # identically. Restating the list in YAML here is exactly the duplication
-      # that would drift. An unknown step prints an empty line, which degrades to
-      # the unscoped surface rather than failing the job.
-      - name: Resolve the step's built-in tool scope
-        id: steptools
-        env:
-          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
-          AIARCH_COMMAND: ${{ inputs.command }}
+      # The check output (test-results/ from the agent's run_checks, check-results/
+      # from the gate) never belongs in a commit. Ruling R28: ignore it in this
+      # runner's clone only (.git/info/exclude), not in a seated .gitignore, so an
+      # agent's `git add -A` cannot stage it. Idempotent: each line once.
+      - name: Keep check output out of commits
         run: |
-          echo "disallowed=$("${MCP_BIN}" step-tools --command "${AIARCH_COMMAND}" --disallowed)" >> "$GITHUB_OUTPUT"
+          exclude="$(git rev-parse --git-path info/exclude)"
+          mkdir -p "$(dirname "${exclude}")"
+          touch "${exclude}"
+          if [ -s "${exclude}" ] && [ -n "$(tail -c 1 "${exclude}")" ]; then
+            echo >> "${exclude}"
+          fi
+          for line in /test-results/ /check-results/; do
+            grep -qxF -- "${line}" "${exclude}" || printf '%s\n' "${line}" >> "${exclude}"
+          done
 
-      # -----------------------------------------------------------------------
-      # DETERMINISTIC COMPONENT TESTING — the integration step (spec §12 B12). The
-      # test plan is bound in parallel with construction; the INTEGRATION task is
-      # where the branches meet: its agent generates the black-box scenario tests
-      # from the reviewed plan (make gen-tests), fills their hooks, runs them
-      # against the integrated component and records the run with the state
-      # binary's `record-test-run` BEFORE publishDraft, so the run rides the same
-      # publish as the rest of the integration onto activity/<id> (a record written
-      # after the agent published would stay in this runner). This step hands the
-      # agent what only the venue knows: the binary on PATH, the attempt the run is
-      # recorded at (AIARCH_REVISION), the run id, and the artifact name the upload
-      # step below uses — one name, so the recorded run and the uploaded tree agree.
-      # activity_id and revision were validated by the first step (no newline can
-      # reach $GITHUB_ENV).
-      # -----------------------------------------------------------------------
-      - name: Expose the test-run recorder to the integration step
-        if: ${{ inputs.phase == 'integration' }}
+      # THE TASK SPEC (spec 2026-10-11 §5.2 step 1). The job recomputes the agent
+      # task spec from the SAME code the server ran (the binary is pinned to the
+      # dispatching server's generation) over this checkout's state, and refuses
+      # to start when its hash differs from the one the server dispatched: the
+      # model, tools, edit scope and checks the panel showed are then exactly the
+      # ones this run uses. The spec's model and built-in allowlist reach
+      # claude_args through step outputs, so each is held to a plain shape here
+      # (no quote, space or newline can reach the CLI's argv). `base` is the
+      # activity branch tip before the agent runs (main when the branch does not
+      # exist yet) — the edit-scope gate diffs the agent's commits from it.
+      - name: Resolve the task spec
+        id: spec
         env:
           MCP_BIN: ${{ steps.statemcp.outputs.bin }}
-          AIARCH_ACTIVITY_ID: ${{ inputs.activity_id }}
-          AIARCH_RUN_ID: ${{ github.run_id }}
-          AIARCH_REVISION: ${{ inputs.revision }}
         run: |
-          dirname "${MCP_BIN}" >> "$GITHUB_PATH"
-          printf 'AIARCH_REVISION=%s\n' "${AIARCH_REVISION}" >> "$GITHUB_ENV"
-          printf 'AIARCH_TEST_RUN_ID=%s\n' "${AIARCH_RUN_ID}" >> "$GITHUB_ENV"
-          printf 'AIARCH_TEST_ARTIFACT=test-results-%s-%s\n' "${AIARCH_ACTIVITY_ID}" "${AIARCH_RUN_ID}" >> "$GITHUB_ENV"
+          got="$("${MCP_BIN}" task-spec --activity "${AIARCH_ACTIVITY_ID}" --task "${AIARCH_TASK_ID}" --root . --out "${RUNNER_TEMP}/spec.json")"
+          if [ "${got}" != "${AIARCH_SPEC_HASH}" ]; then
+            echo "::error::task spec drifted: dispatched ${AIARCH_SPEC_HASH}, job resolved ${got}"; exit 1
+          fi
+          # jq -e: a missing field fails here instead of becoming the string "null".
+          model="$(jq -er .model.id "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no model.id"; exit 1; }
+          builtin="$(jq -er '.tools.builtin | join(",")' "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no tools.builtin list"; exit 1; }
+          # A whole-value match of at most $3 characters: no newline (grep matches
+          # per line), never "null". The bound is a length test, not an ERE
+          # interval: BSD grep caps intervals at 255.
+          plain() {
+            case "$1" in *$'\n'*|null) return 1 ;; esac
+            [ "${#1}" -le "$3" ] || return 1
+            printf '%s' "$1" | grep -Ex -- "$2" > /dev/null
+          }
+          if ! plain "${model}" '[A-Za-z0-9][]A-Za-z0-9._:[-]*' 128; then
+            echo "::error::the task spec's model is not a model id"; exit 1
+          fi
+          # An empty allowlist is valid: --tools '' means no built-ins.
+          if [ -n "${builtin}" ] && ! plain "${builtin}" '[A-Za-z0-9_,():*.-]*' 4096; then
+            echo "::error::the task spec's built-in tools are not a tool list"; exit 1
+          fi
+          echo "model=${model}" >> "$GITHUB_OUTPUT"
+          echo "builtin=${builtin}" >> "$GITHUB_OUTPUT"
+          # The edit-scope gate takes commit SHAs only (a ref name is refused), so
+          # base and main are pinned here, before the agent can move any ref.
+          # A shallow checkout cannot compute merge-base(main, head): deepen it
+          # to full history first (checkout's fetch-depth: 0 normally makes this
+          # a no-op), so every later fetch into this repo is complete too.
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --no-tags --unshallow origin
+          fi
+          if git fetch --no-tags origin "activity/${AIARCH_ACTIVITY_ID}" 2>/dev/null; then
+            base="$(git rev-parse --verify "FETCH_HEAD^{commit}")"
+          else
+            base="$(git rev-parse --verify "HEAD^{commit}")"
+          fi
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          # main_sha: the gate ignores what main's merges brought in. Absent only
+          # when origin has no main (ls-remote exits 2); the gate then judges the
+          # whole base..head diff (--no-main). Any other failure fails the step.
+          rc=0; git ls-remote --exit-code --heads origin refs/heads/main > /dev/null || rc=$?
+          if [ "${rc}" = 0 ]; then
+            git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+            main_sha="$(git rev-parse --verify "refs/remotes/origin/main^{commit}")"
+          elif [ "${rc}" = 2 ]; then
+            main_sha=""
+          else
+            echo "::error::could not read origin's main (git ls-remote exit ${rc})"; exit 1
+          fi
+          echo "main_sha=${main_sha}" >> "$GITHUB_OUTPUT"
+          # The integration TASK (not the optional phase input) seeds the scenario tests.
+          if [ "${AIARCH_TASK_ID}" = integration ]; then
+            echo "integration=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "integration=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # DETERMINISTIC COMPONENT TESTING — the integration step (spec §12 B12, R2).
+      # The deterministic half of integration is the JOB's: it generates the
+      # black-box scenario tests from the reviewed plan BEFORE the agent (seeding
+      # the hooks file), the agent wires the component, fills the hooks and commits
+      # the generated tests with its wiring, and the check gate after it runs them.
+      - name: Generate the scenario tests
+        if: ${{ steps.spec.outputs.integration == 'true' }}
+        env:
+          GOWORK: "off"
+        run: make gen-tests
 
       - name: Run construction step (claude-code-action)
+        # The agent's bound — claude must implement + publish within this window or
+        # the step is killed (no silent multi-hour grinds). 12 min was observed
+        # cutting off substantive components (a ~900 LOC component with an external
+        # integration + tests) mid-implement; 25 gives runway while still bounding
+        # any runaway. Keep this >= the prompt's stated budget below.
+        timeout-minutes: 25
         uses: anthropics/claude-code-action@v1
         with:
           # Org secret — provisioned ONCE by the founder on mixofreality-studio.
@@ -316,8 +427,11 @@ jobs:
           # writes files, runs git/go/gh, and opens the PR without an approver.
           # --mcp-config wires the local aiarch-state MCP server (built above) into the
           # Claude CLI; --dangerously-skip-permissions auto-allows tool calls (incl. the
-          # MCP tools) in the unattended runner.
-          claude_args: "--dangerously-skip-permissions --mcp-config ${{ runner.temp }}/aiarch-mcp.json --strict-mcp-config --setting-sources project --exclude-dynamic-system-prompt-sections --disallowedTools ${{ steps.steptools.outputs.disallowed }}"
+          # MCP tools) in the unattended runner. --model and --tools come from the task
+          # spec: --tools limits the built-ins to the spec's allowlist (quoted, so an
+          # empty list means none), and the MCP tools are already limited by the
+          # server's step-manifest grant.
+          claude_args: "--dangerously-skip-permissions --model ${{ steps.spec.outputs.model }} --tools '${{ steps.spec.outputs.builtin }}' --mcp-config ${{ runner.temp }}/aiarch-mcp.json --strict-mcp-config --setting-sources project --exclude-dynamic-system-prompt-sections"
           # Thin prompt: NO construction logic here. The intent lives entirely in the
           # per-(type,variant,phase) command under .claude/commands/, which pulls its
           # role agent + Method skill + the-method-project-state. The Manager computed
@@ -326,53 +440,111 @@ jobs:
           prompt: |
             /${{ inputs.command }} ${{ inputs.component_id }} ${{ inputs.activity_id }}
 
-      # The venue's own check after the integration agent: the committed generated
-      # scenario tests still match the committed test plan (the agent may fill
-      # hooks, never edit a generated file). Paths are module-root-relative: the
-      # seated app module lives at the repo root (go.mod), so there is no server/
-      # prefix and -uitests is spelled (testgen's default ../uitests/generated
-      # assumes a server/ subdirectory).
-      - name: Check the generated scenario tests
-        if: ${{ inputs.phase == 'integration' }}
-        env:
-          GOWORK: off
-        run: |
-          go run github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen@v0.12.1 -project .aiarch/state/project.json -root . -uitests uitests/generated -check
-
-      # The results tree the integration agent's run wrote and recorded: the go
-      # test -json stream plus test-results/<component>/ (results.json and, for a
-      # UI client, the videos and traces its frontend-integration step mirrored
-      # out of uitests/test-results/<component>). Named
-      # test-results-<activityId>-<runId> = $AIARCH_TEST_ARTIFACT, the name the
-      # recorded run carries, so the delivery rail's artifact fetch finds it. It
-      # uploads whenever a run left results — also after a failed agent step, the
-      # evidence either way — and is skipped when the agent ran no tests (its
-      # test plan had not landed yet, so it recorded no run).
+      # -----------------------------------------------------------------------
+      # THE GATES (spec 2026-10-11 §5.2 steps 5-8). They run after the agent on
+      # every phase, also after a failed agent step (the evidence either way), but
+      # only once the spec resolved: they read it.
       #
-      # ARCHIVE LAYOUT (pinned by TestConstructTemplateHasScenarioSteps):
-      # upload-artifact@v4 roots the zip at the least common ancestor of its
-      # SEARCH PATHS, so this single path yields entries `go-test.jsonl` and
-      # `<component>/results.json` — the same layout the local venue writes
-      # (spec §6.3: .aiarch/test-results/<run>/<component>/results.json) and the
-      # cloud TestRun reader opens (`<component>/results.json`, `go-test.jsonl`).
-      # Adding uitests/test-results/** as a second path would re-root the zip at
-      # the checkout (test-results/go-test.jsonl, uitests/test-results/<c>/...)
-      # for Go-only components too, and split the cloud and local layouts.
-      - name: Upload test results
-        if: ${{ always() && inputs.phase == 'integration' && hashFiles('test-results/**') != '' }}
+      # claude-code-action points origin at its own app token and revokes that
+      # token in its cleanup, so every git operation against origin after the
+      # agent would fail auth (the design workflow's verify step hit this live,
+      # run 28724503360). Point origin back at this run's own token first.
+      # -----------------------------------------------------------------------
+      - name: Restore the job's git credential
+        if: ${{ always() && steps.spec.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git"
+
+      # Edit scope: every path the agent's commits changed (base..the published
+      # activity branch, less what merges from main brought in) must fall inside
+      # the spec's editScope globs or the permitted generated paths. The binary
+      # prints the offending paths. --no-main (origin has no main) judges the
+      # whole base..head diff: stricter, never looser.
+      - name: Gate the edit scope
+        if: ${{ always() && steps.spec.outcome == 'success' }}
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+          AIARCH_BASE: ${{ steps.spec.outputs.base }}
+          AIARCH_MAIN_SHA: ${{ steps.spec.outputs.main_sha }}
+        run: |
+          git fetch --no-tags origin "activity/${AIARCH_ACTIVITY_ID}"
+          if [ -n "${AIARCH_MAIN_SHA}" ]; then
+            "${MCP_BIN}" edit-scope --spec "${RUNNER_TEMP}/spec.json" --base "${AIARCH_BASE}" --head "$(git rev-parse FETCH_HEAD)" --main "${AIARCH_MAIN_SHA}"
+          else
+            echo "::notice::origin has no main: the edit scope judges the whole base..head diff"
+            "${MCP_BIN}" edit-scope --spec "${RUNNER_TEMP}/spec.json" --base "${AIARCH_BASE}" --head "$(git rev-parse FETCH_HEAD)" --no-main
+          fi
+
+      # The check gate: the spec's FULL check set, by the same runner the agent's
+      # run_checks tool uses, over exactly what the agent published (a forced
+      # checkout plus a clean, so nothing the agent left uncommitted can make a
+      # check pass) and from a clean test-results/ (no stale verdict from the
+      # agent's own runs leaks into the gate). run-checks exits 0 green, 1 red
+      # (a failed or timed-out check) and 2 on an internal error; red is recorded
+      # and fails the job below, an internal error fails here.
+      - name: Run the checks
+        id: checks
+        if: ${{ always() && steps.spec.outcome == 'success' }}
+        timeout-minutes: 45
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+        run: |
+          # A branch the agent never pushed has nothing to check. The CheckRun
+          # recorder needs a results file, so this is red without a record.
+          if ! git fetch origin "activity/${AIARCH_ACTIVITY_ID}"; then
+            echo "rc=1" >> "$GITHUB_OUTPUT"
+            echo "::error::activity/${AIARCH_ACTIVITY_ID} was never pushed: the agent published nothing, so no check ran and no CheckRun is recorded"
+            exit 1
+          fi
+          git checkout -f -B "activity/${AIARCH_ACTIVITY_ID}" FETCH_HEAD
+          git clean -fd
+          rm -rf test-results check-results
+          set +e; "${MCP_BIN}" run-checks --gate --spec "${RUNNER_TEMP}/spec.json" --out check-results; rc=$?; set -e
+          echo "rc=${rc}" >> "$GITHUB_OUTPUT"
+          [ "${rc}" -le 1 ] || exit "${rc}"
+
+      # The check logs and, for an integration task, the scenario results tree,
+      # under the one artifact name the recorded CheckRun carries. Two search
+      # paths root the zip at the checkout: check-results/results.json,
+      # check-results/checks/<checkId>.log and test-results/<component>/...
+      - name: Upload check results
+        if: ${{ always() && steps.checks.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ inputs.activity_id }}-${{ github.run_id }}
-          path: test-results/**
+          name: check-results-${{ inputs.activity_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            check-results/**
+            test-results/**
           retention-days: 90
-          if-no-files-found: error
 
-      # The recorded run is evidence either way, so it is published and uploaded
-      # red or green; a red one still fails the job. Every scenario in the run's
-      # index must be `pass` (a skip is not a pass, spec §3.1).
-      - name: Fail on a red scenario run
-        if: ${{ inputs.phase == 'integration' && hashFiles('test-results/**') != '' }}
+      # The CheckRun is evidence red or green, so it is recorded and published
+      # onto the activity branch either way; a red one still fails the job below.
+      - name: Record the check run
+        if: ${{ always() && steps.checks.outcome == 'success' }}
         env:
-          AIARCH_COMPONENT_ID: ${{ inputs.component_id }}
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
         run: |
-          jq -e 'length > 0 and all(.[]; .status == "pass")' "test-results/${AIARCH_COMPONENT_ID}/results.json" > /dev/null
+          branch="activity/${AIARCH_ACTIVITY_ID}"
+          run_id="gh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          record() {
+            "${MCP_BIN}" record-check-run --spec "${RUNNER_TEMP}/spec.json" --results check-results/results.json \
+              --run-id "${run_id}" --artifact "check-results-${AIARCH_ACTIVITY_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --revision "${AIARCH_REVISION}"
+            git add .aiarch/state/project.json
+            git diff --cached --quiet || git -c user.name="aiarch-checks" -c user.email="checks@aiarch.invalid" commit -m "checks: record run ${run_id}"
+          }
+          record
+          # Runs on one branch serialize (the concurrency group), but the branch can
+          # still move under this job: record once more on its new tip, then push.
+          if ! git push origin "HEAD:${branch}"; then
+            echo "::warning::the record push was rejected; recording once more on the branch's new tip"
+            git fetch origin "${branch}"
+            git reset --hard FETCH_HEAD
+            record
+            git push origin "HEAD:${branch}"
+          fi
+
+      - name: Fail on a red check
+        if: ${{ always() && steps.checks.outputs.rc != '0' }}
+        run: exit 1
