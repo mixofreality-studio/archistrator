@@ -5,11 +5,13 @@ import (
 	"maps"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/testgen"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -374,6 +376,82 @@ func TestTaskSpecForEveryActivityTask(t *testing.T) {
 	}
 }
 
+// R52 (spec §5.2 step 5): an integration job's pre-step runs `make gen-tests`, which
+// rewrites EVERY component's generated scenario tests (and seeds missing hooks files), and
+// its gen-tests-check gate covers them all. So every path the real testgen produces for
+// this repo's committed plans must lie inside every integration task's edit scope — this
+// is the drift gate on projectstate's copy of testgen's output layout.
+func TestIntegrationScopeAdmitsEveryGeneratedTestPath(t *testing.T) {
+	_, raw := ownProjectJSON(t)
+	p := ownProject(t)
+	// archistrator's module is server/, and server/Makefile.scenarios.mk runs testgen with
+	// its defaults from there: output paths are server-relative, Playwright under
+	// ../uitests/generated.
+	if p.ModuleDir != "server" {
+		t.Fatalf("moduleDir %q: this test assumes archistrator's server/ module", p.ModuleDir)
+	}
+	out, err := testgen.Generate(raw, testgen.Config{
+		ModulePath: "github.com/mixofreality-studio/archistrator/server",
+		UITestsDir: "../uitests/generated",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated []string
+	for _, m := range []map[string][]byte{out.Generated, out.HooksOnce} {
+		for k := range m {
+			generated = append(generated, path.Join(p.ModuleDir, k))
+		}
+	}
+	slices.Sort(generated)
+	if !slices.ContainsFunc(generated, func(g string) bool { return strings.HasSuffix(g, "_scenarios.gen_test.go") }) ||
+		!slices.ContainsFunc(generated, func(g string) bool { return strings.HasPrefix(g, "uitests/generated/") }) {
+		t.Fatalf("testgen produced no Go and/or Playwright output for this repo: %v", generated)
+	}
+	integrations := 0
+	for _, a := range allActivities(t, p) {
+		s, err := projectstate.TaskSpecFor(p, a.id, "integration")
+		if err != nil || (s.Identity.Command != "service-integration" && s.Identity.Command != "frontend-integration") {
+			continue
+		}
+		integrations++
+		for _, g := range generated {
+			if !scopeAdmits(s.EditScope, g) {
+				t.Errorf("%s integration (%s): generated path %s lies outside its edit scope", a.id, s.Identity.Command, g)
+			}
+		}
+	}
+	if integrations == 0 {
+		t.Fatal("no service or frontend integration task to check")
+	}
+	// The derivation is not a blanket: another component's hand-written code stays out.
+	s, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "integration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scopeAdmits(s.EditScope, "server/internal/manager/delivery/deliverymanager.go") {
+		t.Error("agentic-job-access integration admits the delivery manager's hand-written code")
+	}
+}
+
+// scopeAdmits matches p against the edit-scope grammar ("**", "<dir>/**", literal) the
+// way the edit-scope gate does, over the spec's component paths and extras.
+func scopeAdmits(scope projectstate.SpecEditScope, p string) bool {
+	globs := slices.Clone(scope.Extra)
+	for _, c := range scope.Components {
+		globs = append(globs, c.Paths...)
+	}
+	for _, g := range globs {
+		if g == "**" || g == p {
+			return true
+		}
+		if dir, ok := strings.CutSuffix(g, "/**"); ok && strings.HasPrefix(p, dir+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func TestTaskSpecForUnknownActivityOrTask(t *testing.T) {
 	p := ownProject(t)
 	if _, err := projectstate.TaskSpecFor(p, "no-such-activity", "construction"); err == nil {
@@ -397,6 +475,18 @@ func TestDefaultModelFollowsTheCharter(t *testing.T) {
 
 func ownProject(t *testing.T) *projectstate.Project {
 	t.Helper()
+	path, raw := ownProjectJSON(t)
+	p, ok, err := projectstate.DecodeProjectJSON(raw, "")
+	if err != nil || !ok {
+		t.Fatalf("decode %s: ok=%v err=%v", path, ok, err)
+	}
+	return &p
+}
+
+// ownProjectJSON finds archistrator's committed project.json above the test directory
+// and returns its path and bytes.
+func ownProjectJSON(t *testing.T) (string, []byte) {
+	t.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -404,11 +494,7 @@ func ownProject(t *testing.T) *projectstate.Project {
 	for {
 		path := filepath.Join(dir, ".aiarch", "state", "project.json")
 		if raw, err := os.ReadFile(path); err == nil {
-			p, ok, err := projectstate.DecodeProjectJSON(raw, "")
-			if err != nil || !ok {
-				t.Fatalf("decode %s: ok=%v err=%v", path, ok, err)
-			}
-			return &p
+			return path, raw
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

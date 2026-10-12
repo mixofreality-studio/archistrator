@@ -11372,6 +11372,7 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 	}
 	if integration {
 		scope.Extra = append(scope.Extra, inModule(p, "cmd/server/hooks.go"))
+		scope.Extra = append(scope.Extra, generatedTestPaths(p)...)
 		checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec))
 		scen, err := scenarioChecks(p, contracts)
 		if err != nil {
@@ -11380,6 +11381,7 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 		checks = append(checks, scen...)
 	}
 	slices.Sort(scope.Extra)
+	scope.Extra = slices.Compact(scope.Extra)
 	sortChecks(checks)
 	return scope, checks, nil
 }
@@ -11405,6 +11407,7 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 			scope.Extra = append(scope.Extra, "uitests/generated/"+c+"/**")
 		}
 		scope.Extra = append(scope.Extra, "uitests/**")
+		scope.Extra = append(scope.Extra, generatedTestPaths(p)...)
 		checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, p.ModuleDir, commandCheckTimeoutSec))
 		scen, err := scenarioChecks(p, contracts)
 		if err != nil {
@@ -11413,8 +11416,59 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 		checks = append(checks, scen...)
 	}
 	slices.Sort(scope.Extra)
+	scope.Extra = slices.Compact(scope.Extra)
 	sortChecks(checks)
 	return scope, checks, nil
+}
+
+// generatedTestsUITestsDir is where testgen writes the web clients' Playwright output,
+// repo-relative: the scaffold Makefile passes `-uitests uitests/generated` from the repo
+// root, and archistrator's server/Makefile.scenarios.mk takes testgen's default
+// (../uitests/generated from server/), which is the same directory.
+const generatedTestsUITestsDir = "uitests/generated"
+
+// generatedTestStereotypes is testgen's layer → file-stereotype map (testgen.stereotypeOf,
+// framework-go-app-generator/testgen/testgen.go): a Go-hosted contract's tests land in
+// <goPackage>/<stereotype>_scenarios.gen_test.go beside its once-seeded
+// <goPackage>/<stereotype>_hooks_test.go. An unknown layer names its files after its own
+// lowercased key, as testgen does. TestIntegrationScopeAdmitsEveryGeneratedTestPath runs
+// the real testgen over this repo's plans and fails if this layout drifts from it.
+var generatedTestStereotypes = map[string]string{
+	"manager":        "manager",
+	"engine":         "engine",
+	"resourceaccess": "access",
+	"client":         "client",
+	"utility":        "utility",
+}
+
+// generatedTestPaths is every path `make gen-tests` may write (R52, spec §5.2 step 5): the
+// integration job's pre-step regenerates EVERY component's scenario tests and the
+// gen-tests-check gate covers them all, so integration's edit scope must admit the whole
+// output — the Playwright directory and, for every contract with a Go package, its
+// generated scenarios file and its seeded hooks file. Derived from serviceContracts and
+// moduleDir only (not the test plans), so it is the same off the Temporal envelope as off
+// the checkout and the spec hash agrees on both sides; a contract with no plan yet only
+// widens the scope by two files gen-tests would write the moment it gets one.
+func generatedTestPaths(p *Project) []string {
+	out := []string{generatedTestsUITestsDir + "/**"}
+	for _, sc := range p.ServiceContracts {
+		if sc.GoPackage == "" {
+			continue
+		}
+		layer := sc.Layer
+		if layer == "" {
+			layer = sc.Interface.Layer
+		}
+		layer = strings.ToLower(layer)
+		st, ok := generatedTestStereotypes[layer]
+		if !ok {
+			st = layer
+		}
+		dir := inModule(p, sc.GoPackage)
+		out = append(out, path.Join(dir, st+"_scenarios.gen_test.go"), path.Join(dir, st+"_hooks_test.go"))
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // scenarioChecks is one check per scenario projected onto each contract.
