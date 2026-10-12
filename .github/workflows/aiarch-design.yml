@@ -910,6 +910,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: draft
     if: ${{ !cancelled() && needs.draft.outputs.inputs_ok == 'true' }}
+    timeout-minutes: 25
     steps:
       - name: Checkout drafted state
         uses: actions/checkout@v4
