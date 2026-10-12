@@ -329,6 +329,7 @@ type Job = {
   activity: string; // AIARCH_ACTIVITY_ID (construct)
   component: string; // AIARCH_COMPONENT_ID (construct)
   kind: string; // AIARCH_ARTIFACT_KIND (design)
+  task: string; // AIARCH_TASK_ID: the lifecycle task, which with the activity names the task spec
   note: string; // AIARCH_OPERATOR_NOTE: the operator's steer for this attempt, if any
   dir: string; // the job's worktree
   tool: { command: string; env: Record<string, string> };
@@ -461,6 +462,7 @@ async function handleAgent(body: string): Promise<AgentReply> {
     activity: req.env['AIARCH_ACTIVITY_ID'] ?? '',
     component: req.env['AIARCH_COMPONENT_ID'] ?? '',
     kind: req.env['AIARCH_ARTIFACT_KIND'] ?? '',
+    task: tool.env?.['AIARCH_TASK_ID'] ?? req.env['AIARCH_TASK_ID'] ?? '',
     note: req.env['AIARCH_OPERATOR_NOTE'] ?? '',
     dir: req.cwd,
     tool: { command: tool.command, env: tool.env ?? {} },
@@ -495,6 +497,7 @@ type Doc = {
     { model?: unknown; reviewThread?: { id: string; type?: string; status?: string }[] }
   >;
   serviceContracts?: Record<string, unknown>;
+  phaseArtifacts?: { testPlan?: Record<string, unknown> };
 };
 
 let design: Doc | undefined;
@@ -615,7 +618,19 @@ async function construct(job: Job): Promise<void> {
       return;
     }
   }
-  const rel = path.join('work', job.activity, `${job.command}.md`);
+  // The venue's edit-scope gate holds the job to its task spec (R58): a state-only task
+  // changes nothing outside .aiarch/state, and a file task writes under the first path
+  // its scope permits.
+  const spec = taskSpecOf(job);
+  if (spec.editScope.stateOnly) {
+    await recordStateOnly(job, spec);
+    return;
+  }
+  const dir = firstPermittedDir(spec);
+  if (dir === undefined) {
+    throw new Error(`the task spec of ${job.activity}/${job.task} permits no dir`);
+  }
+  const rel = path.join(dir, `scripted-${job.command}.md`);
   fs.mkdirSync(path.join(job.dir, path.dirname(rel)), { recursive: true });
   fs.writeFileSync(
     path.join(job.dir, rel),
@@ -623,6 +638,61 @@ async function construct(job: Job): Promise<void> {
   );
   git(job.dir, 'add', rel);
   git(job.dir, 'commit', '-q', '-m', `${job.command} ${job.activity}`);
+}
+
+type TaskSpec = {
+  identity: { phase: string };
+  editScope: { stateOnly: boolean; components: { paths: string[] }[]; extra: string[] };
+};
+
+/** The job's task spec, resolved over its worktree by the state tool, as the venue does. */
+function taskSpecOf(job: Job): TaskSpec {
+  const out = path.join(os.tmpdir(), `scripted-spec-${String(process.pid)}-${String(job.n)}.json`);
+  try {
+    run(
+      job.tool.command,
+      ['task-spec', '--activity', job.activity, '--task', job.task, '--root', job.dir, '--out', out],
+      job.dir
+    );
+    return JSON.parse(fs.readFileSync(out, 'utf8')) as TaskSpec;
+  } finally {
+    fs.rmSync(out, { force: true });
+  }
+}
+
+/**
+ * The dir of the first permitted path: a component's, else an extra's (a "<dir>/**"
+ * glob's dir, or "work" under an any-path scope). Literal paths (go.mod …) are skipped.
+ */
+function firstPermittedDir(spec: TaskSpec): string | undefined {
+  const globs = [...spec.editScope.components.flatMap((c) => c.paths), ...spec.editScope.extra];
+  for (const g of globs) {
+    if (g === '**') return 'work';
+    if (g.endsWith('/**')) return g.slice(0, -'/**'.length);
+  }
+  return undefined;
+}
+
+/** A state-only task's output, through the state tools alone: its phase artifact. */
+async function recordStateOnly(job: Job, spec: TaskSpec): Promise<void> {
+  const contracts = designState().serviceContracts ?? {};
+  const fold = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const key = Object.keys(contracts).find((k) => fold(k) === fold(job.component)) ?? job.component;
+  if (spec.identity.phase === 'test_plan') {
+    const plan = designState().phaseArtifacts?.testPlan?.[key];
+    if (plan === undefined) throw new Error(`no test plan for ${key} in the design state`);
+    await withStateTool(job, async (s) => {
+      await s.call('recordPhaseArtifact', { mapKey: key, payload: { TestPlan: plan } });
+    });
+    return;
+  }
+  const content = `# ${job.command} for ${job.activity}, run ${String(job.n + 1)}\n`;
+  await withStateTool(job, async (s) => {
+    await s.call('recordPhaseArtifact', {
+      mapKey: key,
+      payload: { SRS: { component: key, content } },
+    });
+  });
 }
 
 type RpcReply = { result?: unknown; error?: { message: string } };
