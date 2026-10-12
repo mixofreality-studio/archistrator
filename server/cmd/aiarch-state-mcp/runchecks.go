@@ -209,6 +209,9 @@ type runChecksOutput struct {
 	Failed  int                `json:"failed"`
 	Results []runChecksFailure `json:"results"`
 	LogRef  string             `json:"logRef"`
+	// Note leads a result when the spec this checkout resolves is not the one dispatched
+	// (R63): the checks still ran, against the current spec.
+	Note string `json:"note,omitempty"`
 }
 
 // checksOutDir is where the verb's runs write, repo-relative: self-ignoring scratch
@@ -231,10 +234,12 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 	if err != nil {
 		return runChecksOutput{}, err
 	}
-	// The venue gates on the spec it dispatched; checks run against any other would report
-	// on a gate the job will not apply (R57 M1).
+	// The venue's gates hold the job to the dispatched spec; this verb never refuses on
+	// drift (a legitimate design refresh merge or a contract amendment can move the
+	// resolved spec mid-session), it runs and says so (R63).
+	var note string
 	if s.SpecHash != "" && spec.Hash != s.SpecHash {
-		return runChecksOutput{}, fmt.Errorf("task spec drifted since dispatch: dispatched %s, this checkout resolves %s (%s); the venue's gate holds the job to the dispatched spec", s.SpecHash, spec.Hash, envSpecHash)
+		note = fmt.Sprintf("spec changed since dispatch (%s→%s): the checks ran against the current spec; the job's gate still applies the dispatched one", shortHash(s.SpecHash), shortHash(spec.Hash))
 	}
 	s.checks.mu.Lock()
 	defer s.checks.mu.Unlock()
@@ -252,7 +257,7 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 	for _, c := range spec.Checks {
 		titles[c.ID] = c.Title
 	}
-	res := runChecksOutput{Results: []runChecksFailure{}, LogRef: filepath.Join(checksOutDir, "checks")}
+	res := runChecksOutput{Results: []runChecksFailure{}, LogRef: filepath.Join(checksOutDir, "checks"), Note: note}
 	for _, c := range results {
 		if c.Status == checkPass {
 			res.Passed++
@@ -316,6 +321,9 @@ func checkLogTail(log string) string {
 // the full logs are. Passing checks are never listed.
 func runChecksText(o runChecksOutput) string {
 	var b strings.Builder
+	if o.Note != "" {
+		b.WriteString(o.Note + "\n\n")
+	}
 	fmt.Fprintf(&b, "%d passed, %d failed.\n", o.Passed, o.Failed)
 	for _, f := range o.Results {
 		fmt.Fprintf(&b, "\n✗ %s [%s]\n%s", f.Title, f.Status, f.Tail)
@@ -341,4 +349,12 @@ func registerRunChecks(srv *mcp.Server, s *Session) {
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: runChecksText(out)}}}, out, nil
 	})
+}
+
+// shortHash is the first 12 characters of a spec hash, enough to tell two apart.
+func shortHash(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	return h
 }

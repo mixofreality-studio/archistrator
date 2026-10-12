@@ -262,10 +262,10 @@ func TestRunChecksVerb_ReportsOnlyFailuresAndHonoursFailedOnly(t *testing.T) {
 	}
 }
 
-// TestRunChecksVerb_RefusesASpecThatDriftedSinceDispatch: with AIARCH_SPEC_HASH set, the
-// verb runs only when the spec it resolves still hashes to the dispatched one; a
-// mismatch is an error in the CLI gates' wording, and no check runs.
-func TestRunChecksVerb_RefusesASpecThatDriftedSinceDispatch(t *testing.T) {
+// TestRunChecksVerb_NotesASpecThatDriftedSinceDispatch: with AIARCH_SPEC_HASH set, a spec
+// that no longer hashes to the dispatched one never makes the verb refuse (R63): the
+// checks run and the result leads with a "spec changed since dispatch" note.
+func TestRunChecksVerb_NotesASpecThatDriftedSinceDispatch(t *testing.T) {
 	root := seedOwnCheckout(t)
 	p, err := readCheckoutProject(root)
 	if err != nil {
@@ -284,15 +284,12 @@ func TestRunChecksVerb_RefusesASpecThatDriftedSinceDispatch(t *testing.T) {
 			SpecHash: c.hash, ComponentID: "agentic-job-access", git: runGit, checkExec: fake.exec}
 		res, _ := callRunChecks(t, connectInMemory(t, s), map[string]any{})
 		ran := fake.reset()
-		if !c.drift {
-			if res.IsError || len(ran) == 0 {
-				t.Fatalf("the dispatched spec must run its checks: error=%v ran=%v %s", res.IsError, ran, contentText(res))
-			}
-			continue
+		if res.IsError || len(ran) == 0 {
+			t.Fatalf("drift=%v: the verb must run its checks: error=%v ran=%v %s", c.drift, res.IsError, ran, contentText(res))
 		}
-		if !res.IsError || !strings.Contains(contentText(res), "task spec drifted since dispatch") ||
-			!strings.Contains(contentText(res), spec.Hash) || len(ran) != 0 {
-			t.Fatalf("a drifted spec: error=%v ran=%v %s", res.IsError, ran, contentText(res))
+		noted := strings.Contains(contentText(res), "spec changed since dispatch ("+shortHash(c.hash)+"→"+shortHash(spec.Hash)+")")
+		if noted != c.drift {
+			t.Fatalf("drift=%v but note present=%v: %s", c.drift, noted, contentText(res))
 		}
 	}
 }
