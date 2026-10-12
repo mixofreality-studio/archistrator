@@ -1350,6 +1350,56 @@ func TestLocalRailGeneratesTheScenarioTestsBeforeTheIntegrationAgent(t *testing.
 	}
 }
 
+// TestLocalRailGeneratesTheScenarioTestsInTheModuleDir (R43): gen-tests runs in the
+// project's module dir — project.json moduleDir, resolved against the repo root — and a
+// module dir that leaves the repo is refused before make runs.
+func TestLocalRailGeneratesTheScenarioTestsInTheModuleDir(t *testing.T) {
+	h := scenariohost.Start(t)
+	for _, tc := range []struct {
+		moduleDir, wantDir, wantFailure string
+	}{
+		{moduleDir: "server", wantDir: "server"},
+		{moduleDir: "", wantDir: "wt"},
+		{moduleDir: "../outside", wantFailure: "not a path inside the repo"},
+	} {
+		t.Run("moduleDir="+tc.moduleDir, func(t *testing.T) {
+			v := newGateVenue(t, h)
+			commitFile(t, v.env.clone, "server/.keep", "")
+			commitFile(t, v.env.clone, stateDocPath, `{"moduleDir":"`+tc.moduleDir+`"}`)
+			makeLog := v.makeDouble(t, 0)
+			obs := v.runToEnd(t, h, constructSpec("integration"))
+			got, _ := os.ReadFile(makeLog)
+			if tc.wantFailure != "" {
+				if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, tc.wantFailure) || len(got) != 0 {
+					t.Fatalf("run ended %s (%q), make ran %q; want a refusal before make", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic, got)
+				}
+				return
+			}
+			if obs.Phase != agenticjob.PhaseSucceeded {
+				t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+			}
+			if want := "gen-tests before-agent GOWORK=off in " + tc.wantDir; strings.TrimSpace(string(got)) != want {
+				t.Errorf("make ran as %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// commitFile commits content at rel on the clone's main.
+func commitFile(t *testing.T, clone, rel, content string) {
+	t.Helper()
+	p := filepath.Join(clone, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, clone, "add", rel)
+	runGit(t, clone, "-c", "user.name=arrange", "-c", "user.email=arrange@example.invalid",
+		"-c", "commit.gpgsign=false", "commit", "--no-verify", "--quiet", "-m", "arrange: "+rel)
+}
+
 // makeDouble puts a `make` first on PATH that logs its target, whether the agent has run
 // yet, GOWORK and the directory it ran in, then exits rc. It returns the log's path.
 func (v *gateVenue) makeDouble(t *testing.T, rc int) string {

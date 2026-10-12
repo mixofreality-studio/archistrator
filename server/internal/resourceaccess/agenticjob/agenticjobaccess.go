@@ -1985,8 +1985,8 @@ type localGate struct {
 	model   string
 	builtin []string
 	// integration marks the integration task, whose scenario tests the job generates
-	// before the agent, at the repo root as the template does (ruling R42); genFailure is
-	// why that generation failed ("" when it did not run or succeeded).
+	// before the agent, in the project's module dir (ruling R43); genFailure is why that
+	// generation failed ("" when it did not run or succeeded).
 	integration bool
 	genFailure  string
 	// branch is the branch the run is gated on — the activity (or session) branch the
@@ -2328,14 +2328,42 @@ func generateScenarioTests(g *localGate, workDir string) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gateStepTimeout)
 	defer cancel()
+	moduleDir, err := projectModuleDir(workDir)
+	if err != nil {
+		return "the scenario tests could not be generated: " + err.Error()
+	}
 	cmd := exec.CommandContext(ctx, "make", "gen-tests")
-	cmd.Dir = workDir // the repo root, where the template runs it (ruling R42)
+	cmd.Dir = filepath.Join(workDir, moduleDir) // the project's module dir (ruling R43)
 	cmd.Env = append(slices.Clone(g.env), "GOWORK=off")
 	cmd.WaitDelay = localExecWaitDelay
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "the scenario tests could not be generated (make gen-tests): " + singleLine(outputTail(err.Error()+": "+string(out), 600))
 	}
 	return ""
+}
+
+// projectModuleDir is the project's Go module dir as the worktree's state document names
+// it (project.json moduleDir; "" — or no state document — is the repo root). A dir that
+// is not a path inside the repo is refused.
+func projectModuleDir(workDir string) (string, error) {
+	raw, err := readFileInDir(filepath.Join(workDir, filepath.FromSlash(filepath.Dir(localStateDocPath))), filepath.Base(localStateDocPath))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read the state document for its module dir: %w", err)
+	}
+	var doc struct {
+		ModuleDir string `json:"moduleDir"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return "", fmt.Errorf("read the state document for its module dir: %w", err)
+	}
+	dir := filepath.FromSlash(strings.TrimSpace(doc.ModuleDir))
+	if dir != "" && !filepath.IsLocal(dir) {
+		return "", fmt.Errorf("the project's module dir %q is not a path inside the repo", doc.ModuleDir)
+	}
+	return dir, nil
 }
 
 // gateToolResult is one state-tool call's outcome: its output and exit code (-1 when

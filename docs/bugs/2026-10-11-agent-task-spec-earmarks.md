@@ -22,11 +22,13 @@ So production dispatches are always gated.
 2. Run `make gen-tests`.
 3. Delete the ungated branch in `taskSpecEnvelopeOf`, so that a dispatch with no envelope is refused like a malformed one.
 
-## E2: gen-tests runs at the repo root (ruling R42)
+## E2: gen-tests ran at the repo root (ruling R42). RESOLVED by R43
 
-The templates run `make gen-tests` at the checkout root, and the local rail now does the same. A project whose Go module is not at the root has no root Makefile. archistrator is one: its `moduleDir` is `server`. For such a project, the integration task fails in both venues.
+R42 had both venues run `make gen-tests` at the checkout root. That broke the integration task for any project whose Go module is not at the root. archistrator is one: its `moduleDir` is `server`, and it has no root Makefile.
 
-**To check:** at D1. **To fix:** in the platform template and the local rail together.
+Ruling R43 supersedes R42's M2 part: both venues run `make gen-tests` in the project's module dir (project.json `moduleDir`; "" means the repo root).
+- **Local rail:** fixed in B6 fix round 2 (`projectModuleDir`, which refuses a dir that leaves the repo).
+- **Construct template:** platform task A10, to `make -C <moduleDir> gen-tests`.
 
 ## E3: the check gate is not sandboxed (rulings R27, R39)
 
