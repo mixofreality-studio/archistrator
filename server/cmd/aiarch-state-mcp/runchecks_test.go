@@ -262,6 +262,41 @@ func TestRunChecksVerb_ReportsOnlyFailuresAndHonoursFailedOnly(t *testing.T) {
 	}
 }
 
+// TestRunChecksVerb_RefusesASpecThatDriftedSinceDispatch: with AIARCH_SPEC_HASH set, the
+// verb runs only when the spec it resolves still hashes to the dispatched one; a
+// mismatch is an error in the CLI gates' wording, and no check runs.
+func TestRunChecksVerb_RefusesASpecThatDriftedSinceDispatch(t *testing.T) {
+	root := seedOwnCheckout(t)
+	p, err := readCheckoutProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := projectstate.TaskSpecFor(&p, "C-agentic-job-access", "construction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		hash  string
+		drift bool
+	}{{spec.Hash, false}, {strings.Repeat("0", 64), true}} {
+		fake := &fakeCheckExec{}
+		s := &Session{Mode: jobModeConstruct, StateRoot: root, ActivityID: "C-agentic-job-access", TaskID: "construction",
+			SpecHash: c.hash, ComponentID: "agentic-job-access", git: runGit, checkExec: fake.exec}
+		res, _ := callRunChecks(t, connectInMemory(t, s), map[string]any{})
+		ran := fake.reset()
+		if !c.drift {
+			if res.IsError || len(ran) == 0 {
+				t.Fatalf("the dispatched spec must run its checks: error=%v ran=%v %s", res.IsError, ran, contentText(res))
+			}
+			continue
+		}
+		if !res.IsError || !strings.Contains(contentText(res), "task spec drifted since dispatch") ||
+			!strings.Contains(contentText(res), spec.Hash) || len(ran) != 0 {
+			t.Fatalf("a drifted spec: error=%v ran=%v %s", res.IsError, ran, contentText(res))
+		}
+	}
+}
+
 // TestRunChecksVerb_NeedsActivityAndTask: without the ambient activity or task the verb
 // fails naming the env var the dispatch should have stamped.
 func TestRunChecksVerb_NeedsActivityAndTask(t *testing.T) {

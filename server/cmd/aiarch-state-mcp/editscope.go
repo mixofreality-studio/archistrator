@@ -13,6 +13,13 @@ package main
 // i.e. content a merge from main brought in. A path added and then removed nets out of
 // both diffs. With --no-main the changed set is the plain base..head diff (strict).
 //
+// POSTURE (ruling R27): this gate is a DRIFT GUARDRAIL against an agent wandering off its
+// task's scope, not a security boundary against a hostile agent. It runs on the runner
+// (or machine) the agent just had, beside a spec file the agent could have reached, so
+// an agent set on escaping it can. The hardening below closes the accidental and the
+// cheap ways round it; real enforcement would be a separate gate job on a fresh runner
+// that never shared a filesystem with the agent (earmarked, not built).
+//
 // THE AGENT OWNS THE CHECKOUT, so nothing the gate reads may come from it (R26):
 //   - --base and --main are full 40-hex commit SHAs the venue captured BEFORE the agent
 //     ran, never ref names an agent could move (`git branch -f main HEAD`). --head is

@@ -231,6 +231,11 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 	if err != nil {
 		return runChecksOutput{}, err
 	}
+	// The venue gates on the spec it dispatched; checks run against any other would report
+	// on a gate the job will not apply (R57 M1).
+	if s.SpecHash != "" && spec.Hash != s.SpecHash {
+		return runChecksOutput{}, fmt.Errorf("task spec drifted since dispatch: dispatched %s, this checkout resolves %s (%s); the venue's gate holds the job to the dispatched spec", s.SpecHash, spec.Hash, envSpecHash)
+	}
 	s.checks.mu.Lock()
 	defer s.checks.mu.Unlock()
 	if err := ignoreScratchDir(filepath.Join(s.StateRoot, filepath.Dir(checksOutDir))); err != nil {

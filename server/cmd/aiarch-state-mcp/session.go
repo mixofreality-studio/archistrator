@@ -63,6 +63,10 @@ const (
 	// job mode): with the activity it resolves the task's spec, whose checks the
 	// run_checks verb runs. The agent never supplies it.
 	envTaskID = "AIARCH_TASK_ID"
+	// envSpecHash is the hash of the task spec the dispatch was made for (the task-spec
+	// envelope; both venues stamp it). When set, run_checks refuses a spec that no longer
+	// hashes to it, as the venue's own spec step would.
+	envSpecHash = "AIARCH_SPEC_HASH"
 	// envCommand is the dispatchable command slug the executor is running (the
 	// same slug it interpolates into the agent's prompt). It selects this
 	// session's STEP MANIFEST, which fixes the registered tool surface. The
@@ -107,6 +111,10 @@ type Session struct {
 	// TaskID is the lifecycle task this session runs (AIARCH_TASK_ID), in every mode:
 	// with ActivityID it resolves the task spec run_checks runs (runchecks.go).
 	TaskID string
+
+	// SpecHash is the dispatched task spec's hash (AIARCH_SPEC_HASH), "" when the
+	// dispatch carried none: run_checks compares the spec it resolves against it.
+	SpecHash string
 
 	// Command is the dispatchable slash-command slug this session serves (e.g.
 	// "mission-draft") — the STEP MANIFEST KEY. When set, buildServer registers
@@ -182,6 +190,7 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 		ComponentID:  strings.TrimSpace(getenv(envComponentID)),
 		ActivityID:   strings.TrimSpace(getenv(envActivityID)),
 		TaskID:       strings.TrimSpace(getenv(envTaskID)),
+		SpecHash:     strings.TrimSpace(getenv(envSpecHash)),
 		Command:      strings.TrimSpace(getenv(envCommand)),
 		OperatorNote: getenv(envOperatorNote),
 		git:          runGit,
