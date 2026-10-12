@@ -12354,8 +12354,8 @@ type pipelineSpec struct {
 	Phase string
 	// Command is the slash command this dispatch runs, when the CALLER already holds it. The
 	// generic child does: it is the lifecycle task's own `command` field (stage 4b1 Task 11).
-	// Empty means "re-derive it from Type/Variant/Phase", which is the retired flat walk, and
-	// dispatchInputsFor is where that fallback lives.
+	// Empty means "re-derive it from Type/Variant/Phase", and dispatchInputsFor is where that
+	// fallback lives.
 	Command string
 	// Type/Variant are the activity's classification, COPIED from the dispatched
 	// constructionActivity (classified once by the pump) rather than re-derived from
@@ -12455,14 +12455,13 @@ func isGitLocalVenue(projectID ProjectID, repoRef sourcecontrol.RepoRef) bool {
 // workflow-side from the retired pipelineAdapter — it only reads workflow state +
 // projectstate.CommandFor.)
 //
-// WHERE THE COMMAND COMES FROM, and why there are two answers for one commit-range (stage
-// 4b1 Task 11). The generic child reads the LIFECYCLE TASK's own `command` field and passes
-// it on the spec — the platform's data is the source of truth for what a task runs. The
-// retired flat walk has no task, only a phase, so it still re-derives from the activity's
-// CARRIED type/variant (classified once by the pump). The two agree by construction —
-// CommandFor is itself a lookup into the same lifecycle data, pinned by
-// Test_ConstructionCommands_MatchTheLifecycleData — and the fallback dies with the flat walk
-// in Task 13.
+// WHERE THE COMMAND COMES FROM. Its one caller, the generic child's construction submit
+// (via submitCarryingNotes), passes the LIFECYCLE TASK's own `command` field on the spec —
+// the platform's data is the source of truth for what a task runs. When that is empty the
+// command is re-derived from the activity's CARRIED type/variant with CommandFor, which is
+// itself a lookup into the same lifecycle data (pinned by
+// Test_ConstructionCommands_MatchTheLifecycleData), so the two cannot disagree. The task
+// spec envelope (task_id, spec_hash, revision) rides when set.
 func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	m := map[string]string{
 		dispatchInputActivityID: spec.ActivityID,

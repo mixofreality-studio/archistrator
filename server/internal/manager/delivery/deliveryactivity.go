@@ -5951,10 +5951,9 @@ func (wf *csWorkflows) recordOperatorNote(
 // never carried into it again.
 //
 // It takes the COMPOSED spec (stage 4b1 Task 11) rather than composing one from (in, phase):
-// the two callers describe a dispatch differently — the retired flat walk holds a phase and
-// the activity's classified pair, the generic child holds a lifecycle task with its own
-// command — and the note-carrying rule is identical for both. The one field this function
-// owns is OperatorNote, which is the whole of what it is for.
+// its caller, the generic child's construction submit, holds a lifecycle task with its own
+// command and the task spec envelope. The one field this function owns is OperatorNote,
+// which is the whole of what it is for.
 func (wf *csWorkflows) submitCarryingNotes(
 	ctx workflow.Context,
 	in constructActivityInput,
