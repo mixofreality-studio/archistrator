@@ -231,6 +231,17 @@ void test('useTaskSpec: queries kind taskSpec with the task revision number', as
   assert.equal('revision' in seen2[0].query, false, 'no revision asks for the latest run');
 });
 
+void test('useTaskSpec: a selection with no revisions sends no revision (R59)', async () => {
+  for (const rev of [0, -1, undefined]) {
+    const { ops, seen } = opsAnswering({ kind: 'taskSpec', taskSpec: wireSpec() });
+    const o = hook.taskSpecQueryOptions(ops, 'p', 'a', 't', rev);
+    assert.deepEqual(o.queryKey, ['taskSpec', 'p', 'a', 't', undefined], `key for revision ${rev}`);
+    await new QueryClient().fetchQuery(o);
+    assert.equal('revision' in seen[0].query, false, `revision ${rev} must not be sent`);
+  }
+  assert.equal(hook.specRevision(1), 1);
+});
+
 void test('useTaskSpec: a view with no taskSpec is an empty_body error', async () => {
   const { ops } = opsAnswering({ kind: 'taskSpec' });
   await assert.rejects(

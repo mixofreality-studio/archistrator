@@ -6,6 +6,7 @@
  *
  * `revision` is the task revision N (a number). With one given and no run
  * matching it the view carries no `checkRun`, which the panel shows as "not run".
+ * A revision ≤ 0 (a task with no revisions yet) is sent as none (R59).
  */
 import { useEffect, useRef } from 'react';
 import {
@@ -40,14 +41,24 @@ export function taskSpecKey(
   return ['taskSpec', projectId, activityId, taskId, revision];
 }
 
+/**
+ * The revision the read asks about: a task revision is numbered from 1, and the
+ * selection says 0 for a task that has none yet (R59). Asking the server about
+ * revision 0 is a NotFound; asking about none is "latest run, or not run".
+ */
+export function specRevision(revision: number | undefined): number | undefined {
+  return revision !== undefined && revision > 0 ? revision : undefined;
+}
+
 /** The query's options, apart from the hook so the key and gate can be read without React. */
 export function taskSpecQueryOptions(
   ops: OpsClient,
   projectId: string,
   activityId: string,
   taskId: string | undefined,
-  revision: number | undefined
+  selectedRevision: number | undefined
 ): UseQueryOptions<TaskSpecView> & { queryKey: readonly unknown[]; enabled: boolean } {
+  const revision = specRevision(selectedRevision);
   return {
     queryKey: taskSpecKey(projectId, activityId, taskId, revision),
     queryFn: async (): Promise<TaskSpecView> => {
