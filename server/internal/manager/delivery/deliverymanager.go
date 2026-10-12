@@ -14330,6 +14330,9 @@ func (m *deliveryManager) ReadTestRunFile(rc fwmanager.Context, projectID Projec
 	if !ok {
 		return TestRunFile{}, newError(fwmanager.NotFound, fmt.Sprintf("project %q has no check run %q", projectID, runID))
 	}
+	if !runKeptArtifact(run) {
+		return TestRunFile{}, newError(fwmanager.NotFound, fmt.Sprintf("check run %q kept no artifact", runID))
+	}
 	out, err := m.cs.artifact.ReadTestRunFile(fwra.Context{Context: rc.Context}, testRunRef(run), filePath)
 	if err != nil {
 		return TestRunFile{}, sdMapRAError(err, "artifactAccess.ReadTestRunFile")
@@ -14390,11 +14393,23 @@ func (m *constructionManager) testRunView(rc fwmanager.Context, proj *projectsta
 	if err != nil {
 		return DeliveryTestRunView{}, err
 	}
+	// A run that kept no artifact (an empty Artifact: a run converted from a TestRun whose
+	// results lived on another host, earmark E13) has no files to index. Its verdicts still
+	// render from the CheckRun itself, with no logs and with the panel saying "no artifact",
+	// rather than the whole view failing on the store's refusal of an empty ref.
+	if !runKeptArtifact(run) {
+		return joinTestRun(run, contract, projected, artifact.TestRunIndex{}), nil
+	}
 	idx, err := m.artifact.GetTestRunIndex(fwra.Context{Context: rc.Context}, testRunRef(run))
 	if err != nil {
 		return DeliveryTestRunView{}, sdMapRAError(err, "artifactAccess.GetTestRunIndex")
 	}
 	return joinTestRun(run, contract, projected, idx), nil
+}
+
+// runKeptArtifact reports whether run names an artifact its files can be read from.
+func runKeptArtifact(run projectstate.CheckRun) bool {
+	return strings.TrimSpace(run.Artifact) != ""
 }
 
 // projectScenarios runs the wired projector, refusing loudly when the composition

@@ -98,3 +98,12 @@ export function venueRunUrl(prUrl: string | undefined, runId: string): string | 
 export function isNoRecordedRun(error: Error | null): boolean {
   return error instanceof ApiError && error.status === 404;
 }
+
+/**
+ * The run's artifact as the panel names it: "no artifact" for a run that kept none (an
+ * empty artifact — a run converted from a TestRun whose results lived on another host),
+ * whose verdicts still show but have no logs to open.
+ */
+export function artifactLabel(artifact: string): string {
+  return artifact.trim().length === 0 ? 'no artifact' : artifact;
+}

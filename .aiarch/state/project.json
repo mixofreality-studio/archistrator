@@ -75351,7 +75351,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T10:22:55.517885733Z",
         "endedAt": "2026-10-05T10:22:55.517885733Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:activityExecutionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -75483,7 +75483,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:41:05.419238264Z",
         "endedAt": "2026-10-10T12:41:05.419238264Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:agenticJobAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -75615,7 +75615,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:41:10.222056634Z",
         "endedAt": "2026-10-10T12:41:10.222056634Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:artifactAccess:execute-a-project-activity-P1",
@@ -75693,7 +75693,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:04:30.045838169Z",
         "endedAt": "2026-10-10T12:04:30.045838169Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:autoscalerEngine:operate-a-delivered-system-P2",
@@ -75729,7 +75729,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:04:33.626209424Z",
         "endedAt": "2026-10-10T12:04:33.626209424Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:billingEngine:bill-the-user-for-usage-P1",
@@ -75837,7 +75837,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:41:26.613295509Z",
         "endedAt": "2026-10-10T12:41:26.613295509Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:billingStateAccess:bill-the-user-for-usage-P1",
@@ -75915,7 +75915,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:04:37.262846272Z",
         "endedAt": "2026-10-10T12:04:37.262846272Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:designHealthEngine:add-a-use-case-to-an-in-flight-project-P3",
@@ -75951,7 +75951,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T10:22:55.51794565Z",
         "endedAt": "2026-10-05T10:22:55.51794565Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:designSessionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -76059,7 +76059,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:41:30.837081513Z",
         "endedAt": "2026-10-10T12:41:30.837081513Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:episodeAccess:execute-a-project-activity-P1",
@@ -76119,7 +76119,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:04:40.8363391Z",
         "endedAt": "2026-10-10T12:04:40.8363391Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:estimationEngine:commit-to-a-project-option-P1",
@@ -76239,7 +76239,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T10:22:55.517991609Z",
         "endedAt": "2026-10-05T10:22:55.517991609Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:gitActivityStatusAccess:execute-a-project-activity-P1",
@@ -76293,7 +76293,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:20:54.249191369Z",
         "endedAt": "2026-10-10T12:20:54.249191369Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:interventionEngine:bill-the-user-for-usage-P2",
@@ -76377,7 +76377,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:41:41.276160169Z",
         "endedAt": "2026-10-10T12:41:41.276160169Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:merchantGatewayAccess:bill-the-user-for-usage-P1",
@@ -76425,7 +76425,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:41:45.553808324Z",
         "endedAt": "2026-10-10T12:41:45.553808324Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operatedRuntimeAccess:enforce-customer-delinquency-on-operated-systems-P3",
@@ -76485,7 +76485,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:57:34.127146746Z",
         "endedAt": "2026-10-10T12:57:34.127146746Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operatedSystemStateAccess:enforce-customer-delinquency-on-operated-systems-P2",
@@ -76581,7 +76581,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:20:57.763886887Z",
         "endedAt": "2026-10-10T12:20:57.763886887Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operationEstimationEngine:commit-to-a-project-option-P1",
@@ -76665,7 +76665,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T10:22:55.518060818Z",
         "endedAt": "2026-10-05T10:22:55.518060818Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:projectStateAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -76899,7 +76899,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:21:01.355405512Z",
         "endedAt": "2026-10-10T12:21:01.355405512Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:reviewEngine:commit-to-a-project-option-P1",
@@ -76947,7 +76947,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:58:18.256903322Z",
         "endedAt": "2026-10-10T12:58:18.256903322Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:sourceControlAccess:ask-a-clarifying-question-during-review-P1",
@@ -77049,7 +77049,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:58:30.754595204Z",
         "endedAt": "2026-10-10T12:58:30.754595204Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:usageAccess:bill-the-user-for-usage-P1",
@@ -77103,7 +77103,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T11:12:39.21543328Z",
         "endedAt": "2026-10-05T11:12:39.21543328Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct-wt5r2-arch/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:messageBus:onboard-a-new-customer-P1",
@@ -77133,7 +77133,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T10:55:51.441118Z",
         "endedAt": "2026-10-05T10:55:51.441118Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct-wt5r2-arch/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:activityExecutionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -77265,7 +77265,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T10:55:51.441181542Z",
         "endedAt": "2026-10-05T10:55:51.441181542Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct-wt5r2-arch/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:designSessionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -77373,7 +77373,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T10:55:51.441238918Z",
         "endedAt": "2026-10-05T10:55:51.441238918Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct-wt5r2-arch/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:gitActivityStatusAccess:execute-a-project-activity-P1",
@@ -77427,7 +77427,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T10:55:51.441313294Z",
         "endedAt": "2026-10-05T10:55:51.441313294Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct-wt5r2-arch/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:projectStateAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -77661,7 +77661,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T10:56:32.992223833Z",
         "endedAt": "2026-10-05T10:56:32.992223833Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct-wt5r2-arch/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:agenticJobAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -77793,7 +77793,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T11:05:34.207236787Z",
         "endedAt": "2026-10-05T11:05:34.207236787Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct-wt5r2-arch/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:usageAccess:bill-the-user-for-usage-P1",
@@ -77847,7 +77847,7 @@
         "specHash": "",
         "startedAt": "2026-10-05T10:44:46.396841813Z",
         "endedAt": "2026-10-05T10:44:46.396841813Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct-wt5r2-arch/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:designHealthEngine:add-a-use-case-to-an-in-flight-project-P3",
@@ -77883,7 +77883,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:47:35.660535947Z",
         "endedAt": "2026-10-10T01:47:35.660535947Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:usageAccess:bill-the-user-for-usage-P1",
@@ -77937,7 +77937,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:45:31.998799673Z",
         "endedAt": "2026-10-10T01:45:31.998799673Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:agenticJobAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -78069,7 +78069,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:46:14.740645227Z",
         "endedAt": "2026-10-10T01:46:14.740645227Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operatedRuntimeAccess:enforce-customer-delinquency-on-operated-systems-P3",
@@ -78129,7 +78129,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:49:10.785685395Z",
         "endedAt": "2026-10-10T01:49:10.785685395Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:autoscalerEngine:operate-a-delivered-system-P2",
@@ -78165,7 +78165,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:46:36.043157882Z",
         "endedAt": "2026-10-10T01:46:36.043157882Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operatedSystemStateAccess:enforce-customer-delinquency-on-operated-systems-P2",
@@ -78261,7 +78261,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:45:54.615797934Z",
         "endedAt": "2026-10-10T01:45:54.615797934Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:billingStateAccess:bill-the-user-for-usage-P1",
@@ -78339,7 +78339,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:49:14.489397816Z",
         "endedAt": "2026-10-10T01:49:14.489397816Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:billingEngine:bill-the-user-for-usage-P1",
@@ -78441,7 +78441,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:47:13.430841287Z",
         "endedAt": "2026-10-10T01:47:13.430841287Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:activityExecutionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -78573,7 +78573,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:47:13.430916911Z",
         "endedAt": "2026-10-10T01:47:13.430916911Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:designSessionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -78681,7 +78681,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:47:13.430970578Z",
         "endedAt": "2026-10-10T01:47:13.430970578Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:gitActivityStatusAccess:execute-a-project-activity-P1",
@@ -78735,7 +78735,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:47:13.431321619Z",
         "endedAt": "2026-10-10T01:47:13.431321619Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:projectStateAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -78969,7 +78969,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:47:39.785197274Z",
         "endedAt": "2026-10-10T01:47:39.785197274Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:messageBus:onboard-a-new-customer-P1",
@@ -78999,7 +78999,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:45:58.993820448Z",
         "endedAt": "2026-10-10T01:45:58.993820448Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:episodeAccess:execute-a-project-activity-P1",
@@ -79059,7 +79059,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:49:18.439079585Z",
         "endedAt": "2026-10-10T01:49:18.439079585Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:designHealthEngine:add-a-use-case-to-an-in-flight-project-P3",
@@ -79095,7 +79095,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:46:10.189806776Z",
         "endedAt": "2026-10-10T01:46:10.189806776Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:merchantGatewayAccess:bill-the-user-for-usage-P1",
@@ -79143,7 +79143,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:49:22.1855949Z",
         "endedAt": "2026-10-10T01:49:22.1855949Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:estimationEngine:commit-to-a-project-option-P1",
@@ -79263,7 +79263,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:49:36.2228366Z",
         "endedAt": "2026-10-10T01:49:36.2228366Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:reviewEngine:commit-to-a-project-option-P1",
@@ -79311,7 +79311,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:45:36.9902436Z",
         "endedAt": "2026-10-10T01:45:36.9902436Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:artifactAccess:execute-a-project-activity-P1",
@@ -79377,7 +79377,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:49:32.498442243Z",
         "endedAt": "2026-10-10T01:49:32.498442243Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operationEstimationEngine:commit-to-a-project-option-P1",
@@ -79461,7 +79461,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:49:28.459168689Z",
         "endedAt": "2026-10-10T01:49:28.459168689Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:interventionEngine:bill-the-user-for-usage-P2",
@@ -79545,7 +79545,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T01:47:22.902453276Z",
         "endedAt": "2026-10-10T01:47:22.902453276Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:sourceControlAccess:ask-a-clarifying-question-during-review-P1",
@@ -79647,7 +79647,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:11:00.092528123Z",
         "endedAt": "2026-10-10T03:11:00.092528123Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operationsManager:enforce-customer-delinquency-on-operated-systems-P1",
@@ -79755,7 +79755,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:11:59.528938022Z",
         "endedAt": "2026-10-10T03:11:59.528938022Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operatedRuntimeAccess:enforce-customer-delinquency-on-operated-systems-P3",
@@ -79815,7 +79815,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:12:21.111689158Z",
         "endedAt": "2026-10-10T03:12:21.111689158Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operatedSystemStateAccess:enforce-customer-delinquency-on-operated-systems-P2",
@@ -79911,7 +79911,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:11:21.516275957Z",
         "endedAt": "2026-10-10T03:11:21.516275957Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:artifactAccess:execute-a-project-activity-P1",
@@ -79989,7 +79989,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:13:03.508775919Z",
         "endedAt": "2026-10-10T03:13:03.508775919Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:activityExecutionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -80133,7 +80133,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:13:03.508838336Z",
         "endedAt": "2026-10-10T03:13:03.508838336Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:designSessionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -80253,7 +80253,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:13:03.508892503Z",
         "endedAt": "2026-10-10T03:13:03.508892503Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:gitActivityStatusAccess:execute-a-project-activity-P1",
@@ -80307,7 +80307,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:13:03.508977421Z",
         "endedAt": "2026-10-10T03:13:03.508977421Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:projectStateAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -80559,7 +80559,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:11:39.283506283Z",
         "endedAt": "2026-10-10T03:11:39.283506283Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:billingStateAccess:bill-the-user-for-usage-P1",
@@ -80637,7 +80637,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:09:48.128953037Z",
         "endedAt": "2026-10-10T03:09:48.128953037Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:billingEngine:bill-the-user-for-usage-P1",
@@ -80745,7 +80745,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T03:13:26.379315946Z",
         "endedAt": "2026-10-10T03:13:26.379315946Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:usageAccess:bill-the-user-for-usage-P1",
@@ -80799,7 +80799,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:58:09.747743251Z",
         "endedAt": "2026-10-10T12:58:09.747743251Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:activityExecutionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -80943,7 +80943,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:58:09.747804376Z",
         "endedAt": "2026-10-10T12:58:09.747804376Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:designSessionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -81063,7 +81063,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:58:09.747853251Z",
         "endedAt": "2026-10-10T12:58:09.747853251Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:gitActivityStatusAccess:execute-a-project-activity-P1",
@@ -81117,7 +81117,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:58:09.747927792Z",
         "endedAt": "2026-10-10T12:58:09.747927792Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:projectStateAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -81369,7 +81369,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:58:34.669610037Z",
         "endedAt": "2026-10-10T12:58:34.669610037Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:messageBus:onboard-a-new-customer-P1",
@@ -81399,7 +81399,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T12:37:52.116285024Z",
         "endedAt": "2026-10-10T12:37:52.116285024Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operationsManager:enforce-customer-delinquency-on-operated-systems-P1",
@@ -81507,7 +81507,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:22:27.292744255Z",
         "endedAt": "2026-10-10T21:22:27.292744255Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:billingEngine:bill-the-user-for-usage-P1",
@@ -81615,7 +81615,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:22:58.667577721Z",
         "endedAt": "2026-10-10T21:22:58.667577721Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:designHealthEngine:add-a-use-case-to-an-in-flight-project-P3",
@@ -81651,7 +81651,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:24:25.15394569Z",
         "endedAt": "2026-10-10T21:24:25.15394569Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operationsManager:enforce-customer-delinquency-on-operated-systems-P1",
@@ -81759,7 +81759,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:25:11.333837169Z",
         "endedAt": "2026-10-10T21:25:11.333837169Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:agenticJobAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -81891,7 +81891,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:25:42.626881751Z",
         "endedAt": "2026-10-10T21:25:42.626881751Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:episodeAccess:execute-a-project-activity-P1",
@@ -81951,7 +81951,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:26:14.035028427Z",
         "endedAt": "2026-10-10T21:26:14.035028427Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:merchantGatewayAccess:bill-the-user-for-usage-P1",
@@ -82005,7 +82005,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:26:30.335317808Z",
         "endedAt": "2026-10-10T21:26:30.335317808Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operatedRuntimeAccess:enforce-customer-delinquency-on-operated-systems-P3",
@@ -82065,7 +82065,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:27:03.964284968Z",
         "endedAt": "2026-10-10T21:27:03.964284968Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:operatedSystemStateAccess:enforce-customer-delinquency-on-operated-systems-P2",
@@ -82161,7 +82161,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:27:54.201791339Z",
         "endedAt": "2026-10-10T21:27:54.201791339Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:activityExecutionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -82305,7 +82305,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:27:54.201850256Z",
         "endedAt": "2026-10-10T21:27:54.201850256Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:designSessionAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -82425,7 +82425,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:27:54.201909715Z",
         "endedAt": "2026-10-10T21:27:54.201909715Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:gitActivityStatusAccess:execute-a-project-activity-P1",
@@ -82479,7 +82479,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:27:54.201988715Z",
         "endedAt": "2026-10-10T21:27:54.201988715Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:projectStateAccess:add-a-use-case-to-an-in-flight-project-P1",
@@ -82737,7 +82737,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:28:15.201610367Z",
         "endedAt": "2026-10-10T21:28:15.201610367Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:sourceControlAccess:ask-a-clarifying-question-during-review-P1",
@@ -82839,7 +82839,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T21:28:39.559493023Z",
         "endedAt": "2026-10-10T21:28:39.559493023Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:usageAccess:bill-the-user-for-usage-P1",
@@ -82893,7 +82893,7 @@
         "specHash": "",
         "startedAt": "2026-10-10T22:14:55.893264848Z",
         "endedAt": "2026-10-10T22:14:55.893264848Z",
-        "artifact": "/Users/davidmarne/mixofrealitystudio/archistrator-dct/server/test-results",
+        "artifact": "",
         "results": [
           {
             "checkId": "scenario:deliveryManager:add-a-use-case-to-an-in-flight-project-P1",

@@ -102,7 +102,17 @@ Under the workspace `go.work`, `method-assets` reports `(devel)` on both the ser
 
 **To close:** stamp the workspace build with the VCS revision of method-assets (`-buildvcs`), or have `make` rebuild the tool whenever method-assets or projectstate changes.
 
-## E13: the 81 converted CheckRuns carry absolute host artifact paths (final review M3)
+## E13: the 81 converted CheckRuns carry absolute host artifact paths (final review M3). RESOLVED 2026-10-12
+
+**Resolution.** The founder permitted the data edit ("yes to M3", 2026-10-12). R57 says to rewrite an artifact to repo-relative when it lies under the repo, and to empty it otherwise.
+- None of the 81 lies under this repo. Each lies in another checkout: 62 at `archistrator-dct/server/test-results`, 11 at `archistrator-dct/server`, and 8 at `archistrator-dct-wt5r2-arch/server/test-results`, a worktree that no longer exists.
+- Their repo-relative forms would name the shared, gitignored `server/test-results` (whatever the last `go test` in the reading checkout left there, not this run's evidence) or the whole `server` module. So all 81 are emptied.
+- The testRun view now treats an empty artifact as "no artifact". It skips the index read and renders the verdicts from the CheckRun with no logs. `ReadTestRunFile` answers NotFound ("kept no artifact"). The panel labels the run "no artifact".
+- Before this change, the store's refusal of the empty ref, and of the absolute paths before that, failed the whole view.
+- The testing gate already indexes a refused ref as nothing, and is unchanged (a change there would be replay-relevant).
+
+The original text follows.
+
 
 `.aiarch/state/project.json` holds 81 `"artifact": "/Users/..."` entries on the CheckRuns converted from TestRuns. They resolve only on the machine that wrote them. **The data fix awaits founder permission** (rewrite to repo-relative `.aiarch/test-results/<run>` or drop the entries).
 

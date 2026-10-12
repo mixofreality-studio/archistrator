@@ -14,7 +14,7 @@ import { testRunScenarioAnchor } from '../../comments/CommentContext';
 import type { ArtifactRendererProps } from '../artifactRenderers';
 import { StatTile } from '../primitives/StatTile';
 import { ScenarioDetail, StatusChip } from './ScenarioRow.tsx';
-import { isNoRecordedRun, summarize, venueRunUrl } from './testRunPanelLogic.ts';
+import { artifactLabel, isNoRecordedRun, summarize, venueRunUrl } from './testRunPanelLogic.ts';
 
 /**
  * The testing task's results panel (spec §6.4): the recorded run, every
@@ -71,7 +71,7 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
           Artifact expired; re-run integration.
         </Typography>
         <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.5 }}>
-          {`run ${panel.run.id} · ${panel.artifact} · revision ${panel.run.revision}`}
+          {`run ${panel.run.id} · ${artifactLabel(panel.artifact)} · revision ${panel.run.revision}`}
         </Typography>
       </Paper>
     );
@@ -151,7 +151,7 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
             </Button>
           ) : (
             <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
-              {panel.artifact}
+              {artifactLabel(panel.artifact)}
             </Typography>
           )}
         </Box>
