@@ -403,6 +403,11 @@ func TestIntegrationScopeAdmitsEveryGeneratedTestPath(t *testing.T) {
 		}
 		integrations++
 		for _, g := range generated {
+			// Hand-filled hooks files are admitted only for the component's own contracts
+			// (R61), asserted below for C-agentic-job-access.
+			if strings.HasSuffix(g, "_hooks_test.go") || strings.HasSuffix(g, "/hooks.ts") {
+				continue
+			}
 			if !scopeAdmits(s.EditScope, g) {
 				t.Errorf("%s integration (%s): generated path %s lies outside its edit scope", a.id, s.Identity.Command, g)
 			}
@@ -418,6 +423,23 @@ func TestIntegrationScopeAdmitsEveryGeneratedTestPath(t *testing.T) {
 	}
 	if scopeAdmits(s.EditScope, "server/internal/manager/delivery/deliverymanager.go") {
 		t.Error("agentic-job-access integration admits the delivery manager's hand-written code")
+	}
+	// R61: another component's once-seeded, hand-filled hooks stay out, the component's own
+	// seeded hooks are in, and a web client's hooks.ts is not repo-wide admitted.
+	for _, other := range []string{
+		"server/internal/manager/delivery/manager_hooks_test.go",
+		"uitests/generated/webClient/hooks.ts",
+	} {
+		if scopeAdmits(s.EditScope, other) {
+			t.Errorf("agentic-job-access integration admits %s, another component's hand-written hooks", other)
+		}
+	}
+	ownHooks := "server/internal/resourceaccess/agenticjob/access_hooks_test.go"
+	if !slices.Contains(generated, ownHooks) {
+		t.Fatalf("testgen no longer seeds %s", ownHooks)
+	}
+	if !scopeAdmits(s.EditScope, ownHooks) {
+		t.Errorf("agentic-job-access integration does not admit its own seeded hooks file %s", ownHooks)
 	}
 }
 
@@ -449,15 +471,7 @@ func scopeAdmits(scope projectstate.SpecEditScope, p string) bool {
 	for _, c := range scope.Components {
 		globs = append(globs, c.Paths...)
 	}
-	for _, g := range globs {
-		if g == "**" || g == p {
-			return true
-		}
-		if dir, ok := strings.CutSuffix(g, "/**"); ok && strings.HasPrefix(p, dir+"/") {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(globs, func(g string) bool { return projectstate.EditScopeGlobMatch(g, p) })
 }
 
 func TestTaskSpecForUnknownActivityOrTask(t *testing.T) {

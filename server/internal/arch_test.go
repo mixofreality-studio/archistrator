@@ -1008,6 +1008,7 @@ var encapsulationAllowlistData = map[string][]string{
 		// matches by, so the scope the panel shows and the gate enforces cannot diverge. A
 		// pure predicate, same category as the result shape above.
 		"ValidEditScopeGlob",
+		"EditScopeGlobMatch",
 		// RULE ATTRIBUTION REGISTRY (moved from cmd/aiarch-state-mcp/staleness.go, Task B2):
 		// the rule-id-prefix → owning-slot table. cmd/aiarch-state-mcp's slot-scoped severity
 		// policy reads AttributeRule; TaskSpecFor's slot rule checks read RulePrefixesFor —

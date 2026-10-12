@@ -11073,17 +11073,46 @@ func TaskSpecFor(p *Project, activityID, taskID string) (TaskSpec, error) {
 	return s, nil
 }
 
+// generatedFilesGlobSuffix turns "<dir>" into the one non-trivial glob the grammar admits
+// besides "<dir>/**": "<dir>/**/*.gen.*", every path under dir whose file name carries a
+// ".gen." infix (testgen's purely generated outputs, never its once-seeded hooks files).
+const generatedFilesGlobSuffix = "/**/*.gen.*"
+
 // ValidEditScopeGlob reports whether g is in the edit-scope glob grammar, the one the
 // edit-scope gate matches: exactly "**" (every path), "<dir>/**" (every path under a
-// literal dir), or a literal repo-relative path. No other wildcard is admitted, so the
-// gate never has to guess what a glob means.
+// literal dir), "<dir>/**/*.gen.*" (every generated file under a literal dir), or a
+// literal repo-relative path. No other wildcard is admitted, so the gate never has to
+// guess what a glob means.
 func ValidEditScopeGlob(g string) bool {
 	if g == anyPath {
 		return true
 	}
-	lit, _ := strings.CutSuffix(g, "/**")
+	lit, ok := strings.CutSuffix(g, "/**")
+	if !ok {
+		lit, _ = strings.CutSuffix(g, generatedFilesGlobSuffix)
+	}
 	return lit != "" && !strings.ContainsAny(lit, "*?[\\") && !strings.HasPrefix(lit, "/") &&
 		!strings.HasSuffix(lit, "/") && !slices.Contains(strings.Split(lit, "/"), "..")
+}
+
+// EditScopeGlobMatch reports whether the repo-relative path p matches the edit-scope glob
+// g: "**" is every path, "<dir>/**" every path under dir (a path boundary), "<dir>/**/*.gen.*"
+// every generated file under dir, a literal path only itself. A glob outside the grammar
+// matches nothing. The ONE matcher, for the gate and the tests alike.
+func EditScopeGlobMatch(g, p string) bool {
+	if !ValidEditScopeGlob(g) {
+		return false
+	}
+	if g == anyPath {
+		return true
+	}
+	if dir, ok := strings.CutSuffix(g, "/**"); ok {
+		return strings.HasPrefix(p, dir+"/")
+	}
+	if dir, ok := strings.CutSuffix(g, generatedFilesGlobSuffix); ok {
+		return strings.HasPrefix(p, dir+"/") && strings.Contains(path.Base(p), ".gen.")
+	}
+	return p == g
 }
 
 // validateEditScope refuses a scope holding a glob outside the edit-scope grammar.
@@ -11095,7 +11124,7 @@ func validateEditScope(scope SpecEditScope) error {
 	globs = append(globs, scope.Extra...)
 	for _, g := range globs {
 		if !ValidEditScopeGlob(g) {
-			return fmt.Errorf("edit-scope glob %q is not \"**\", \"<dir>/**\" or a literal path", g)
+			return fmt.Errorf("edit-scope glob %q is not \"**\", \"<dir>/**\", \"<dir>/**/*.gen.*\" or a literal path", g)
 		}
 	}
 	return nil
@@ -11408,7 +11437,7 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 	}
 	if integration {
 		scope.Extra = append(scope.Extra, inModule(p, "cmd/server/hooks.go"))
-		scope.Extra = append(scope.Extra, generatedTestPaths(p)...)
+		scope.Extra = append(scope.Extra, generatedTestPaths(p, contracts)...)
 		checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec))
 		scen, err := scenarioChecks(p, contracts)
 		if err != nil {
@@ -11443,7 +11472,7 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 			scope.Extra = append(scope.Extra, "uitests/generated/"+c+"/**")
 		}
 		scope.Extra = append(scope.Extra, "uitests/**")
-		scope.Extra = append(scope.Extra, generatedTestPaths(p)...)
+		scope.Extra = append(scope.Extra, generatedTestPaths(p, contracts)...)
 		checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, p.ModuleDir, commandCheckTimeoutSec))
 		scen, err := scenarioChecks(p, contracts)
 		if err != nil {
@@ -11477,17 +11506,19 @@ var generatedTestStereotypes = map[string]string{
 	"utility":        "utility",
 }
 
-// generatedTestPaths is every path `make gen-tests` may write (R52, spec §5.2 step 5): the
-// integration job's pre-step regenerates EVERY component's scenario tests and the
-// gen-tests-check gate covers them all, so integration's edit scope must admit the whole
-// output — the Playwright directory and, for every contract with a Go package, its
-// generated scenarios file and its seeded hooks file. Derived from serviceContracts and
-// moduleDir only (not the test plans), so it is the same off the Temporal envelope as off
-// the checkout and the spec hash agrees on both sides; a contract with no plan yet only
-// widens the scope by two files gen-tests would write the moment it gets one.
-func generatedTestPaths(p *Project) []string {
-	out := []string{generatedTestsUITestsDir + "/**"}
-	for _, sc := range p.ServiceContracts {
+// generatedTestPaths is every path the integrating component's `make gen-tests` run may
+// write or seed (R52, R61, spec §5.2 step 5). The integration job's pre-step regenerates
+// EVERY component's tests and gen-tests-check covers them all, so the purely generated
+// outputs are admitted repo-wide: the Playwright directory's `*.gen.*` files and every Go
+// contract's `*_scenarios.gen_test.go`. The once-seeded, hand-filled hooks files are not:
+// only the ones the component's OWN contracts seed are admitted, so another component's
+// hand-written hooks (or a web client's hooks.ts) stay out of scope and a stale one is a
+// loud gate failure rather than an agent edit. Derived from serviceContracts and moduleDir
+// only (not the test plans), so it is the same off the Temporal envelope as off the
+// checkout and the spec hash agrees on both sides.
+func generatedTestPaths(p *Project, contracts []string) []string {
+	out := []string{generatedTestsUITestsDir + generatedFilesGlobSuffix}
+	for id, sc := range p.ServiceContracts {
 		if sc.GoPackage == "" {
 			continue
 		}
@@ -11501,7 +11532,10 @@ func generatedTestPaths(p *Project) []string {
 			st = layer
 		}
 		dir := inModule(p, sc.GoPackage)
-		out = append(out, path.Join(dir, st+"_scenarios.gen_test.go"), path.Join(dir, st+"_hooks_test.go"))
+		out = append(out, path.Join(dir, st+"_scenarios.gen_test.go"))
+		if slices.Contains(contracts, id) {
+			out = append(out, path.Join(dir, st+"_hooks_test.go"))
+		}
 	}
 	slices.Sort(out)
 	return slices.Compact(out)

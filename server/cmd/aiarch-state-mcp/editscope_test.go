@@ -392,6 +392,10 @@ func TestScopeGlobMatch(t *testing.T) {
 		{"webApp/src/**", "webApp/src", false},
 		{"server/go.mod", "server/go.mod", true},
 		{"server/go.mod", "server/go.modx", false},
+		{"uitests/generated/**/*.gen.*", "uitests/generated/webClient/a-P1.spec.gen.ts", true},
+		{"uitests/generated/**/*.gen.*", "uitests/generated/webClient/playwright.config.gen.ts", true},
+		{"uitests/generated/**/*.gen.*", "uitests/generated/webClient/hooks.ts", false},
+		{"uitests/generated/**/*.gen.*", "uitests/other/a.gen.ts", false},
 		// outside the grammar: matches nothing
 		{"server/*.go", "server/main.go", false},
 		{"server/**/x.go", "server/a/x.go", false},

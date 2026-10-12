@@ -283,16 +283,8 @@ func displayPath(p string) string {
 
 // scopeGlobMatch reports whether the repo-relative path p matches an edit-scope glob in
 // the grammar projectstate.ValidEditScopeGlob admits: "**" is every path, "<dir>/**"
-// every path under dir, and a literal path only itself. Any other glob matches nothing.
+// every path under dir, "<dir>/**/*.gen.*" every generated file under dir, and a literal path
+// only itself. Any other glob matches nothing.
 func scopeGlobMatch(glob, p string) bool {
-	if !projectstate.ValidEditScopeGlob(glob) {
-		return false
-	}
-	if glob == "**" {
-		return true
-	}
-	if dir, ok := strings.CutSuffix(glob, "/**"); ok {
-		return strings.HasPrefix(p, dir+"/")
-	}
-	return p == glob
+	return projectstate.EditScopeGlobMatch(glob, p)
 }
