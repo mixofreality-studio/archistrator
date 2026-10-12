@@ -3567,9 +3567,9 @@ func (wf *csWorkflows) recordGateOverride(
 //
 //	 4 polls × 15s  =   1 min   (the common case: a job that just finished)
 //	 9 polls × 60s  =   9 min   (to the 10-minute mark)
-//	19 polls × 300s =  95 min   (to gatedJobObserveCeiling, 105 min)
+//	28 polls × 300s = 140 min   (to gatedJobObserveCeiling, 150 min)
 //	-------------------------------------------------------------------
-//	32 polls ≈ 128 events.
+//	41 polls ≈ 164 events.
 //
 // THE CEILING (R54, final review I3). Since the agent task spec moved the check gate
 // INTO the job, a gated job legitimately runs past the agent's own 25 minutes: the
@@ -3581,18 +3581,28 @@ func (wf *csWorkflows) recordGateOverride(
 // drain the release already requires.
 // ---------------------------------------------------------------------------
 
-// gatedJobTimeoutBound is the venue's total bound on one dispatched job: the job-level
-// `timeout-minutes: 90` of method-assets' assets/workflows/aiarch-construct.yml.tmpl
+// gatedJobTimeoutBound is the cloud venue's total bound on one dispatched job: the
+// job-level `timeout-minutes: 90` of method-assets' assets/workflows/aiarch-construct.yml.tmpl
 // (job `construct`) and aiarch-design.yml.tmpl (job `draft`, which also runs answer
-// jobs). The local rail's stacked bounds (agenticjobaccess.go: defaultLocalRunTimeout
-// 25m, checkGateTimeout 45m, gateStepTimeout 15m per gate step) fit inside it.
-// TestObserveCeilingCoversTheJobBound pins it to the templates.
+// jobs). TestObserveCeilingCoversTheJobBound pins it to the templates.
 const gatedJobTimeoutBound = 90 * time.Minute
 
+// gatedJobLocalWorstCase is the LOCAL rail's worst case for one gated job, which has no
+// job-level bound: its steps run back to back, each under its own timeout
+// (agenticjobaccess.go): version probe 30s, task-spec 15m (gateStepTimeout), scenario-test
+// generation 15m, the agent 25m (defaultLocalRunTimeout), edit-scope 15m, the check gate
+// 45m (checkGateTimeout, the templates' checks-step `timeout-minutes: 45`), record 15m =
+// 0.5 + 15 + 15 + 25 + 15 + 45 + 15 = 130.5m. That is more than the cloud's 90m, so it
+// sets the ceiling; every step finishing at its limit is far from typical, but a job that
+// is merely slow must not be declared stuck.
+const gatedJobLocalWorstCase = 130*time.Minute + 30*time.Second
+
 // gatedJobObserveCeiling is how long the Manager observes one dispatched job before it
-// is declared stuck (R54): the job's bound plus a 15-minute margin for queueing and the
-// last poll.
-const gatedJobObserveCeiling = gatedJobTimeoutBound + 15*time.Minute
+// is declared stuck (R54, R64): the larger of the two worst cases (130.5m local, 90m
+// cloud) plus a 15-minute margin for queueing and the last poll = 145.5m, rounded UP to
+// 150m so the slow rung of the ladder lands exactly on it (10m of fast and medium polls,
+// then 28 × 5m).
+const gatedJobObserveCeiling = 150 * time.Minute
 
 const (
 	observeFastInterval = 15 * time.Second
@@ -3600,12 +3610,12 @@ const (
 	observeMedInterval  = 60 * time.Second
 	observeMedPolls     = 9
 	observeSlowInterval = 300 * time.Second
-	// observeSlowPolls fills the ladder out to gatedJobObserveCeiling (19).
+	// observeSlowPolls fills the ladder out to gatedJobObserveCeiling (28).
 	observeSlowPolls = int((gatedJobObserveCeiling - observeFastPolls*observeFastInterval -
 		observeMedPolls*observeMedInterval) / observeSlowInterval)
 	// maxObserveTotalPolls is the ladder's length — the ONE bound both observe loops use,
 	// so there is one ladder and not two that drift.
-	maxObserveTotalPolls = observeFastPolls + observeMedPolls + observeSlowPolls // 32
+	maxObserveTotalPolls = observeFastPolls + observeMedPolls + observeSlowPolls // 41
 )
 
 // observeInterval is the ladder as a pure function of the poll index, so the schedule

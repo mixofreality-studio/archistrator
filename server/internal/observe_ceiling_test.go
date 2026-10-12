@@ -17,13 +17,17 @@ import (
 // package may hold only generated surface), so this reads them from the type-checked
 // package, and reads the bound itself from the templates the scaffold seats.
 func TestObserveCeilingCoversTheJobBound(t *testing.T) {
-	consts := deliveryConsts(t, "gatedJobTimeoutBound", "gatedJobObserveCeiling",
+	consts := deliveryConsts(t, "gatedJobTimeoutBound", "gatedJobLocalWorstCase", "gatedJobObserveCeiling",
 		"observeFastInterval", "observeFastPolls", "observeMedInterval", "observeMedPolls",
 		"observeSlowInterval", "observeSlowPolls", "maxObserveTotalPolls")
 	bound := time.Duration(consts["gatedJobTimeoutBound"])
 	ceiling := time.Duration(consts["gatedJobObserveCeiling"])
-	if ceiling != bound+15*time.Minute {
-		t.Errorf("observe ceiling %s, want the job bound %s + 15m", ceiling, bound)
+	local := time.Duration(consts["gatedJobLocalWorstCase"])
+	if local != 130*time.Minute+30*time.Second {
+		t.Errorf("local worst case %s: re-derive it from agenticjobaccess.go's step timeouts", local)
+	}
+	if ceiling < bound+15*time.Minute || ceiling < local+15*time.Minute {
+		t.Errorf("observe ceiling %s, want at least max(cloud bound %s, local worst case %s) + 15m", ceiling, bound, local)
 	}
 	ladder := time.Duration(consts["observeFastPolls"])*time.Duration(consts["observeFastInterval"]) +
 		time.Duration(consts["observeMedPolls"])*time.Duration(consts["observeMedInterval"]) +
@@ -54,11 +58,24 @@ func TestObserveCeilingCoversTheJobBound(t *testing.T) {
 		if len(ms) == 0 {
 			t.Fatalf("%s: no job-level timeout-minutes", wf)
 		}
+		// The dispatched job holds the bound; a later job (the design run's validate, R64) may
+		// be shorter. Even run back to back, every job's bound must fit under the ceiling.
+		var sum time.Duration
+		atBound := false
 		for _, m := range ms {
 			mins, _ := strconv.Atoi(m[1])
-			if got := time.Duration(mins) * time.Minute; got != bound {
-				t.Errorf("%s: a job bound is %s, gatedJobTimeoutBound is %s — move the constant with the template", wf, got, bound)
+			got := time.Duration(mins) * time.Minute
+			sum += got
+			atBound = atBound || got == bound
+			if got > bound {
+				t.Errorf("%s: a job bound is %s, above gatedJobTimeoutBound %s — move the constant with the template", wf, got, bound)
 			}
+		}
+		if !atBound {
+			t.Errorf("%s: no job holds gatedJobTimeoutBound %s — move the constant with the template", wf, bound)
+		}
+		if sum > ceiling {
+			t.Errorf("%s: its job bounds sum to %s, past the observe ceiling %s", wf, sum, ceiling)
 		}
 	}
 }
