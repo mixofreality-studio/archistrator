@@ -24,7 +24,7 @@ import type { OpsClient } from '../api/ops.gen';
 import { useOpsClient } from '../api/opsContext';
 import type { OpBody, OpResult } from '../api/opTypes';
 import { ApiError } from '../contracts/errors';
-import { mapScenarioView, mapTestRunPanel } from '../contracts/wire';
+import { mapScenarioView, mapTestRunPanels } from '../contracts/wire';
 import type { ScenarioView, TestRunPanelView } from '../contracts/types';
 
 type ProjectView = OpResult<'deliveryQueryProjectView'>;
@@ -95,7 +95,10 @@ export function useTestRun(
       }
       // The file endpoint authorizes on the project (handleTestRunFile asks the
       // PDP the question this view was guarded by), so every file URL names it.
-      return mapTestRunPanel(run, (path) => testRunFileUrl(projectId, run.run.id, path));
+      // `testRuns` carries every contract the gate judges beside the primary.
+      return mapTestRunPanels({ testRun: run, testRuns: view.testRuns }, (runId, path) =>
+        testRunFileUrl(projectId, runId, path)
+      );
     },
     enabled: projectId.length > 0 && activity.length > 0,
     // A run is written once by the venue; the panel is not a live surface.

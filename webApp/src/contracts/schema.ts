@@ -593,6 +593,16 @@ export interface components {
       /** @enum {string} */
       status: 'pass' | 'waived' | 'fail';
     };
+    /** @description One check's verdict in a CheckRun, as the task spec panel renders it. */
+    DeliveryCheckResultView: {
+      checkId: string;
+      durationMs: number;
+      kind: string;
+      outputRef?: string;
+      status: string;
+      traceRef?: string;
+      videoRef?: string;
+    };
     DeliveryConstructionProgress: {
       EV: components['schemas']['DeliveryEVCurve'];
       HandOffModel: string;
@@ -644,6 +654,34 @@ export interface components {
       note: string;
       severity: string;
       title: string;
+    };
+    /** @description A recorded CheckRun, as the task spec panel renders it. */
+    DeliveryDeliveryCheckRunView: {
+      activity: string;
+      artifact: string;
+      /** Format: date-time */
+      endedAt?: null | string;
+      id: string;
+      results: null | components['schemas']['DeliveryCheckResultView'][];
+      revision: string;
+      specHash: string;
+      /** Format: date-time */
+      startedAt?: null | string;
+      task: string;
+    };
+    /** @description The computed spec of one task: identity, model, prompt, tools, edit scope and checks, with the hash of all of it, the latest CheckRun for the task (absent when never run) and whether the spec changed since that run. */
+    DeliveryDeliveryTaskSpecView: {
+      activity: string;
+      checkRun?: components['schemas']['DeliveryDeliveryCheckRunView'];
+      checks: null | components['schemas']['DeliveryTaskSpecCheckView'][];
+      editScope: components['schemas']['DeliveryTaskSpecEditScopeView'];
+      hash: string;
+      identity: components['schemas']['DeliveryTaskSpecIdentityView'];
+      model: components['schemas']['DeliveryTaskSpecModelView'];
+      prompt: components['schemas']['DeliveryTaskSpecPromptView'];
+      specChanged: boolean;
+      task: string;
+      tools: components['schemas']['DeliveryTaskSpecToolsView'];
     };
     /** @description The testing task's run as the results panel renders it: the recorded run, every projected scenario joined with its result, the projected ids with no result (missing), the results with no projected scenario (unknown), and whether the venue artifact has expired. */
     DeliveryDeliveryTestRunView: {
@@ -918,7 +956,9 @@ export interface components {
       scenarios?: null | components['schemas']['DeliveryScenarioView'][];
       session?: components['schemas']['DeliveryDesignArtifactSessionView'];
       summary?: components['schemas']['DeliveryProjectState'];
+      taskSpec?: components['schemas']['DeliveryDeliveryTaskSpecView'];
       testRun?: components['schemas']['DeliveryDeliveryTestRunView'];
+      testRuns?: null | components['schemas']['DeliveryDeliveryTestRunView'][];
       timeline?: components['schemas']['DeliveryEpisodeTimeline'];
     };
     /** @enum {string} */
@@ -931,7 +971,8 @@ export interface components {
       | 'episodes'
       | 'timeline'
       | 'testRun'
-      | 'scenarios';
+      | 'scenarios'
+      | 'taskSpec';
     DeliveryProjectViewQuery: {
       activityId?: null | string;
       artifactKind?: components['schemas']['DeliveryArtifactKind'];
@@ -940,7 +981,9 @@ export interface components {
       kind: components['schemas']['DeliveryProjectViewKind'];
       owner?: components['schemas']['DeliveryOwnerScope'];
       projectId?: null | string;
+      revision?: null | number;
       runId?: null | string;
+      taskId?: null | string;
     };
     DeliveryPumpResult: {
       /** @description Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight). */
@@ -1261,6 +1304,71 @@ export interface components {
       thread?: components['schemas']['DeliveryReviewThreadComment'][];
       /** @description Every reviewer's answer in this round, agent and human alike. Empty on a dispatch revision and on a revision reconstructed from a pre-ledger row. */
       verdicts?: components['schemas']['DeliveryReviewVerdictView'][];
+    };
+    /** @description What a check runs: rule prefixes and slot for a rule check, argv and dir for a command check, scenario/contract/useCase for a scenario check. Unused members are omitted. */
+    DeliveryTaskSpecCheckSourceView: {
+      argv?: null | string[];
+      contract?: string;
+      dir?: string;
+      rulePrefixes?: null | string[];
+      ruleSlot?: string;
+      scenario?: string;
+      useCase?: string;
+    };
+    /** @description One check the task must pass. id is scenario:<contractKey>:<scenarioId>, rule:<scope> or command:<name>; kind is rule | command | scenario. */
+    DeliveryTaskSpecCheckView: {
+      id: string;
+      kind: string;
+      source: components['schemas']['DeliveryTaskSpecCheckSourceView'];
+      timeoutSec: number;
+      title: string;
+    };
+    /** @description Where the task may write: per-component paths, extra repo-relative globs outside any component, and stateOnly when only .aiarch/state/** may change. */
+    DeliveryTaskSpecEditScopeView: {
+      components: null | components['schemas']['DeliveryTaskSpecScopeComponentView'][];
+      extra: null | string[];
+      stateOnly: boolean;
+    };
+    /** @description The planned token and dollar spend for the task, zero when an input is missing. */
+    DeliveryTaskSpecEstimateView: {
+      tokensIn: number;
+      tokensOut: number;
+      usd: number;
+    };
+    /** @description Who and what the task is: the lifecycle kind and title, the phase, the slash command and agent, the worker class, the artifact kind it produces, its exit criterion and its mode (draft | critique | answer | construction | review). */
+    DeliveryTaskSpecIdentityView: {
+      agent: string;
+      artifactKind: string;
+      command: string;
+      exitCriterion: string;
+      kind: string;
+      mode: string;
+      phase: string;
+      title: string;
+      workerClass: string;
+    };
+    /** @description The model the task runs on, where the choice came from (projectOverride | charter) and its estimated spend. */
+    DeliveryTaskSpecModelView: {
+      estimate: components['schemas']['DeliveryTaskSpecEstimateView'];
+      id: string;
+      source: string;
+    };
+    /** @description The prompt the task is seated with: the command body with arguments substituted, its estimated token count, the charter body and the names of the skills loaded on demand. */
+    DeliveryTaskSpecPromptView: {
+      charter: string;
+      skills: null | string[];
+      text: string;
+      tokens: number;
+    };
+    /** @description One component the task may edit and the repo-relative globs that make up its paths. */
+    DeliveryTaskSpecScopeComponentView: {
+      id: string;
+      paths: null | string[];
+    };
+    /** @description The tools the task may call: MCP tool names and built-in tool names. */
+    DeliveryTaskSpecToolsView: {
+      builtin: null | string[];
+      mcp: null | string[];
     };
     DeliveryTestArgView: {
       name: string;

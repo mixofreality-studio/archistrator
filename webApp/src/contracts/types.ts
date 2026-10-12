@@ -1195,6 +1195,96 @@ export interface TestRunPanelView {
   artifact: string;
   /** The streaming file endpoint's URL for one artifact path (video, trace, output). */
   fileUrl: (path: string) => string;
+  /**
+   * Every contract the testing gate judges, the primary among them (spec R36),
+   * each its own panel. Empty on a member of this list, and on a server that
+   * predates the list.
+   */
+  testRuns: TestRunPanelView[];
+}
+
+// --- The per-task AgentTaskSpec view (agent task spec §4.4) -----------------
+
+/** One check a task must pass. The id is scenario:<contractKey>:<scenarioId>, rule:<scope> or command:<name>. */
+export interface SpecCheckView {
+  id: string;
+  kind: 'rule' | 'command' | 'scenario';
+  title: string;
+  /** What the check runs; members that do not apply to its kind are absent. */
+  source: {
+    rulePrefixes?: string[];
+    ruleSlot?: string;
+    argv?: string[];
+    dir?: string;
+    scenario?: string;
+    contract?: string;
+    useCase?: string;
+  };
+  timeoutSec: number;
+}
+
+/** One check's verdict in a recorded CheckRun. */
+export interface CheckResultView {
+  checkId: string;
+  kind: string;
+  status: 'pass' | 'fail' | 'skip' | 'timeout';
+  durationMs: number;
+  outputRef?: string;
+  traceRef?: string;
+  videoRef?: string;
+}
+
+/** A recorded run of a task's checks. */
+export interface CheckRunView {
+  id: string;
+  activity: string;
+  task: string;
+  /** The attempt id the run was stamped with (AIARCH_REVISION). */
+  revision: string;
+  /** The spec hash the run judged. */
+  specHash: string;
+  startedAt?: string;
+  endedAt?: string;
+  artifact: string;
+  results: CheckResultView[];
+}
+
+/**
+ * The computed spec of one task: what it is, which model and prompt seat it, the
+ * tools it may call, where it may write and the checks it must pass. `checkRun`
+ * is absent when the task never ran (or no run matches the requested revision):
+ * the UI renders that as "not run", never as an error.
+ */
+export interface TaskSpecView {
+  activity: string;
+  task: string;
+  identity: {
+    kind: string;
+    title: string;
+    phase: string;
+    command: string;
+    agent: string;
+    workerClass: string;
+    artifactKind: string;
+    exitCriterion: string;
+    mode: string;
+  };
+  model: {
+    id: string;
+    source: 'projectOverride' | 'charter';
+    estimate: { tokensIn: number; tokensOut: number; usd: number };
+  };
+  prompt: { text: string; tokens: number; charter: string; skills: string[] };
+  tools: { mcp: string[]; builtin: string[] };
+  editScope: {
+    components: { id: string; paths: string[] }[];
+    extra: string[];
+    stateOnly: boolean;
+  };
+  checks: SpecCheckView[];
+  hash: string;
+  checkRun?: CheckRunView;
+  specChanged: boolean;
 }
 
 export interface DefectView {

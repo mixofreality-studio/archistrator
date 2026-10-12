@@ -24,6 +24,7 @@
  * still breaks tsc here rather than drifting silently.
  */
 import type { components } from './schema';
+import { ApiError } from './errors';
 import {
   ACTIVITY_TYPE_ORDINAL_TO_APP,
   ARTIFACT_KIND_APP_TO_ORDINAL,
@@ -111,6 +112,10 @@ import type {
   TestArgView,
   TestExpectView,
   TestRunPanelView,
+  TaskSpecView,
+  SpecCheckView,
+  CheckResultView,
+  CheckRunView,
   TestRunScenarioView,
   TestRunView,
   TestingStateView,
@@ -916,6 +921,140 @@ export function mapTestRunPanel(
     expired: w.expired,
     artifact: w.artifact,
     fileUrl,
+    testRuns: [],
+  };
+}
+
+/**
+ * The `testRun` project view with its `testRuns` list: the primary panel, plus
+ * one panel per contract the gate judges (spec R36). `fileUrl` is told which run
+ * a path belongs to, since each contract's run has its own artifact.
+ */
+export function mapTestRunPanels(
+  w: {
+    testRun: Schemas['DeliveryDeliveryTestRunView'];
+    testRuns?: Schemas['DeliveryDeliveryTestRunView'][] | null | undefined;
+  },
+  fileUrl: (runId: string, path: string) => string
+): TestRunPanelView {
+  const one = (r: Schemas['DeliveryDeliveryTestRunView']): TestRunPanelView =>
+    mapTestRunPanel(r, (path) => fileUrl(r.run.id, path));
+  return { ...one(w.testRun), testRuns: arr(w.testRuns).map(one) };
+}
+
+const CHECK_KINDS: readonly SpecCheckView['kind'][] = ['rule', 'command', 'scenario'];
+const CHECK_STATUSES: readonly CheckResultView['status'][] = ['pass', 'fail', 'skip', 'timeout'];
+const MODEL_SOURCES: readonly TaskSpecView['model']['source'][] = ['projectOverride', 'charter'];
+
+/**
+ * The wire types these members as bare strings; the app narrows them. A value
+ * outside the set is contract drift and fails loudly rather than rendering as a
+ * guess (a check that "passed" because its status was unrecognised would lie).
+ */
+function oneOf<T extends string>(what: string, allowed: readonly T[], v: string): T {
+  const hit = allowed.find((a) => a === v);
+  if (hit === undefined) {
+    throw new ApiError(
+      200,
+      'bad_body',
+      `taskSpec ${what} ${JSON.stringify(v)} is not one of ${allowed.join(', ')}`
+    );
+  }
+  return hit;
+}
+
+function mapSpecCheck(w: Schemas['DeliveryTaskSpecCheckView']): SpecCheckView {
+  const s = w.source;
+  const rulePrefixes = arr(s.rulePrefixes);
+  const argv = arr(s.argv);
+  return {
+    id: w.id,
+    kind: oneOf('check kind', CHECK_KINDS, w.kind),
+    title: w.title,
+    source: {
+      ...(rulePrefixes.length > 0 ? { rulePrefixes } : {}),
+      ...(s.ruleSlot !== undefined ? { ruleSlot: s.ruleSlot } : {}),
+      ...(argv.length > 0 ? { argv } : {}),
+      ...(s.dir !== undefined ? { dir: s.dir } : {}),
+      ...(s.scenario !== undefined ? { scenario: s.scenario } : {}),
+      ...(s.contract !== undefined ? { contract: s.contract } : {}),
+      ...(s.useCase !== undefined ? { useCase: s.useCase } : {}),
+    },
+    timeoutSec: w.timeoutSec,
+  };
+}
+
+function mapCheckResult(w: Schemas['DeliveryCheckResultView']): CheckResultView {
+  return {
+    checkId: w.checkId,
+    kind: w.kind,
+    status: oneOf('check status', CHECK_STATUSES, w.status),
+    durationMs: w.durationMs,
+    ...(w.outputRef !== undefined && w.outputRef !== '' ? { outputRef: w.outputRef } : {}),
+    ...(w.traceRef !== undefined && w.traceRef !== '' ? { traceRef: w.traceRef } : {}),
+    ...(w.videoRef !== undefined && w.videoRef !== '' ? { videoRef: w.videoRef } : {}),
+  };
+}
+
+function mapCheckRun(w: Schemas['DeliveryDeliveryCheckRunView']): CheckRunView {
+  return {
+    id: w.id,
+    activity: w.activity,
+    task: w.task,
+    revision: w.revision,
+    specHash: w.specHash,
+    ...(w.startedAt !== undefined && w.startedAt !== null ? { startedAt: w.startedAt } : {}),
+    ...(w.endedAt !== undefined && w.endedAt !== null ? { endedAt: w.endedAt } : {}),
+    artifact: w.artifact,
+    results: arr(w.results).map(mapCheckResult),
+  };
+}
+
+/**
+ * The `taskSpec` project view. The wire's lists are nullable (a Go nil slice) and
+ * its enums are bare strings; the app gets plain arrays and narrowed unions. A
+ * missing `checkRun` stays missing — "not run" (spec R35), not an error.
+ */
+export function mapTaskSpec(w: Schemas['DeliveryDeliveryTaskSpecView']): TaskSpecView {
+  return {
+    activity: w.activity,
+    task: w.task,
+    identity: {
+      kind: w.identity.kind,
+      title: w.identity.title,
+      phase: w.identity.phase,
+      command: w.identity.command,
+      agent: w.identity.agent,
+      workerClass: w.identity.workerClass,
+      artifactKind: w.identity.artifactKind,
+      exitCriterion: w.identity.exitCriterion,
+      mode: w.identity.mode,
+    },
+    model: {
+      id: w.model.id,
+      source: oneOf('model source', MODEL_SOURCES, w.model.source),
+      estimate: {
+        tokensIn: w.model.estimate.tokensIn,
+        tokensOut: w.model.estimate.tokensOut,
+        usd: w.model.estimate.usd,
+      },
+    },
+    prompt: {
+      text: w.prompt.text,
+      tokens: w.prompt.tokens,
+      charter: w.prompt.charter,
+      skills: arr(w.prompt.skills),
+    },
+    tools: { mcp: arr(w.tools.mcp), builtin: arr(w.tools.builtin) },
+    editScope: {
+      components: arr(w.editScope.components).map((c) => ({ id: c.id, paths: arr(c.paths) })),
+      extra: arr(w.editScope.extra),
+      stateOnly: w.editScope.stateOnly,
+    },
+    checks: arr(w.checks).map(mapSpecCheck),
+    hash: w.hash,
+    ...(w.checkRun !== undefined ? { checkRun: mapCheckRun(w.checkRun) } : {}),
+    specChanged: w.specChanged,
   };
 }
 

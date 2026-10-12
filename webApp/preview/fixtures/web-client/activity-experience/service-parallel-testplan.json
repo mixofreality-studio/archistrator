@@ -20,6 +20,53 @@
       }
     },
     "deliveryQueryProjectView": {
+      "taskSpec": {
+        "result": {
+          "kind": "taskSpec",
+          "taskSpec": {
+            "activity": "C-billing-state-access",
+            "task": "stpReview",
+            "identity": {
+              "kind": "review",
+              "title": "Test plan review",
+              "phase": "construction",
+              "command": "testing-plan-integration",
+              "agent": "test-engineer",
+              "workerClass": "senior",
+              "artifactKind": "testPlan",
+              "exitCriterion": "plan approved",
+              "mode": "review"
+            },
+            "model": {
+              "id": "sonnet",
+              "source": "charter",
+              "estimate": { "tokensIn": 42000, "tokensOut": 6000, "usd": 0.35 }
+            },
+            "prompt": {
+              "text": "/testing-plan-integration C-billing-state-access",
+              "tokens": 310,
+              "charter": "You are the test engineer.",
+              "skills": ["the-method-testing"]
+            },
+            "tools": {
+              "mcp": ["mcp__aiarch-state__getCommittedSlot"],
+              "builtin": ["Read", "Grep"]
+            },
+            "editScope": { "components": null, "extra": null, "stateOnly": true },
+            "checks": [
+              {
+                "id": "rule:testplan",
+                "kind": "rule",
+                "title": "Test plan rules (TP-*)",
+                "source": { "rulePrefixes": ["TP-"], "ruleSlot": "phaseArtifacts" },
+                "timeoutSec": 60
+              }
+            ],
+            "hash": "sha256-preview",
+            "specChanged": false
+          }
+        }
+      },
       "designHealth": {
         "result": {
           "kind": "designHealth",
