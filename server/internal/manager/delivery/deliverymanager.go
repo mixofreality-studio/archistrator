@@ -12756,10 +12756,10 @@ const maxVarianceAttempts = 10
 const maxPhaseRedrafts = 5
 
 // The observe-poll SCHEDULE is the ONE ladder in deliveryactivity.go (observeInterval,
-// maxObserveTotalPolls) — R-L, stage 4b1. The ceiling is unchanged and so is the escalation:
-// a stuck pipeline still exhausts the budget and routes through handleVariance. Only the
-// cadence moved, from a flat 15s x 240 to 4x15s + 9x60s + 10x300s — the same hour, 23 polls
-// instead of 240, because one child now holds eleven of these loops instead of one.
+// maxObserveTotalPolls, gatedJobObserveCeiling) — R-L, stage 4b1; R54 moved the ceiling to
+// the job's own bound plus a margin. A stuck pipeline still exhausts the budget and routes
+// through handleVariance. The cadence is 4x15s + 9x60s + 19x300s, 32 polls instead of a
+// flat 15s x 240's history, because one child holds eleven of these loops instead of one.
 
 // ===========================================================================
 // ConstructActivityWorkflow — the per-activity UC3 spine (constructionManager.md

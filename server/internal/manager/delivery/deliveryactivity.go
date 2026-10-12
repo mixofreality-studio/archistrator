@@ -3559,21 +3559,40 @@ func (wf *csWorkflows) recordGateOverride(
 // ---------------------------------------------------------------------------
 // THE OBSERVE LADDER (R-L mitigation i)
 //
-// Today both observe loops are a flat 15s × 240, and each poll costs ≈4 history events
-// (timer started, timer fired, activity scheduled, activity completed), so a stuck job
-// burns ≈960 events before its 1-hour ceiling. ONE child now holds ELEVEN of those for a
-// `requirements` activity. The ladder keeps the ceiling and spends a tenth of the
-// history: fast while a job plausibly finishes in a minute, then coarse, because a job
-// that has run ten minutes will not finish in the next fifteen seconds.
+// A flat 15s poll costs ≈4 history events (timer started, timer fired, activity
+// scheduled, activity completed) each, and ONE child holds ELEVEN observe loops for a
+// `requirements` activity. The ladder spends a fraction of that history: fast while a
+// job plausibly finishes in a minute, then coarse, because a job that has run ten
+// minutes will not finish in the next fifteen seconds.
 //
-//	4 polls × 15s   =  1 min   (the common case: a job that just finished)
-//	9 polls × 60s   =  9 min   (to the 10-minute mark)
-//	10 polls × 300s = 50 min   (to the same 1-hour ceiling the flat loop had)
+//	 4 polls × 15s  =   1 min   (the common case: a job that just finished)
+//	 9 polls × 60s  =   9 min   (to the 10-minute mark)
+//	19 polls × 300s =  95 min   (to gatedJobObserveCeiling, 105 min)
 //	-------------------------------------------------------------------
-//	23 polls ≈ 92 events, against 240 polls ≈ 960. Same ceiling, one tenth the history.
+//	32 polls ≈ 128 events.
 //
-// The CEILING and both escalations are unchanged; only the poll SCHEDULE moves.
+// THE CEILING (R54, final review I3). Since the agent task spec moved the check gate
+// INTO the job, a gated job legitimately runs past the agent's own 25 minutes: the
+// agent step, then up to 45 minutes of checks, plus spec, edit-scope, gen-tests and
+// record steps. The venue bounds the whole job, so the Manager observes for that bound
+// plus a margin, and a job that is still running then is genuinely stuck. Below the
+// bound, the ladder would declare PipelineFailed for a run that then goes green.
+// Temporal: moving the ceiling changes the timer schedule, so deploying it rides the
+// drain the release already requires.
 // ---------------------------------------------------------------------------
+
+// gatedJobTimeoutBound is the venue's total bound on one dispatched job: the job-level
+// `timeout-minutes: 90` of method-assets' assets/workflows/aiarch-construct.yml.tmpl
+// (job `construct`) and aiarch-design.yml.tmpl (job `draft`, which also runs answer
+// jobs). The local rail's stacked bounds (agenticjobaccess.go: defaultLocalRunTimeout
+// 25m, checkGateTimeout 45m, gateStepTimeout 15m per gate step) fit inside it.
+// TestObserveCeilingCoversTheJobBound pins it to the templates.
+const gatedJobTimeoutBound = 90 * time.Minute
+
+// gatedJobObserveCeiling is how long the Manager observes one dispatched job before it
+// is declared stuck (R54): the job's bound plus a 15-minute margin for queueing and the
+// last poll.
+const gatedJobObserveCeiling = gatedJobTimeoutBound + 15*time.Minute
 
 const (
 	observeFastInterval = 15 * time.Second
@@ -3581,10 +3600,12 @@ const (
 	observeMedInterval  = 60 * time.Second
 	observeMedPolls     = 9
 	observeSlowInterval = 300 * time.Second
-	observeSlowPolls    = 10
+	// observeSlowPolls fills the ladder out to gatedJobObserveCeiling (19).
+	observeSlowPolls = int((gatedJobObserveCeiling - observeFastPolls*observeFastInterval -
+		observeMedPolls*observeMedInterval) / observeSlowInterval)
 	// maxObserveTotalPolls is the ladder's length — the ONE bound both observe loops use,
 	// so there is one ladder and not two that drift.
-	maxObserveTotalPolls = observeFastPolls + observeMedPolls + observeSlowPolls // 23
+	maxObserveTotalPolls = observeFastPolls + observeMedPolls + observeSlowPolls // 32
 )
 
 // observeInterval is the ladder as a pure function of the poll index, so the schedule
@@ -3606,7 +3627,7 @@ func observeInterval(poll int) time.Duration {
 // deliveryActivityHistoryBudget is the child's own ceiling, below the server's. The
 // server's suggestion (GetContinueAsNewSuggested) is the primary signal because it
 // knows the namespace's real limits; the budget is the floor for a deployment that
-// does not set one, and 4000 leaves room for the ~92-event dispatch the ladder produces
+// does not set one, and 4000 leaves room for the ~128-event dispatch the ladder produces
 // plus a gate, so a continue never lands mid-task.
 const deliveryActivityHistoryBudget = 4000
 
