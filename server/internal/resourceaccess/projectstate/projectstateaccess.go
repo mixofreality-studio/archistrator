@@ -38,7 +38,9 @@ import (
 	"maps"
 	"math"
 	"path"
+	"reflect"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -10892,6 +10894,40 @@ const (
 	lintCheckTimeoutSec     = 600
 	scenarioCheckTimeoutSec = 900
 )
+
+// TaskSpecSchemaVersion is the generation of TaskSpec's shape and of TaskSpecFor's
+// derivation rules. Bump it with any change that makes a spec resolved by an older
+// aiarch-state-mcp differ from the server's — a field, a scope or check rule, the hash
+// encoding — so a stale state tool is named as stale, not reported as "task spec
+// drifted" (R56). The method-assets half of StateToolVersion covers the prompts,
+// charters and lifecycles.
+const TaskSpecSchemaVersion = 1
+
+// StateToolVersion is the generation of the task-spec code a binary carries: the
+// method-assets module version it was built with (from its own build info; a workspace
+// build reports "(devel)") and TaskSpecSchemaVersion. The server and the aiarch-state-mcp
+// binary it runs must agree on it, or they resolve different specs (R56):
+// `aiarch-state-mcp version` prints it, and the local rail compares it with its own
+// before gating.
+func StateToolVersion() string {
+	ver := "unknown"
+	mod := reflect.TypeFor[methodassets.MethodSpec]().PkgPath()
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		for _, d := range bi.Deps {
+			if d.Path != mod {
+				continue
+			}
+			ver = d.Version
+			if d.Replace != nil {
+				ver = d.Replace.Version
+			}
+			if ver == "" {
+				ver = "(devel)"
+			}
+		}
+	}
+	return fmt.Sprintf("method-assets %s; spec-schema %d", ver, TaskSpecSchemaVersion)
+}
 
 // TaskSpec is one lifecycle task's full agent configuration.
 type TaskSpec struct {

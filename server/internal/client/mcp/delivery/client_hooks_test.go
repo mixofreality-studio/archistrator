@@ -190,7 +190,7 @@ func newSubject(t *testing.T, h *scenariohost.Host) toolServer {
 	project := projectOf(scenario)
 	repo := startWorkingRepo(t)
 	v := openVenue(t, h, repo)
-	jobs, err := agenticjob.NewLocalExecAgenticJobAccess(repo.URL, project, v.stateTool, venueRunTimeout)
+	jobs, err := agenticjob.NewLocalExecAgenticJobAccess(repo.URL, project, v.stateTool, projectstate.StateToolVersion(), venueRunTimeout)
 	if err != nil {
 		t.Fatalf("hooks: NewLocalExecAgenticJobAccess: %v", err)
 	}

@@ -459,7 +459,7 @@ func newLocalPipeline(cfg *Config, logger *slog.Logger) (agenticjob.AgenticJobAc
 	}
 	pipeline, err := agenticjob.NewLocalExecAgenticJobAccess(
 		cfg.ProjectStateGitRepoURL, localProjectID(cfg.ProjectStateGitRepoURL), bin,
-		localExecRunTimeoutFromEnv(logger))
+		projectstate.StateToolVersion(), localExecRunTimeoutFromEnv(logger))
 	if err != nil {
 		return nil, err
 	}

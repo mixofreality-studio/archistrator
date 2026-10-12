@@ -117,7 +117,7 @@ func buildSubject(t *testing.T, h *scenariohost.Host, root, stateMCP string) age
 	}
 
 	repoURL := "file://" + clone
-	access, err := agenticjob.NewLocalExecAgenticJobAccess(repoURL, "stp-agentic-job-access", stateMCP, runTimeout)
+	access, err := agenticjob.NewLocalExecAgenticJobAccess(repoURL, "stp-agentic-job-access", stateMCP, projectstate.StateToolVersion(), runTimeout)
 	if err != nil {
 		t.Fatalf("hooks: NewLocalExecAgenticJobAccess: %v", err)
 	}
@@ -994,6 +994,9 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$sub" in
+version)
+  cat "$ctl/version"
+  exit 0 ;;
 task-spec)
   cp "$ctl/spec.json" "$out" || exit 2
   cat "$ctl/spec-hash"
@@ -1015,6 +1018,7 @@ esac
 exit 0
 `, ctl))
 	v := &gateVenue{ctl: ctl}
+	v.set(t, "version", projectstate.StateToolVersion()+"\n")
 	v.set(t, "spec.json", stpTaskSpec)
 	v.set(t, "spec-hash", stpSpecHash+"\n")
 	v.set(t, "results.json", stpGreenResults)
@@ -1156,7 +1160,7 @@ func TestLocalRailRunsTheAgentOnItsTaskSpec(t *testing.T) {
 	if obs.Phase != agenticjob.PhaseSucceeded {
 		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
 	}
-	if got, want := v.subcommands(t), []string{"task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
+	if got, want := v.subcommands(t), []string{"version", "task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
 		t.Fatalf("state-tool calls %q, want %q", got, want)
 	}
 	spec := v.call(t, "task-spec")
@@ -1265,6 +1269,35 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// TestLocalRailRefusesAStaleStateTool (R56): a state tool whose `version` is not the
+// server's own task-spec generation — here, one too old to know the subcommand — is
+// refused by name, with how to rebuild it, before the spec is resolved or the agent runs.
+func TestLocalRailRefusesAStaleStateTool(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "version", "")
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	want := "stale aiarch-state-mcp at "
+	if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, want) ||
+		!strings.Contains(obs.Diagnostic, "has no version subcommand, server needs "+projectstate.StateToolVersion()) ||
+		!strings.Contains(obs.Diagnostic, "rebuild with `go build -o ") {
+		t.Fatalf("run ended %s (%q), want failed: %s…", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic, want)
+	}
+	if argv := v.agentArgv(t); argv != "" {
+		t.Errorf("the agent ran (argv %q) on a stale state tool", argv)
+	}
+	if got := v.subcommands(t); !slices.Equal(got, []string{"version"}) {
+		t.Errorf("state-tool calls %q, want version alone", got)
+	}
+	// A binary of another generation is named with what it has.
+	v2 := newGateVenue(t, h)
+	v2.set(t, "version", "method-assets v0.0.1; spec-schema 0\n")
+	obs = v2.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, "(has method-assets v0.0.1; spec-schema 0, server needs ") {
+		t.Fatalf("run ended %s (%q), want a stale-tool refusal naming its version", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+}
+
 // TestLocalRailRefusesADriftedTaskSpec: the spec the worktree resolves hashes to
 // something other than the dispatched spec_hash — the run fails before the agent starts
 // and no gate runs.
@@ -1279,8 +1312,8 @@ func TestLocalRailRefusesADriftedTaskSpec(t *testing.T) {
 	if argv := v.agentArgv(t); argv != "" {
 		t.Errorf("the agent ran (argv %q) on a drifted spec", argv)
 	}
-	if got := v.subcommands(t); !slices.Equal(got, []string{"task-spec"}) {
-		t.Errorf("state-tool calls %q, want task-spec alone", got)
+	if got := v.subcommands(t); !slices.Equal(got, []string{"version", "task-spec"}) {
+		t.Errorf("state-tool calls %q, want version then task-spec alone", got)
 	}
 }
 
@@ -1310,7 +1343,7 @@ func TestLocalRailFailsAnOutOfScopeEdit(t *testing.T) {
 	if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, "edit scope") || !strings.Contains(obs.Diagnostic, "stray.txt") {
 		t.Fatalf("run ended %s (%q), want failed on the edit scope", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
 	}
-	if got, want := v.subcommands(t), []string{"task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
+	if got, want := v.subcommands(t), []string{"version", "task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
 		t.Errorf("state-tool calls %q, want %q", got, want)
 	}
 }
@@ -1572,7 +1605,7 @@ func TestLocalRailGatesARunWhoseScenarioTestsDidNotGenerate(t *testing.T) {
 	if argv := v.agentArgv(t); argv != "" {
 		t.Errorf("the agent ran (argv %q) without its scenario tests", argv)
 	}
-	if got, want := v.subcommands(t), []string{"task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
+	if got, want := v.subcommands(t), []string{"version", "task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
 		t.Errorf("state-tool calls %q, want %q", got, want)
 	}
 }
@@ -1596,7 +1629,7 @@ func TestLocalRailGatesADesignDraft(t *testing.T) {
 	if obs.Phase != agenticjob.PhaseSucceeded {
 		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
 	}
-	if got, want := v.subcommands(t), []string{"task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
+	if got, want := v.subcommands(t), []string{"version", "task-spec", "edit-scope", "run-checks", "record-check-run"}; !slices.Equal(got, want) {
 		t.Fatalf("state-tool calls %q, want %q", got, want)
 	}
 	spec := v.call(t, "task-spec")

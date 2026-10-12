@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -116,5 +117,28 @@ func TestTaskSpecCmd_FlagsRequired(t *testing.T) {
 	err := runTaskSpec([]string{"--activity", "C-agentic-job-access"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "--task") {
 		t.Fatalf("want a missing --task error, got %v", err)
+	}
+}
+
+// TestVersionCmd: `version` prints the binary's task-spec generation — the method-assets
+// module version it was built with and the spec schema version — the value the local
+// rail compares with the server's own (R56).
+func TestVersionCmd(t *testing.T) {
+	var out bytes.Buffer
+	handled, err := runOneShotCommand([]string{"version"})
+	if !handled || err != nil {
+		t.Fatalf("version: handled=%v err=%v", handled, err)
+	}
+	if err := runVersion(nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSpace(out.String())
+	if got != projectstate.StateToolVersion() || !strings.HasPrefix(got, "method-assets ") ||
+		!strings.HasSuffix(got, "; spec-schema "+strconv.Itoa(projectstate.TaskSpecSchemaVersion)) {
+		t.Fatalf("version printed %q, want %q", got, projectstate.StateToolVersion())
+	}
+	var ee exitError
+	if err := runVersion([]string{"extra"}, &out); !errors.As(err, &ee) || ee.code != 2 {
+		t.Fatalf("version with an argument: want exit 2, got %v", err)
 	}
 }

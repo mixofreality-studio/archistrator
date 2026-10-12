@@ -1187,7 +1187,12 @@ type localExecAccess struct {
 	repoPath    string // the shared repo's LOCAL filesystem path, derived from repoURL — the worktree host
 	projectID   string // AIARCH_PROJECT_ID stamped on the state-mcp process (name-as-identity)
 	stateMCPBin string // resolved absolute path to the compiled cmd/aiarch-state-mcp binary
-	runTimeout  time.Duration
+	// stateToolVer is the task-spec generation the server carries
+	// (projectstate.StateToolVersion, handed in by the composition root): stateMCPBin's
+	// `version` must print exactly this before a gated run, or the run is refused as a
+	// stale binary (R56).
+	stateToolVer string
+	runTimeout   time.Duration
 
 	// claudeBin is the Claude Code CLI, resolved on PATH ONCE at construction
 	// (exec.LookPath) — the agent runtime every claude dispatch starts. When the
@@ -1232,7 +1237,7 @@ var _ AgenticJobAccess = (*localExecAccess)(nil)
 // the activity branch). Best-effort: a prune failure (e.g. the repo does not
 // exist yet) is NOT a constructor error — the same fault surfaces per-dispatch
 // with a proper diagnostic.
-func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin string, runTimeout time.Duration) (AgenticJobAccess, error) {
+func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin, stateToolVersion string, runTimeout time.Duration) (AgenticJobAccess, error) {
 	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "agenticjob.NewLocalExecAgenticJobAccess: empty repoURL")
@@ -1247,6 +1252,10 @@ func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin string, runTim
 	}
 	if _, err := os.Stat(stateMCPBin); err != nil {
 		return nil, fwra.Wrap(fwra.ContractMisuse, err, "agenticjob.NewLocalExecAgenticJobAccess: aiarch-state-mcp binary not found")
+	}
+	stateToolVersion = strings.TrimSpace(stateToolVersion)
+	if stateToolVersion == "" {
+		return nil, fwra.New(fwra.ContractMisuse, "agenticjob.NewLocalExecAgenticJobAccess: empty stateToolVersion")
 	}
 	if runTimeout <= 0 {
 		runTimeout = defaultLocalRunTimeout
@@ -1282,6 +1291,7 @@ func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin string, runTim
 		repoPath:      repoPath,
 		projectID:     projectID,
 		stateMCPBin:   stateMCPBin,
+		stateToolVer:  stateToolVersion,
 		runTimeout:    runTimeout,
 		claudeBin:     claudeBin,
 		claudeLookErr: claudeLookErr,
@@ -2026,6 +2036,10 @@ const (
 	// timeout-minutes: 45).
 	gateStepTimeout  = 15 * time.Minute
 	checkGateTimeout = 45 * time.Minute
+	// versionProbeTimeout bounds `aiarch-state-mcp version`: it prints a constant, and a
+	// binary too old to know the subcommand falls into MCP server mode, which reads EOF
+	// on its closed stdin and exits — so a long wait means something else is wrong.
+	versionProbeTimeout = 30 * time.Second
 )
 
 // specModelShape / specToolShape are the plain shapes the templates hold the spec's
@@ -2203,6 +2217,9 @@ func (a *localExecAccess) resolveTaskSpec(s dispatchedTaskSpec, parentDir, workD
 		revision:    rig[rigRevisionKey],
 		resultsRoot: localResultsDir(a.repoPath),
 	}
+	if why := g.staleStateTool(workDir, a.stateToolVer); why != "" {
+		return nil, why
+	}
 	res := g.run(gateStepTimeout, workDir, "task-spec", "--activity", s.activityID, "--task", s.taskID, "--root", workDir, "--out", g.specPath)
 	if res.code != 0 {
 		return nil, "the task spec of " + s.activityID + "/" + s.taskID + " could not be resolved: " + res.detail()
@@ -2223,6 +2240,24 @@ func (a *localExecAccess) resolveTaskSpec(s dispatchedTaskSpec, parentDir, workD
 		return nil, "main could not be read before the agent ran: " + err.Error()
 	}
 	return g, ""
+}
+
+// staleStateTool is step 2's first move (R56): the state tool must carry the task-spec
+// generation the server does — the same method-assets and spec schema — or it resolves a
+// different spec and every gated run would fail as "task spec drifted" (or, for a binary
+// older than task-spec, with whatever its MCP server mode says about a missing env). It
+// returns the refusal naming the binary and how to rebuild it, or "".
+func (g *localGate) staleStateTool(workDir, want string) string {
+	res := g.run(versionProbeTimeout, workDir, "version")
+	have := strings.TrimSpace(res.stdout)
+	if res.code != 0 || have == "" {
+		have = "no version subcommand"
+	}
+	if have == want {
+		return ""
+	}
+	return fmt.Sprintf("stale aiarch-state-mcp at %s (has %s, server needs %s): rebuild with `go build -o %s ./cmd/aiarch-state-mcp` in the server module",
+		g.stateMCPBin, singleLine(outputHead(have, 120)), want, g.stateMCPBin)
 }
 
 // readSpec reads the spec task-spec wrote into the gate: the model and built-in tools,

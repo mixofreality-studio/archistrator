@@ -59,6 +59,17 @@ func runTaskSpec(args []string, stdout io.Writer) error {
 	return nil
 }
 
+// runVersion prints projectstate.StateToolVersion and a newline. It takes no arguments.
+func runVersion(args []string, stdout io.Writer) error {
+	if len(args) != 0 {
+		return exitError{2, fmt.Errorf("takes no arguments, got %q", args)}
+	}
+	if _, err := fmt.Fprintln(stdout, projectstate.StateToolVersion()); err != nil {
+		return exitError{2, err}
+	}
+	return nil
+}
+
 // readCheckoutProject decodes root's .aiarch/state/project.json through the server
 // codec. The project id is the document's own.
 func readCheckoutProject(root string) (projectstate.Project, error) {

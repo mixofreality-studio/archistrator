@@ -16,3 +16,8 @@ test-artifacts/
 # `go build ./cmd/archistrator` / `./cmd/server` with no -o land here).
 /archistrator
 /archistrator-server
+
+# The state tool, as a bare `go build ./cmd/aiarch-state-mcp` in server/ lands it. It
+# was once tracked and went stale (final review I5); the local rail now refuses a
+# binary whose `version` is not the server's own (R56), so build it, never commit it.
+/aiarch-state-mcp

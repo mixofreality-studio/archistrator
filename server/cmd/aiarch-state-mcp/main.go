@@ -60,6 +60,12 @@ func runOneShotCommand(argv []string) (handled bool, err error) {
 	// `record-check-run` records the gate's results as the task's CheckRun.
 	case "task-spec":
 		return true, wrapOneShot("task-spec", runTaskSpec(argv[1:], os.Stdout))
+	// `version` prints the task-spec generation this binary carries
+	// (projectstate.StateToolVersion): its method-assets module version and the spec
+	// schema version. The local rail compares it with the server's own before gating, so
+	// a stale binary is refused by name rather than as a drifted spec (R56).
+	case "version":
+		return true, wrapOneShot("version", runVersion(argv[1:], os.Stdout))
 	case "edit-scope":
 		return true, wrapOneShot("edit-scope", runEditScope(argv[1:]))
 	case "run-checks":

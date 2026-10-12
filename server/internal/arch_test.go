@@ -986,6 +986,11 @@ var encapsulationAllowlistData = map[string][]string{
 		"TaskSpecFor",
 		"TaskSpec",
 		"TaskSpec.ComputeHash",
+		// R56: the task-spec generation the server and the aiarch-state-mcp binary must
+		// agree on — `aiarch-state-mcp version` prints it, and the composition root hands
+		// it to the local rail, which refuses a stale binary before gating.
+		"StateToolVersion",
+		"TaskSpecSchemaVersion",
 		"SpecIdentity",
 		"SpecModel",
 		"SpecEstimate",

@@ -229,7 +229,7 @@ func newSubject(t *testing.T, h *scenariohost.Host) delivery.DeliveryManager {
 	repo := startWorkingRepo(t)
 	url := repo.URL
 	v := openVenue(t, h, repo)
-	jobs, err := agenticjob.NewLocalExecAgenticJobAccess(url, planProject, v.stateTool, venueRunTimeout)
+	jobs, err := agenticjob.NewLocalExecAgenticJobAccess(url, planProject, v.stateTool, projectstate.StateToolVersion(), venueRunTimeout)
 	if err != nil {
 		t.Fatalf("hooks: NewLocalExecAgenticJobAccess: %v", err)
 	}
