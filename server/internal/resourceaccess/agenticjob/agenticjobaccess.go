@@ -2253,11 +2253,31 @@ func (g *localGate) staleStateTool(workDir, want string) string {
 	if res.code != 0 || have == "" {
 		have = "no version subcommand"
 	}
-	if have == want {
+	if stateToolVersionsAgree(have, want) {
 		return ""
 	}
 	return fmt.Sprintf("stale aiarch-state-mcp at %s (has %s, server needs %s): rebuild with `go build -o %s ./cmd/aiarch-state-mcp` in the server module",
 		g.stateMCPBin, singleLine(outputHead(have, 120)), want, g.stateMCPBin)
+}
+
+// unknownMethodAssets is projectstate.StateToolVersion's method-assets half when the
+// server's own build info does not list the module (a `go test` binary's).
+const unknownMethodAssets = "method-assets unknown;"
+
+// stateToolVersionsAgree reports whether the state tool's version (have) is the server's
+// (want). A server that cannot read its own method-assets version cannot vouch for that
+// half, so it then holds the tool to the spec-schema half alone rather than refusing
+// every binary.
+func stateToolVersionsAgree(have, want string) bool {
+	if have == want {
+		return true
+	}
+	rest, ok := strings.CutPrefix(want, unknownMethodAssets)
+	if !ok {
+		return false
+	}
+	_, haveRest, found := strings.Cut(have, ";")
+	return found && haveRest == rest
 }
 
 // readSpec reads the spec task-spec wrote into the gate: the model and built-in tools,
