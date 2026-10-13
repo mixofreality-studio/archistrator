@@ -6,6 +6,7 @@ export default defineConfig({
   testMatch: /\.spec\.gen\.ts$/,
   workers: 1,
   fullyParallel: false,
+  timeout: Number(process.env.AIARCH_SCENARIO_TIMEOUT_MS ?? 300000),
   outputDir: '../../test-results/webClient',
   use: { video: 'on', trace: 'on' },
   reporter: [

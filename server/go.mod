@@ -6,12 +6,12 @@ require (
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.12.2
+	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.13.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.4.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.3
-	github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.3.2
-	github.com/mixofreality-studio/archistrator-platform/method-assets v0.10.4
+	github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.4.0
+	github.com/mixofreality-studio/archistrator-platform/method-assets v0.11.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
@@ -135,7 +135,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.11.1 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
@@ -144,7 +144,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/grpc v1.80.0 // indirect
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )
 
