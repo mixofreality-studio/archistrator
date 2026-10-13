@@ -2986,10 +2986,17 @@ func TestTestingGateHoldsOnARunMissingAProjectedScenario(t *testing.T) {
 	if dropped == "" {
 		t.Fatal("the venue recorded no narrowed integration run")
 	}
-	hold, ok := testingHold(view)
-	if !ok {
-		t.Fatalf("the testing gate holds no system comment: %+v", taskOf(view, "testing"))
-	}
+	// The round reaches awaitingHuman before its hold comment is recorded, so poll for it.
+	eventually(t, walkWindow, "the testing gate's system comment", func() (bool, string) {
+		v, err := subject.QueryActivityView(callContext(t, h, ""), planProject, drivenActivity)
+		if err != nil {
+			return false, err.Error()
+		}
+		view = v
+		_, ok := testingHold(v)
+		return ok, fmt.Sprintf("%+v", taskOf(v, "testing"))
+	})
+	hold, _ := testingHold(view)
 	if !strings.HasPrefix(hold.Anchor, "$.testingState.checkRuns[id=local-") ||
 		!strings.Contains(hold.Text, "never ran projected scenario(s)") || !strings.Contains(hold.Text, dropped) {
 		t.Fatalf("hold comment %q at %q, want one at the run naming the never-run %s", hold.Text, hold.Anchor, dropped)

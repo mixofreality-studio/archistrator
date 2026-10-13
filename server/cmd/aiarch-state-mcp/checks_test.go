@@ -67,6 +67,7 @@ func TestRunCommandCheckRealProcess(t *testing.T) {
 // TestRunCommandCheckDirAndEnv pins where a command runs and what it sees: the check's
 // Dir under the repo root, the process env plus GOWORK=off for go and make only.
 func TestRunCommandCheckDirAndEnv(t *testing.T) {
+	t.Setenv("GOWORK", "") // CI exports GOWORK=off; the assertion is about what the runner adds
 	root := t.TempDir()
 	type call struct {
 		dir string
