@@ -16,7 +16,6 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import Box from '@mui/material/Box';
-import ButtonBase from '@mui/material/ButtonBase';
 import Typography from '@mui/material/Typography';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { useComments, deploymentAnchor } from '../comments/CommentContext';
@@ -39,7 +38,10 @@ import { healthColor, type HealthState } from './deploymentHealth';
  */
 function useDeployNodeA11y(
   name: string,
-  profile: string
+  profile: string,
+  /** Extra spoken detail appended to the name (e.g. the packaged components,
+   *  which the pointer reveals in a hover list). */
+  detail?: string
 ): {
   role: 'button';
   tabIndex: 0;
@@ -63,7 +65,9 @@ function useDeployNodeA11y(
   return {
     role: 'button',
     tabIndex: 0,
-    'aria-label': enabled ? `${name}. Press C to comment.` : name,
+    'aria-label': `${name}${detail !== undefined && detail.length > 0 ? `. ${detail}` : ''}${
+      enabled ? '. Press C to comment.' : ''
+    }`,
     onKeyDown,
   };
 }
@@ -203,7 +207,9 @@ function ClassificationChip({ value }: { value: string }): ReactNode {
           fontWeight: 700,
           fontSize: 8,
           letterSpacing: '0.1em',
-          color: t.accent,
+          // Ink on the accent outline: the accent itself fails AA as 8px text on
+          // the dark themes (3.7:1 on mor).
+          color: t.ink,
         }}
       >
         {label}
@@ -259,7 +265,7 @@ export function DeployGroupNode({ data, width, height }: NodeProps): ReactNode {
               <Typography
                 sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 9, color: t.accentText }}
               >
-                ×{d.instances}
+                {d.instances} instances
               </Typography>
             </Box>
           )}
@@ -303,7 +309,13 @@ export function DeployContainerNode({ data, width, height }: NodeProps): ReactNo
   const colors = layerColors(t);
   const [open, setOpen] = useState(false);
   const count = d.components.length;
-  const a11y = useDeployNodeA11y(d.name, d.profile);
+  const a11y = useDeployNodeA11y(
+    d.name,
+    d.profile,
+    count > 0
+      ? `Packages ${String(count)} component${count === 1 ? '' : 's'}: ${d.components.map((c) => c.name).join(', ')}`
+      : undefined
+  );
   return (
     <Box
       {...a11y}
@@ -314,6 +326,15 @@ export function DeployContainerNode({ data, width, height }: NodeProps): ReactNo
         cursor: 'pointer',
         outline: 'none',
         '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
+      }}
+      // The packaged-components list opens on hover AND on keyboard focus — the
+      // node itself is the one interactive element (a toggle button nested inside
+      // this role=button was a nested-interactive a11y fault, and a 7px target).
+      onBlur={() => {
+        setOpen(false);
+      }}
+      onFocus={() => {
+        setOpen(true);
       }}
       onMouseEnter={() => {
         setOpen(true);
@@ -385,22 +406,18 @@ export function DeployContainerNode({ data, width, height }: NodeProps): ReactNo
           </Typography>
         )}
         {count > 0 && (
-          <ButtonBase
+          <Typography
             sx={{
               mt: 'auto',
-              justifyContent: 'flex-start',
               fontFamily: t.mono,
               fontSize: 9,
               fontWeight: 700,
               color: t.accent2,
               letterSpacing: '0.04em',
             }}
-            onClick={() => {
-              setOpen((o) => !o);
-            }}
           >
             {open ? '▾' : '▸'} packages {count} component{count === 1 ? '' : 's'}
-          </ButtonBase>
+          </Typography>
         )}
       </Box>
       {open && count > 0 ? (

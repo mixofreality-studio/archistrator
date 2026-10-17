@@ -27,6 +27,7 @@ function SectionHeading({ children }: { children: ReactNode }): ReactNode {
   const t = useTokens();
   return (
     <Typography
+      component="h3"
       sx={{
         fontFamily: t.display,
         fontWeight: 800,
@@ -178,6 +179,10 @@ export function MissionView({
                     fontWeight: 700,
                     color: t.accent2,
                     flexShrink: 0,
+                    // A fixed, right-aligned number column so objective 10+ text
+                    // lines up with objectives 1–9 instead of indenting further.
+                    minWidth: '2.5ch',
+                    textAlign: 'right',
                   }}
                 >
                   {o.number}.

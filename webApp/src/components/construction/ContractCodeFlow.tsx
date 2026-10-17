@@ -1,633 +1,145 @@
 /**
- * ContractCodeFlow — the Code / interface tab of ServiceContractView.
+ * ContractCodeFlow — the Interface tab of ServiceContractView: the contract as a
+ * C4 level-4 (code) diagram, drawn as UML classes, never as signature strings.
+ * It reads LEFT TO RIGHT, in the shared code-diagram language
+ * (codeDiagram/codeDiagramModel.ts) the test plan's stimuli use too:
  *
- * Renders a single «interface» xyflow node listing each op. Clicking an op row
- * shifts the interface node right and renders:
- *   - the request structs as one COLUMN on the LEFT (from op.inputs, or derived
- *     from the signature)
- *   - the response and error structs as one COLUMN on the RIGHT
- * connected by directed edges. Clicking the same op again collapses the expansion.
+ *   «parameters» projectID…  ─┐   ┌ «interface» BillingStateAccess ┐   ┌─▶ «result» Version
+ *   «request» ReviewFeedback ─┼──▶│ ▸ RecordCharge   (selected)    │───┤
+ *                              │   │   ReadBalance                  │   └─▶ «error» Error
  *
- * Fallback when op.inputs/op.outputs are empty: parses the signature to extract
- * input/output type names and renders them as struct cards with empty fields +
- * a muted note "(fields not detailed in this contract)". Type names are always
- * present in the signature — so clicking always expands something real.
+ * The middle column is the «interface» class, one row per operation (its name,
+ * what it takes, what it returns). The selected operation's row is highlighted;
+ * the classes it TAKES stack on the left with edges into that row, the classes
+ * it RETURNS and FAILS WITH stack on the right with edges out of it — both
+ * columns sitting level with the row. Selecting a row (click, Enter or Space)
+ * switches the operation; selecting it again hides its classes. The first
+ * operation opens selected, so the diagram shows a whole call at first sight.
  *
- * FOCUS VIEW ONLY, AND ONLY WITH ROOM (designer checks B1 and N1). The pane lists
- * the signatures instead (ContractSignatureList); the focus view draws this only
- * where the widest expansion fits at CODE_MIN_ZOOM (contractCode.ts). A fit never
- * zooms out past CODE_MIN_ZOOM.
- *
- * WHY COLUMNS, NOT ONE NODE PER STRUCT (N1). The structs used to be stacked at a
- * fixed 200px pitch: an op with 10 params made a ~1.9k px column on a canvas of
- * a few hundred, and a 17-field struct overran the pitch and overlapped the next.
- * Each column is now one node whose cards stack in normal flow — they cannot
- * overlap — and the canvas grows to the expansion's measured height, so every
- * card lands on it. Each card carries its own edge handle.
- *
- * Nothing overlays the cards: the legend is a caption above the canvas, and the
- * zoom controls are gone (their fit button ignored the 0.9 floor).
+ * Fallback when op.inputs/op.outputs are empty: the signature's type names are
+ * drawn as classes with a muted "(fields not detailed in this contract)".
  */
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useState,
-  type MouseEvent as ReactMouseEvent,
-  type ReactNode,
-} from 'react';
-import {
-  ReactFlow,
-  Background,
-  BaseEdge,
-  MarkerType,
-  Handle,
-  Position,
-  getSmoothStepPath,
-  useReactFlow,
-  useStore,
-  type Edge,
-  type EdgeProps,
-  type Node,
-  type NodeProps,
-} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import type { Edge, Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import IconButton from '@mui/material/IconButton';
-import Tooltip from '@mui/material/Tooltip';
-import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+
 import type { ContractOp } from '../../contracts/types';
 import type { Tokens } from '../../utilities/theme/themes';
-import { useTokens } from '../../utilities/theme/ThemeContext';
 import { useComments, contractOpAnchor } from '../comments/CommentContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
-import { flowInstanceId } from '../flow/flowInstanceId.ts';
-import { fitToWidth } from '../flow/fitContent.ts';
-import { useMeasuredSizes } from '../flow/measuredSizes.ts';
-import { prefersReducedMotion } from '../../utilities/reducedMotion';
 import {
-  CODE_CANVAS_BORDERS,
-  CODE_CANVAS_GUTTER,
-  CODE_CANVAS_MIN_HEIGHT,
-  CODE_IFACE_W,
-  CODE_INPUT_GAP,
-  CODE_MIN_ZOOM,
-  CODE_OUTPUT_GAP,
-  CODE_STRUCT_W,
-  isErrorStructName,
-  paramOf,
+  columnSegments,
+  opShape,
   parseSignature,
+  readableType,
   resolveStructs,
-  type ResolvedStruct,
+  sharedErrorOf,
+  type ColumnSegment,
 } from './contractCode.ts';
+import {
+  boxHandle,
+  diagramEdge,
+  DIAGRAM_LEFT_W,
+  DIAGRAM_MID_W,
+  DIAGRAM_MID_X,
+  DIAGRAM_RIGHT_W,
+  DIAGRAM_RIGHT_X,
+  IFACE_IN,
+  IFACE_OUT,
+  type ClassBoxSpec,
+} from './codeDiagram/codeDiagramModel.ts';
+import type { InterfaceRow } from './codeDiagram/CodeDiagramNodes';
+import { CodeDiagramCanvas, DiagramLegend } from './codeDiagram/CodeDiagramCanvas';
 
-// ---------------------------------------------------------------------------
-// Edge helper
-// ---------------------------------------------------------------------------
+/** "a, b and c" — a reader's list. */
+function listOf(items: readonly string[]): string {
+  if (items.length <= 1) return items.join('');
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1] ?? ''}`;
+}
 
-function makeEdge(
-  edge: { source: string; target: string; sourceHandle?: string; targetHandle?: string },
-  label: string,
-  t: Tokens,
-  isError = false,
-  type: 'smoothstep' | 'returns' = 'smoothstep'
-): Edge {
-  const stroke = isError ? t.dangerFg : t.ink;
+/** One column segment as a class box (a run of plain params, or one struct). */
+function segmentBox(
+  seg: ColumnSegment,
+  i: number,
+  side: 'left' | 'right',
+  paramNameOf: (type: string) => string | undefined
+): ClassBoxSpec {
+  const id = `${side}-${String(i)}`;
+  if (seg.kind === 'params') {
+    return {
+      id,
+      role: side === 'left' ? 'input' : 'output',
+      stereotype: side === 'left' ? '«parameters» plain values passed in' : '«result»',
+      title: side === 'left' ? 'Parameters' : 'Plain value returned',
+      rows: seg.params.map((p) => ({
+        key: p.name,
+        name: p.name,
+        value: readableType(p.type),
+        valueTip: p.type,
+        note: p.note,
+      })),
+      testId: UI_IDENTIFIERS.ServiceContract.STRUCT_CARD,
+      rowTestId: UI_IDENTIFIERS.ServiceContract.PARAM_ROW,
+      dataStruct: seg.params.map((p) => p.name).join(','),
+    };
+  }
+  const s = seg.struct;
+  const passedAs = side === 'left' ? paramNameOf(s.name) : undefined;
   return {
-    id: `${edge.source}:${edge.sourceHandle ?? ''}-${edge.target}:${edge.targetHandle ?? ''}`,
-    ...edge,
-    label,
-    type,
-    style: { stroke, strokeWidth: 1.5, strokeDasharray: isError ? '6 3' : undefined },
-    labelStyle: { fontFamily: t.mono, fontSize: 9, fontWeight: 700, fill: stroke },
-    labelBgStyle: { fill: t.paper, fillOpacity: 0.96 },
-    labelBgPadding: [4, 2] as [number, number],
-    labelBgBorderRadius: 3,
-    markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
+    id,
+    role: seg.isError ? 'error' : side === 'left' ? 'input' : 'output',
+    stereotype: seg.isError
+      ? '«error» what a failure returns'
+      : side === 'left'
+        ? `«request»${passedAs !== undefined ? ` passed as ${passedAs}` : ' data passed in'}`
+        : '«response» data returned',
+    title: readableType(s.name),
+    titleTip: s.name,
+    rows: s.fields.map((f) => ({
+      key: f.name,
+      name: f.name,
+      value: readableType(f.type),
+      valueTip: f.type,
+      note: f.note,
+    })),
+    emptyText:
+      s.fields.length > 0 || seg.isError
+        ? undefined
+        : s._fallback === true
+          ? '(fields not detailed in this contract)'
+          : '(no fields)',
+    testId: UI_IDENTIFIERS.ServiceContract.STRUCT_CARD,
+    nameTestId: UI_IDENTIFIERS.ServiceContract.STRUCT_NAME,
+    dataStruct: s.name,
   };
 }
 
-// ---------------------------------------------------------------------------
-// InterfaceNode — clickable op rows
-// ---------------------------------------------------------------------------
-
-interface InterfaceNodeData {
-  component: string;
-  ops: ContractOp[];
-  activeOp: string | null;
-  /** Toggle an op's request/response expansion (keyboard path — Enter/Space). */
-  onToggleOp: (signature: string) => void;
-  /** Arm an anchored comment on an op (contractOpAnchor). */
-  onCommentOp: (signature: string) => void;
-  [key: string]: unknown;
-}
-
-function InterfaceNode({ data }: NodeProps): ReactNode {
-  const t = useTokens();
-  const d = data as InterfaceNodeData;
-  return (
-    <>
-      <Handle position={Position.Left} style={{ opacity: 0 }} type="target" />
-      <Handle position={Position.Right} style={{ opacity: 0 }} type="source" />
-      <Box
-        data-testid={UI_IDENTIFIERS.ServiceContract.CODE_INTERFACE_NODE}
-        sx={{
-          width: CODE_IFACE_W,
-          boxSizing: 'border-box',
-          bgcolor: t.paperAlt,
-          border: `1.5px solid ${t.line}`,
-          borderLeft: `5px solid ${t.accent}`,
-          borderRadius: '10px',
-          overflow: 'hidden',
-        }}
-      >
-        {/* header */}
-        <Box sx={{ px: 1.4, py: 0.9, bgcolor: t.paper, borderBottom: `1.5px solid ${t.line}` }}>
-          <Typography
-            sx={{ fontFamily: t.mono, fontSize: 8.5, color: t.muted, letterSpacing: '0.06em' }}
-          >
-            «interface» [Component]
-          </Typography>
-          <Typography
-            sx={{
-              fontFamily: t.mono,
-              fontWeight: 700,
-              fontSize: 14,
-              color: t.ink,
-              lineHeight: 1.15,
-            }}
-          >
-            {d.component}
-          </Typography>
-        </Box>
-        {/* ops */}
-        {d.ops.map((op, i) => {
-          const active = op.signature === d.activeOp;
-          // data-op is read by the ReactFlow onNodeClick handler to know which
-          // op row was clicked (all rows live inside the single interface node).
-          // The row is also a real keyboard button (role/tabIndex/aria-expanded):
-          // Enter/Space toggles the request/response expansion without the mouse.
-          return (
-            <Box
-              aria-expanded={active}
-              aria-label={`${op.signature} — toggle request/response`}
-              data-op={op.signature}
-              key={`${op.signature}-${String(i)}`}
-              role="button"
-              sx={{
-                position: 'relative',
-                px: 1.4,
-                py: 0.7,
-                pr: 4,
-                cursor: 'pointer',
-                borderBottom: i === d.ops.length - 1 ? 'none' : `1px solid ${t.line}`,
-                borderLeft: `3px solid ${active ? t.accent : 'transparent'}`,
-                bgcolor: active ? t.awaitingBg : 'transparent',
-                '& .contract-op-comment': { opacity: 0, transition: 'opacity 120ms' },
-                '&:hover .contract-op-comment, &:focus-visible .contract-op-comment': {
-                  opacity: 1,
-                },
-                '&:hover': { bgcolor: active ? t.awaitingBg : t.paper },
-                '&:focus-visible': {
-                  outline: `2px solid ${t.accent}`,
-                  outlineOffset: -2,
-                  '& .contract-op-comment': { opacity: 1 },
-                },
-              }}
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  d.onToggleOp(op.signature);
-                } else if (e.key === 'c' || e.key === 'C') {
-                  e.preventDefault();
-                  d.onCommentOp(op.signature);
-                }
-              }}
-            >
-              <Typography
-                sx={{
-                  fontFamily: t.mono,
-                  fontSize: 10.5,
-                  fontWeight: active ? 700 : 600,
-                  color: active ? t.awaitingFg : t.ink,
-                  lineHeight: 1.25,
-                  wordBreak: 'break-word',
-                }}
-              >
-                {op.signature}
-              </Typography>
-              <Typography sx={{ fontFamily: t.mono, fontSize: 8.5, color: t.muted, mt: 0.1 }}>
-                {op.stereotype}
-              </Typography>
-              {op.note !== undefined && op.note.length > 0 ? (
-                <Typography
-                  sx={{
-                    fontFamily: t.body,
-                    fontSize: 10.5,
-                    color: t.ink,
-                    lineHeight: 1.4,
-                    mt: 0.25,
-                  }}
-                >
-                  {op.note}
-                </Typography>
-              ) : null}
-              <Tooltip title="Comment on this operation">
-                <IconButton
-                  aria-label={`Comment on ${op.signature}`}
-                  className="contract-op-comment"
-                  data-testid={UI_IDENTIFIERS.Comments.listItemComment(op.signature)}
-                  size="small"
-                  sx={{
-                    position: 'absolute',
-                    top: 4,
-                    right: 4,
-                    width: 20,
-                    height: 20,
-                    color: t.accentText,
-                    bgcolor: t.accent,
-                    border: `1.5px solid ${t.line}`,
-                    borderRadius: 1,
-                    '&:hover': { bgcolor: t.accent2 },
-                  }}
-                  tabIndex={-1}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    d.onCommentOp(op.signature);
-                  }}
-                >
-                  <ChatBubbleOutlineIcon sx={{ fontSize: 12 }} />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          );
-        })}
-      </Box>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ColumnNode — one side's struct cards, stacked in normal flow
-// ---------------------------------------------------------------------------
-
-type Role = 'input' | 'output';
-
-interface ColumnNodeData {
-  role: Role;
-  structs: ResolvedStruct[];
-  [key: string]: unknown;
-}
-
-/** The handle id of one card in a column: `in-0`, `out-1`. */
-function cardHandle(role: Role, i: number): string {
-  return `${role === 'input' ? 'in' : 'out'}-${String(i)}`;
-}
-
-function ColumnNode({ data }: NodeProps): ReactNode {
-  const d = data as ColumnNodeData;
-  return (
-    <Box
-      sx={{
-        width: CODE_STRUCT_W,
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 2,
-      }}
-    >
-      {d.structs.map((s, i) => (
-        <StructCard
-          handleId={cardHandle(d.role, i)}
-          key={`${s.name}-${String(i)}`}
-          role={d.role}
-          struct={s}
-        />
-      ))}
-    </Box>
-  );
-}
-
-function StructCard({
-  struct,
-  role,
-  handleId,
-}: {
-  struct: ResolvedStruct;
-  role: Role;
-  handleId: string;
-}): ReactNode {
-  const t = useTokens();
-  const isErr = isErrorStructName(struct.name);
-  const color = isErr ? t.dangerFg : role === 'input' ? t.accent2 : t.committedDot;
-  const param = paramOf(struct);
-  const roleLabel =
-    role === 'input'
-      ? param !== undefined
-        ? '«param» request →'
-        : '«struct» request →'
-      : isErr
-        ? '«error» ← fail path'
-        : '«struct» ← response';
-  return (
-    <Box
-      data-role={role}
-      data-struct={struct.name}
-      data-testid={UI_IDENTIFIERS.ServiceContract.STRUCT_CARD}
-      sx={{
-        position: 'relative',
-        width: '100%',
-        boxSizing: 'border-box',
-        bgcolor: t.paperAlt,
-        border: `1.5px solid ${isErr ? t.dangerFg : t.line}`,
-        borderLeft: `5px solid ${color}`,
-        borderRadius: '10px',
-      }}
-    >
-      {/* The card's own handle, so each edge meets its card, not the column. */}
-      {role === 'input' ? (
-        <Handle id={handleId} position={Position.Right} style={{ opacity: 0 }} type="source" />
-      ) : (
-        <Handle id={handleId} position={Position.Left} style={{ opacity: 0 }} type="target" />
-      )}
-      <Box
-        sx={{
-          px: 1.3,
-          py: 0.75,
-          bgcolor: t.paper,
-          borderRadius: '10px 10px 0 0',
-          borderBottom: `1.5px solid ${isErr ? t.dangerFg : t.line}`,
-        }}
-      >
-        <Typography
-          sx={{
-            fontFamily: t.mono,
-            fontSize: 8,
-            color: isErr ? t.dangerFg : t.muted,
-            letterSpacing: '0.06em',
-          }}
-        >
-          {roleLabel}
-        </Typography>
-        {param !== undefined ? (
-          // A primitive or alias param: one row, the type never a second header.
-          <Box
-            data-testid={UI_IDENTIFIERS.ServiceContract.PARAM_ROW}
-            sx={{ display: 'flex', gap: 0.75, alignItems: 'baseline', flexWrap: 'wrap' }}
-          >
-            <Typography
-              sx={{
-                fontFamily: t.mono,
-                fontWeight: 700,
-                fontSize: 12,
-                color: isErr ? t.dangerFg : t.ink,
-              }}
-            >
-              {param.name}
-            </Typography>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 11, color }}>{param.type}</Typography>
-          </Box>
-        ) : (
-          <Typography
-            data-testid={UI_IDENTIFIERS.ServiceContract.STRUCT_NAME}
-            sx={{
-              fontFamily: t.mono,
-              fontWeight: 700,
-              fontSize: 12,
-              color: isErr ? t.dangerFg : t.ink,
-              lineHeight: 1.15,
-            }}
-          >
-            {struct.name}
-          </Typography>
-        )}
-      </Box>
-      {param !== undefined ? null : (
-        <Box sx={{ px: 1.3, py: 0.6 }}>
-          {struct.fields.length > 0 ? (
-            struct.fields.map((f) => (
-              <Box key={f.name} sx={{ py: 0.25 }}>
-                <Box sx={{ display: 'flex', gap: 0.6, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                  <Typography
-                    sx={{
-                      fontFamily: t.mono,
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: isErr ? t.dangerFg : t.ink,
-                    }}
-                  >
-                    {f.name}
-                  </Typography>
-                  {f.type.length > 0 ? (
-                    <Typography sx={{ fontFamily: t.mono, fontSize: 10, color }}>
-                      {f.type}
-                    </Typography>
-                  ) : null}
-                </Box>
-                {f.note !== undefined && f.note.length > 0 ? (
-                  <Typography
-                    sx={{ fontFamily: t.body, fontSize: 9, color: t.muted, lineHeight: 1.25 }}
-                  >
-                    {f.note}
-                  </Typography>
-                ) : null}
-              </Box>
-            ))
-          ) : (
-            <Typography
-              sx={{
-                fontFamily: t.body,
-                fontSize: 9.5,
-                color: t.muted,
-                lineHeight: 1.35,
-                fontStyle: 'italic',
-              }}
-            >
-              {struct._fallback === true ? '(fields not detailed in this contract)' : '(no fields)'}
-            </Typography>
-          )}
-        </Box>
-      )}
-    </Box>
-  );
-}
-
-const nodeTypes = { iface: InterfaceNode, column: ColumnNode };
-
-/**
- * How far past the interface's right edge a `returns` edge turns toward its
- * card: close to the interface, so the edge's LABEL rides the long last segment
- * into the card — clear of the interface's border and of the other edges' turns.
- */
-const RETURNS_TURN = 20;
-
-/**
- * An interface → response / error edge (designer check on renderers S3). As a
- * plain smoothstep its label sat at the path's middle — on the shared vertical
- * turn, against the interface node's border, and on top of the "returns error"
- * label beside it. Here the turn is RETURNS_TURN past the interface, and the
- * label is centred on the last segment, at its own card's height.
- */
-function ReturnsEdge({
-  id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  label,
-  style,
-  markerEnd,
-  labelStyle,
-  labelBgStyle,
-  labelBgPadding,
-  labelBgBorderRadius,
-}: EdgeProps): ReactNode {
-  const turnX = sourceX + RETURNS_TURN;
-  const [path] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-    centerX: turnX,
-    borderRadius: 5,
-  });
-  return (
-    <BaseEdge
-      labelShowBg
-      id={id}
-      label={label}
-      labelX={(turnX + targetX) / 2}
-      labelY={targetY}
-      path={path}
-      {...(style !== undefined ? { style } : {})}
-      {...(markerEnd !== undefined ? { markerEnd } : {})}
-      {...(labelStyle !== undefined ? { labelStyle } : {})}
-      {...(labelBgStyle !== undefined ? { labelBgStyle } : {})}
-      {...(labelBgPadding !== undefined ? { labelBgPadding } : {})}
-      {...(labelBgBorderRadius !== undefined ? { labelBgBorderRadius } : {})}
-    />
-  );
-}
-
-const edgeTypes = { returns: ReturnsEdge };
-
-/** Frames to wait, at most, for React Flow to measure newly added nodes. */
-const MEASURE_FRAMES = 30;
-
-// Re-frames the canvas whenever `dep` changes (an op expands or collapses), its
-// width does, or the drawing RE-MEASURES at the same content (useMeasuredSizes:
-// a webfont swapping in unwraps the op signatures and the node gets shorter —
-// without that dep the frame kept the taller height and an empty band opened
-// below the node). Lives as a child of <ReactFlow> so it can use the flow hooks. It
-// waits until React Flow has MEASURED every node (a new column is added
-// unmeasured, and bounds taken then are the interface's alone), then sizes the
-// canvas to the drawing (fitContent.fitToWidth) — the zoom by the width, never
-// below CODE_MIN_ZOOM nor past 1.0, the drawing TOP-aligned, the canvas as tall
-// as the drawing — and places it. The resize re-runs it; the next pass places.
-// Before any op is expanded the canvas is the interface's own height, so the node
-// no longer floats in a box sized for its expansion (designer check on S3).
-function FrameOnChange({
-  dep,
-  height,
-  onHeight,
-}: {
-  dep: string | null;
-  height: number;
-  onHeight: (height: number) => void;
-}): null {
-  const { setViewport, getNodes, getNodesBounds, getInternalNode } = useReactFlow();
-  const paneWidth = useStore((s) => s.width);
-  const measured = useMeasuredSizes();
-  useEffect(() => {
-    let raf = 0;
-    let frames = 0;
-    const step = (): void => {
-      const nodes = getNodes();
-      const unmeasured = nodes.some((n) => {
-        const m = getInternalNode(n.id)?.measured;
-        return (m?.width ?? 0) === 0 || (m?.height ?? 0) === 0;
-      });
-      if ((unmeasured || paneWidth === 0) && frames < MEASURE_FRAMES) {
-        frames += 1;
-        raf = requestAnimationFrame(step);
-        return;
-      }
-      const fit = fitToWidth({
-        paneWidth,
-        bounds: getNodesBounds(nodes),
-        minZoom: CODE_MIN_ZOOM,
-        maxZoom: 1,
-        gutter: CODE_CANVAS_GUTTER,
-        frame: CODE_CANVAS_BORDERS,
-        minHeight: CODE_CANVAS_MIN_HEIGHT,
-      });
-      if (fit.height !== height) {
-        onHeight(fit.height);
-        return;
-      }
-      void setViewport(
-        { x: fit.x, y: fit.y, zoom: fit.zoom },
-        { duration: prefersReducedMotion() ? 0 : 250 }
-      );
-    };
-    raf = requestAnimationFrame(() => {
-      raf = requestAnimationFrame(step);
-    });
-    return (): void => {
-      cancelAnimationFrame(raf);
-    };
-  }, [
-    dep,
-    measured,
-    height,
-    paneWidth,
-    onHeight,
-    setViewport,
-    getNodes,
-    getNodesBounds,
-    getInternalNode,
-  ]);
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// ContractCodeFlow
-// ---------------------------------------------------------------------------
-
 export function ContractCodeFlow({
   component,
+  title,
   ops,
   t,
 }: {
+  /** The contract's component id (the comment anchors key on it). */
   component: string;
+  /** The interface's display name (its type name); the id when absent. */
+  title?: string | undefined;
   ops: ContractOp[];
   t: Tokens;
 }): ReactNode {
-  const [activeOp, setActiveOp] = useState<string | null>(null);
-  // The canvas is the drawing's own height (FrameOnChange), from its least.
-  const [height, setHeight] = useState(CODE_CANVAS_MIN_HEIGHT);
+  // The first operation opens selected: the diagram shows a whole call at first sight.
+  const [activeOp, setActiveOp] = useState<string | null>(ops[0]?.signature ?? null);
+  // The selected row's top inside the interface: the side columns sit level with it.
+  const [rowTop, setRowTop] = useState(0);
   const { setAnchor } = useComments();
-  // Its own React Flow id: two canvases on one page (the pane and the focus view,
-  // or two diagrams) would otherwise share xyflow's default `1` in every DOM id.
-  const rfId = flowInstanceId(useId());
+  const sharedError = useMemo(() => sharedErrorOf(ops), [ops]);
+  const name = title ?? component;
 
-  const toggleOp = useCallback((sig: string): void => {
-    setActiveOp((cur) => (cur === sig ? null : sig));
-  }, []);
-
-  // Arm an anchored comment on a specific op (rides the next phase-gate send-back).
   const commentOp = useCallback(
     (sig: string): void => {
       setAnchor({
         kind: 'node',
-        label: sig,
+        label: opShape(sig).name,
         source: `${component} · contract op`,
         jsonPath: contractOpAnchor(component, sig),
       });
@@ -635,154 +147,157 @@ export function ContractCodeFlow({
     [component, setAnchor]
   );
 
-  // React Flow's onNodeClick. Defining it also tells React Flow these nodes are
-  // interactive, so it keeps pointer-events enabled on them (otherwise a
-  // non-selectable, non-draggable node gets pointer-events:none and the pane
-  // behind it swallows the click). Rows carry a data-op attribute we read off
-  // the event target to know which op was clicked; clicking the active op again
-  // collapses it.
-  const onNodeClick = (event: ReactMouseEvent, node: Node): void => {
-    if (node.id !== 'iface') return;
-    const sig = (event.target as HTMLElement).closest('[data-op]')?.getAttribute('data-op');
-    if (sig === null || sig === undefined) return;
-    setActiveOp((cur) => (cur === sig ? null : sig));
-  };
-
   const { nodes, edges } = useMemo((): { nodes: Node[]; edges: Edge[] } => {
-    const expanded = activeOp !== null;
-    // Column x-origins. Input at 0, interface cleared to its right, output
-    // cleared past the fixed-width interface so it never overlaps the component.
-    const IFACE_X = expanded ? CODE_STRUCT_W + CODE_INPUT_GAP : 0;
-    const OUTPUT_X = IFACE_X + CODE_IFACE_W + CODE_OUTPUT_GAP;
+    const rows: InterfaceRow[] = ops.map((op, i) => {
+      const shape = opShape(op.signature);
+      const takes = shape.params.map((p) => p.name);
+      const returns = shape.returns.map(readableType);
+      const active = op.signature === activeOp;
+      return {
+        id: `${op.signature}-${String(i)}`,
+        name: shape.name,
+        detail: `${takes.length > 0 ? `takes ${listOf(takes)}` : 'takes nothing'} · ${
+          returns.length > 0 ? `returns ${listOf(returns)}` : 'returns nothing'
+        }`,
+        note: [op.stereotype, op.note ?? ''].filter((x) => x.length > 0).join(' — '),
+        active,
+        interactive: {
+          ariaLabel: `${shape.name}: ${active ? 'hide' : 'show'} what it takes and returns`,
+          dataOp: op.signature,
+          onToggle: (): void => {
+            setActiveOp((cur) => (cur === op.signature ? null : op.signature));
+          },
+          onComment: (): void => {
+            commentOp(op.signature);
+          },
+          commentLabel: `Comment on ${shape.name}`,
+          commentTestId: UI_IDENTIFIERS.Comments.listItemComment(op.signature),
+        },
+      };
+    });
 
     const ns: Node[] = [
       {
         id: 'iface',
         type: 'iface',
-        position: { x: IFACE_X, y: 0 },
-        data: { component, ops, activeOp, onToggleOp: toggleOp, onCommentOp: commentOp },
+        position: { x: DIAGRAM_MID_X, y: 0 },
+        data: {
+          stereotype: '«interface» the operations other components may call',
+          title: name,
+          subtitle:
+            sharedError !== undefined
+              ? `Every operation can fail with ${readableType(sharedError)}`
+              : undefined,
+          subtitleTip: sharedError,
+          width: DIAGRAM_MID_W,
+          rows,
+          testId: UI_IDENTIFIERS.ServiceContract.CODE_INTERFACE_NODE,
+          onActiveRowTop: setRowTop,
+        },
         draggable: false,
         selectable: false,
       },
     ];
     const es: Edge[] = [];
 
-    const op = expanded ? ops.find((o) => o.signature === activeOp) : undefined;
+    const op = activeOp !== null ? ops.find((o) => o.signature === activeOp) : undefined;
     if (op !== undefined) {
+      const shape = opShape(op.signature);
+      const paramNameOf = (type: string): string | undefined =>
+        shape.params.find((p) => p.type.replace(/^\*/, '').replace(/^\[\]/, '') === type)?.name;
       const { inputNames, outputNames } = parseSignature(op.signature);
-      const inputStructs = resolveStructs(op.inputs, inputNames);
-      const outputStructs = resolveStructs(op.outputs, outputNames);
-      const call = `${op.signature.split('(')[0] ?? 'call'}(…)`;
-
-      // LEFT — the request column
-      if (inputStructs.length > 0) {
+      const left = columnSegments(resolveStructs(op.inputs, inputNames)).map((seg, i) =>
+        segmentBox(seg, i, 'left', paramNameOf)
+      );
+      const right = columnSegments(resolveStructs(op.outputs, outputNames)).map((seg, i) =>
+        segmentBox(seg, i, 'right', paramNameOf)
+      );
+      // Level with the selected row, less a little so the first box's edge runs flat.
+      const y = Math.max(0, rowTop - 8);
+      if (left.length > 0) {
         ns.push({
-          id: 'col-in',
-          type: 'column',
-          position: { x: 0, y: 0 },
-          data: { role: 'input', structs: inputStructs },
+          id: 'left',
+          type: 'stack',
+          position: { x: 0, y },
+          data: { side: 'left', width: DIAGRAM_LEFT_W, boxes: left },
           draggable: false,
           selectable: false,
         });
-        // The call is named once, on the first edge: the edges converge on the
-        // interface, and a label per card stacked the same words there.
-        inputStructs.forEach((_s, i) => {
+        for (const b of left) {
           es.push(
-            makeEdge(
-              { source: 'col-in', sourceHandle: cardHandle('input', i), target: 'iface' },
-              i === 0 ? call : '',
-              t
-            )
+            diagramEdge(t, b.role, {
+              source: 'left',
+              sourceHandle: boxHandle.side(b.id),
+              target: 'iface',
+              targetHandle: IFACE_IN,
+            })
           );
-        });
+        }
       }
-
-      // RIGHT — the response and error column
-      if (outputStructs.length > 0) {
+      if (right.length > 0) {
         ns.push({
-          id: 'col-out',
-          type: 'column',
-          position: { x: OUTPUT_X, y: 0 },
-          data: { role: 'output', structs: outputStructs },
+          id: 'right',
+          type: 'stack',
+          position: { x: DIAGRAM_RIGHT_X, y },
+          data: { side: 'right', width: DIAGRAM_RIGHT_W, boxes: right },
           draggable: false,
           selectable: false,
         });
-        outputStructs.forEach((s, i) => {
-          const isErr = isErrorStructName(s.name);
+        for (const b of right) {
           es.push(
-            makeEdge(
-              { source: 'iface', target: 'col-out', targetHandle: cardHandle('output', i) },
-              isErr ? 'returns error' : 'returns',
-              t,
-              isErr,
-              'returns'
-            )
+            diagramEdge(t, b.role, {
+              source: 'iface',
+              sourceHandle: IFACE_OUT,
+              target: 'right',
+              targetHandle: boxHandle.side(b.id),
+            })
           );
-        });
+        }
       }
     }
-
     return { nodes: ns, edges: es };
-  }, [component, ops, activeOp, t, toggleOp, commentOp]);
+  }, [ops, activeOp, rowTop, name, sharedError, t, commentOp]);
 
-  const activeMethod = ops.find((o) => o.signature === activeOp);
-  const count = `${String(ops.length)} op${ops.length !== 1 ? 's' : ''}`;
+  const activeShape = activeOp !== null ? opShape(activeOp) : undefined;
+  const count = `${String(ops.length)} operation${ops.length !== 1 ? 's' : ''}`;
+  const summary =
+    activeShape !== undefined
+      ? `${name} offers ${count}: ${ops.map((o) => opShape(o.signature).name).join(', ')}. ` +
+        `Selected: ${activeShape.name}, which takes ${
+          activeShape.params.map((p) => `${p.name} (${readableType(p.type)})`).join(', ') ||
+          'nothing'
+        } and returns ${activeShape.returns.map(readableType).join(', ') || 'nothing'}${
+          activeShape.errors.length > 0
+            ? `, failing with ${activeShape.errors.map(readableType).join(', ')}`
+            : ''
+        }.`
+      : `${name} offers ${count}. Select one to show what it takes and returns.`;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, minWidth: 0 }}>
-      {/* The ONE caption, above the canvas: what it draws, and what a click does.
-          (S3 said "Click an op to expand" twice — here and in the tab above.)
-          Nothing sits over the cards. */}
-      <Typography
-        data-testid={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS_CAPTION}
-        sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.45 }}
-      >
-        <Box component="span" sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em' }}>
-          C4 · CODE LEVEL (GO)
-        </Box>
-        {' · The '}
-        <b>«interface»</b>
-        {' surface for '}
-        <b>{component}</b>
-        {` — ${count}. `}
-        {activeMethod !== undefined ? (
-          <>
-            <b>{activeMethod.signature.split('(')[0]}</b> · request (left) → interface (middle) →
-            response (right). Click it again to collapse.
-          </>
-        ) : (
-          <>Click an op to expand its request / response structs.</>
-        )}
-      </Typography>
-      <Box
-        data-canvas-height={String(height)}
-        data-testid={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS_FRAME}
-        sx={{
-          height,
-          width: '100%',
-          boxSizing: 'border-box',
-          border: `1.5px solid ${t.line}`,
-          borderRadius: t.radius / 8 + 0.5,
-          bgcolor: t.bg,
-        }}
-      >
-        <ReactFlow
-          edgeTypes={edgeTypes}
-          edges={edges}
-          id={rfId}
-          maxZoom={1.5}
-          minZoom={0.3}
-          nodeTypes={nodeTypes}
-          nodes={nodes}
-          nodesConnectable={false}
-          nodesDraggable={false}
-          proOptions={{ hideAttribution: true }}
-          onNodeClick={onNodeClick}
-        >
-          <FrameOnChange dep={activeOp} height={height} onHeight={setHeight} />
-          <Background color={t.line} gap={22} size={1} />
-        </ReactFlow>
-      </Box>
-    </Box>
+    <CodeDiagramCanvas
+      caption={
+        <>
+          <Box component="span" sx={{ fontWeight: 700, color: t.ink }}>
+            {`C4 code level · ${count}. `}
+          </Box>
+          {activeShape !== undefined ? (
+            <>
+              Showing <b>{activeShape.name}</b>: what it takes (left) and what it returns or fails
+              with (right). Select another operation to switch, or it again to hide.{' '}
+            </>
+          ) : (
+            <>Select an operation to show the classes it takes and returns. </>
+          )}
+          <DiagramLegend roles={['input', 'output', 'error']} />
+        </>
+      }
+      captionTestId={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS_CAPTION}
+      dep={`${activeOp ?? ''}:${String(rowTop)}`}
+      edges={edges}
+      frameTestId={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS_FRAME}
+      label={`Class diagram of the ${name} interface`}
+      nodes={nodes}
+      summary={summary}
+    />
   );
 }

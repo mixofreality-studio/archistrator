@@ -60,6 +60,7 @@ import {
 } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -75,6 +76,7 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import FitScreenOutlinedIcon from '@mui/icons-material/FitScreenOutlined';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -1020,35 +1022,69 @@ export function LifecycleGraph({
         )}
       </Box>
 
-      <ToggleButtonGroup
-        exclusive
-        aria-label="Lifecycle lens"
-        size="small"
-        sx={{ flexShrink: 0, alignSelf: 'flex-start', mt: '4px' }}
-        value={lens}
-        onChange={(_e, next: LifecycleLens | null) => {
-          if (next !== null) chooseLens(next);
+      <Box
+        sx={{
+          flexShrink: 0,
+          alignSelf: 'flex-start',
+          mt: '4px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
         }}
       >
-        <ToggleButton
-          aria-label="Actual size, scrolling"
-          data-testid={UI_IDENTIFIERS.ActivityLifecycle.LENS_SCROLL}
-          sx={{ p: '3px', color: t.muted, borderColor: t.line }}
-          title="Actual size — scroll to every task"
-          value="scroll"
+        <Tooltip
+          describeChild
+          title={
+            <Box sx={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              <b>How to read this lifecycle</b>
+              <br />
+              Each circle is one task: the robot is an agent doing the work, the checked page is a
+              review of what it produced. A small tick means the task is done.
+              <br />
+              The labels are the activity&apos;s phases; the percentage is that phase&apos;s share
+              of the activity&apos;s effort, and a ✓ means its gate has passed.
+              <br />
+              Select a task to open it; the arrow beside the open task lists its earlier revisions.
+            </Box>
+          }
         >
-          <SwapHorizIcon sx={{ fontSize: 16 }} />
-        </ToggleButton>
-        <ToggleButton
-          aria-label="Fit every task on screen"
-          data-testid={UI_IDENTIFIERS.ActivityLifecycle.LENS_FIT}
-          sx={{ p: '3px', color: t.muted, borderColor: t.line }}
-          title="Fit every task on screen"
-          value="fit"
+          <IconButton
+            aria-label="How to read this lifecycle"
+            size="small"
+            sx={{ width: 32, height: 32, color: t.muted }}
+          >
+            <HelpOutlineIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+        <ToggleButtonGroup
+          exclusive
+          aria-label="Lifecycle lens"
+          size="small"
+          value={lens}
+          onChange={(_e, next: LifecycleLens | null) => {
+            if (next !== null) chooseLens(next);
+          }}
         >
-          <FitScreenOutlinedIcon sx={{ fontSize: 16 }} />
-        </ToggleButton>
-      </ToggleButtonGroup>
+          <ToggleButton
+            aria-label="Actual size, scrolling"
+            data-testid={UI_IDENTIFIERS.ActivityLifecycle.LENS_SCROLL}
+            sx={{ p: '6px', minWidth: 32, minHeight: 32, color: t.muted, borderColor: t.line }}
+            title="Actual size — scroll to every task"
+            value="scroll"
+          >
+            <SwapHorizIcon sx={{ fontSize: 16 }} />
+          </ToggleButton>
+          <ToggleButton
+            aria-label="Fit every task on screen"
+            data-testid={UI_IDENTIFIERS.ActivityLifecycle.LENS_FIT}
+            sx={{ p: '6px', minWidth: 32, minHeight: 32, color: t.muted, borderColor: t.line }}
+            title="Fit every task on screen"
+            value="fit"
+          >
+            <FitScreenOutlinedIcon sx={{ fontSize: 16 }} />
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
 
       <Menu
         anchorEl={menu?.anchor ?? null}

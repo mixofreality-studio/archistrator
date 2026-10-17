@@ -251,5 +251,5 @@ export function taskArtifactFor(input: {
   // 4. The registry, scoped by ARTIFACT_PHASES.
   return ARTIFACT_PHASES[classification].some((p) => p === phase)
     ? { kind: 'classified', classification, phase }
-    : { kind: 'unavailable', reason: artifactNotOfThisPhase(classification) };
+    : { kind: 'unavailable', reason: artifactNotOfThisPhase(classification, phase) };
 }

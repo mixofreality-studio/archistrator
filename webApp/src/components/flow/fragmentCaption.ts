@@ -173,7 +173,7 @@ export function ccChecksChipShown(
 }
 
 export function ccChecksChipLabel(status: 'red' | 'green', findingsCount: number): string {
-  if (status === 'green') return 'CC checks · passing';
+  if (status === 'green') return 'Call-chain checks pass';
   const n = Math.max(findingsCount, 0);
-  return `CC checks · ${String(n)} finding${n === 1 ? '' : 's'} here`;
+  return `Call-chain checks · ${String(n)} finding${n === 1 ? '' : 's'} here`;
 }

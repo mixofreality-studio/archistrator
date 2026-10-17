@@ -32,24 +32,33 @@ export type OnboardingStepResult =
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function BillingOnboarding({
+  defaultAppId,
+  defaultProjectId,
   onboard,
   register,
   onOnboard,
   onRegister,
 }: {
+  /** This project's deployed-app id, pre-filled into step 1 (editable). */
+  defaultAppId?: string | undefined;
+  /** This project's id, pre-filled into step 2 (editable). */
+  defaultProjectId?: string | undefined;
   onboard: OnboardingStepResult | undefined;
   register: OnboardingStepResult | undefined;
   onOnboard: (deployedAppId: string) => void;
   onRegister: (customerId: string, projectId: string) => void;
 }): ReactNode {
   const t = useTokens();
-  const [appId, setAppId] = useState('');
+  // Typed, else this project's own deployed app (it arrives after the first render).
+  const [typedAppId, setTypedAppId] = useState<string | undefined>(undefined);
+  const appId = typedAppId ?? defaultAppId ?? '';
   // Step 2's customer: typed, or — once step 1 answered and nothing was typed — the
   // customer step 1 resolved the app to.
   const [typedCustomer, setTypedCustomer] = useState<string | undefined>(undefined);
   const customerId = typedCustomer ?? (onboard?.kind === 'done' ? onboard.customerId : '');
 
-  const [projectId, setProjectId] = useState('');
+  const [typedProject, setTypedProject] = useState<string | undefined>(undefined);
+  const projectId = typedProject ?? defaultProjectId ?? '';
 
   const appValid = UUID.test(appId.trim());
   const customerValid = UUID.test(customerId.trim());
@@ -57,14 +66,18 @@ export function BillingOnboarding({
 
   return (
     <Paper data-testid={UI_IDENTIFIERS.Billing.ONBOARDING} sx={{ p: 2.5, mb: 3 }}>
-      <Typography sx={{ color: t.ink, fontFamily: t.display, fontWeight: 700, fontSize: 16 }}>
-        Payment onboarding
+      <Typography
+        component="h2"
+        sx={{ color: t.ink, fontFamily: t.display, fontWeight: 700, fontSize: 16 }}
+      >
+        Set up payments
       </Typography>
       <Typography sx={{ color: t.muted, fontSize: 13, mb: 2, lineHeight: 1.5 }}>
-        Open payment onboarding for a deployed app, then register the customer&apos;s payment
-        instrument. Registration validates the stored instrument with a zero-amount authorization —
-        nothing is charged.
+        Two steps. First connect this project&apos;s deployed app to billing — that creates your
+        billing customer. Then register your payment method for the project; it is checked with a
+        zero-amount authorization, so nothing is charged.
       </Typography>
+      <StepHeading n={1} t={t} text="Connect the deployed app to billing" />
 
       <Box
         component="form"
@@ -76,14 +89,18 @@ export function BillingOnboarding({
       >
         <TextField
           error={appId !== '' && !appValid}
-          helperText={appId !== '' && !appValid ? 'A deployed app id is a UUID' : ' '}
-          label="Deployed app id"
+          helperText={
+            appId !== '' && !appValid
+              ? 'A deployed app ID looks like 8-4-4-4-12 hex characters'
+              : 'Filled in with this project’s deployed app'
+          }
+          label="Deployed app ID"
           size="small"
           slotProps={{ htmlInput: { 'data-testid': UI_IDENTIFIERS.Billing.ONBOARD_APP_ID_INPUT } }}
           sx={{ minWidth: 320 }}
           value={appId}
           onChange={(e) => {
-            setAppId(e.target.value);
+            setTypedAppId(e.target.value);
           }}
         />
         <Button
@@ -92,19 +109,20 @@ export function BillingOnboarding({
           type="submit"
           variant="contained"
         >
-          Open payment onboarding
+          Connect to billing
         </Button>
       </Box>
       <StepResult
-        doneCopy="Onboarding opened for customer"
+        doneCopy="Connected. Your billing customer ID is"
         refusedTestId={UI_IDENTIFIERS.Billing.ONBOARD_REFUSED}
         result={onboard}
         testId={UI_IDENTIFIERS.Billing.ONBOARD_RESULT}
       />
 
+      <StepHeading n={2} t={t} text="Register your payment method" />
       <Box
         component="form"
-        sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-start', mt: 2 }}
+        sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-start' }}
         onSubmit={(e) => {
           e.preventDefault();
           if (customerValid && projectValid && register?.kind !== 'pending') {
@@ -114,8 +132,12 @@ export function BillingOnboarding({
       >
         <TextField
           error={customerId !== '' && !customerValid}
-          helperText={customerId !== '' && !customerValid ? 'A customer id is a UUID' : ' '}
-          label="Customer id"
+          helperText={
+            customerId !== '' && !customerValid
+              ? 'A customer ID looks like 8-4-4-4-12 hex characters'
+              : 'Filled in by step 1'
+          }
+          label="Billing customer ID"
           size="small"
           slotProps={{
             htmlInput: { 'data-testid': UI_IDENTIFIERS.Billing.REGISTER_CUSTOMER_ID_INPUT },
@@ -136,7 +158,7 @@ export function BillingOnboarding({
           sx={{ minWidth: 240 }}
           value={projectId}
           onChange={(e) => {
-            setProjectId(e.target.value);
+            setTypedProject(e.target.value);
           }}
         />
         <Button
@@ -149,12 +171,28 @@ export function BillingOnboarding({
         </Button>
       </Box>
       <StepResult
-        doneCopy="Customer registered"
+        doneCopy="Payment method registered for customer"
         refusedTestId={UI_IDENTIFIERS.Billing.REGISTER_REFUSED}
         result={register}
         testId={UI_IDENTIFIERS.Billing.REGISTER_RESULT}
       />
     </Paper>
+  );
+}
+
+function StepHeading({
+  n,
+  text,
+  t,
+}: {
+  n: number;
+  text: string;
+  t: ReturnType<typeof useTokens>;
+}): ReactNode {
+  return (
+    <Typography component="h3" sx={{ color: t.ink, fontWeight: 700, fontSize: 14, mb: 1, mt: 1 }}>
+      {`Step ${String(n)} · ${text}`}
+    </Typography>
   );
 }
 
@@ -184,7 +222,7 @@ function StepResult({
         ? 'Working…'
         : result.kind === 'done'
           ? `${doneCopy} ${result.customerId}.`
-          : `Refused: ${result.message}`}
+          : `Couldn’t complete this step: ${result.message}`}
     </Typography>
   );
 }

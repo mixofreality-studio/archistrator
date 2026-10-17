@@ -275,7 +275,7 @@ function TimelineRow({ event, t }: { event: TimelineEvent; t: Tokens }): ReactNo
       {tools.map((tool, i) => (
         <Box key={`${String(event.seq)}-${String(i)}`} sx={{ pl: 3.5 }}>
           <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, fontWeight: 700, color: t.ink }}>
-            tool_use · {tool.name ?? 'unknown'}
+            Used tool · {tool.name ?? 'unknown'}
           </Typography>
           <Typography
             sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, wordBreak: 'break-word' }}

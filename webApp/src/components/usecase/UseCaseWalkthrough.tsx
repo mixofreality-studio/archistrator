@@ -39,7 +39,7 @@ import { laneColors } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { walkthroughRoots, walkthroughNavFloor } from './walkthroughRoots';
-import { stepBadgeState, toneColor } from './useCaseChip';
+import { stepBadgeHint, stepBadgeState, toneColor } from './useCaseChip';
 import { StepLink } from '../shared/StepLink';
 
 type NodeView = UseCaseView['nodes'][number];
@@ -90,11 +90,14 @@ function stepBadge(
   node: NodeView | undefined,
   realization: Map<string, RealizedStep>,
   stepFindings: (nodeId: string) => Finding[]
-): { label: string; tone: 'ok' | 'warn' | 'error' } | undefined {
+): { label: string; tone: 'ok' | 'warn' | 'error'; hint: string } | undefined {
   if (node === undefined) return undefined;
   const realized = realization.get(node.id);
   const findings = realized !== undefined ? stepFindings(node.id) : [];
-  return stepBadgeState(node.kind, realized, findings);
+  const state = stepBadgeState(node.kind, realized, findings);
+  return state === undefined
+    ? undefined
+    : { ...state, hint: stepBadgeHint(state.tone, findings[0]?.ruleId) };
 }
 
 export function UseCaseWalkthrough({
@@ -418,6 +421,7 @@ export function UseCaseWalkthrough({
             <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
               {node !== undefined && (
                 <Chip
+                  aria-label={`Swimlane: ${node.lane}`}
                   label={node.lane}
                   size="small"
                   sx={{
@@ -431,21 +435,26 @@ export function UseCaseWalkthrough({
                 />
               )}
               {badge !== undefined ? (
-                <Chip
-                  data-testid={UI_IDENTIFIERS.UseCaseCarousel.STEP_BADGE}
-                  label={badge.label}
-                  size="small"
-                  sx={{
-                    height: 20,
-                    fontFamily: t.mono,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    bgcolor: 'transparent',
-                    color: toneColor(badge.tone, t),
-                    border: `1.5px solid ${toneColor(badge.tone, t)}`,
-                    borderRadius: 0.5,
-                  }}
-                />
+                <Tooltip title={badge.hint}>
+                  <Chip
+                    aria-label={badge.hint}
+                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.STEP_BADGE}
+                    label={badge.label}
+                    size="small"
+                    sx={{
+                      height: 20,
+                      fontFamily: t.mono,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      bgcolor: 'transparent',
+                      color: toneColor(badge.tone, t),
+                      border: `1.5px solid ${toneColor(badge.tone, t)}`,
+                      borderRadius: 0.5,
+                      '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
+                    }}
+                    tabIndex={0}
+                  />
+                </Tooltip>
               ) : null}
               {enabled && !showEntryChooser ? (
                 <Tooltip title={`Comment on step ${String(path.length)}`}>
@@ -498,7 +507,7 @@ export function UseCaseWalkthrough({
           </Typography>
 
           {/* realized calls for the current step, when it has one — the
-              from → to · label list plus a join into the Architecture step's
+              from → to · label list plus a join into the Architecture review's
               Dynamic lens, landing on this exact step (?step= = its global seq). */}
           {realizedStep !== undefined ? (
             <Box
@@ -600,7 +609,7 @@ export function UseCaseWalkthrough({
               </Box>
             ) : isEnd ? (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <FlagIcon sx={{ fontSize: 18, color: t.committedDot }} />
+                <FlagIcon aria-hidden sx={{ fontSize: 18, color: t.committedDot }} />
                 <Typography sx={{ color: t.muted, fontSize: 13, fontFamily: t.mono }}>
                   End of this path.
                 </Typography>
@@ -710,7 +719,7 @@ export function UseCaseWalkthrough({
                 mb: 0.75,
               }}
             >
-              Path
+              Path so far — select a step to go back to it
             </Typography>
             <Collapse collapsedSize={PATH_COLLAPSED_HEIGHT} id={pathRegionId} in={pathExpanded}>
               <Box
@@ -727,15 +736,24 @@ export function UseCaseWalkthrough({
                     >
                       {idx > 0 && <Typography sx={{ color: t.muted, fontSize: 11 }}>→</Typography>}
                       <Typography
+                        aria-label={`Rewind to step ${String(idx + 1)}: ${n !== undefined ? nodeText(n) : id}`}
                         data-testid={UI_IDENTIFIERS.UseCaseCarousel.walkthroughPathStep(idx)}
                         role="button"
                         sx={{
                           fontFamily: t.mono,
                           fontSize: 11,
                           cursor: 'pointer',
-                          color: last ? t.accent : t.muted,
+                          // The current step reads in full ink + bold; the
+                          // accent failed AA as 11px text on the dark themes.
+                          color: last ? t.ink : t.muted,
                           fontWeight: last ? 700 : 400,
-                          '&:hover': { color: t.ink },
+                          borderRadius: 0.5,
+                          outline: 'none',
+                          '&:hover': { color: t.ink, textDecoration: 'underline' },
+                          '&:focus-visible': {
+                            outline: `2px solid ${t.accent}`,
+                            outlineOffset: 1,
+                          },
                         }}
                         tabIndex={0}
                         onClick={() => {
@@ -761,6 +779,10 @@ export function UseCaseWalkthrough({
                 aria-expanded={pathExpanded}
                 sx={{
                   mt: 0.5,
+                  minHeight: 24,
+                  px: 0.5,
+                  borderRadius: 0.5,
+                  '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 1 },
                   justifyContent: 'flex-start',
                   fontFamily: t.mono,
                   fontSize: 10.5,
@@ -792,6 +814,10 @@ export function UseCaseWalkthrough({
             aria-expanded={mapOpen}
             sx={{
               mb: 0.75,
+              minHeight: 24,
+              px: 0.5,
+              borderRadius: 0.5,
+              '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 1 },
               justifyContent: 'flex-start',
               fontFamily: t.mono,
               fontSize: 11,

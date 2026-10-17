@@ -39,6 +39,8 @@ export interface C4NodeData {
   /** Selection carried through data (xyflow's built-in controlled selection is inert
    *  here) — drives the Comment toolbar + accent ring. */
   isSelected?: boolean;
+  /** Out of focus (flowLayout's MUTED_NODE_STYLE): muted text + dashed frame. */
+  dimmed?: boolean;
   [key: string]: unknown;
 }
 
@@ -49,6 +51,7 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
   const hasDetail = d.encapsulates.length > 0;
   const showPreview = d.showEncapsulates !== false && hasDetail;
   const warned = d.volatilityWarning === true;
+  const dimmed = d.dimmed === true;
   const findings = d.structureFindings ?? [];
   const findingCopy =
     findings.length > 0
@@ -102,9 +105,11 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
         width: 188,
         px: 1.5,
         py: 1,
-        bgcolor: t.paperAlt,
-        color: t.ink,
-        border: `1.5px solid ${isSelected ? t.accent : t.line}`,
+        // Out of focus (MUTED_NODE_STYLE): muted text on the canvas tone behind a
+        // dashed frame — it recedes while every label stays AA-legible.
+        bgcolor: dimmed ? t.bg : t.paperAlt,
+        color: dimmed ? t.muted : t.ink,
+        border: `1.5px ${dimmed ? 'dashed' : 'solid'} ${isSelected ? t.accent : dimmed ? t.muted : t.line}`,
         borderTop: `4px solid ${d.color}`,
         borderRadius: 4,
         boxShadow: isSelected ? `0 0 0 2px ${t.accent}` : 'none',
@@ -126,7 +131,9 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
           sx={{
             fontFamily: t.mono,
             fontSize: 9,
-            color: d.color,
+            // Muted ink, not the layer colour: the 4px top stripe already carries
+            // the colour, and several layer tones (Engines' olive) fail AA as 9px text.
+            color: t.muted,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
           }}
@@ -282,7 +289,7 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
                   sx={{
                     fontFamily: t.mono,
                     fontSize: 8.5,
-                    color: d.color,
+                    color: t.muted,
                     letterSpacing: '0.08em',
                     textTransform: 'uppercase',
                     mb: 0.5,

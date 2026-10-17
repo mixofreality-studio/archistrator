@@ -229,7 +229,7 @@ export function RiskModelView({
                     fontFamily: t.mono,
                     fontSize: 10.5,
                     fontWeight: r.included ? 500 : 700,
-                    color: r.included ? t.muted : t.accent,
+                    color: r.included ? t.muted : t.accentInk,
                     flexGrow: 1,
                     minWidth: 0,
                   }}

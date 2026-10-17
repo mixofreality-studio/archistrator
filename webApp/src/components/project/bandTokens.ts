@@ -27,9 +27,10 @@ export function bandTokens(t: Tokens, band: FloatBand): BandTokens {
   return { fg, soft: alpha(fg, 0.16) };
 }
 
+/** Each band in words — the colour's name alone ("red") explains nothing. */
 export const BAND_LABEL: Record<FloatBand, string> = {
-  critical: 'critical',
-  red: 'red ≤5d float',
-  yellow: 'yellow 6–25d float',
-  green: 'green ≥26d float',
+  critical: 'critical, 0 days float',
+  red: 'near-critical, 1–5 days float',
+  yellow: '6–25 days float',
+  green: '26+ days float',
 };

@@ -26,7 +26,7 @@ import { CRITICAL_PATH_TOKEN } from '../project/bandRamp';
 import { taskDetailStateFill } from '../construction/detail/detailPaneState.ts';
 import { LifecycleGraphMini } from './LifecycleGraphMini';
 import { miniLifecycleLabel } from './miniLifecycleFromRow.ts';
-import { CRITICAL_MARK, M0_DIVIDER, planEmptyState } from './planCopy.ts';
+import { CRITICAL_MARK, CRITICAL_MEANING, LEGEND, M0_DIVIDER, planEmptyState } from './planCopy.ts';
 import {
   PLAN_STATE_DETAIL,
   PLAN_STATE_LABEL,
@@ -50,7 +50,7 @@ function PlanListRow({
   t: Tokens;
   onOpen: () => void;
 }): ReactNode {
-  const state = planStateFor(activity.lifecycle);
+  const state = planStateFor(activity.lifecycle, activity.owedToYou);
   const fill = taskDetailStateFill(t, PLAN_STATE_DETAIL[state]);
   const done = activity.lifecycle.filter((n) => n.state === 'done').length;
   return (
@@ -68,12 +68,13 @@ function PlanListRow({
         display: 'grid',
         gridTemplateColumns: {
           xs: '1fr auto',
-          md: 'minmax(150px, 190px) minmax(180px, 1fr) 132px 220px 44px',
+          md: GRID_COLUMNS,
         },
         alignItems: 'center',
         columnGap: 2,
         px: 2,
         py: 1.25,
+        minHeight: 48,
         cursor: 'pointer',
         // The critical path is a 3px LEFT EDGE on the row's own lane (the
         // CRITICAL_PATH_TOKEN idiom) plus the word "CP" below — never a border
@@ -92,6 +93,7 @@ function PlanListRow({
     >
       <Typography
         sx={{
+          display: { xs: 'none', md: 'block' },
           fontFamily: t.mono,
           fontWeight: 700,
           fontSize: 12.5,
@@ -100,6 +102,7 @@ function PlanListRow({
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
         }}
+        title={activity.id}
       >
         {activity.id}
       </Typography>
@@ -109,7 +112,7 @@ function PlanListRow({
       <Box
         component="span"
         sx={{
-          display: { xs: 'none', md: 'inline-flex' },
+          display: 'inline-flex',
           justifySelf: 'start',
           alignItems: 'center',
           height: 20,
@@ -150,11 +153,71 @@ function PlanListRow({
           fontWeight: 700,
           fontSize: 10.5,
           letterSpacing: '0.06em',
-          color: activity.onCriticalPath ? t[CRITICAL_PATH_TOKEN] : 'transparent',
+          // Ink, not the path colour: the word must clear AA on every theme; the
+          // coloured edge carries the colour.
+          color: activity.onCriticalPath ? t.ink : 'transparent',
         }}
+        title={activity.onCriticalPath ? CRITICAL_MEANING : undefined}
       >
         {activity.onCriticalPath ? CRITICAL_MARK : ''}
       </Typography>
+    </Box>
+  );
+}
+
+/** The row grid at md+, shared by the column header and every row. */
+const GRID_COLUMNS = 'minmax(150px, 190px) minmax(180px, 1fr) 132px 220px 44px';
+
+/**
+ * The plan's legend — what every mark on a row or tile means. Shared by the LIST
+ * and the GRAPH so the two lenses explain themselves the same way.
+ */
+export function PlanLegend({ criticalCount }: { criticalCount?: number | undefined }): ReactNode {
+  const t = useTokens();
+  const item = (mark: ReactNode, text: string): ReactNode => (
+    <Box component="li" sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
+      <Box aria-hidden sx={{ flexShrink: 0, minWidth: 22, display: 'flex', alignItems: 'center' }}>
+        {mark}
+      </Box>
+      <Typography sx={{ fontSize: 12.5, color: t.muted, lineHeight: 1.45 }}>{text}</Typography>
+    </Box>
+  );
+  return (
+    <Box
+      aria-label="Legend"
+      component="ul"
+      sx={{
+        listStyle: 'none',
+        m: 0,
+        mt: 1.5,
+        p: 0,
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+        columnGap: 3,
+        rowGap: 0.5,
+      }}
+    >
+      {item(
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 10.5,
+            color: t[CRITICAL_PATH_TOKEN],
+          }}
+        >
+          {CRITICAL_MARK}
+        </Typography>,
+        `${CRITICAL_MARK} and a coloured left edge — ${CRITICAL_MEANING.charAt(0).toLowerCase()}${CRITICAL_MEANING.slice(1)}${
+          criticalCount !== undefined ? ` (${String(criticalCount)} here)` : ''
+        }`
+      )}
+      {item(<Typography sx={{ fontSize: 12, color: t.muted }}>●●○</Typography>, LEGEND.steps)}
+      {item(<FlagOutlinedIcon sx={{ fontSize: 15, color: t.accent }} />, LEGEND.milestone)}
+      {item(
+        <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: t.awaitingFg }} />,
+        `${LEGEND.awaitingYou}. ${LEGEND.inReview}`
+      )}
     </Box>
   );
 }
@@ -176,46 +239,70 @@ export function PlanList({ activities, emptyReason, onOpen }: PlanListProps): Re
   // rather than a divider over nothing.
   const lastFrontEnd = activities.reduce((at, a, i) => (a.row === 'frontEnd' ? i : at), -1);
   return (
-    <Paper data-testid={UI_IDENTIFIERS.Plan.LIST} sx={{ overflow: 'hidden' }}>
-      {activities.map((a, i) => (
-        <Box key={a.id}>
-          <PlanListRow
-            activity={a}
-            t={t}
-            onOpen={() => {
-              onOpen(a.id);
-            }}
-          />
-          {i === lastFrontEnd ? (
-            <Box
-              data-testid={UI_IDENTIFIERS.Plan.M0_DIVIDER}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                px: 2,
-                py: 0.75,
-                bgcolor: t.paperAlt,
-                borderBottom: `1px solid ${t.line}`,
+    <>
+      <Paper data-testid={UI_IDENTIFIERS.Plan.LIST} sx={{ overflow: 'hidden' }}>
+        {/* Column header — visual only: each row button reads its own cells. */}
+        <Box
+          aria-hidden
+          sx={{
+            display: { xs: 'none', md: 'grid' },
+            gridTemplateColumns: GRID_COLUMNS,
+            columnGap: 2,
+            px: 2,
+            py: 0.75,
+            borderLeft: '2px solid transparent',
+            borderBottom: `1.5px solid ${t.line}`,
+            bgcolor: t.paperAlt,
+            '& > .MuiTypography-root': { fontSize: 12, fontWeight: 700, color: t.muted },
+          }}
+        >
+          <Typography>Activity ID</Typography>
+          <Typography>Title</Typography>
+          <Typography>Status</Typography>
+          <Typography>Steps done</Typography>
+          <Typography sx={{ justifySelf: 'end' }}>Path</Typography>
+        </Box>
+        {activities.map((a, i) => (
+          <Box key={a.id}>
+            <PlanListRow
+              activity={a}
+              t={t}
+              onOpen={() => {
+                onOpen(a.id);
               }}
-            >
-              <FlagOutlinedIcon sx={{ fontSize: 15, color: t.accent }} />
-              <Typography
+            />
+            {i === lastFrontEnd ? (
+              <Box
+                data-testid={UI_IDENTIFIERS.Plan.M0_DIVIDER}
                 sx={{
-                  fontFamily: t.mono,
-                  fontWeight: 700,
-                  fontSize: 11,
-                  letterSpacing: '0.12em',
-                  color: t.accent,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 2,
+                  py: 0.75,
+                  bgcolor: t.paperAlt,
+                  borderBottom: `1px solid ${t.line}`,
                 }}
               >
-                {M0_DIVIDER}
-              </Typography>
-              <Box sx={{ flexGrow: 1, height: '1.5px', bgcolor: t.line }} />
-            </Box>
-          ) : null}
-        </Box>
-      ))}
-    </Paper>
+                <FlagOutlinedIcon sx={{ fontSize: 15, color: t.accent }} />
+                <Typography
+                  sx={{
+                    fontFamily: t.mono,
+                    fontWeight: 700,
+                    fontSize: 11,
+                    letterSpacing: '0.12em',
+                    color: t.ink,
+                  }}
+                >
+                  {M0_DIVIDER}
+                </Typography>
+                <Box sx={{ flexGrow: 1, height: '1.5px', bgcolor: t.line }} />
+              </Box>
+            ) : null}
+          </Box>
+        ))}
+      </Paper>
+      <PlanLegend criticalCount={activities.filter((a) => a.onCriticalPath).length} />
+    </>
   );
 }

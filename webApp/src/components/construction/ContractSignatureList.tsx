@@ -1,16 +1,11 @@
 /**
- * The Code tab as an HTML SIGNATURE LIST — what the pane shows (designer check
- * on renderers S1, B1).
- *
- * The code diagram cannot be read in the pane: its interface node is 560px and
- * an expanded op 1458px, so in a 480–820px pane it fit to ~6px signatures and
- * re-fit to ~4px on expand. So below CODE_CANVAS_MIN_WIDTH (1344px — the pane
- * always, and the focus view on any window under ~1712px, N1) the tab is this
- * list instead: every op, 12px mono, wrapping; a row expands INLINE into its
- * request / response /
- * error tables — the same structs the canvas draws as nodes, from the same
- * reading (contractCode.opStructsFor). "Open diagram in focus view" sits at the
- * top; the canvas draws there.
+ * The Interface tab as an HTML OPERATION LIST — where a column is too narrow for
+ * the class diagram (ContractCodeFlow; CODE_CANVAS_MIN_WIDTH in contractCode.ts).
+ * Each op is its NAME and a muted line of what it takes and returns — never its
+ * signature string — and a row expands INLINE into its takes / returns / fails-with
+ * tables: the same classes the diagram draws, from the same reading
+ * (contractCode.opStructsFor). "Open diagram in focus view" sits at the top where
+ * a focus view exists.
  *
  * Each row keeps the canvas's comment anchor (contractOpAnchor), so a Design
  * Review can still pin feedback to one operation.
@@ -31,7 +26,13 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { useComments, contractOpAnchor } from '../comments/CommentContext';
 import { useRegisterAnchor } from '../comments/AnchorRegistry';
-import { opStructsFor, paramOf, type ResolvedStruct } from './contractCode.ts';
+import {
+  opShape,
+  opStructsFor,
+  paramOf,
+  readableType,
+  type ResolvedStruct,
+} from './contractCode.ts';
 import type { NeedsRoomCopy } from './focusRail.ts';
 
 /**
@@ -127,7 +128,7 @@ export function ContractSignatureList({
             data-testid={UI_IDENTIFIERS.ServiceContract.OPEN_FOCUS}
             size="small"
             startIcon={<OpenInFullRoundedIcon sx={{ fontSize: 14 }} />}
-            sx={{ fontFamily: t.mono, fontSize: 11, fontWeight: 700, textTransform: 'none' }}
+            sx={{ fontSize: 12, fontWeight: 700, textTransform: 'none', minHeight: 32 }}
             variant="outlined"
             onClick={onOpenFocus}
           >
@@ -135,7 +136,7 @@ export function ContractSignatureList({
           </Button>
         ) : null}
         <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.4 }}>
-          {`«interface» · ${count} · open one for its request, response and error`}
+          {`${count} · open one to see what it takes, returns and fails with`}
         </Typography>
       </Box>
       {needsRoom !== undefined ? (
@@ -195,7 +196,7 @@ export function ContractSignatureList({
               <Box sx={{ display: 'flex', alignItems: 'flex-start', minWidth: 0 }}>
                 <Box
                   aria-expanded={expanded}
-                  aria-label={`${op.signature} — show request, response and error`}
+                  aria-label={`${opShape(op.signature).name}: ${expanded ? 'hide' : 'show'} what it takes, returns and fails with`}
                   component="button"
                   data-op={op.signature}
                   data-testid={UI_IDENTIFIERS.ServiceContract.opRow(i)}
@@ -207,6 +208,7 @@ export function ContractSignatureList({
                     gap: 0.5,
                     px: 1,
                     py: 0.75,
+                    minHeight: 44,
                     border: 'none',
                     bgcolor: 'transparent',
                     textAlign: 'left',
@@ -232,21 +234,9 @@ export function ContractSignatureList({
                     }}
                   />
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography
-                      data-testid={UI_IDENTIFIERS.ServiceContract.OP_SIGNATURE}
-                      sx={{
-                        fontFamily: t.mono,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: t.ink,
-                        lineHeight: 1.4,
-                        wordBreak: 'break-word',
-                      }}
-                    >
-                      {op.signature}
-                    </Typography>
+                    <OpHeadline op={op} t={t} />
                     {op.stereotype.length > 0 ? (
-                      <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
+                      <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted }}>
                         {op.stereotype}
                       </Typography>
                     ) : null}
@@ -268,10 +258,10 @@ export function ContractSignatureList({
                 {enabled ? (
                   <Tooltip title="Comment on this operation">
                     <IconButton
-                      aria-label={`Comment on ${op.signature}`}
+                      aria-label={`Comment on ${opShape(op.signature).name}`}
                       data-testid={UI_IDENTIFIERS.Comments.listItemComment(op.signature)}
                       size="small"
-                      sx={{ m: 0.5, color: t.muted, flexShrink: 0 }}
+                      sx={{ m: 0.5, width: 32, height: 32, color: t.muted, flexShrink: 0 }}
                       onClick={() => {
                         comment(op.signature);
                       }}
@@ -290,6 +280,36 @@ export function ContractSignatureList({
   );
 }
 
+/** An operation as a reader names it: its name, then what it takes and returns. */
+function OpHeadline({ op, t }: { op: ContractOp; t: Tokens }): ReactElement {
+  const shape = opShape(op.signature);
+  const takes = shape.params.map((p) => p.name);
+  const returns = shape.returns.map(readableType);
+  return (
+    <>
+      <Typography
+        data-testid={UI_IDENTIFIERS.ServiceContract.OP_SIGNATURE}
+        sx={{ fontFamily: t.body, fontSize: 13.5, fontWeight: 700, color: t.ink, lineHeight: 1.35 }}
+      >
+        {shape.name}
+      </Typography>
+      <Typography
+        sx={{
+          fontFamily: t.body,
+          fontSize: 12,
+          color: t.muted,
+          lineHeight: 1.4,
+          overflowWrap: 'anywhere',
+        }}
+      >
+        {takes.length > 0 ? `takes ${takes.join(', ')}` : 'takes nothing'}
+        {' · '}
+        {returns.length > 0 ? `returns ${returns.join(', ')}` : 'returns nothing'}
+      </Typography>
+    </>
+  );
+}
+
 function OpStructTables({ op, t }: { op: ContractOp; t: Tokens }): ReactElement {
   const structs = opStructsFor(op);
   return (
@@ -299,22 +319,22 @@ function OpStructTables({ op, t }: { op: ContractOp; t: Tokens }): ReactElement 
     >
       <StructGroup
         color={t.accent2}
-        empty="No request."
-        label="REQUEST"
+        empty="Takes no input."
+        label="TAKES"
         structs={structs.request}
         t={t}
       />
       <StructGroup
         color={t.committedDot}
-        empty="No response value."
-        label="RESPONSE"
+        empty="Returns no value."
+        label="RETURNS"
         structs={structs.response}
         t={t}
       />
       <StructGroup
         color={t.dangerFg}
         empty="No error is declared."
-        label="ERROR"
+        label="FAILS WITH"
         structs={structs.error}
         t={t}
       />
@@ -340,10 +360,12 @@ function StructGroup({
       <Typography
         sx={{
           fontFamily: t.mono,
-          fontSize: 10,
+          fontSize: 10.5,
           fontWeight: 700,
           letterSpacing: '0.08em',
-          color,
+          color: t.ink,
+          borderLeft: `3px solid ${color}`,
+          pl: 0.75,
           mb: 0.25,
         }}
       >
@@ -395,8 +417,8 @@ interface CellSx {
 
 function cellSx(t: Tokens): CellSx {
   return {
-    fontFamily: t.mono,
-    fontSize: 11.5,
+    fontFamily: t.body,
+    fontSize: 12.5,
     color: t.ink,
     py: 0.25,
     pr: 1.5,
@@ -418,8 +440,8 @@ function ParamTable({ params, t }: { params: GoField[]; t: Tokens }): ReactEleme
             >
               {p.name}
             </Box>
-            <Box component="td" sx={{ ...cell, color: t.muted }}>
-              {p.type}
+            <Box component="td" sx={{ ...cell, color: t.muted }} title={p.type}>
+              {readableType(p.type)}
             </Box>
           </Box>
         ))}
@@ -441,9 +463,10 @@ function StructTable({ struct, t }: { struct: ResolvedStruct; t: Tokens }): Reac
     <Box sx={{ mb: 0.5, minWidth: 0 }}>
       <Typography
         data-testid={UI_IDENTIFIERS.ServiceContract.STRUCT_NAME}
-        sx={{ fontFamily: t.mono, fontSize: 12, fontWeight: 700, color: t.ink }}
+        sx={{ fontFamily: t.body, fontSize: 13, fontWeight: 700, color: t.ink }}
+        title={struct.name}
       >
-        {struct.name}
+        {readableType(struct.name)}
       </Typography>
       {struct.fields.length === 0 ? (
         <Typography
@@ -468,8 +491,8 @@ function StructTable({ struct, t }: { struct: ResolvedStruct; t: Tokens }): Reac
                 >
                   {f.name}
                 </Box>
-                <Box component="td" sx={{ ...cell, color: t.muted }}>
-                  {f.type}
+                <Box component="td" sx={{ ...cell, color: t.muted }} title={f.type}>
+                  {readableType(f.type)}
                 </Box>
                 {hasNotes ? (
                   <Box component="td" sx={{ ...cell, fontFamily: t.body, color: t.muted }}>

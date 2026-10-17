@@ -50,12 +50,12 @@ export function phaseFill(t: Tokens, p: RuntimePhase): { fg: string; bg: string 
 }
 
 const PHASE_NOTE: Record<RuntimePhase, string> = {
-  Unknown: 'Just published — not yet observable. The NORMAL converging transient (not Degraded).',
-  Pending: 'Infrastructure is converging toward the desired state.',
-  Running: 'Converged and serving.',
-  Degraded: 'Running but unhealthy / SLO-breaching.',
-  Paused: 'Idle-paused — desired state declared replicas=0. Resume is traffic-driven.',
-  Withdrawn: 'Withdrawn; infrastructure has pruned (or is pruning) resources.',
+  Unknown: 'Just published and not reporting yet — normal for a few moments; not a fault.',
+  Pending: 'The platform is rolling out the version you published.',
+  Running: 'Rolled out and serving.',
+  Degraded: 'Running, but unhealthy or missing a service-level objective.',
+  Paused: 'Paused while idle (scaled to zero); the next request wakes it up.',
+  Withdrawn: 'Withdrawn; the platform has removed (or is removing) its resources.',
 };
 
 export function PhaseChip({
@@ -71,7 +71,7 @@ export function PhaseChip({
   const dot = phaseColor(t, phase);
   const pulse = phaseIsConverging(phase);
   return (
-    <Tooltip title={PHASE_NOTE[phase]}>
+    <Tooltip describeChild title={PHASE_NOTE[phase]}>
       <Box
         sx={{
           display: 'inline-flex',
@@ -89,6 +89,7 @@ export function PhaseChip({
           letterSpacing: '0.06em',
           whiteSpace: 'nowrap',
         }}
+        tabIndex={0}
       >
         <Box
           sx={{

@@ -128,7 +128,7 @@ import { TasksLens } from '../components/construction/tasks/TasksLens';
 
 import { PlanGraph } from '../components/activity/PlanGraph';
 import { PlanList } from '../components/activity/PlanList';
-import { LENS_LABEL } from '../components/activity/planCopy';
+import { LENS_LABEL, LENS_SUBTITLE } from '../components/activity/planCopy';
 import { rememberPlanLens } from '../components/activity/planLensMemory.ts';
 import { planActivitiesFrom } from '../components/activity/planTiles';
 import { useTokens } from '../utilities/theme/ThemeContext';
@@ -149,18 +149,6 @@ const LENS_TESTID: Readonly<Record<PlanLensId, string>> = {
   graph: UI_IDENTIFIERS.Plan.LENS_GRAPH,
   tasks: UI_IDENTIFIERS.Plan.LENS_TASKS,
 };
-
-/** The three lenses are three views of ONE read — the subtitle says which. */
-function lensSubtitle(lens: PlanLensId): string {
-  switch (lens) {
-    case 'list':
-      return 'Every activity of the committed plan, in Table 11-1 order';
-    case 'graph':
-      return 'The plan as a network, in build order — M0 gates all construction';
-    case 'tasks':
-      return 'Only the tasks that owe someone a decision';
-  }
-}
 
 export function PlanContainer({
   projectId,
@@ -286,6 +274,13 @@ export function PlanContainer({
     [rows, owedMarks, sessionsByActivity, owedWork]
   );
   const inFlight = inFlightIds.size > 0;
+  // Each activity, told whether a decision on it is owed to the reader — the
+  // SAME owed set the Tasks lens lists — so a row never says "Awaiting you"
+  // while Tasks says "Nothing needs you" (planTiles.planStateFor).
+  const planActivities = useMemo(
+    () => activities.map((a) => ({ ...a, owedToYou: owedMarks.has(a.id) })),
+    [activities, owedMarks]
+  );
   const probesFailing = owedWork.unchecked.errored.length > 0;
 
   const doneIds = useMemo(
@@ -583,7 +578,7 @@ export function PlanContainer({
             fontWeight: 700,
             fontSize: 12,
             textTransform: 'none',
-            color: t.bg,
+            color: t.accentText,
             bgcolor: t.accent,
             px: 1.75,
             '&:hover': { bgcolor: t.accent2 },
@@ -612,7 +607,7 @@ export function PlanContainer({
             fontWeight: 700,
             fontSize: 12,
             textTransform: 'none',
-            color: t.bg,
+            color: t.accentText,
             bgcolor: t.accent,
             px: 1.75,
             '&:hover': { bgcolor: t.accent2 },
@@ -703,8 +698,8 @@ export function PlanContainer({
             <Typography component="h1" sx={{ color: t.ink }} variant="h4">
               Plan
             </Typography>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
-              {lensSubtitle(lens)}
+            <Typography sx={{ fontSize: 13.5, color: t.muted, mt: 0.5 }}>
+              {LENS_SUBTITLE[lens]}
             </Typography>
           </Box>
           <ToggleButtonGroup
@@ -722,7 +717,14 @@ export function PlanContainer({
               <ToggleButton
                 data-testid={LENS_TESTID[id]}
                 key={id}
-                sx={{ fontFamily: t.mono, fontWeight: 700, px: 1.5 }}
+                sx={{
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  px: 1.5,
+                  minHeight: 40,
+                  color: t.muted,
+                  '&.Mui-selected': { color: t.ink },
+                }}
                 value={id}
               >
                 {LENS_LABEL[id].toUpperCase()}
@@ -868,10 +870,10 @@ export function PlanContainer({
             onReview={onReview}
           />
         ) : lens === 'graph' ? (
-          <PlanGraph activities={activities} projectId={projectId} onOpen={openActivity} />
+          <PlanGraph activities={planActivities} projectId={projectId} onOpen={openActivity} />
         ) : (
           <PlanList
-            activities={activities}
+            activities={planActivities}
             emptyReason={activityListModel === undefined ? 'noPlan' : 'noRows'}
             onOpen={openActivity}
           />

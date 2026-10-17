@@ -41,7 +41,7 @@ export function ScenarioPlanView({
     return (
       <Typography
         data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PLAN_VIEW}
-        sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}
+        sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}
       >
         Projecting scenarios…
       </Typography>
@@ -110,12 +110,13 @@ export function ScenarioPlanView({
       >
         {`SCENARIO PLAN · ${String(scenarios.length)} ${scenarios.length === 1 ? 'scenario' : 'scenarios'} · ${counts}`}
       </Typography>
-      <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, lineHeight: 1.4 }}>
-        Each scenario is one path through a core use case, projected onto this component: the
-        stimuli that reach it, in order, from their real callers, and what must be observable after
-        each. The plan binds concrete inputs, an expectation and a probe for every expected state;
-        the generated test replays exactly that, and the testing gate passes only when every
-        scenario runs green at the current revision.
+      <Typography sx={{ fontFamily: t.body, fontSize: 13, color: t.muted, lineHeight: 1.5 }}>
+        Each scenario follows one path through a core use case and lists every call that path makes
+        into this component (a <b>stimulus</b>), with the real inputs and the result expected. For
+        each state that must hold afterwards, the plan names how the test reads it back — its{' '}
+        <b>proof</b>. A scenario is <b>bound</b> once all of that is filled in. The generated test
+        replays exactly this, and the testing gate passes only when every scenario passes at the
+        current revision.
       </Typography>
       {/* The plan's own browser follows the `sc` deep link (scenarioLink.ts). */}
       <ScenarioBrowser

@@ -17,7 +17,7 @@ import { scanlines } from '../../utilities/theme/textures';
 
 export function ComputedBadge({ t, label = 'computed' }: { t: Tokens; label?: string }): ReactNode {
   return (
-    <Tooltip title="Computed by CPM over the network — read-only. Change the inputs (activities, dependencies) to move it.">
+    <Tooltip title="Computed by the critical-path method (CPM) from the activities and their dependencies — read-only. Change those inputs to move it.">
       <Box
         sx={{
           display: 'inline-flex',
@@ -137,18 +137,30 @@ export function ReconstructedBadge({
   );
 }
 
-/** A one-line legend used at the top of computed-heavy artifacts. */
+/**
+ * A one-line legend used at the top of computed-heavy artifacts: what the two
+ * badges MEAN, said once in a full sentence. (It used to trail off — "Inputs are
+ * [AUTHORED]" — leaving the reader to guess which inputs and why it matters.)
+ */
 export function ComputedLegend({ t }: { t: Tokens }): ReactNode {
+  const text = { fontFamily: t.body, fontSize: 13, color: t.muted, lineHeight: 1.5 };
+  // Each badge travels with its own sentence, so a wrap never strands a badge at
+  // the end of one line and its meaning at the start of the next.
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-        This artifact is mostly
-      </Typography>
-      <ComputedBadge t={t} />
-      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-        — floats, the critical path &amp; risk are derived, not typed. Inputs are
-      </Typography>
-      <AuthoredBadge t={t} />
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+        <ComputedBadge t={t} />
+        <Typography sx={text}>
+          values (durations, float, the critical path) are derived from the activities and their
+          dependencies and cannot be edited directly.
+        </Typography>
+      </Box>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+        <AuthoredBadge t={t} />
+        <Typography sx={text}>
+          values are the architect&rsquo;s estimates and judgements.
+        </Typography>
+      </Box>
     </Box>
   );
 }

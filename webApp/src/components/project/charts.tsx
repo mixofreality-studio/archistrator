@@ -35,7 +35,7 @@ function describeSeries(
   points: ScatterPoint[],
   xLabel: string,
   yLabel: string,
-  hasBands: boolean
+  bands: readonly { from: number; to: number; kind: 'in' | 'out'; label?: string }[]
 ): string {
   if (points.length === 0) return `${yLabel} versus ${xLabel}: no data.`;
   const series = points
@@ -44,8 +44,16 @@ function describeSeries(
         `${p.label} ${fmtNum(p.x)} ${xLabel} / ${fmtNum(p.y)} ${yLabel}${p.out === true ? ' (excluded)' : ''}`
     )
     .join('; ');
-  const bands = hasBands ? ' Exclusion zones shaded.' : '';
-  return `Scatter chart, ${yLabel} versus ${xLabel}. ${series}.${bands}`;
+  const zones =
+    bands.length > 0
+      ? ` Shaded zones: ${bands
+          .map(
+            (b) =>
+              `${b.label ?? (b.kind === 'in' ? 'inclusion zone' : 'exclusion zone')} ${fmtNum(Math.min(b.from, b.to))}–${fmtNum(Math.max(b.from, b.to))}`
+          )
+          .join('; ')}.`
+      : '';
+  return `Scatter chart, ${yLabel} versus ${xLabel}. ${series}.${zones}`;
 }
 
 export function BandedScatter({
@@ -59,6 +67,8 @@ export function BandedScatter({
   yMax,
   bands,
   height = 280,
+  formatX,
+  formatY,
 }: {
   t: Tokens;
   points: ScatterPoint[];
@@ -68,13 +78,20 @@ export function BandedScatter({
   xMax: number;
   yMin: number;
   yMax: number;
-  /** y-value bands in y-units. */
-  bands?: { from: number; to: number; kind: 'in' | 'out' }[];
+  /**
+   * y-value bands in y-units. `label` names the zone on the chart (it defaults to
+   * a generic in/out word); the zone is ALSO named in the accessible summary, so
+   * the shading is never the only carrier.
+   */
+  bands?: { from: number; to: number; kind: 'in' | 'out'; label?: string }[];
   height?: number;
+  /** Tick-label formatters. Without them the axes carry no values at all. */
+  formatX?: (x: number) => string;
+  formatY?: (y: number) => string;
 }): ReactNode {
   const W = 560;
   const H = height;
-  const padL = 52;
+  const padL = formatY !== undefined ? 76 : 52;
   const padB = 40;
   const padT = 18;
   const padR = 18;
@@ -85,6 +102,10 @@ export function BandedScatter({
   const px = (x: number): number => padL + ((x - xMin) / spanX) * plotW;
   const py = (y: number): number => padT + (1 - (y - yMin) / spanY) * plotH;
 
+  // Three ticks per axis (both ends and the middle of the plotted domain) — enough
+  // to read magnitudes off the chart without a gridline forest.
+  const ticks = (lo: number, hi: number): number[] => [lo, (lo + hi) / 2, hi];
+
   const sorted = [...points].sort((a, b) => a.x - b.x);
   const line = sorted
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${px(p.x).toFixed(1)},${py(p.y).toFixed(1)}`)
@@ -92,7 +113,7 @@ export function BandedScatter({
 
   return (
     <Box
-      aria-label={describeSeries(points, xLabel, yLabel, bands !== undefined && bands.length > 0)}
+      aria-label={describeSeries(points, xLabel, yLabel, bands ?? [])}
       component="svg"
       role="img"
       sx={{ width: '100%', height, display: 'block' }}
@@ -117,12 +138,11 @@ export function BandedScatter({
               fontFamily={t.mono}
               fontSize={9}
               fontWeight={700}
-              opacity={0.9}
               textAnchor="end"
               x={padL + plotW - 6}
               y={yTop + 12}
             >
-              {b.kind === 'in' ? 'INCLUSION ZONE' : 'EXCLUSION'}
+              {b.label ?? (b.kind === 'in' ? 'INCLUSION ZONE' : 'EXCLUSION')}
             </text>
           </g>
         );
@@ -131,6 +151,50 @@ export function BandedScatter({
       {/* axes */}
       <line stroke={t.line} strokeWidth={1.5} x1={padL} x2={padL} y1={padT} y2={H - padB} />
       <line stroke={t.line} strokeWidth={1.5} x1={padL} x2={W - padR} y1={H - padB} y2={H - padB} />
+
+      {/* tick values */}
+      {formatX !== undefined
+        ? ticks(xMin, xMax).map((x) => (
+            <g key={`x${String(x)}`}>
+              <line
+                stroke={t.line}
+                strokeWidth={1}
+                x1={px(x)}
+                x2={px(x)}
+                y1={H - padB}
+                y2={H - padB + 4}
+              />
+              <text
+                fill={t.muted}
+                fontFamily={t.mono}
+                fontSize={9.5}
+                textAnchor="middle"
+                x={px(x)}
+                y={H - padB + 15}
+              >
+                {formatX(x)}
+              </text>
+            </g>
+          ))
+        : null}
+      {formatY !== undefined
+        ? ticks(yMin, yMax).map((y) => (
+            <g key={`y${String(y)}`}>
+              <line stroke={t.line} strokeWidth={1} x1={padL - 4} x2={padL} y1={py(y)} y2={py(y)} />
+              <text
+                dominantBaseline="middle"
+                fill={t.muted}
+                fontFamily={t.mono}
+                fontSize={9.5}
+                textAnchor="end"
+                x={padL - 7}
+                y={py(y)}
+              >
+                {formatY(y)}
+              </text>
+            </g>
+          ))
+        : null}
 
       {/* axis labels */}
       <text
@@ -194,7 +258,7 @@ export function BandedScatter({
               </text>
             )}
             <text
-              fill={p.emphasized === true ? t.accent : t.ink}
+              fill={p.emphasized === true ? t.accentInk : t.ink}
               fontFamily={t.mono}
               fontSize={9.5}
               fontWeight={700}

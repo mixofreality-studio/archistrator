@@ -110,9 +110,22 @@ export function artifactUnavailable(classification: string): string {
  * has no view" and "this kind's view belongs to another phase" are different
  * facts, and only one of them is a gap in the product.
  */
-export function artifactNotOfThisPhase(classification: string): string {
-  return `A ${classification} activity's artifact belongs to another phase of its lifecycle, so this task has none to show. Its review history is below.`;
+export function artifactNotOfThisPhase(classification: string, phase?: string): string {
+  const where = PHASE_ARTIFACT_HOME[phase ?? ''];
+  return where !== undefined
+    ? `${where} The agent's work is in its episodes, and every decision in the review history, below.`
+    : `This ${classification} task produces nothing this page draws yet. The agent's work is in its episodes, and every decision in the review history, below.`;
 }
+
+/** Where a phase's output lives when the page has no drawing of it (said in the panel). */
+const PHASE_ARTIFACT_HOME: Readonly<Record<string, string>> = {
+  requirements:
+    "This task's output is the component's requirements note — prose recorded with the project, not a diagram this page draws.",
+  construction:
+    "This task's output is source code, which lives in the activity's pull request rather than on this page — code is reviewed there.",
+  detailed_design:
+    "This task's output is the component's detailed design, which this page has no drawing of yet.",
+};
 
 /**
  * A review task whose artifact kind could not be resolved at all — the lifecycle

@@ -175,7 +175,7 @@ function derive(
       // HIDDEN, not faded. Fading cannot work here, because opacity composites:
       // N muted strokes crossing the same corridor render as 1-(1-a)^N, so the
       // dimmed remainder paints a band exactly where the graph is densest. The
-      // NODES still only dim (c4Node's MUTED_OPACITY), which is what keeps the
+      // NODES still only dim (c4Node's MUTED_NODE_STYLE), which is what keeps the
       // decomposition readable while its wires are filtered out.
       return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, {
         hidden: !incident,
@@ -187,6 +187,18 @@ function derive(
     });
 
   return { nodes, edges };
+}
+
+/** Which arrow styles the Static lens draws (utility calls are never drawn). */
+function edgeKindsOf(
+  relationships: C4Relationship[],
+  layerOf: Map<string, Layer>
+): { sync: boolean; async: boolean } {
+  const drawn = relationships.filter((r) => layerOf.get(r.to) !== 'utility');
+  return {
+    sync: drawn.some((r) => r.mode === 'sync'),
+    async: drawn.some((r) => r.mode !== 'sync'),
+  };
 }
 
 export function ArchitectureFlow({
@@ -322,7 +334,12 @@ export function ArchitectureFlow({
         isOptionEqualToValue={(a, b) => a.id === b.id}
         options={finderOptions}
         renderInput={(params) => (
-          <TextField {...params} placeholder="Find a component…" sx={{ fontFamily: t.mono }} />
+          <TextField
+            {...params}
+            placeholder="Find a component…"
+            slotProps={{ htmlInput: { ...params.inputProps, 'aria-label': 'Find a component' } }}
+            sx={{ fontFamily: t.mono }}
+          />
         )}
         size="small"
         sx={{ mb: 1.5, maxWidth: 360 }}
@@ -330,6 +347,14 @@ export function ArchitectureFlow({
         onChange={(_e, c) => {
           setSelectedId(c?.id ?? null);
         }}
+      />
+      <LayerLegend
+        colors={model.colors}
+        counts={layerCounts}
+        edgeKinds={edgeKindsOf(model.relationships, model.layerOf)}
+        t={t}
+        usedLayers={model.usedLayers}
+        {...(findingChip !== undefined ? { footer: findingChip } : {})}
       />
       <FlowCanvas
         edges={edges}
@@ -355,13 +380,6 @@ export function ArchitectureFlow({
           leaveNode();
         }}
       >
-        <LayerLegend
-          colors={model.colors}
-          counts={layerCounts}
-          t={t}
-          usedLayers={model.usedLayers}
-          {...(findingChip !== undefined ? { footer: findingChip } : {})}
-        />
         {selectedId !== null && <FocusNodes dep={selectedId} nodeIds={[selectedId]} />}
       </FlowCanvas>
     </Box>

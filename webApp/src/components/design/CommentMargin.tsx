@@ -439,15 +439,27 @@ export function CommentMargin({
             </IconButton>
           </Tooltip>
         ) : null}
-        <IconButton
-          aria-label="collapse comment margin"
-          size="small"
-          sx={{ color: t.muted }}
-          onClick={onCollapse}
-        >
-          <ChevronRightIcon fontSize="small" />
-        </IconButton>
+        <Tooltip title="Hide comments">
+          <IconButton
+            aria-label="Hide comments"
+            size="small"
+            sx={{ color: t.muted }}
+            onClick={onCollapse}
+          >
+            <ChevronRightIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Box>
+
+      {/* Empty state: an empty margin otherwise reads as a dead column. Say what
+          lands here and how to put something there. */}
+      {placed.length === 0 && unplaced.length === 0 ? (
+        <Typography sx={{ pt: 5, px: 1.5, color: t.muted, fontSize: 12.5, lineHeight: 1.5 }}>
+          {enabled
+            ? 'Comments sit here, beside the item they are about. Hover or focus an item and choose Comment (or press C), or use the add-note button above for a general note.'
+            : 'Comments on this artifact sit here, beside the item they are about.'}
+        </Typography>
+      ) : null}
 
       {drawer ? (
         <>
@@ -538,7 +550,7 @@ export function CommentMargin({
   );
 }
 
-/** The mono "UNPLACED" label above the unanchored group. */
+/** The mono label above the unanchored group (formerly the jargon "UNPLACED"). */
 function UnplacedHeading({ t }: { t: Tokens }): ReactNode {
   return (
     <Typography
@@ -550,7 +562,7 @@ function UnplacedHeading({ t }: { t: Tokens }): ReactNode {
         color: t.muted,
       }}
     >
-      UNPLACED
+      GENERAL NOTES · NOT TIED TO AN ITEM
     </Typography>
   );
 }
@@ -591,7 +603,7 @@ function StagedNoteCard({
             fontSize: 9.5,
             fontWeight: 700,
             letterSpacing: '0.08em',
-            color: t.accent,
+            color: t.accentInk,
             flexGrow: 1,
           }}
         >
@@ -638,7 +650,7 @@ function StagedNoteCard({
           sx={{
             textTransform: 'none',
             fontSize: 11.5,
-            color: t.accent,
+            color: t.accentInk,
             minWidth: 0,
             p: 0.25,
             maxWidth: '100%',
@@ -882,7 +894,7 @@ function MarginDraftCard({
         <Typography
           data-testid={UI_IDENTIFIERS.Margin.DRAFT_BLOCKING}
           role="status"
-          sx={{ fontFamily: t.mono, fontSize: 10, color: t.accent, mt: 0.75 }}
+          sx={{ fontFamily: t.mono, fontSize: 10, color: t.accentInk, mt: 0.75 }}
         >
           Comment or Cancel first — this draft is holding the comment button on other rows, so it
           cannot be moved off {anchor !== null ? 'this one' : 'the margin'}.

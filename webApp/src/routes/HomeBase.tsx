@@ -13,6 +13,7 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Tooltip from '@mui/material/Tooltip';
 import CircularProgress from '@mui/material/CircularProgress';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -20,7 +21,7 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
-import { EconomicsStrip } from '../components/HomeBaseParts';
+import { EconomicsStrip, type EconomicsFigures } from '../components/HomeBaseParts';
 import { ReviewPolicyControl } from '../components/ReviewPolicyControl';
 import { ArtifactPane } from '../components/ArtifactPane';
 import { StageChip } from '../components/StageChip';
@@ -37,8 +38,14 @@ import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
 import { useSetProjectExecutionPolicy, useStartProject } from '../hooks/useDeliveryMutations';
 import { useUser } from '../utilities/auth/UserContext';
-import { currentPhaseOf, toArtifactTableOfContents } from '../contracts/adapters';
-import type { ProjectStateWithGit } from '../contracts/types';
+import {
+  currentPhaseOf,
+  slotStageFromOrdinal,
+  toArtifactTableOfContents,
+} from '../contracts/adapters';
+import type { ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contracts/types';
+import { SOLUTION_LABELS } from '../contracts/types';
+import { formatMoney, narrowProject } from '../contracts/projectAdapters';
 import { PHASE1_ORDER } from '../contracts/methodMetadata';
 import { PLAN_PATH, planSearch, STATE_HISTORY_PATH } from '../contracts/routePaths';
 import { useTokens } from '../utilities/theme/ThemeContext';
@@ -198,6 +205,32 @@ function GhostProjectPanel({
   );
 }
 
+/**
+ * The economics strip's figures, off the COMMITTED SDP review: the option chosen
+ * there, else the architect's recommendation (labelled as such). Undefined until
+ * that review is committed — the strip then says when the figures will appear.
+ */
+function economicsFrom(project: ProjectStateWithGit): EconomicsFigures | undefined {
+  const slot = project.slots.find((sl) => sl.kind === 'sdpReview');
+  if (slot === undefined || slotStageFromOrdinal(slot.stage) !== 'committed') return undefined;
+  const model = narrowProject(slot.model as unknown as ProjectArtifactModelEnvelope, 'sdpReview');
+  if (model === undefined) return undefined;
+  const chosenId =
+    model.chosenOption !== undefined && model.chosenOption !== null && model.chosenOption !== ''
+      ? model.chosenOption
+      : undefined;
+  const pickId = chosenId ?? model.recommendation;
+  const option = (model.options ?? []).find((o) => o.optionId === pickId);
+  if (option === undefined) return undefined;
+  return {
+    optionLabel: SOLUTION_LABELS[option.solutionKind] ?? option.solutionKind,
+    chosen: chosenId !== undefined,
+    buildCost: formatMoney(option.buildCost),
+    monthlyRunCost: formatMoney(option.projectedMonthlyCost),
+    perCycleNet: formatMoney(option.expectedPerCycleNet),
+  };
+}
+
 function HomeBaseBody({
   projectId,
   project,
@@ -256,7 +289,7 @@ function HomeBaseBody({
       <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         <Box>
           <Typography sx={{ color: t.muted }} variant="overline">
-            {project.owner}
+            Project overview
           </Typography>
           <Typography component="h1" sx={{ color: t.ink }} variant="h3">
             {project.name}
@@ -271,7 +304,7 @@ function HomeBaseBody({
             own eyebrow says. One door. */}
       </Box>
 
-      <EconomicsStrip />
+      <EconomicsStrip figures={economicsFrom(project)} />
 
       {/* ONE card, not three (stage 5 §7.4). The three phase cards described a
           project that moved through System Design → Project Design →
@@ -286,32 +319,35 @@ function HomeBaseBody({
             <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.muted }}>
               {`PHASE ${String(currentPhase.index)} · ${currentPhase.title.toUpperCase()}`}
             </Typography>
-            <Typography sx={{ color: t.ink }} variant="h6">
+            <Typography component="h2" sx={{ color: t.ink }} variant="h6">
               Project plan
             </Typography>
-            <Typography sx={{ color: t.muted }} variant="caption">
-              {currentPhase.subtitle}
+            <Typography sx={{ color: t.muted, fontSize: 13 }}>
+              {currentPhase.subtitle} Open the plan to follow every activity, or the state history
+              to see what changed and when.
             </Typography>
           </Box>
           {/* The id names the ACTION (open the plan), so it sits on the control that
               performs it — a click on the card's body opens nothing. */}
-          <Button
-            data-testid={UI_IDENTIFIERS.HomeBase.OPEN_PLAN}
-            endIcon={<ArrowForwardIcon />}
-            variant="outlined"
-            onClick={openPlan}
-          >
-            Open plan
-          </Button>
-          {/* The project's recorded changes (use case view-the-project-state-log). */}
-          <Button
-            data-testid={UI_IDENTIFIERS.HomeBase.OPEN_STATE_HISTORY}
-            sx={{ color: t.muted }}
-            variant="text"
-            onClick={() => void navigate({ to: STATE_HISTORY_PATH, params: { projectId } })}
-          >
-            State history
-          </Button>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+            <Button
+              data-testid={UI_IDENTIFIERS.HomeBase.OPEN_PLAN}
+              endIcon={<ArrowForwardIcon />}
+              variant="contained"
+              onClick={openPlan}
+            >
+              Open plan
+            </Button>
+            {/* The project's recorded changes (use case view-the-project-state-log). */}
+            <Button
+              data-testid={UI_IDENTIFIERS.HomeBase.OPEN_STATE_HISTORY}
+              sx={{ color: t.muted }}
+              variant="text"
+              onClick={() => void navigate({ to: STATE_HISTORY_PATH, params: { projectId } })}
+            >
+              State history
+            </Button>
+          </Box>
         </Paper>
       </Box>
 
@@ -328,11 +364,11 @@ function HomeBaseBody({
       />
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, mt: 3 }}>
-        <Typography sx={{ color: t.ink }} variant="h5">
+        <Typography component="h2" sx={{ color: t.ink }} variant="h5">
           System design
         </Typography>
         <Chip
-          label={`${String(committedCount)}/${String(toc.length)} committed`}
+          label={`${String(committedCount)} of ${String(toc.length)} committed`}
           size="small"
           sx={{ bgcolor: t.committedBg, color: t.committedFg }}
         />
@@ -380,14 +416,10 @@ function HomeBaseBody({
                   borderBottom: `1px solid ${t.line}`,
                 }}
               >
-                <Typography sx={{ color: t.ink }} variant="h4">
+                <Typography component="h3" sx={{ color: t.ink }} variant="h4">
                   {selected.title}
                 </Typography>
                 <StageChip stage={selected.stage} />
-                <Box sx={{ flexGrow: 1 }} />
-                <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
-                  {selected.stateAddress}
-                </Typography>
               </Box>
               {selected.stage === 'awaitingReview' && (
                 <Box
@@ -416,13 +448,14 @@ function HomeBaseBody({
                         plan's own mapping (planTiles / taskArtifactFor), not this
                         screen's — so the link goes to the plan, whose TASKS lens
                         lists exactly the decisions that are owed. */}
-                    <Box
-                      component="span"
-                      sx={{ textDecoration: 'underline', cursor: 'pointer' }}
+                    <Button
+                      size="small"
+                      sx={{ ml: 'auto', color: t.awaitingFg, textDecoration: 'underline' }}
+                      variant="text"
                       onClick={openPlan}
                     >
                       Review &amp; decide →
-                    </Box>
+                    </Button>
                   </Typography>
                 </Box>
               )}
@@ -467,7 +500,20 @@ function HomeBaseBody({
   );
 }
 
-/** The left-hand named section navigator (replaces the horizontal SlimSpine). */
+/** What a navigator dot means, in words — the dot is never the only signal. */
+const STAGE_WORD: Record<string, string> = {
+  committed: 'committed',
+  awaitingReview: 'awaiting your review',
+  rejected: 'sent back for a redraft',
+  withdrawn: 'withdrawn',
+  empty: 'not drafted yet',
+};
+
+/**
+ * The left-hand named section navigator (replaces the horizontal SlimSpine): a
+ * real nav of real buttons, the selected one `aria-current`, each one's status
+ * dot spelled out in its accessible name and explained by the legend below.
+ */
 function ArtifactNav({
   items,
   selectedKind,
@@ -479,68 +525,105 @@ function ArtifactNav({
   onSelect: (kind: string) => void;
   t: Tokens;
 }): ReactNode {
+  const dotFor = (stage: string): string =>
+    stage === 'committed' ? t.committedDot : stage === 'awaitingReview' ? t.awaitingFg : t.line;
   return (
-    <Paper sx={{ p: 0.75, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-      {items.map((a) => {
-        const active = a.kind === selectedKind;
-        const dot =
-          a.stage === 'committed'
-            ? t.committedDot
-            : a.stage === 'awaitingReview'
-              ? t.awaitingFg
-              : t.line;
-        return (
-          <Box
-            data-testid={UI_IDENTIFIERS.HomeBase.tocRow(a.kind)}
-            key={a.kind}
-            role="button"
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              px: 1.25,
-              py: 0.9,
-              borderRadius: 1,
-              cursor: 'pointer',
-              borderLeft: `3px solid ${active ? t.accent : 'transparent'}`,
-              bgcolor: active ? t.paperAlt : 'transparent',
-              '&:hover': { bgcolor: t.paperAlt },
-            }}
-            tabIndex={0}
-            onClick={() => {
-              onSelect(a.kind);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onSelect(a.kind);
-              }
-            }}
-          >
-            <Box sx={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, bgcolor: dot }} />
-            <Typography
-              sx={{
-                fontSize: 13.5,
-                fontWeight: active ? 700 : 500,
-                color: active ? t.ink : t.muted,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                minWidth: 0,
-              }}
-            >
-              {a.title}
+    <Paper aria-label="System design sections" component="nav" sx={{ p: 0.75 }}>
+      <Box
+        component="ul"
+        sx={{ listStyle: 'none', m: 0, p: 0, display: 'flex', flexDirection: 'column', gap: 0.25 }}
+      >
+        {items.map((a) => {
+          const active = a.kind === selectedKind;
+          return (
+            <Box component="li" key={a.kind}>
+              <Tooltip describeChild placement="right" title={a.blurb}>
+                <Box
+                  aria-current={active ? 'true' : undefined}
+                  aria-label={`${a.title} — ${STAGE_WORD[a.stage] ?? a.stage}`}
+                  component="button"
+                  data-testid={UI_IDENTIFIERS.HomeBase.tocRow(a.kind)}
+                  sx={{
+                    width: '100%',
+                    font: 'inherit',
+                    textAlign: 'left',
+                    border: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    px: 1.25,
+                    minHeight: 40,
+                    borderRadius: 1,
+                    cursor: 'pointer',
+                    borderLeft: `3px solid ${active ? t.accent : 'transparent'}`,
+                    bgcolor: active ? t.paperAlt : 'transparent',
+                    '&:hover': { bgcolor: t.paperAlt },
+                    '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: -2 },
+                  }}
+                  type="button"
+                  onClick={() => {
+                    onSelect(a.kind);
+                  }}
+                >
+                  <Box
+                    aria-hidden
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      flexShrink: 0,
+                      bgcolor: dotFor(a.stage),
+                    }}
+                  />
+                  <Typography
+                    component="span"
+                    sx={{
+                      fontSize: 13.5,
+                      fontWeight: active ? 700 : 500,
+                      color: active ? t.ink : t.muted,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      minWidth: 0,
+                    }}
+                  >
+                    {a.title}
+                  </Typography>
+                  {/* Non-blocking basis-drift signal on a committed row (compact form). */}
+                  {a.staleBasis === true ? (
+                    <>
+                      <Box sx={{ flexGrow: 1 }} />
+                      <StaleBasisMarker kind={a.kind} />
+                    </>
+                  ) : null}
+                </Box>
+              </Tooltip>
+            </Box>
+          );
+        })}
+      </Box>
+      {/* The dots' legend — only the states actually on screen. */}
+      <Box
+        aria-hidden
+        sx={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 1.25,
+          px: 1.25,
+          pt: 1,
+          mt: 0.75,
+          borderTop: `1px solid ${t.line}`,
+        }}
+      >
+        {[...new Set(items.map((a) => a.stage))].map((stage) => (
+          <Box key={stage} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: dotFor(stage) }} />
+            <Typography sx={{ fontSize: 11.5, color: t.muted }}>
+              {STAGE_WORD[stage] ?? stage}
             </Typography>
-            {/* Non-blocking basis-drift signal on a committed row (compact form). */}
-            {a.staleBasis === true ? (
-              <>
-                <Box sx={{ flexGrow: 1 }} />
-                <StaleBasisMarker kind={a.kind} />
-              </>
-            ) : null}
           </Box>
-        );
-      })}
+        ))}
+      </Box>
     </Paper>
   );
 }

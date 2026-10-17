@@ -1,7 +1,9 @@
 /**
  * Per-project app shell: a sticky top bar with the brand (→ projects landing), a
- * ProjectMenu switcher, a current-project name/phase indicator, the theme
- * switcher, an account menu, and the dev-auth / sign-out affordances (GTD parity).
+ * ProjectMenu switcher, a current-project phase indicator, the project's section
+ * nav (Overview · Plan · Team · Change requests · Billing · Operations), the theme
+ * switcher, an account menu (which carries the sections below lg), and the
+ * dev-auth / sign-out affordances (GTD parity).
  * Wraps a project-scoped screen passed as children. The current project is read
  * from useProject(projectId) so the indicator + menu reflect live head-state.
  */
@@ -16,22 +18,37 @@ import MenuItem from '@mui/material/MenuItem';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
+import ListSubheader from '@mui/material/ListSubheader';
 import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import SwapCallsOutlinedIcon from '@mui/icons-material/SwapCallsOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
-import { useNavigate } from '@tanstack/react-router';
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
+import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
+import Button from '@mui/material/Button';
+import Tooltip from '@mui/material/Tooltip';
+import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { useUser } from '../utilities/auth/UserContext';
 import { userLabel } from '../utilities/auth/userInfo';
 import { useProject } from '../hooks/useDeliveryQueries';
+import { useOperatedAppId } from '../hooks/useOperatedAppId';
+import { PLAN_PATH, planSearch } from '../contracts/routePaths';
 import { config } from '../utilities/config';
 import { phaseLabel } from './projectFormat';
 import { ProjectMenu } from './ProjectMenu';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
+
+/** The account menu's copy of each section keeps the ids it always had. */
+const MENU_TESTID: Readonly<Record<string, string>> = {
+  home: UI_IDENTIFIERS.Shell.ACCOUNT_MENU_HOME,
+  team: UI_IDENTIFIERS.Shell.ACCOUNT_MENU_TEAM,
+  changes: UI_IDENTIFIERS.Shell.ACCOUNT_MENU_CHANGES,
+  billing: UI_IDENTIFIERS.Shell.ACCOUNT_MENU_BILLING,
+};
 
 export function AppShell({
   projectId,
@@ -48,6 +65,70 @@ export function AppShell({
 
   const name = project?.name ?? '…';
   const label = userLabel(user);
+  const operatedAppId = useOperatedAppId(projectId);
+  const pathname = useRouterState({ select: (st) => st.location.pathname });
+
+  // The project's sections, as ONE visible nav (they used to hide in the avatar
+  // menu, where nobody looks for "Plan" or "Billing"). Below lg the same entries
+  // stay in the account menu, so a phone still reaches every one.
+  const sections: {
+    key: string;
+    label: string;
+    icon: ReactNode;
+    testid?: string;
+    active: boolean;
+    go: () => void;
+  }[] = [
+    {
+      key: 'home',
+      label: 'Overview',
+      icon: <HomeOutlinedIcon sx={{ fontSize: 18 }} />,
+      active: pathname.endsWith('/home'),
+      go: () => void navigate({ to: '/project/$projectId/home', params: { projectId } }),
+    },
+    {
+      key: 'plan',
+      label: 'Plan',
+      icon: <AccountTreeOutlinedIcon sx={{ fontSize: 18 }} />,
+      active: pathname.endsWith('/plan') || pathname.includes('/activity/'),
+      go: () =>
+        void navigate({ to: PLAN_PATH, params: { projectId }, search: () => planSearch('list') }),
+    },
+    {
+      key: 'team',
+      label: 'Team',
+      icon: <GroupsOutlinedIcon sx={{ fontSize: 18 }} />,
+      testid: UI_IDENTIFIERS.Shell.TEAM_NAV,
+      active: pathname.endsWith('/team'),
+      go: () => void navigate({ to: '/project/$projectId/team', params: { projectId } }),
+    },
+    {
+      key: 'changes',
+      label: 'Change requests',
+      icon: <SwapCallsOutlinedIcon sx={{ fontSize: 18 }} />,
+      active: pathname.includes('/changes'),
+      go: () => void navigate({ to: '/project/$projectId/changes', params: { projectId } }),
+    },
+    {
+      key: 'billing',
+      label: 'Billing',
+      icon: <ReceiptLongOutlinedIcon sx={{ fontSize: 18 }} />,
+      active: pathname.endsWith('/billing'),
+      go: () => void navigate({ to: '/project/$projectId/billing', params: { projectId } }),
+    },
+    ...(operatedAppId !== undefined
+      ? [
+          {
+            key: 'operations',
+            label: 'Operations',
+            icon: <MonitorHeartOutlinedIcon sx={{ fontSize: 18 }} />,
+            active: pathname.startsWith('/operations/'),
+            go: () =>
+              void navigate({ to: '/operations/$operatedAppId', params: { operatedAppId } }),
+          },
+        ]
+      : []),
+  ];
 
   return (
     <Box
@@ -57,6 +138,7 @@ export function AppShell({
       <AppBar data-testid={UI_IDENTIFIERS.Shell.APP_BAR} position="sticky">
         <Toolbar sx={{ gap: 1.5, minHeight: 56 }}>
           <Box
+            aria-label="archistrator — all projects"
             component="button"
             data-testid={UI_IDENTIFIERS.Shell.BRAND}
             sx={{
@@ -68,12 +150,16 @@ export function AppShell({
               bgcolor: 'transparent',
               cursor: 'pointer',
               p: 0,
+              minHeight: 48,
+              borderRadius: 1,
+              '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
             }}
             onClick={() => {
               void navigate({ to: '/' });
             }}
           >
             <Box
+              aria-hidden
               sx={{
                 fontFamily: t.mono,
                 fontWeight: 700,
@@ -89,13 +175,14 @@ export function AppShell({
               archi⌁
             </Box>
             <Typography
+              aria-hidden
               sx={{
                 fontFamily: t.display,
                 fontWeight: 700,
                 fontSize: 16,
                 color: t.ink,
                 letterSpacing: '-0.01em',
-                display: { xs: 'none', sm: 'block' },
+                display: { xs: 'none', xl: 'block' },
               }}
             >
               archistrator
@@ -105,62 +192,81 @@ export function AppShell({
           <Box sx={{ width: '1px', height: 22, bgcolor: t.line, flexShrink: 0 }} />
           <ProjectMenu currentName={name} projectId={projectId} />
           {project !== undefined && (
-            <Chip
-              label={phaseLabel(project.phase, project.operating)}
-              size="small"
-              sx={{
-                display: { xs: 'none', md: 'flex' },
-                bgcolor: t.chatArchitectBg,
-                color: t.chatArchitectFg,
-              }}
-            />
+            <Tooltip title="The phase of The Method this project is in now">
+              <Chip
+                aria-label={`Current phase: ${phaseLabel(project.phase, project.operating)}`}
+                label={phaseLabel(project.phase, project.operating)}
+                size="small"
+                sx={{
+                  display: { xs: 'none', md: 'flex' },
+                  bgcolor: t.chatArchitectBg,
+                  color: t.chatArchitectFg,
+                }}
+                tabIndex={0}
+              />
+            </Tooltip>
           )}
 
           <Box
-            component="button"
-            data-testid={UI_IDENTIFIERS.Shell.TEAM_NAV}
-            sx={{
-              display: { xs: 'none', sm: 'flex' },
-              alignItems: 'center',
-              gap: 0.5,
-              ml: 0.5,
-              px: 1,
-              py: 0.4,
-              border: 0,
-              cursor: 'pointer',
-              borderRadius: 1,
-              bgcolor: 'transparent',
-              color: t.ink,
-              fontFamily: t.mono,
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: '0.02em',
-              '&:hover': { bgcolor: t.paperAlt },
-            }}
-            onClick={() => {
-              void navigate({ to: '/project/$projectId/team', params: { projectId } });
-            }}
+            aria-label="Project sections"
+            component="nav"
+            sx={{ display: { xs: 'none', lg: 'flex' }, alignItems: 'center', gap: 0.25, ml: 0.5 }}
           >
-            <GroupsOutlinedIcon sx={{ fontSize: 16 }} />
-            Team
+            {sections.map((sec) => (
+              <Button
+                aria-current={sec.active ? 'page' : undefined}
+                data-testid={sec.testid}
+                key={sec.key}
+                size="small"
+                startIcon={sec.icon}
+                sx={{
+                  minHeight: 40,
+                  px: 1.25,
+                  color: sec.active ? t.ink : t.muted,
+                  fontWeight: sec.active ? 700 : 500,
+                  textTransform: 'none',
+                  whiteSpace: 'nowrap',
+                  borderRadius: 1,
+                  bgcolor: sec.active ? t.paperAlt : 'transparent',
+                  boxShadow: sec.active ? `inset 0 -2px 0 ${t.accent}` : 'none',
+                  '&:hover': { bgcolor: t.paperAlt, color: t.ink },
+                }}
+                variant="text"
+                onClick={sec.go}
+              >
+                {sec.label}
+              </Button>
+            ))}
           </Box>
 
           <Box sx={{ flexGrow: 1 }} />
 
           <ThemeSwitcher />
           {config.authMode === 'dev' && (
-            <Chip
-              color="warning"
-              data-testid={UI_IDENTIFIERS.Shell.DEV_MODE_BADGE}
-              label="DEV AUTH"
-              size="small"
-            />
+            <Tooltip title="Signed in with local development credentials — not a real account. Nothing here is billed.">
+              <Chip
+                data-testid={UI_IDENTIFIERS.Shell.DEV_MODE_BADGE}
+                label="Dev sign-in"
+                size="small"
+                sx={{
+                  display: { xs: 'none', sm: 'flex' },
+                  bgcolor: t.awaitingBg,
+                  color: t.awaitingFg,
+                  border: `1px solid ${t.awaitingFg}`,
+                  fontWeight: 700,
+                }}
+                tabIndex={0}
+              />
+            </Tooltip>
           )}
 
           <IconButton
+            aria-controls={acct !== null ? 'account-menu' : undefined}
+            aria-expanded={acct !== null ? 'true' : undefined}
+            aria-haspopup="menu"
+            aria-label={`Account and navigation menu — signed in as ${label}`}
             data-testid={UI_IDENTIFIERS.Shell.ACCOUNT_MENU_BUTTON}
-            size="small"
-            sx={{ p: 0.25 }}
+            sx={{ p: 0.75 }}
             onClick={(e) => {
               setAcct(e.currentTarget);
             }}
@@ -187,33 +293,21 @@ export function AppShell({
           </IconButton>
           <Menu
             anchorEl={acct}
+            id="account-menu"
             open={acct !== null}
             slotProps={{ paper: { sx: { minWidth: 200 } } }}
             onClose={() => {
               setAcct(null);
             }}
           >
-            <Box sx={{ px: 2, py: 1 }}>
-              <Typography
-                data-testid={UI_IDENTIFIERS.Shell.USER_LABEL}
-                sx={{ fontWeight: 700, fontFamily: t.body }}
-              >
-                {label}
-              </Typography>
-            </Box>
-            <Divider />
-            <MenuItem
-              data-testid={UI_IDENTIFIERS.Shell.ACCOUNT_MENU_HOME}
-              onClick={() => {
-                setAcct(null);
-                void navigate({ to: '/project/$projectId/home', params: { projectId } });
-              }}
+            <ListSubheader
+              data-testid={UI_IDENTIFIERS.Shell.USER_LABEL}
+              role="presentation"
+              sx={{ fontWeight: 700, fontFamily: t.body, color: t.ink, lineHeight: 2.5 }}
             >
-              <ListItemIcon>
-                <HomeOutlinedIcon fontSize="small" />
-              </ListItemIcon>
-              Home base
-            </MenuItem>
+              Signed in as {label}
+            </ListSubheader>
+            <Divider />
             <MenuItem
               data-testid={UI_IDENTIFIERS.Shell.ACCOUNT_MENU_ALL_PROJECTS}
               onClick={() => {
@@ -226,43 +320,23 @@ export function AppShell({
               </ListItemIcon>
               All projects
             </MenuItem>
-            <MenuItem
-              data-testid={UI_IDENTIFIERS.Shell.ACCOUNT_MENU_TEAM}
-              onClick={() => {
-                setAcct(null);
-                void navigate({ to: '/project/$projectId/team', params: { projectId } });
-              }}
-            >
-              <ListItemIcon>
-                <GroupsOutlinedIcon fontSize="small" />
-              </ListItemIcon>
-              Team
-            </MenuItem>
-            <Divider />
-            <MenuItem
-              data-testid={UI_IDENTIFIERS.Shell.ACCOUNT_MENU_CHANGES}
-              onClick={() => {
-                setAcct(null);
-                void navigate({ to: '/project/$projectId/changes', params: { projectId } });
-              }}
-            >
-              <ListItemIcon>
-                <SwapCallsOutlinedIcon fontSize="small" />
-              </ListItemIcon>
-              Change requests
-            </MenuItem>
-            <MenuItem
-              data-testid={UI_IDENTIFIERS.Shell.ACCOUNT_MENU_BILLING}
-              onClick={() => {
-                setAcct(null);
-                void navigate({ to: '/project/$projectId/billing', params: { projectId } });
-              }}
-            >
-              <ListItemIcon>
-                <ReceiptLongOutlinedIcon fontSize="small" />
-              </ListItemIcon>
-              Billing
-            </MenuItem>
+            {/* Below lg the top-bar nav is hidden, so its sections live here. */}
+            <Divider sx={{ display: { lg: 'none' } }} />
+            {sections.map((sec) => (
+              <MenuItem
+                data-testid={MENU_TESTID[sec.key]}
+                key={sec.key}
+                selected={sec.active}
+                sx={{ display: { lg: 'none' } }}
+                onClick={() => {
+                  setAcct(null);
+                  sec.go();
+                }}
+              >
+                <ListItemIcon>{sec.icon}</ListItemIcon>
+                {sec.label}
+              </MenuItem>
+            ))}
             {config.authMode === 'keycloak' && (
               <>
                 <Divider />

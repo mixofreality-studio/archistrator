@@ -1,5 +1,5 @@
 /**
- * Pure resolution for the Architecture step's ?view=&step= deep link (the
+ * Pure resolution for the Architecture review's ?view=&step= deep link (the
  * use-case → call-chain jump from the Core Use Cases carousel, now landing on
  * a specific step of the chain — Task 11). Decides whether an explicit search
  * param should preselect the Dynamic lens + a specific dynamic view (+ step),
@@ -43,9 +43,9 @@ export function resolveDeepLinkView({
   consumedLocationKey,
   availableKeys,
 }: {
-  /** The ?view= search param on the system-step route ('' when absent). */
+  /** The ?view= search param on the activity route ('' when absent). */
   viewParam: string;
-  /** The ?step= search param on the system-step route ('' when absent). */
+  /** The ?step= search param on the activity route ('' when absent). */
   stepParam: string;
   /** The history entry's unique key ('' when the router exposes none). */
   locationKey: string;

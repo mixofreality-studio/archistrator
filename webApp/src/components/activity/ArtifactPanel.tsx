@@ -144,6 +144,7 @@ function ProjectDesignBody({
         envelope={projectEnvelope(slots, 'sdpReview')}
         pending={sdp?.rejectPending ?? false}
         readOnly={readOnly}
+        riskEnvelope={projectEnvelope(slots, 'riskModel')}
         onChoose={sdp?.onChoose}
         onCommit={unreachable}
         onRejectAll={readOnly ? undefined : sdp?.onRejectAll}

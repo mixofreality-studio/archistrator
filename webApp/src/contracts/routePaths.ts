@@ -41,11 +41,30 @@ export function planSearch(lens: unknown): { lens: PlanLensId } {
  * A junk `rev` is DROPPED, never coerced: `NaN` downstream renders as
  * "Revision NaN" and silently poisons every comparison that touches it — the
  * rule `useLensSelection.attemptOf` already states for the old `?n=`.
+ *
+ * `view` + `step` are the Architecture review's call-chain deep link (a
+ * dynamic-view key and its 1-based step — `architectureDeepLink.ts`), carried
+ * by the cross-artifact StepLink. They pass through under the same rule: a
+ * blank view and a non-positive-integer step are dropped, so a validated
+ * search never carries a value the reader would have to guard against.
  */
-export function activitySearch(task: unknown, rev: unknown): { task?: string; rev?: number } {
-  const n = typeof rev === 'string' || typeof rev === 'number' ? Number(rev) : Number.NaN;
+export function activitySearch(
+  task: unknown,
+  rev: unknown,
+  view?: unknown,
+  step?: unknown
+): { task?: string; rev?: number; view?: string; step?: number } {
+  const n = positiveInt(rev);
+  const s = positiveInt(step);
   return {
     ...(typeof task === 'string' && task.length > 0 ? { task } : {}),
-    ...(Number.isInteger(n) && n >= 1 ? { rev: n } : {}),
+    ...(n !== undefined ? { rev: n } : {}),
+    ...(typeof view === 'string' && view.length > 0 ? { view } : {}),
+    ...(s !== undefined ? { step: s } : {}),
   };
+}
+
+function positiveInt(raw: unknown): number | undefined {
+  const n = typeof raw === 'string' || typeof raw === 'number' ? Number(raw) : Number.NaN;
+  return Number.isInteger(n) && n >= 1 ? n : undefined;
 }

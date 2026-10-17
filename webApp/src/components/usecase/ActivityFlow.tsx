@@ -134,9 +134,13 @@ function build(
       zIndex: isCurrent ? 3 : 1,
       style: {
         zIndex: isCurrent ? 3 : 1,
-        opacity: dim ? 0.25 : 1,
+        // Off-path steps recede by losing their lane colour (grayscale), NOT by
+        // opacity: an opacity dim took every off-path label below AA contrast,
+        // and a reviewer still reads those steps to see where the flow could go.
+        // The current step's ring and the lit accent trail carry "you are here".
+        filter: dim ? 'grayscale(1)' : undefined,
         ...(isCurrent ? { boxShadow: `0 0 0 3px ${t.accent}`, borderRadius: 6 } : {}),
-        transition: 'opacity 120ms',
+        transition: 'filter 120ms',
       },
     };
   });
@@ -350,6 +354,16 @@ export function ActivityFlow({
         border: `1.5px solid ${t.line}`,
         borderRadius: t.radius / 8 + 0.5,
         bgcolor: t.bg,
+        // xyflow's zoom controls ship light-only styling: on the dark themes they
+        // were near-white squares with near-white glyphs. Theme them from tokens.
+        '& .react-flow__controls-button': {
+          bgcolor: t.paper,
+          color: t.ink,
+          fill: t.ink,
+          borderColor: t.line,
+          '&:hover': { bgcolor: t.paperAlt },
+          '& svg': { fill: t.ink },
+        },
       }}
     >
       <ReactFlow

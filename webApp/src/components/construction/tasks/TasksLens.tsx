@@ -153,16 +153,20 @@ export function TasksLens(props: TasksLensProps): ReactElement {
             border: `1.5px solid ${t.line}`,
             borderRadius: `${String(t.radius)}px`,
             bgcolor: t.paperAlt,
-            fontFamily: t.mono,
-            fontSize: 12,
-            fontWeight: 700,
+            fontFamily: t.body,
+            fontSize: 13,
           }}
           title={props.paused.reason}
         >
-          {props.paused.label}
+          {/* The header already carries the short label beside its Resume button;
+              this line says what the pause MEANS, so it never repeats it verbatim. */}
+          <Box component="span" sx={{ fontWeight: 700 }}>
+            Construction is paused.
+          </Box>{' '}
+          No new activity starts until you resume it; an activity already running finishes.
           {props.paused.reason !== undefined ? (
-            <Box component="span" sx={{ fontWeight: 400, opacity: 0.75, ml: 1 }}>
-              ({props.paused.reason})
+            <Box component="span" sx={{ color: t.muted, ml: 1 }}>
+              {`Reason given: ${props.paused.reason}`}
             </Box>
           ) : null}
         </Box>

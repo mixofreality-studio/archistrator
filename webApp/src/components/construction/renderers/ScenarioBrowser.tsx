@@ -1,6 +1,8 @@
-import { type ReactNode, useContext, useMemo, useState } from 'react';
+import { type ReactNode, useContext, useId, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import FormControl from '@mui/material/FormControl';
 import Select from '@mui/material/Select';
@@ -20,6 +22,10 @@ import {
   testPlanStepAnchor,
 } from '../../comments/CommentContext';
 import { CommentableList } from '../../comments/CommentableList';
+import { StructuredValue } from '../primitives/StructuredValue';
+import { diagramFits } from '../codeDiagram/codeDiagramModel.ts';
+import { useElementWidth } from '../useElementWidth';
+import { StimulusDiagram } from './StimulusDiagram';
 import { ScenarioLinkContext } from './scenarioLink';
 import { activeScenarioId } from './scenarioSelection.ts';
 import {
@@ -35,12 +41,24 @@ import {
 function Eyebrow({ t, children }: { t: Tokens; children: ReactNode }): ReactNode {
   return (
     <Typography
-      sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.08em', color: t.muted, mb: 0.25 }}
+      sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.08em', color: t.muted, mb: 0.25 }}
     >
       {children}
     </Typography>
   );
 }
+
+/** What each binding standing means, said once, on hover/focus of its chip. */
+const BINDING_TIP: Record<'bound' | 'partial' | 'unbound' | 'skipped', string> = {
+  bound:
+    'Bound: every stimulus carries concrete inputs, an expected result and a proof for each expected state — the generated test can replay it.',
+  partial:
+    'Partly bound: some stimuli still lack concrete inputs, an expectation or a proof. The testing gate fails until all are bound.',
+  unbound:
+    'Unbound: the test plan has not yet given this scenario concrete inputs or expectations.',
+  skipped:
+    'Skipped: bound as a skip because an upstream component is not integrated yet. A skip is not a pass.',
+};
 
 /** The binding's standing, as a chip: bound / n/m bound / unbound / skipped. */
 function bindingChip(s: ScenarioView, t: Tokens): ReactNode {
@@ -48,33 +66,53 @@ function bindingChip(s: ScenarioView, t: Tokens): ReactNode {
   let label: string;
   let fg: string;
   let bg: string;
+  let tip: string;
   if (b === undefined) {
     label = 'unbound';
     fg = t.dangerFg;
     bg = t.paperAlt;
+    tip = BINDING_TIP.unbound;
   } else if (b.skip !== undefined) {
     label = `skipped until ${b.skip.until}`;
     fg = t.awaitingFg;
     bg = t.awaitingBg;
+    tip = BINDING_TIP.skipped;
   } else {
     const bound = new Set(b.steps.map((st) => st.seq));
     const all = s.stimuli.every((st) => bound.has(st.seq));
     label = all ? 'bound' : `${String(bound.size)}/${String(s.stimuli.length)} bound`;
     fg = all ? t.committedFg : t.awaitingFg;
     bg = all ? t.committedBg : t.awaitingBg;
+    tip = all ? BINDING_TIP.bound : BINDING_TIP.partial;
   }
   return (
-    <Chip
-      data-binding-status={label}
-      data-testid={UI_IDENTIFIERS.Construction.SCENARIO_BINDING_CHIP}
-      label={label}
-      size="small"
-      sx={{ height: 18, fontSize: 8.5, bgcolor: bg, color: fg, border: `1px solid ${t.line}` }}
-    />
+    <Tooltip title={tip}>
+      <Chip
+        data-binding-status={label}
+        data-testid={UI_IDENTIFIERS.Construction.SCENARIO_BINDING_CHIP}
+        label={label}
+        size="small"
+        sx={{ height: 22, fontSize: 11, bgcolor: bg, color: fg, border: `1px solid ${t.line}` }}
+        tabIndex={0}
+      />
+    </Tooltip>
   );
 }
 
-/** A participant's name, tagged with its layer in that layer's colour (the diagrams' legend). */
+/** A participant's layer, said in words a first-time reader knows. */
+const PARTY_TAG_TIP: Record<string, string> = {
+  actor: 'A person who uses the system',
+  time: 'A scheduled time event, not a person',
+  unresolved: 'Not found in the committed architecture',
+  client: 'Client layer — the user-facing app or API',
+  manager: 'Manager layer — orchestrates a use case',
+  engine: 'Engine layer — encapsulates a business rule',
+  resourceAccess: 'ResourceAccess layer — reads and writes a resource',
+  resource: 'Resource — a database, store or external system',
+  utility: 'Utility — cross-cutting infrastructure',
+};
+
+/** A participant's name, tagged with its layer, the tag outlined in that layer's colour. */
 function PartyName({ p, t }: { p: Party; t: Tokens }): ReactNode {
   const colors = layerColors(t);
   const color =
@@ -102,14 +140,16 @@ function PartyName({ p, t }: { p: Party; t: Tokens }): ReactNode {
           sx={{
             ml: 0.5,
             px: 0.5,
-            fontFamily: t.mono,
-            fontSize: 8.5,
-            letterSpacing: '0.04em',
-            border: `1px solid ${color}`,
-            color,
+            fontFamily: t.body,
+            fontSize: 10.5,
+            // The tag's TEXT stays ink (AA on every paper); the layer colour is
+            // carried by the outline, which only needs the 3:1 of a UI boundary.
+            color: t.ink,
+            border: `1.5px solid ${color}`,
             borderRadius: 0.5,
             verticalAlign: 'middle',
           }}
+          title={PARTY_TAG_TIP[tag]}
         >
           {tag}
         </Box>
@@ -131,58 +171,149 @@ function kindColor(kind: StimulusRow['kind'], t: Tokens): string {
   }
 }
 
+const KIND_TIP: Record<StimulusRow['kind'], string> = {
+  'actor input': 'A person acts on the system through a client',
+  'component call': 'Another component calls this one',
+  'time event': 'A schedule fires — no person is involved',
+  decision: 'A branch the use case takes at this point',
+};
+
 function KindChip({ kind, t }: { kind: StimulusRow['kind']; t: Tokens }): ReactNode {
   const c = kindColor(kind, t);
   return (
-    <Chip
-      label={kind}
-      size="small"
-      sx={{
-        height: 18,
-        fontFamily: t.mono,
-        fontSize: 9,
-        fontWeight: 700,
-        bgcolor: 'transparent',
-        color: c,
-        border: `1.5px solid ${c}`,
-      }}
-    />
+    <Tooltip title={KIND_TIP[kind]}>
+      <Chip
+        label={kind}
+        size="small"
+        sx={{
+          height: 22,
+          fontFamily: t.body,
+          fontSize: 11,
+          fontWeight: 700,
+          bgcolor: 'transparent',
+          color: t.ink,
+          border: `1.5px solid ${c}`,
+        }}
+        tabIndex={0}
+      />
+    </Tooltip>
   );
 }
 
-/** How one expected output/state is proven, as one line. */
-function ProofLine({ e, t }: { e: Expectation; t: Tokens }): ReactNode {
+/** A small labelled field: the label above, the value below — a form, not a code line. */
+function Field({
+  label,
+  children,
+  t,
+}: {
+  label: string;
+  children: ReactNode;
+  t: Tokens;
+}): ReactNode {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontFamily: t.body, fontSize: 11, fontWeight: 700, color: t.muted }}>
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  );
+}
+
+/**
+ * How one expected output/state is proven. A probe is a READ the generated test
+ * makes after the stimulus — which component, which operation, with what, and
+ * the answer it must get — laid out as labelled fields, never as a call string.
+ */
+function ProofBlock({ e, t }: { e: Expectation; t: Tokens }): ReactNode {
   const p = e.proof;
   switch (p.kind) {
-    case 'probe':
+    case 'probe': {
+      const pr = p.probe;
+      const ex = pr.expect;
       return (
         <Box
-          component="span"
-          sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink, wordBreak: 'break-all' }}
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 0.75,
+            pl: 1.25,
+            py: 0.5,
+            borderLeft: `2px solid ${t.committedDot}`,
+            minWidth: 0,
+          }}
         >
-          <Box component="span" sx={{ color: t.committedFg, fontWeight: 700 }}>
-            probe{' '}
+          <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink }}>
+            <Box component="span" sx={{ color: t.committedText, fontWeight: 700 }}>
+              Proved by reading{' '}
+            </Box>
+            <Box component="span" sx={{ fontWeight: 700 }}>
+              {pr.operation}
+            </Box>
+            <Box component="span" sx={{ color: t.muted }}>{` on ${pr.component}`}</Box>
+          </Typography>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'minmax(0,1fr) minmax(0,1fr)' },
+              gap: 1.5,
+            }}
+          >
+            <Field label="Asks with" t={t}>
+              {pr.inputs.length === 0 ? (
+                <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}>
+                  no inputs
+                </Typography>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  {pr.inputs.map((a) => (
+                    <Box key={a.name} sx={{ minWidth: 0 }}>
+                      <Typography
+                        sx={{ fontFamily: t.body, fontSize: 12, fontWeight: 600, color: t.ink }}
+                      >
+                        {a.name}
+                      </Typography>
+                      <StructuredValue raw={a.value} t={t} />
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Field>
+            <Field label={ex.errorExpected ? 'Must fail with' : 'Must answer'} t={t}>
+              {ex.errorExpected ? (
+                <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.dangerFg }}>
+                  {ex.errorCode.length > 0 ? ex.errorCode : 'any error'}
+                </Typography>
+              ) : ex.result.length > 0 ? (
+                <StructuredValue raw={ex.result} t={t} />
+              ) : (
+                <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}>
+                  any answer without an error
+                </Typography>
+              )}
+            </Field>
           </Box>
-          {p.text}
         </Box>
       );
+    }
     case 'unobservable':
       return (
-        <Box component="span" sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-          declared unobservable — no probe
-        </Box>
+        <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
+          Declared unobservable — nothing the component exposes can read it, so no probe.
+        </Typography>
       );
     case 'missing':
       return (
-        <Box component="span" sx={{ fontFamily: t.mono, fontSize: 11, color: t.dangerFg }}>
-          no probe, not declared unobservable — owed
-        </Box>
+        <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.dangerFg }}>
+          Owed: no probe, and not declared unobservable.
+        </Typography>
       );
     case 'unbound':
       return (
-        <Box component="span" sx={{ fontFamily: t.mono, fontSize: 11, color: t.dangerFg }}>
-          unbound — needs a probe (component.op + expect) or “unobservable”
-        </Box>
+        <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.dangerFg }}>
+          Owed: needs a probe (an operation to read it back and the answer expected) or an
+          “unobservable” declaration.
+        </Typography>
       );
   }
 }
@@ -203,39 +334,46 @@ function ExpectationList({
   return (
     <Box sx={{ minWidth: 0 }}>
       <Eyebrow t={t}>{title}</Eyebrow>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
         {items.map((e) => (
           <Box
             key={e.node}
-            sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 0.75 }}
+            sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 0 }}
           >
-            {/* the node's UML shape in miniature: a send-signal flag, an object box */}
-            <Box
-              aria-hidden
-              component="span"
-              sx={{
-                display: 'inline-block',
-                width: 14,
-                height: 10,
-                border: `1.5px solid ${t.ink}`,
-                borderRadius: shape === 'other' ? '3px' : 0,
-                clipPath:
-                  shape === 'signal'
-                    ? 'polygon(0 0, 70% 0, 100% 50%, 70% 100%, 0 100%)'
-                    : undefined,
-                bgcolor: shape === 'signal' ? t.ink : 'transparent',
-                flexShrink: 0,
-              }}
-            />
-            <Typography component="span" sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink }}>
-              {e.text}
-              {e.to.length > 0 ? (
-                <Box component="span" sx={{ color: t.muted }}>
-                  {` → ${e.to}`}
-                </Box>
-              ) : null}
-            </Typography>
-            <ProofLine e={e} t={t} />
+            <Box sx={{ display: 'flex', alignItems: 'baseline', columnGap: 0.75 }}>
+              {/* the node's UML shape in miniature: a send-signal flag, an object box */}
+              <Box
+                aria-hidden
+                component="span"
+                sx={{
+                  display: 'inline-block',
+                  width: 14,
+                  height: 10,
+                  border: `1.5px solid ${t.ink}`,
+                  borderRadius: shape === 'other' ? '3px' : 0,
+                  clipPath:
+                    shape === 'signal'
+                      ? 'polygon(0 0, 70% 0, 100% 50%, 70% 100%, 0 100%)'
+                      : undefined,
+                  bgcolor: shape === 'signal' ? t.ink : 'transparent',
+                  flexShrink: 0,
+                }}
+              />
+              <Typography
+                component="span"
+                sx={{ fontFamily: t.body, fontSize: 13, fontWeight: 600, color: t.ink }}
+              >
+                {e.text}
+                {e.to.length > 0 ? (
+                  <Box component="span" sx={{ color: t.muted, fontWeight: 400 }}>
+                    {` → sent to ${e.to}`}
+                  </Box>
+                ) : null}
+              </Typography>
+            </Box>
+            <Box sx={{ pl: 2.75, minWidth: 0 }}>
+              <ProofBlock e={e} t={t} />
+            </Box>
           </Box>
         ))}
       </Box>
@@ -243,16 +381,29 @@ function ExpectationList({
   );
 }
 
-function expectText(row: StimulusRow): string {
+/** What the stimulus must return, as a reader says it. */
+function ExpectedResult({ row, t }: { row: StimulusRow; t: Tokens }): ReactNode {
   switch (row.expect.kind) {
     case 'result':
-      return row.expect.text;
+      return <StructuredValue raw={row.expect.text} t={t} />;
     case 'error':
-      return `error ${row.expect.text}`;
+      return (
+        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.dangerFg }}>
+          {`fails with ${row.expect.text}`}
+        </Typography>
+      );
     case 'none':
-      return 'no result stated (returns without error)';
+      return (
+        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}>
+          No result stated — it must return without an error.
+        </Typography>
+      );
     case 'missing':
-      return '— unbound: a result or an expected error';
+      return (
+        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.dangerFg }}>
+          Owed: a result or an expected error.
+        </Typography>
+      );
   }
 }
 
@@ -261,11 +412,14 @@ function StimulusCard({
   row,
   selected,
   onSelect,
+  diagram,
   t,
 }: {
   row: StimulusRow;
   selected: boolean;
   onSelect: () => void;
+  /** Room for the code-level diagram; below it, the labelled text form. */
+  diagram: boolean;
   t: Tokens;
 }): ReactNode {
   return (
@@ -276,19 +430,19 @@ function StimulusCard({
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        gap: 1,
-        pl: 1.25,
-        py: 0.75,
+        gap: 1.25,
+        pl: 1.5,
+        py: 1,
         borderLeft: `3px solid ${selected ? t.accent : t.line}`,
         cursor: 'pointer',
         minWidth: 0,
       }}
       onClick={onSelect}
     >
-      {/* line 1: seq, kind, caller → component.op */}
+      {/* line 1: step number, kind, caller → component, operation */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minWidth: 0 }}>
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.muted }}>
-          {`#${String(row.seq)}`}
+        <Typography sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 13, color: t.muted }}>
+          {`Stimulus ${String(row.seq)}`}
         </Typography>
         <KindChip kind={row.kind} t={t} />
         <Typography
@@ -297,141 +451,185 @@ function StimulusCard({
         >
           <PartyName p={row.caller} t={t} />
           <Box component="span" sx={{ color: t.muted, mx: 0.75 }}>
-            →
+            calls
           </Box>
           <PartyName p={row.target} t={t} />
-          <Box component="span" sx={{ fontFamily: t.mono, fontWeight: 700, color: t.ink }}>
-            {row.op.length > 0 ? ` .${row.op}()` : ''}
-          </Box>
-          {row.op.length === 0 ? (
-            <Box component="span" sx={{ fontFamily: t.mono, color: t.dangerFg, ml: 0.75 }}>
-              op unresolved
+          {row.op.length > 0 ? (
+            <>
+              <Box component="span" sx={{ color: t.muted, mx: 0.75 }}>
+                operation
+              </Box>
+              <Box component="span" sx={{ fontWeight: 700, color: t.ink }}>
+                {row.op}
+              </Box>
+            </>
+          ) : (
+            <Box component="span" sx={{ color: t.dangerFg, ml: 0.75 }}>
+              — operation not resolved
             </Box>
-          ) : null}
+          )}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
         {row.hook ? (
-          <Chip
-            label="hook"
-            size="small"
-            sx={{ height: 18, fontFamily: t.mono, fontSize: 9, bgcolor: t.paperAlt, color: t.ink }}
-          />
+          <Tooltip title="Hooked: the generated test hands this step's setup and checks to a hand-written hooks file instead of generating them.">
+            <Chip
+              label="hand-written setup"
+              size="small"
+              sx={{ height: 22, fontSize: 11, bgcolor: t.paperAlt, color: t.ink }}
+              tabIndex={0}
+            />
+          </Tooltip>
         ) : null}
       </Box>
-      {/* line 2: where on the path, the guard, the alternative callers */}
-      <Typography
-        component="div"
-        sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, lineHeight: 1.45 }}
-      >
-        {`at “${row.nodeLabel}”`}
-        {row.guard.length > 0 ? (
-          <Box component="span" sx={{ fontFamily: t.mono, color: t.ink }}>
-            {`  ·  guard ${row.guard}`}
-          </Box>
-        ) : null}
-        {row.via.length > 0 ? (
-          <Box component="span">
-            {'  ·  also reachable via '}
-            {row.via.map((v, i) => (
-              <Box component="span" key={v.id}>
-                {i > 0 ? ', ' : ''}
-                <PartyName p={v} t={t} />
+      {/* line 2: where on the path, the guard, the alternative callers — and the
+          toggle that places this stimulus on the path and call-chain diagrams */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+        <Typography
+          component="div"
+          sx={{
+            fontFamily: t.body,
+            fontSize: 12.5,
+            color: t.muted,
+            lineHeight: 1.45,
+            flex: '1 1 320px',
+            minWidth: 0,
+          }}
+        >
+          {`At the step “${row.nodeLabel}”`}
+          {row.guard.length > 0 ? (
+            <Box component="span" sx={{ color: t.ink }}>
+              {' · only when '}
+              <Box component="span" sx={{ fontWeight: 700 }}>
+                {row.guard}
               </Box>
-            ))}
-          </Box>
-        ) : null}
-      </Typography>
-
-      {/* inputs | expected result */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'minmax(0,1.2fr) minmax(0,1fr)' },
-          gap: 1.5,
-        }}
-      >
-        <Box sx={{ minWidth: 0 }}>
-          <Eyebrow t={t}>INPUTS</Eyebrow>
-          {row.inputs.length === 0 ? (
-            <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-              none stated by the contract
-            </Typography>
-          ) : (
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: 'max-content minmax(0,1fr)',
-                columnGap: 1.25,
-                rowGap: 0.25,
-              }}
-            >
-              {row.inputs.map((i) => (
-                <Box key={i.name} sx={{ display: 'contents' }}>
-                  <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink }}>
-                    {i.name}
-                    {i.type.length > 0 ? (
-                      <Box component="span" sx={{ color: t.muted }}>{` ${i.type}`}</Box>
-                    ) : null}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontFamily: t.mono,
-                      fontSize: 11,
-                      color: i.value === undefined ? t.dangerFg : t.ink,
-                      wordBreak: 'break-all',
-                    }}
-                  >
-                    {i.value === undefined ? '— unbound' : `= ${i.value}`}
-                  </Typography>
+            </Box>
+          ) : null}
+          {row.via.length > 0 ? (
+            <Box component="span">
+              {' · also reachable via '}
+              {row.via.map((v, i) => (
+                <Box component="span" key={v.id}>
+                  {i > 0 ? ', ' : ''}
+                  <PartyName p={v} t={t} />
                 </Box>
               ))}
             </Box>
-          )}
-        </Box>
-        <Box sx={{ minWidth: 0 }}>
-          <Eyebrow t={t}>
-            {`EXPECTED${row.resultType.length > 0 ? ` · returns ${row.resultType}` : ''}`}
-          </Eyebrow>
-          <Typography
-            sx={{
-              fontFamily: t.mono,
-              fontSize: 11,
-              wordBreak: 'break-all',
-              color:
-                row.expect.kind === 'missing' || row.expect.kind === 'error' ? t.dangerFg : t.ink,
-            }}
-          >
-            {expectText(row)}
-          </Typography>
-        </Box>
+          ) : null}
+        </Typography>
+        <Button
+          aria-pressed={selected}
+          size="small"
+          sx={{ textTransform: 'none', fontSize: 12, minHeight: 32, flexShrink: 0 }}
+          variant={selected ? 'contained' : 'text'}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect();
+          }}
+        >
+          {selected ? 'Shown on the diagrams' : 'Show on the diagrams'}
+        </Button>
       </Box>
 
-      <ExpectationList
-        items={row.outputs}
-        shape="signal"
-        t={t}
-        title="EXPECTED OUTPUTS (sendSignal)"
-      />
-      <ExpectationList
-        items={row.states}
-        shape="object"
-        t={t}
-        title="EXPECTED STATES (objectNode [inState])"
-      />
-      <ExpectationList
-        items={row.alsoProves}
-        shape="other"
-        t={t}
-        title="THE BINDING ALSO PROVES (attached to other stimuli on the path)"
-      />
+      {diagram ? (
+        // The stimulus as a code-level diagram (the contract's language): who
+        // calls, with what, into which operation, and what must come back.
+        <StimulusDiagram row={row} t={t} />
+      ) : (
+        <>
+          {/* inputs | expected result */}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'minmax(0,1.2fr) minmax(0,1fr)' },
+              gap: 2,
+            }}
+          >
+            <Box sx={{ minWidth: 0 }}>
+              <Eyebrow t={t}>INPUTS</Eyebrow>
+              {row.inputs.length === 0 ? (
+                <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}>
+                  The contract states no inputs for this operation.
+                </Typography>
+              ) : (
+                <Box
+                  component="dl"
+                  sx={{
+                    m: 0,
+                    display: 'grid',
+                    gridTemplateColumns: 'max-content minmax(0,1fr)',
+                    columnGap: 1.5,
+                    rowGap: 0.75,
+                  }}
+                >
+                  {row.inputs.map((i) => (
+                    <Box key={i.name} sx={{ display: 'contents' }}>
+                      <Box component="dt" sx={{ minWidth: 0 }}>
+                        <Typography
+                          sx={{ fontFamily: t.body, fontSize: 12.5, fontWeight: 700, color: t.ink }}
+                        >
+                          {i.name}
+                        </Typography>
+                        {i.type.length > 0 ? (
+                          <Typography
+                            sx={{ fontFamily: t.body, fontSize: 11, color: t.muted }}
+                            title="The type the contract declares for this input"
+                          >
+                            {i.type.replace(/^\*/, '')}
+                          </Typography>
+                        ) : null}
+                      </Box>
+                      <Box component="dd" sx={{ m: 0, minWidth: 0 }}>
+                        {i.value === undefined ? (
+                          <Typography
+                            sx={{ fontFamily: t.body, fontSize: 12.5, color: t.dangerFg }}
+                          >
+                            not bound yet
+                          </Typography>
+                        ) : (
+                          <StructuredValue raw={i.value} t={t} />
+                        )}
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Eyebrow t={t}>
+                {`EXPECTED RESULT${row.resultType.length > 0 ? ` · a ${row.resultType}` : ''}`}
+              </Eyebrow>
+              <ExpectedResult row={row} t={t} />
+            </Box>
+          </Box>
+
+          <ExpectationList
+            items={row.outputs}
+            shape="signal"
+            t={t}
+            title="EXPECTED OUTPUTS · signals sent to an actor"
+          />
+          <ExpectationList
+            items={row.states}
+            shape="object"
+            t={t}
+            title="EXPECTED STATES · what must be true afterwards"
+          />
+          <ExpectationList
+            items={row.alsoProves}
+            shape="other"
+            t={t}
+            title="ALSO PROVES · states the diagram attaches to other stimuli on this path"
+          />
+        </>
+      )}
 
       {row.hints.length > 0 ? (
         <Box>
-          <Eyebrow t={t}>HINTS (anchored notes)</Eyebrow>
+          <Eyebrow t={t}>NOTES ON THE DIAGRAM</Eyebrow>
           {row.hints.map((h) => (
             <Typography
               key={h}
-              sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45 }}
+              sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.45 }}
             >
               {h}
             </Typography>
@@ -439,15 +637,14 @@ function StimulusCard({
         </Box>
       ) : null}
 
-      {row.missing.length > 0 ? (
+      {/* The diagram marks every owed value in its own row; the text form lists them. */}
+      {!diagram && row.missing.length > 0 ? (
         <Box
           data-testid={UI_IDENTIFIERS.Construction.SCENARIO_MISSING}
           sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}
         >
-          <Typography
-            sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.08em', color: t.dangerFg }}
-          >
-            MISSING
+          <Typography sx={{ fontFamily: t.body, fontSize: 12, fontWeight: 700, color: t.dangerFg }}>
+            Still owed by the test plan:
           </Typography>
           {row.missing.map((m) => (
             <Chip
@@ -455,9 +652,9 @@ function StimulusCard({
               label={m}
               size="small"
               sx={{
-                height: 18,
-                fontFamily: t.mono,
-                fontSize: 9,
+                height: 22,
+                fontFamily: t.body,
+                fontSize: 11,
                 bgcolor: 'transparent',
                 color: t.dangerFg,
                 border: `1px solid ${t.dangerFg}`,
@@ -487,34 +684,46 @@ function ScenarioHeaderCard({
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Construction.SCENARIO_HEADER}
-      sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 0 }}
+      sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, minWidth: 0 }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
         <Typography sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 16, color: t.ink }}>
           {h.useCaseName}
         </Typography>
         {h.pathNumber > 0 ? (
-          <Chip
-            label={`path ${String(h.pathNumber)}`}
-            size="small"
-            sx={{ height: 18, fontSize: 9, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
-          />
+          <Tooltip title="A use case can branch; each scenario follows one path through its activity diagram.">
+            <Chip
+              label={`path ${String(h.pathNumber)}`}
+              size="small"
+              sx={{
+                height: 22,
+                fontSize: 11,
+                bgcolor: t.chatArchitectBg,
+                color: t.chatArchitectFg,
+              }}
+              tabIndex={0}
+            />
+          </Tooltip>
         ) : null}
         <Box sx={{ flexGrow: 1 }} />
         {bindingChip(s, t)}
         {statusChip?.(s)}
       </Box>
       <Box
+        component="dl"
         sx={{
+          m: 0,
           display: 'grid',
           gridTemplateColumns: 'max-content minmax(0,1fr)',
-          columnGap: 1.25,
-          rowGap: 0.25,
+          columnGap: 1.5,
+          rowGap: 0.5,
           alignItems: 'baseline',
         }}
       >
-        <Eyebrow t={t}>TRIGGER</Eyebrow>
-        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink }}>
+        <Box component="dt">
+          <Eyebrow t={t}>TRIGGER</Eyebrow>
+        </Box>
+        <Typography component="dd" sx={{ m: 0, fontFamily: t.body, fontSize: 13, color: t.ink }}>
           {h.trigger.length > 0
             ? h.trigger
             : 'unknown (the use case is not in the committed model)'}
@@ -522,31 +731,36 @@ function ScenarioHeaderCard({
             <Box component="span" sx={{ color: t.muted }}>{` — “${h.entry}”`}</Box>
           ) : null}
         </Typography>
-        <Eyebrow t={t}>ACTORS</Eyebrow>
-        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink }}>
+        <Box component="dt">
+          <Eyebrow t={t}>ACTORS</Eyebrow>
+        </Box>
+        <Typography component="dd" sx={{ m: 0, fontFamily: t.body, fontSize: 13, color: t.ink }}>
           {h.actors.length > 0 ? h.actors.join(' · ') : '—'}
         </Typography>
-        <Eyebrow t={t}>GUARDS TAKEN</Eyebrow>
-        <Typography component="div" sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink }}>
+        <Box component="dt">
+          <Eyebrow t={t}>BRANCHES TAKEN</Eyebrow>
+        </Box>
+        <Typography component="dd" sx={{ m: 0, fontFamily: t.body, fontSize: 13, color: t.ink }}>
           {h.guards.length === 0
             ? 'none — the path takes no branch'
             : h.guards.map((g, i) => (
                 <Box component="span" key={`${g.at}:${g.guard}:${String(i)}`}>
                   {i > 0 ? '  ·  ' : ''}
-                  <Box component="span" sx={{ fontFamily: t.mono, fontWeight: 700 }}>
-                    {g.guard}
+                  <Box component="span" sx={{ fontWeight: 700 }}>
+                    {g.guard.replace(/^\[|\]$/g, '')}
                   </Box>
                   <Box component="span" sx={{ color: t.muted }}>{` at “${g.atLabel}”`}</Box>
                 </Box>
               ))}
         </Typography>
-        <Eyebrow t={t}>COVERS</Eyebrow>
-        <Typography component="div" sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink }}>
+        <Box component="dt">
+          <Eyebrow t={t}>COVERS</Eyebrow>
+        </Box>
+        <Typography component="dd" sx={{ m: 0, fontFamily: t.body, fontSize: 13, color: t.ink }}>
           {`${String(h.steps)} steps on the path · ${String(p.stimuli.length)} ${p.stimuli.length === 1 ? 'stimulus' : 'stimuli'} into `}
           {target !== undefined ? <PartyName p={target} t={t} /> : null}
         </Typography>
       </Box>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>{s.id}</Typography>
     </Box>
   );
 }
@@ -589,6 +803,9 @@ export function ScenarioBrowser({
   linked?: boolean;
 }): ReactNode {
   const { setAnchor } = useComments();
+  const pickerId = useId();
+  // The stimuli draw as diagrams only where the three columns fit (codeDiagramModel).
+  const [measureStimuli, stimuliWidth] = useElementWidth();
   const link = useContext(ScenarioLinkContext);
   const deepLink = linked ? link : undefined;
   const [selectedId, setSelectedId] = useState<string>('');
@@ -654,14 +871,16 @@ export function ScenarioBrowser({
       {/* scenario dropdown selector — mirrors the architecture view picker */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
         <Typography
-          sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted }}
+          component="label"
+          htmlFor={pickerId}
+          sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.08em', color: t.muted }}
         >
-          SCENARIO
+          {`SCENARIO · ${String(scenarios.length)}`}
         </Typography>
         <FormControl size="small" sx={{ flex: '1 1 auto', minWidth: 0, maxWidth: 640 }}>
           <Select
             data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PICKER}
-            inputProps={{ 'aria-label': 'Scenario' }}
+            inputProps={{ 'aria-label': 'Scenario', id: pickerId }}
             sx={{ fontFamily: t.body, fontSize: 13 }}
             value={activeId}
             onChange={(e) => {
@@ -700,7 +919,7 @@ export function ScenarioBrowser({
           {active.preconditions.hints.length > 0 ||
           active.preconditions.expectedStates.length > 0 ? (
             <Box sx={{ borderLeft: `3px solid ${t.line}`, pl: 1.25, py: 0.25 }}>
-              <Eyebrow t={t}>GIVEN (before the first stimulus)</Eyebrow>
+              <Eyebrow t={t}>GIVEN · true before the first stimulus</Eyebrow>
               <Typography
                 sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}
               >
@@ -714,11 +933,8 @@ export function ScenarioBrowser({
 
           {active.binding?.skip !== undefined ? (
             <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink }}>
-              <Box
-                component="span"
-                sx={{ fontFamily: t.mono, fontWeight: 700, color: t.awaitingFg }}
-              >
-                SKIPPED{' '}
+              <Box component="span" sx={{ fontWeight: 700, color: t.awaitingFg }}>
+                Skipped:{' '}
               </Box>
               {active.binding.skip.reason} — until {active.binding.skip.until}. A skipped scenario
               is not a pass; the testing gate counts it.
@@ -734,9 +950,9 @@ export function ScenarioBrowser({
             </Typography>
           ) : null}
 
-          <Box sx={{ minWidth: 0 }}>
+          <Box ref={measureStimuli} sx={{ minWidth: 0 }}>
             <Eyebrow t={t}>
-              {`STIMULI · ${String(p.stimuli.length)} · select one to place it on the path and in the call chain`}
+              {`STIMULI · ${String(p.stimuli.length)} · each is one way the use case reaches this component; show one on the diagrams below`}
             </Eyebrow>
             <CommentableList
               ariaLabel="Scenario stimuli"
@@ -753,6 +969,7 @@ export function ScenarioBrowser({
               items={p.stimuli}
               renderItem={(r) => (
                 <StimulusCard
+                  diagram={diagramFits(stimuliWidth)}
                   row={r}
                   selected={r.seq === seq}
                   t={t}
@@ -766,7 +983,7 @@ export function ScenarioBrowser({
 
           <Box data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PATH} sx={{ minWidth: 0 }}>
             <Eyebrow t={t}>
-              {`PATH THROUGH “${p.header.useCaseName}” · lit: the nodes and edges this scenario takes · centred and ringed: stimulus #${String(seq)} · the fit control frames the whole diagram`}
+              {`PATH THROUGH “${p.header.useCaseName}” · highlighted: the steps this scenario takes · ringed: stimulus ${String(seq)}`}
             </Eyebrow>
             {ucView !== undefined && highlight !== undefined ? (
               <CommentsOff>
@@ -787,7 +1004,7 @@ export function ScenarioBrowser({
 
           <Box data-testid={UI_IDENTIFIERS.Construction.SCENARIO_CHAIN} sx={{ minWidth: 0 }}>
             <Eyebrow t={t}>
-              {`CALL CHAIN ALONG THE PATH · ${String(p.chain.dv.edges.length)} calls · stimulus calls carry the “target” tag`}
+              {`CALL CHAIN ALONG THE PATH · ${String(p.chain.dv.edges.length)} calls between components · the calls into this component are its stimuli`}
             </Eyebrow>
             <DynamicViewFlow
               detailBySeq={p.chain.detailBySeq}

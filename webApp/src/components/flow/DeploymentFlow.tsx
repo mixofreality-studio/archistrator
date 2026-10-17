@@ -31,7 +31,7 @@
  * graph has no single flow direction and the layout knows where each box landed.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Panel, type Edge, type Node } from '@xyflow/react';
+import type { Edge, Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import {
@@ -47,8 +47,8 @@ import type { ArtifactModelEnvelope, DeploymentProfile } from '../../contracts/t
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { useComments, deploymentAnchor } from '../comments/CommentContext';
-import { FlowCanvas, FlowEmpty } from './flowShared';
-import { flowEdge, layerColors, MUTED_OPACITY, NODE_W } from './flowLayout';
+import { FlowCanvas, FlowEmpty, KeyGroup } from './flowShared';
+import { flowEdge, layerColors, MUTED_NODE_STYLE, NODE_W } from './flowLayout';
 import { PersonNode } from './PersonNode';
 import { environmentIsObservable, type HealthState } from './deploymentHealth';
 import {
@@ -473,43 +473,73 @@ function buildEdges(
 }
 
 /**
- * The deployment legend, in the same top-left Panel idiom the layered views use
- * for their layer key: what the two line kinds mean, and the one gesture that
- * reveals a label.
+ * The deployment key, in the same strip-above-the-canvas idiom the layered views
+ * use (flowShared's LayerLegend): what the two line kinds mean, what the two box
+ * kinds mean, the health colours when the environment is observed, and the one
+ * gesture that reveals a connection. Above the canvas rather than over it, so it
+ * never hides the top-left of the topology.
  */
-function DeploymentLegend({ t }: { t: Tokens }): ReactNode {
-  const rows: { style: 'solid' | 'dashed'; text: string }[] = [
-    { style: 'solid', text: 'Authored — the front door' },
-    { style: 'dashed', text: 'Derived from the architecture' },
-  ];
+function DeploymentLegend({ t, showHealth }: { t: Tokens; showHealth: boolean }): ReactNode {
+  const line = (style: 'solid' | 'dashed'): ReactNode => (
+    <Box aria-hidden sx={{ width: 18, borderTop: `2px ${style} ${t.ink}`, flexShrink: 0 }} />
+  );
+  const box = (style: 'solid' | 'dashed', color: string): ReactNode => (
+    <Box
+      aria-hidden
+      sx={{
+        width: 14,
+        height: 10,
+        border: `1.5px ${style} ${color}`,
+        borderRadius: 0.5,
+        flexShrink: 0,
+      }}
+    />
+  );
+  const entry = (glyph: ReactNode, text: string): ReactNode => (
+    <Box key={text} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+      {glyph}
+      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink }}>{text}</Typography>
+    </Box>
+  );
   return (
-    <Panel position="top-left">
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 0.5,
-          p: 1,
-          bgcolor: t.paper,
-          border: `1.5px solid ${t.line}`,
-          borderRadius: t.radius / 8 + 0.5,
-        }}
-      >
-        {rows.map((row) => (
-          <Box key={row.text} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-            <Box sx={{ width: 16, borderTop: `2px ${row.style} ${t.muted}`, flexShrink: 0 }} />
-            <Typography
-              sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink, whiteSpace: 'nowrap' }}
-            >
-              {row.text}
-            </Typography>
-          </Box>
-        ))}
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, whiteSpace: 'nowrap' }}>
-          Hover an element to light its connections.
-        </Typography>
-      </Box>
-    </Panel>
+    <Box
+      aria-label="Diagram key"
+      role="group"
+      sx={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        columnGap: 2,
+        rowGap: 0.75,
+        mb: 1,
+        px: 1.25,
+        py: 0.75,
+        bgcolor: t.paper,
+        border: `1px solid ${t.line}`,
+        borderRadius: t.radius / 8 + 0.5,
+      }}
+    >
+      <KeyGroup label="Lines" t={t}>
+        {entry(line('solid'), 'authored — the front door')}
+        {entry(line('dashed'), 'derived from the architecture')}
+      </KeyGroup>
+      <KeyGroup label="Boxes" t={t}>
+        {entry(box('solid', t.ink), 'runs here')}
+        {entry(
+          box('dashed', t.ink),
+          'area it runs in (machine, cluster, namespace) or an outside service'
+        )}
+      </KeyGroup>
+      {showHealth ? (
+        <KeyGroup label="Health" t={t}>
+          {entry(box('solid', t.bandGreen), 'healthy')}
+          {entry(box('solid', t.dangerFg), 'unhealthy')}
+        </KeyGroup>
+      ) : null}
+      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+        Hover or select an element to light its connections.
+      </Typography>
+    </Box>
   );
 }
 
@@ -575,7 +605,7 @@ export function DeploymentFlow({
       // always."
       const health = observableHealth[key];
       const withHealth = health === undefined ? node : { ...node, data: { ...node.data, health } };
-      return dimmed ? { ...withHealth, style: { opacity: MUTED_OPACITY } } : withHealth;
+      return dimmed ? { ...withHealth, style: MUTED_NODE_STYLE } : withHealth;
     });
   }, [built, env, activeKey, observableHealth]);
 
@@ -617,44 +647,45 @@ export function DeploymentFlow({
   }
 
   return (
-    <FlowCanvas
-      edges={edges}
-      height={height}
-      nodeTypes={nodeTypes}
-      nodes={nodes}
-      t={t}
-      onNodeClick={(_e, node) => {
-        const d = node.data as {
-          profile?: string;
-          name?: string;
-          label?: string;
-          elementKey?: string;
-        };
-        const key = d.elementKey ?? '';
-        // Click pins the neighbourhood (toggle off on re-click) — the same
-        // gesture the static architecture view uses. Commenting stays the
-        // explicit act: the node's own Enter/'c' affordance.
-        if (key.length > 0 && node.type !== 'deployGroup') {
-          setSelectedKey((s) => (s === key ? null : key));
-          return;
-        }
-        const name = d.name ?? d.label ?? '';
-        if (name.length === 0 || d.profile === undefined) return;
-        setAnchor({
-          kind: 'node',
-          label: name,
-          source: `Deployment · ${d.profile}`,
-          jsonPath: deploymentAnchor(d.profile, name),
-        });
-      }}
-      onNodeMouseEnter={(_e, n) => {
-        enterNode(n);
-      }}
-      onNodeMouseLeave={() => {
-        leaveNode();
-      }}
-    >
-      <DeploymentLegend t={t} />
-    </FlowCanvas>
+    <>
+      <DeploymentLegend showHealth={healthByKey !== undefined} t={t} />
+      <FlowCanvas
+        edges={edges}
+        height={height}
+        nodeTypes={nodeTypes}
+        nodes={nodes}
+        t={t}
+        onNodeClick={(_e, node) => {
+          const d = node.data as {
+            profile?: string;
+            name?: string;
+            label?: string;
+            elementKey?: string;
+          };
+          const key = d.elementKey ?? '';
+          // Click pins the neighbourhood (toggle off on re-click) — the same
+          // gesture the static architecture view uses. Commenting stays the
+          // explicit act: the node's own Enter/'c' affordance.
+          if (key.length > 0 && node.type !== 'deployGroup') {
+            setSelectedKey((s) => (s === key ? null : key));
+            return;
+          }
+          const name = d.name ?? d.label ?? '';
+          if (name.length === 0 || d.profile === undefined) return;
+          setAnchor({
+            kind: 'node',
+            label: name,
+            source: `Deployment · ${d.profile}`,
+            jsonPath: deploymentAnchor(d.profile, name),
+          });
+        }}
+        onNodeMouseEnter={(_e, n) => {
+          enterNode(n);
+        }}
+        onNodeMouseLeave={() => {
+          leaveNode();
+        }}
+      />
+    </>
   );
 }

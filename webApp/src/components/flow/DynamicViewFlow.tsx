@@ -81,6 +81,7 @@ import type { Edge, Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -96,7 +97,6 @@ import {
   type LayoutComponent,
   LAYER_ORDER,
   TRAIL_OPACITY,
-  VISITED_OPACITY,
   layerColors,
   computeLayout,
   decorativeNodes,
@@ -105,7 +105,7 @@ import {
   flowEdge,
   sortByLayoutPosition,
 } from './flowLayout';
-import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
+import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes, KeyGroup } from './flowShared';
 import {
   ccChecksChipLabel,
   ccChecksChipShown,
@@ -115,6 +115,7 @@ import {
 } from './fragmentCaption';
 import { parallelIndex } from './parallelEdges';
 import { seqChipLabel } from './seqChipLabel';
+import { splitCallLabel } from './callLabel';
 
 /** Per-call status for the test views: 'red' = target/failing, 'green' = passing,
  *  'planned' = a target nothing has run against yet — the same "target" tag in
@@ -124,7 +125,9 @@ export type StepStatus = 'red' | 'green' | 'planned';
 function statusColor(status: StepStatus | undefined, t: Tokens): string | undefined {
   if (status === undefined) return undefined;
   if (status === 'planned') return t.muted;
-  return status === 'green' ? t.committedDot : t.dangerFg;
+  // committedText (the text-safe olive): this colour also paints the status chip's
+  // label, where retro's committedDot falls below AA.
+  return status === 'green' ? t.committedText : t.dangerFg;
 }
 
 /** The React-Flow id for one sequenced call: stable across renders (a seq is
@@ -145,7 +148,7 @@ const NO_VISITED: ReadonlySet<number> = new Set<number>();
  * back in the same horizontal corridor, and because opacity composites they read
  * as one solid band rather than twelve quiet lines. Four is enough to answer
  * "where did I just come from?" — the full chain in order is the caption rail's
- * job, and the walked NODES (unfiltered, at VISITED_OPACITY) still carry the
+ * job, and the walked NODES (unfiltered, in full colour) still carry the
  * whole route's shape.
  */
 const TRAIL_LIMIT = 4;
@@ -190,9 +193,10 @@ function build(
   const layout = computeLayout(placedComponents, dv.edges);
   const layerOf = new Map(dv.participants.map((c) => [c.id, c.layer]));
   // What is lit. THREE tiers in fragment mode (founder QA round 4): the
-  // participants the current step's calls touch burn at full strength, those
-  // already WALKED hold a mid tint so the chain accretes behind the reader, and
-  // the never-walked remainder ghosts at MUTED_OPACITY. This node treatment is
+  // participants the current step's calls touch glow, those already WALKED keep
+  // their full colour so the chain accretes behind the reader, and the
+  // never-walked remainder recedes to grayscale + muted text (MUTED_NODE_STYLE —
+  // not an opacity ghost, which took their labels below AA). This node treatment is
   // untouched by the edge-density fix, and deliberately so: the boxes are what
   // keep the system's shape legible once the not-yet-walked WIRES stop being
   // drawn. The self-paced step-through keeps its original two node tiers: the
@@ -239,7 +243,6 @@ function build(
       dimmed: muted && tier === 'rest',
     });
     if (tier === 'focus') return { ...base, style: { filter: `drop-shadow(0 0 6px ${t.accent})` } };
-    if (tier === 'visited') return { ...base, style: { opacity: VISITED_OPACITY } };
     return base;
   });
 
@@ -269,7 +272,6 @@ function build(
           style: { filter: `drop-shadow(0 0 6px ${t.accent})` },
         };
       }
-      if (muted && tier === 'visited') return { ...base, style: { opacity: VISITED_OPACITY } };
       return base;
     })
   );
@@ -401,7 +403,7 @@ function StepBar({
     '&.Mui-disabled': { color: t.muted, opacity: 0.4 },
   };
   const status = statusBySeq?.get(current.seq);
-  const captionAccent = statusColor(status, t) ?? t.accent;
+  const captionAccent = statusColor(status, t) ?? t.accentInk;
   const detail = detailBySeq?.get(current.seq);
   // Two-level caption. Level 1 = WHERE in the use case you are (the activity step
   // this call was authored on, and which of that step's calls this is); level 2 =
@@ -458,20 +460,32 @@ function StepBar({
           <ChevronRightIcon fontSize="small" />
         </IconButton>
         {status !== undefined ? (
-          <Chip
-            data-step-status={status}
-            label={status === 'green' ? 'passing ✓' : 'target'}
-            size="small"
-            sx={{
-              height: 18,
-              fontFamily: t.mono,
-              fontSize: 9,
-              fontWeight: 700,
-              bgcolor: 'transparent',
-              color: captionAccent,
-              border: `1.5px solid ${captionAccent}`,
-            }}
-          />
+          // The tag is jargon on its own ("target" of what?), so it says what it
+          // means on hover AND on keyboard focus (tabIndex 0 → the Tooltip opens).
+          <Tooltip
+            describeChild
+            title={
+              status === 'green'
+                ? 'A call into the component under test — passing in the latest run'
+                : 'A call into the component under test'
+            }
+          >
+            <Chip
+              data-step-status={status}
+              label={status === 'green' ? 'passing ✓' : 'target'}
+              size="small"
+              sx={{
+                height: 18,
+                fontFamily: t.mono,
+                fontSize: 9,
+                fontWeight: 700,
+                bgcolor: 'transparent',
+                color: captionAccent,
+                border: `1.5px solid ${captionAccent}`,
+              }}
+              tabIndex={0}
+            />
+          </Tooltip>
         ) : null}
         {onCommentStep !== undefined ? (
           <>
@@ -525,43 +539,75 @@ function StepBar({
           {stepCaption}
         </Typography>
         {/* Level 2 — the call this step makes, and between whom. */}
-        <Typography
-          sx={{
-            fontFamily: t.mono,
-            fontSize: 12,
-            color: t.ink,
-            mt: 0.25,
-            wordBreak: 'break-word',
-          }}
-        >
-          {current.label}
-          <Box component="span" sx={{ color: t.muted }}>
-            {'  ·  '}
-            {nameOf.get(current.from) ?? current.from} → {nameOf.get(current.to) ?? current.to}
-          </Box>
-        </Typography>
+        <CallLine
+          from={nameOf.get(current.from) ?? current.from}
+          label={current.label}
+          t={t}
+          to={nameOf.get(current.to) ?? current.to}
+        />
         {detail !== undefined ? (
-          <Box sx={{ mt: 0.75, display: 'flex', flexDirection: 'column', gap: 0.35 }}>
+          <Box
+            component="dl"
+            sx={{
+              mt: 1,
+              mb: 0,
+              display: 'grid',
+              gridTemplateColumns: 'max-content 1fr',
+              columnGap: 1.5,
+              rowGap: 0.5,
+              alignItems: 'baseline',
+            }}
+          >
             {detail.inputs.length > 0 ? (
-              <CaptionRow k="in" t={t}>
-                {detail.inputs.map((a) => `${a.name} = ${a.value}`).join(',  ')}
-              </CaptionRow>
+              <DetailField label="Inputs" t={t}>
+                <Box
+                  component="ul"
+                  sx={{
+                    m: 0,
+                    p: 0,
+                    listStyle: 'none',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 0.75,
+                  }}
+                >
+                  {detail.inputs.map((a) => (
+                    <Box
+                      component="li"
+                      key={a.name}
+                      sx={{
+                        px: 0.75,
+                        py: 0.15,
+                        border: `1px solid ${t.line}`,
+                        borderRadius: 1,
+                        bgcolor: t.paperAlt,
+                      }}
+                    >
+                      <Box component="span" sx={{ fontWeight: 700 }}>
+                        {a.name}
+                      </Box>
+                      {': '}
+                      {a.value}
+                    </Box>
+                  ))}
+                </Box>
+              </DetailField>
             ) : null}
             {detail.errorExpected ? (
-              <CaptionRow c={t.dangerFg} k="err" t={t}>
+              <DetailField c={t.dangerFg} label="Expected to fail with" t={t}>
                 {detail.errorCode !== undefined && detail.errorCode.length > 0
                   ? detail.errorCode
-                  : 'expected failure'}
-              </CaptionRow>
+                  : 'an error (no specific code)'}
+              </DetailField>
             ) : detail.result !== undefined && detail.result.length > 0 ? (
-              <CaptionRow c={t.committedDot} k="out" t={t}>
+              <DetailField c={t.committedText} label="Returns" t={t}>
                 {detail.result}
-              </CaptionRow>
+              </DetailField>
             ) : null}
             {detail.assertion !== undefined && detail.assertion.length > 0 ? (
-              <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.ink, mt: 0.15 }}>
+              <DetailField label="Checks that" t={t}>
                 {detail.assertion}
-              </Typography>
+              </DetailField>
             ) : null}
           </Box>
         ) : null}
@@ -640,7 +686,7 @@ function FragmentBar({
       : statuses.includes('planned')
         ? 'planned'
         : undefined;
-  const captionAccent = statusColor(worst, t) ?? t.accent;
+  const captionAccent = statusColor(worst, t) ?? t.accentInk;
   const stepLabel = first !== undefined && first.stepLabel.length > 0 ? first.stepLabel : undefined;
   // Where this fragment sits in the WHOLE chain (founder QA round 4): a step's
   // own "3 calls" says nothing about progress through 22.
@@ -674,7 +720,7 @@ function FragmentBar({
           bgcolor: t.paper,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           {/* The live region: the walkthrough moved the focus, so this rail is
               what announces WHERE the chain now stands. */}
           <Typography
@@ -697,7 +743,10 @@ function FragmentBar({
               component="span"
               data-testid={UI_IDENTIFIERS.Architecture.CC_CHECKS_CHIP}
               sx={{
-                height: 18,
+                minHeight: 18,
+                py: 0.25,
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
                 display: 'inline-flex',
                 alignItems: 'center',
                 fontFamily: t.mono,
@@ -737,23 +786,28 @@ function FragmentBar({
           ) : null}
         </Box>
         {calls.length > 0 ? (
-          <Box sx={{ mt: 0.5, display: 'flex', flexDirection: 'column', gap: 0.35 }}>
+          <Box
+            component="ol"
+            sx={{
+              mt: 0.5,
+              mb: 0,
+              p: 0,
+              listStyle: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 0.75,
+            }}
+          >
             {calls.map((c) => (
-              <Typography
-                key={c.seq}
-                sx={{
-                  fontFamily: t.mono,
-                  fontSize: 12,
-                  color: t.ink,
-                  wordBreak: 'break-word',
-                }}
-              >
-                {fragmentRowLabel(c)}. {c.label}
-                <Box component="span" sx={{ color: t.muted }}>
-                  {'  ·  '}
-                  {nameOf.get(c.from) ?? c.from} → {nameOf.get(c.to) ?? c.to}
-                </Box>
-              </Typography>
+              <Box component="li" key={c.seq}>
+                <CallLine
+                  from={nameOf.get(c.from) ?? c.from}
+                  label={c.label}
+                  prefix={`${fragmentRowLabel(c)}.`}
+                  t={t}
+                  to={nameOf.get(c.to) ?? c.to}
+                />
+              </Box>
             ))}
           </Box>
         ) : callLess?.body !== undefined ? (
@@ -766,39 +820,107 @@ function FragmentBar({
   );
 }
 
-/** One labelled monospace row in the step caption (in / out / err). */
-function CaptionRow({
-  k,
+/**
+ * One call in a step caption, read as a sentence rather than a signature: the
+ * operation name (a short identifier) and who calls whom on the first line, what
+ * it does as prose beneath, and its arguments as a quiet "passes …" line. The
+ * authored label is split by `splitCallLabel`; a label that is not call-shaped
+ * renders whole, as prose.
+ */
+function CallLine({
+  label,
+  from,
+  to,
+  prefix,
+  t,
+}: {
+  label: string;
+  from: string;
+  to: string;
+  /** The step-relative number ("1a.") a fragment row leads with. */
+  prefix?: string;
+  t: Tokens;
+}): ReactNode {
+  const { op, args, gloss } = splitCallLabel(label);
+  return (
+    <Box sx={{ mt: 0.25 }}>
+      <Typography sx={{ fontFamily: t.body, fontSize: 13, color: t.ink, wordBreak: 'break-word' }}>
+        {prefix !== undefined ? (
+          <Box component="span" sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mr: 0.75 }}>
+            {prefix}
+          </Box>
+        ) : null}
+        {op.length > 0 ? (
+          <Box component="span" sx={{ fontFamily: t.mono, fontSize: 12.5, fontWeight: 700 }}>
+            {op}
+          </Box>
+        ) : null}
+        <Box component="span" sx={{ color: t.muted }}>
+          {op.length > 0 ? ' · ' : ''}
+          {from} → {to}
+        </Box>
+      </Typography>
+      {gloss.length > 0 ? (
+        <Typography
+          sx={{
+            fontFamily: t.body,
+            fontSize: 12.5,
+            color: t.ink,
+            lineHeight: 1.45,
+            wordBreak: 'break-word',
+          }}
+        >
+          {gloss}
+        </Typography>
+      ) : null}
+      {args.length > 0 ? (
+        <Typography
+          sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, wordBreak: 'break-word' }}
+        >
+          Passes {args}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
+
+/**
+ * One labelled field of a test step's concrete detail — a definition-list pair
+ * (label → value) in reading type, never a code row: the values are test data a
+ * reviewer reads as prose, so they render as text, not as a monospace listing.
+ */
+function DetailField({
+  label,
   c,
   t,
   children,
 }: {
-  k: string;
+  label: string;
   c?: string;
   t: Tokens;
   children: ReactNode;
 }): ReactNode {
   return (
-    <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'baseline' }}>
+    <>
       <Typography
-        sx={{
-          fontFamily: t.mono,
-          fontSize: 8.5,
-          fontWeight: 700,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: c ?? t.muted,
-          minWidth: 22,
-        }}
+        component="dt"
+        sx={{ fontFamily: t.body, fontSize: 12, fontWeight: 700, color: c ?? t.muted }}
       >
-        {k}
+        {label}
       </Typography>
       <Typography
-        sx={{ fontFamily: t.mono, fontSize: 11, color: c ?? t.ink, wordBreak: 'break-word' }}
+        component="dd"
+        sx={{
+          m: 0,
+          fontFamily: t.body,
+          fontSize: 12.5,
+          color: c ?? t.ink,
+          wordBreak: 'break-word',
+        }}
       >
         {children}
       </Typography>
-    </Box>
+    </>
   );
 }
 
@@ -997,6 +1119,16 @@ export function DynamicViewFlow({
           moves the camera again while the walkthrough steps (no FocusNodes here).
           The self-driven step-through keeps its own key (stable across steps) and
           its per-step FocusNodes recenter, unchanged. */}
+      <LayerLegend
+        colors={colors}
+        edgeKinds={{
+          sync: dv.edges.some((r) => r.mode === 'sync'),
+          async: dv.edges.some((r) => r.mode !== 'sync'),
+        }}
+        footer={<DynamicKey fragmentMode={fragmentMode} t={t} />}
+        t={t}
+        usedLayers={usedLayers}
+      />
       <FlowCanvas
         edges={edges}
         height={height}
@@ -1004,10 +1136,36 @@ export function DynamicViewFlow({
         nodes={nodes}
         t={t}
       >
-        <LayerLegend colors={colors} t={t} usedLayers={usedLayers} />
         {!fragmentMode && <FocusNodes dep={String(safeStep)} nodeIds={focusIds} />}
       </FlowCanvas>
     </Box>
+  );
+}
+
+/** The Dynamic lens' own visual vocabulary, keyed beside the layers: what the
+ *  glow, the numbered arrows and (walkthrough-driven only) the faint trail mean.
+ *  Without it the lit / receded tiers read as decoration. */
+function DynamicKey({ fragmentMode, t }: { fragmentMode: boolean; t: Tokens }): ReactNode {
+  const rows = fragmentMode
+    ? [
+        'glowing = takes part in this step',
+        'numbered = this step’s calls, in order',
+        'faint = calls already walked',
+        'grey = not reached yet',
+      ]
+    : [
+        'glowing = the two sides of this call',
+        'numbered = the current call',
+        'grey = not in this call',
+      ];
+  return (
+    <KeyGroup label="Highlight" t={t}>
+      {rows.map((r) => (
+        <Typography key={r} sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink }}>
+          {r}
+        </Typography>
+      ))}
+    </KeyGroup>
   );
 }
 

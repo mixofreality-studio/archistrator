@@ -23,9 +23,14 @@ export function ThemeSwitcher(): ReactNode {
     <>
       <Tooltip title={`Theme · ${tokens.name}`}>
         <IconButton
+          aria-controls={anchorEl !== null ? 'theme-menu' : undefined}
+          aria-expanded={anchorEl !== null ? 'true' : undefined}
+          aria-haspopup="menu"
+          aria-label={`Change colour theme (current: ${tokens.name})`}
           data-testid={UI_IDENTIFIERS.Shell.THEME_SWITCHER}
-          size="small"
           sx={{
+            width: 40,
+            height: 40,
             color: tokens.ink,
             border: `1.5px solid ${tokens.line}`,
             borderRadius: tokens.radius / 8 + 0.5,
@@ -39,6 +44,7 @@ export function ThemeSwitcher(): ReactNode {
       </Tooltip>
       <Menu
         anchorEl={anchorEl}
+        id="theme-menu"
         open={anchorEl !== null}
         onClose={() => {
           setAnchorEl(null);
@@ -48,8 +54,10 @@ export function ThemeSwitcher(): ReactNode {
           const tk = TOKENS[k];
           return (
             <MenuItem
+              aria-checked={k === themeKey}
               data-testid={UI_IDENTIFIERS.Shell.themeOption(k)}
               key={k}
+              role="menuitemradio"
               selected={k === themeKey}
               sx={{ gap: 1.5, py: 1 }}
               onClick={() => {
@@ -57,7 +65,7 @@ export function ThemeSwitcher(): ReactNode {
                 setAnchorEl(null);
               }}
             >
-              <Box sx={{ display: 'flex', gap: 0.4 }}>
+              <Box aria-hidden sx={{ display: 'flex', gap: 0.4 }}>
                 {[tk.bg, tk.paper, tk.accent, tk.accent2].map((c, i) => (
                   <Box
                     key={i}
@@ -69,13 +77,11 @@ export function ThemeSwitcher(): ReactNode {
                 <Typography sx={{ fontWeight: 600, fontSize: 14, fontFamily: tokens.body }}>
                   {tk.name}
                 </Typography>
-                <Typography
-                  sx={{ fontFamily: tokens.mono, fontSize: 10.5, color: 'text.secondary' }}
-                >
-                  {tk.tag}
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                  {`${tk.mode === 'dark' ? 'Dark' : 'Light'} · ${tk.tag}`}
                 </Typography>
               </Box>
-              {k === themeKey ? <CheckIcon sx={{ fontSize: 16 }} /> : null}
+              {k === themeKey ? <CheckIcon aria-hidden sx={{ fontSize: 16 }} /> : null}
             </MenuItem>
           );
         })}

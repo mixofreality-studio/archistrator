@@ -19,14 +19,21 @@ import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const KIND_LABEL: Record<StateHistoryEntry['kind'], string> = {
-  slotCommitted: 'COMMIT',
-  activityStarted: 'START',
-  activityCompleted: 'DONE',
-  phaseExited: 'PHASE',
+  slotCommitted: 'Committed',
+  activityStarted: 'Started',
+  activityCompleted: 'Finished',
+  phaseExited: 'Step done',
 };
 
 const DIFF_UNAVAILABLE =
-  'The typed diff of this change against the state before it is not on the read model: the head state records when and by whom a change landed, not the state as of each commit.';
+  'A before-and-after comparison of this change isn’t available yet: the history records when each change landed and who made it, not a full snapshot of the project at every step.';
+
+/** A recorded RFC3339 instant, in the reader's own locale; the raw value if unparseable. */
+function formatAt(iso: string): string {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return iso;
+  return new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
 
 export function StateHistoryView({
   entries,
@@ -49,8 +56,12 @@ export function StateHistoryView({
   if (entries.length === 0) {
     return (
       <Paper data-testid={UI_IDENTIFIERS.StateHistory.EMPTY} sx={{ p: 3, borderStyle: 'dashed' }}>
-        <Typography sx={{ fontSize: 13.5, color: t.ink, lineHeight: 1.5 }}>
-          Nothing has been recorded yet: no artifact is committed and no activity has started.
+        <Typography sx={{ fontSize: 14, fontWeight: 700, color: t.ink, mb: 0.5 }}>
+          No dated changes to show yet
+        </Typography>
+        <Typography sx={{ fontSize: 13.5, color: t.muted, lineHeight: 1.5 }}>
+          Each change appears here, newest first, once it is recorded with a date: an artifact being
+          committed, or an activity starting, finishing one of its steps, or finishing altogether.
         </Typography>
       </Paper>
     );
@@ -98,16 +109,7 @@ export function StateHistoryView({
                     setSelected(isChosen ? undefined : e.key);
                   }}
                 >
-                  <Typography
-                    sx={{
-                      fontFamily: t.mono,
-                      fontWeight: 700,
-                      fontSize: 10,
-                      letterSpacing: '0.12em',
-                      color: t.muted,
-                      minWidth: 52,
-                    }}
-                  >
+                  <Typography sx={{ fontWeight: 700, fontSize: 12, color: t.muted, minWidth: 72 }}>
                     {KIND_LABEL[e.kind]}
                   </Typography>
                   <Typography sx={{ fontSize: 13.5, color: t.ink, flexGrow: 1, minWidth: 0 }}>
@@ -116,9 +118,9 @@ export function StateHistoryView({
                   <Typography
                     component="time"
                     dateTime={e.at}
-                    sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, flexShrink: 0 }}
+                    sx={{ fontSize: 12, color: t.muted, flexShrink: 0 }}
                   >
-                    {e.at}
+                    {formatAt(e.at)}
                   </Typography>
                 </Box>
               </Box>
@@ -129,11 +131,14 @@ export function StateHistoryView({
 
       {chosen !== undefined ? (
         <Paper data-testid={UI_IDENTIFIERS.StateHistory.DETAIL} sx={{ p: 2.5 }}>
-          <Typography sx={{ color: t.ink, fontFamily: t.display, fontWeight: 700, fontSize: 16 }}>
+          <Typography
+            component="h2"
+            sx={{ color: t.ink, fontFamily: t.display, fontWeight: 700, fontSize: 16 }}
+          >
             {chosen.title}
           </Typography>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.muted, mt: 0.5 }}>
-            {chosen.address} · {chosen.at}
+          <Typography sx={{ fontSize: 12.5, color: t.muted, mt: 0.5 }}>
+            {KIND_LABEL[chosen.kind]} · {formatAt(chosen.at)}
           </Typography>
           {chosen.facts.length > 0 ? (
             <Box component="dl" sx={{ m: 0, mt: 1.5, display: 'grid', gap: 0.75 }}>
@@ -156,7 +161,13 @@ export function StateHistoryView({
             {DIFF_UNAVAILABLE}
           </Typography>
         </Paper>
-      ) : null}
+      ) : (
+        <Paper sx={{ p: 2.5, borderStyle: 'dashed', display: { xs: 'none', md: 'block' } }}>
+          <Typography sx={{ fontSize: 13, color: t.muted }}>
+            Select a change on the left to see who made it and what it recorded.
+          </Typography>
+        </Paper>
+      )}
     </Box>
   );
 }

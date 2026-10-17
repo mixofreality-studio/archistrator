@@ -36,10 +36,10 @@ export function InterventionsTab({ view }: { view: OperationsView | undefined })
       <AwaitingPanel
         detail={
           view === undefined
-            ? 'This operated app has no observed runtime, so there is nothing for the interventionEngine to escalate yet.'
-            : 'The interventionEngine escalation queue (health degraded → Retry/Escalate, billing charge failure → Retry/Charge/Withdraw) is not yet carried by the operations read projection. Health transitions surface on the Status / Health tab; escalations will populate here once the interventionEngine read lands.'
+            ? 'Nothing is running yet, so there is nothing that could need your decision.'
+            : 'When the platform can’t fix a problem on its own — the app turns unhealthy, or a charge fails — it will ask you here whether to retry, escalate or withdraw. This list isn’t connected yet; health changes show on the Health tab meanwhile.'
         }
-        title={view === undefined ? 'No operated app to supervise' : 'No escalated interventions'}
+        title={view === undefined ? 'Nothing to supervise yet' : 'Nothing needs your decision'}
       />
     </Box>
   );

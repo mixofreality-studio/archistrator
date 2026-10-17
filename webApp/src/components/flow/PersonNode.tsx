@@ -22,6 +22,8 @@ export interface PersonNodeData {
   role: string;
   /** The person-lane colour (layerColors().person). */
   color: string;
+  /** Out of focus (flowLayout's MUTED_NODE_STYLE): muted text + dashed frame. */
+  dimmed?: boolean;
   [key: string]: unknown;
 }
 
@@ -43,9 +45,9 @@ export function PersonNode({ data }: NodeProps): ReactNode {
           gap: 1.25,
           px: 1.5,
           py: 1,
-          bgcolor: t.paperAlt,
-          color: t.ink,
-          border: `1.5px solid ${t.line}`,
+          bgcolor: d.dimmed === true ? t.bg : t.paperAlt,
+          color: d.dimmed === true ? t.muted : t.ink,
+          border: `1.5px ${d.dimmed === true ? 'dashed' : 'solid'} ${d.dimmed === true ? t.muted : t.line}`,
           borderTop: `4px solid ${d.color}`,
           borderRadius: 4,
           outline: 'none',

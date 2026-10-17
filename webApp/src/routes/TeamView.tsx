@@ -2,8 +2,8 @@
  * Team view (`/project/$projectId/team`) — the canonical, book-named Method roles
  * archistrator supervises. Static roster content (the fixed 10 Method roles), no
  * backend wiring. Each card is a Worker playing a role; click opens a charter
- * (Owns / Does-NOT / Reviewed-by / chapter) with a secondary "View full prompt"
- * disclosure. Wrapped in the project-scoped AppShell, like Billing / Changes.
+ * (Owns / Does-NOT / Reviewed-by / chapter) with a secondary disclosure of the
+ * agent's full instructions, rendered as prose (never a monospace code well). Wrapped in the project-scoped AppShell, like Billing / Changes.
  *
  * Ported from the approved UX mock (methodpoc/designs/aiarch/ux-mock).
  */
@@ -22,10 +22,13 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import BlockIcon from '@mui/icons-material/Block';
 import RuleIcon from '@mui/icons-material/Rule';
 import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
-import TerminalIcon from '@mui/icons-material/Terminal';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import ButtonBase from '@mui/material/ButtonBase';
+import Tooltip from '@mui/material/Tooltip';
 import { getRouteApi } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
 import { RoleAvatar } from '../components/RoleAvatar';
+import { Prose } from '../components/Prose';
 import { TEAM_SECTIONS, roleById, type TeamRole } from '../utilities/data/team';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
@@ -64,10 +67,11 @@ function TeamBody(): ReactNode {
         <Typography
           sx={{ color: t.muted, fontSize: 14.5, lineHeight: 1.6, maxWidth: 760, mb: 3.5 }}
         >
-          Every name below is a canonical role from Löwy&rsquo;s <em>The Method</em> — the
-          book&rsquo;s team, not invented seats. Each is a <strong>Worker playing a role</strong>{' '}
-          (the agent is just the implementation detail). Click a card to read its charter; the raw
-          agent prompt is one disclosure deeper.
+          Every name below is a canonical role from Juval Löwy&rsquo;s <em>The Method</em> (the book{' '}
+          <em>Righting Software</em>) — the book&rsquo;s team, not invented seats. Each role is
+          played by an AI agent. Open a card to read the role&rsquo;s charter: what it owns, what it
+          must not do, and who reviews its work. The small book tag on each card (e.g. &ldquo;ch. 7
+          · App A&rdquo;) says which chapters and appendices describe the role.
         </Typography>
 
         {TEAM_SECTIONS.map((section) => (
@@ -75,7 +79,7 @@ function TeamBody(): ReactNode {
             <Box
               sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 0.5, flexWrap: 'wrap' }}
             >
-              <Typography sx={{ color: t.ink }} variant="h5">
+              <Typography component="h2" sx={{ color: t.ink }} variant="h5">
                 {section.title}
               </Typography>
               <Chip
@@ -140,6 +144,8 @@ function TeamBody(): ReactNode {
         open={role !== undefined}
         slotProps={{
           paper: {
+            'aria-labelledby': 'team-charter-title',
+            role: 'dialog',
             sx: {
               width: { xs: '100%', sm: 480, md: 540 },
               bgcolor: t.paper,
@@ -175,56 +181,71 @@ function RoleCard({
   onOpen: () => void;
 }): ReactNode {
   return (
-    <Paper
+    // One real button per role (it opens the charter drawer).
+    <ButtonBase
+      aria-haspopup="dialog"
+      aria-label={`${role.name} — ${role.oneLiner} Open the charter.`}
       data-testid={UI_IDENTIFIERS.Team.roleCard(role.id)}
       sx={{
-        p: 2,
-        cursor: 'pointer',
-        display: 'flex',
-        gap: 1.75,
-        alignItems: 'flex-start',
-        transition: 'all 110ms ease',
-        '&:hover': {
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        borderRadius: `${String(t.radius)}px`,
+        '&:hover > .MuiPaper-root': {
           boxShadow: t.hardShadow ? `4px 4px 0 ${t.shadowColor}` : `0 10px 26px ${t.shadowColor}`,
           transform: 'translateY(-2px)',
         },
+        '&.Mui-focusVisible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
       }}
       onClick={onOpen}
     >
-      <RoleAvatar seed={role.id} size={72} />
-      <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-          <Typography sx={{ color: t.ink, lineHeight: 1.15 }} variant="h6">
-            {role.name}
+      <Paper
+        sx={{
+          p: 2,
+          height: '100%',
+          display: 'flex',
+          gap: 1.75,
+          alignItems: 'flex-start',
+          transition: 'all 110ms ease',
+        }}
+      >
+        <RoleAvatar seed={role.id} size={72} />
+        <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+          <Box
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mb: 0.75 }}
+          >
+            <Typography component="h3" sx={{ color: t.ink, lineHeight: 1.15 }} variant="h6">
+              {role.name}
+            </Typography>
+            <BookRefChip label={role.chapterRef} t={t} />
+          </Box>
+          <Typography sx={{ fontFamily: t.body, fontSize: 13, lineHeight: 1.45, color: t.ink }}>
+            {role.oneLiner}
           </Typography>
-          <Chip
-            label={role.chapterRef}
-            size="small"
-            sx={{
-              height: 18,
-              fontSize: 9,
-              bgcolor: t.paperAlt,
-              color: t.muted,
-              '& .MuiChip-label': { px: 0.75 },
-            }}
-          />
         </Box>
-        <Typography
-          sx={{
-            fontFamily: t.mono,
-            fontSize: 9.5,
-            color: t.muted,
-            letterSpacing: '0.04em',
-            mb: 0.75,
-          }}
-        >
-          {role.id} · Worker
-        </Typography>
-        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, lineHeight: 1.45, color: t.ink }}>
-          {role.oneLiner}
-        </Typography>
-      </Box>
-    </Paper>
+      </Paper>
+    </ButtonBase>
+  );
+}
+
+/** Where the book describes a role — a compact tag whose tooltip says so. */
+function BookRefChip({ label, t }: { label: string; t: Tokens }): ReactNode {
+  return (
+    <Tooltip describeChild title={`Where Righting Software describes this role: ${label}`}>
+      <Chip
+        icon={<MenuBookOutlinedIcon aria-hidden sx={{ fontSize: 13 }} />}
+        label={label}
+        size="small"
+        sx={{
+          height: 20,
+          fontSize: 10.5,
+          bgcolor: t.paperAlt,
+          color: t.ink,
+          '& .MuiChip-label': { px: 0.75 },
+          '& .MuiChip-icon': { color: t.muted },
+        }}
+      />
+    </Tooltip>
   );
 }
 
@@ -257,31 +278,23 @@ function RoleCharter({
         <RoleAvatar selected seed={role.id} size={84} />
         <Box sx={{ minWidth: 0, flexGrow: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            <Typography sx={{ color: t.ink, lineHeight: 1.1 }} variant="h4">
+            <Typography
+              component="h2"
+              id="team-charter-title"
+              sx={{ color: t.ink, lineHeight: 1.1 }}
+              variant="h4"
+            >
               {role.name}
             </Typography>
-            <Chip
-              icon={<MenuBookOutlinedIcon sx={{ fontSize: 13 }} />}
-              label={role.chapterRef}
-              size="small"
-              sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
-            />
+            <BookRefChip label={role.chapterRef} t={t} />
           </Box>
-          <Typography
-            sx={{
-              fontFamily: t.mono,
-              fontSize: 10,
-              color: t.muted,
-              letterSpacing: '0.04em',
-              mt: 0.5,
-            }}
-          >
-            {role.id} · Worker playing a Method role
+          <Typography sx={{ fontSize: 12.5, color: t.muted, mt: 0.5 }}>
+            Played by an AI agent
           </Typography>
         </Box>
         <IconButton
+          aria-label="Close the charter"
           data-testid={UI_IDENTIFIERS.Team.CHARTER_CLOSE}
-          size="small"
           sx={{ flexShrink: 0 }}
           onClick={onClose}
         >
@@ -290,7 +303,12 @@ function RoleCharter({
       </Box>
 
       {/* scroll body */}
-      <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2.5 }}>
+      <Box
+        aria-label={`${role.name} charter`}
+        role="region"
+        sx={{ flexGrow: 1, overflowY: 'auto', p: 2.5 }}
+        tabIndex={0}
+      >
         <Box sx={{ borderLeft: `3px solid ${t.accent}`, pl: 1.5, py: 0.25, mb: 2.5 }}>
           <Typography
             sx={{
@@ -350,10 +368,12 @@ function RoleCharter({
           </Typography>
         </Box>
 
-        {/* SECONDARY: raw prompt disclosure */}
+        {/* SECONDARY: the agent's full instructions, as readable prose (never a code well). */}
         <Box sx={{ mt: 3 }}>
           <Button
             fullWidth
+            aria-controls="team-charter-prompt"
+            aria-expanded={showPrompt}
             data-testid={UI_IDENTIFIERS.Team.TOGGLE_PROMPT}
             endIcon={
               <ExpandMoreIcon
@@ -364,52 +384,37 @@ function RoleCharter({
                 }}
               />
             }
-            startIcon={<TerminalIcon sx={{ fontSize: 16 }} />}
-            sx={{ justifyContent: 'space-between', color: t.ink, borderColor: t.line }}
+            startIcon={<DescriptionOutlinedIcon sx={{ fontSize: 16 }} />}
+            sx={{
+              justifyContent: 'space-between',
+              color: t.ink,
+              borderColor: t.line,
+              minHeight: 44,
+            }}
             variant="outlined"
             onClick={() => {
               setShowPrompt((s) => !s);
             }}
           >
-            {showPrompt ? 'Hide full prompt' : 'View full prompt'}
+            {showPrompt
+              ? 'Hide the agent’s full instructions'
+              : 'Show the agent’s full instructions'}
           </Button>
           <Collapse unmountOnExit in={showPrompt} timeout="auto">
             <Box
+              id="team-charter-prompt"
               sx={{
                 mt: 1.5,
                 p: 2,
-                bgcolor: t.bg,
+                bgcolor: t.paperAlt,
                 border: `1.5px solid ${t.line}`,
                 borderRadius: `${String(t.radius)}px`,
-                maxHeight: 360,
-                overflowY: 'auto',
               }}
             >
-              <Typography
-                sx={{
-                  fontFamily: t.mono,
-                  fontSize: 9.5,
-                  letterSpacing: '0.1em',
-                  color: t.muted,
-                  mb: 1,
-                }}
-              >
-                .claude/agents/{role.agentFile} · read-only
+              <Typography sx={{ fontSize: 12, color: t.muted, mb: 1.5 }}>
+                Read-only — the standing instructions this role&rsquo;s AI agent works from.
               </Typography>
-              <Box
-                component="pre"
-                sx={{
-                  fontFamily: t.mono,
-                  fontSize: 11,
-                  lineHeight: 1.55,
-                  color: t.ink,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  m: 0,
-                }}
-              >
-                {role.prompt}
-              </Box>
+              <Prose markdown={role.prompt} />
             </Box>
           </Collapse>
         </Box>
@@ -455,7 +460,7 @@ function CharterBlock({
             key={i}
             sx={{ display: 'flex', gap: 1, fontSize: 12.5, lineHeight: 1.5, color: t.ink }}
           >
-            <Box sx={{ color: t.accent, flexShrink: 0, fontFamily: t.mono, fontWeight: 700 }}>
+            <Box sx={{ color: t.accentInk, flexShrink: 0, fontFamily: t.mono, fontWeight: 700 }}>
               ▸
             </Box>
             <span>{it}</span>

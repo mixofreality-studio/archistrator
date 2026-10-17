@@ -2,84 +2,153 @@
  * The Code tab's two forms, and the op → struct reading they share — pure, so
  * the rules are tested without a renderer (node:test cannot load `.tsx`).
  *
- * WHY TWO FORMS (designer check on renderers S1, B1)
- * -------------------------------------------------
- * ContractCodeFlow draws the «interface» node at a fixed 560px and an expanded
- * op adds 224px struct columns on either side (~1100px). The detail pane is
- * 360–820px, so the canvas fit itself to ~6px signatures there, and an expanded
- * op re-fit to ~4px: unreadable. So below CODE_CANVAS_MIN_WIDTH the tab is an
- * HTML signature list (12px mono, wrapping, each row expanding inline into its
- * request / response / error tables), and the canvas draws in the FOCUS VIEW
- * only — where it never fits below CODE_MIN_ZOOM, and pans instead.
+ * WHY TWO FORMS
+ * -------------
+ * ContractCodeFlow draws the contract as a UML-class diagram, left to right,
+ * about 950px wide. Where a column is narrower than CODE_CANVAS_MIN_WIDTH (a phone, a
+ * narrow side pane) the tab is the HTML operation list instead — each op as its
+ * name, labelled inputs and results, expanding inline into its request /
+ * response / error tables. Neither form ever shows a signature string.
  */
 import type { ContractOp, ContractStruct, GoField } from '../../contracts/types';
+import { DIAGRAM_MIN_COLUMN_WIDTH } from './codeDiagram/codeDiagramModel.ts';
 
 // ---------------------------------------------------------------------------
-// The canvas geometry, and the width it needs (designer recheck on S2, N1)
-//
-// Three FIXED columns: request | «interface» | response. Every node is a fixed
-// width (border-box), so an expansion's width does not depend on what the op
-// carries, only on whether it has both columns. Of the 29 committed contracts,
-// 148 ops have both a request and a response, so the widest expansion is the
-// full three-column span, measured in the browser at exactly CODE_EXPANDED_WIDTH
-// across every op of every contract (renderers-s3-report.md).
-//
-// S2 drew the canvas from a 900px column and panned an expansion wider than it:
-// at 1280 and 1366 the struct cards landed 0% / 22% on the canvas. Now the
-// canvas draws only where the widest expansion fits at CODE_MIN_ZOOM; below that
-// the focus view lists, and the list already expands each op's tables inline.
+// The canvas — the shared code-level diagram (codeDiagram/codeDiagramModel.ts):
+// three columns read left to right, what the selected operation takes | the
+// «interface» | what it returns and fails with. About 950px wide, it draws at
+// full size in the activity's artifact column at 1440; narrower than
+// CODE_CANVAS_MIN_WIDTH (≈840px: a phone, a narrow side pane) the tab lists.
 // ---------------------------------------------------------------------------
 
-/** The «interface» node's width. */
-export const CODE_IFACE_W = 560;
-/** A struct column's width. */
-export const CODE_STRUCT_W = 224;
-/** Request column → interface: room for the call's edge label. */
-export const CODE_INPUT_GAP = 300;
-/** Interface → response column. */
-export const CODE_OUTPUT_GAP = 150;
-
-/** The widest expansion, in canvas pixels: request + gap + interface + gap + response. */
-export const CODE_EXPANDED_WIDTH =
-  CODE_STRUCT_W + CODE_INPUT_GAP + CODE_IFACE_W + CODE_OUTPUT_GAP + CODE_STRUCT_W;
-
-/** The furthest a fit may zoom the code diagram out. Past it, the reader pans. */
-export const CODE_MIN_ZOOM = 0.9;
-
-/** Clear space kept on either side of the widest expansion, in screen pixels. */
-export const CODE_CANVAS_GUTTER = 14;
-
-/** The canvas frame's two 1.5px borders. */
-export const CODE_CANVAS_BORDERS = 3;
-
-/** The code canvas's least height: an interface with one op, and its gutters. */
-export const CODE_CANVAS_MIN_HEIGHT = 160;
-
-/**
- * Below this many pixels of column width the code diagram cannot show the widest
- * expansion at CODE_MIN_ZOOM; list instead. 1458 × 0.9 → 1313, plus the gutters
- * and the frame: 1344 — a focus window of about 1712px with the side panel open,
- * 1392 with it collapsed (focusRail.ts).
- *
- * The canvas HEIGHT is no longer guessed (S3 grew it from a base of 380 + 40 per
- * op): it is the drawing's height at its zoom (flow/fitContent.ts), so an
- * unexpanded interface sits at the top of a canvas its own size, and a tall
- * request column (10 params on RecordActivityBranchOpened) still lands on it.
- */
-export const CODE_CANVAS_MIN_WIDTH =
-  Math.ceil(CODE_EXPANDED_WIDTH * CODE_MIN_ZOOM) + 2 * CODE_CANVAS_GUTTER + CODE_CANVAS_BORDERS;
+/** Below this column width the Interface tab lists instead of drawing. */
+export const CODE_CANVAS_MIN_WIDTH = DIAGRAM_MIN_COLUMN_WIDTH;
 
 export type CodeTabMode = 'canvas' | 'list';
 
 /**
- * The canvas only in the focus view, and only with room for it. The pane is at
- * most 820px wide, so it always lists; the focus view lists too when the window
- * leaves its artifact column under CODE_CANVAS_MIN_WIDTH — every window below
- * about 1712px (500, 1100, 1280, 1366, 1600). An unmeasured width (0) lists: the
- * safe reading until the first measure.
+ * The diagram wherever there is room for it — the activity's artifact column, the
+ * focus view — and the labelled list below that. An unmeasured width (0) lists:
+ * the safe reading until the first measure.
  */
-export function codeTabModeFor(width: number, inFocus: boolean): CodeTabMode {
-  return inFocus && width >= CODE_CANVAS_MIN_WIDTH ? 'canvas' : 'list';
+export function codeTabModeFor(width: number): CodeTabMode {
+  return width >= CODE_CANVAS_MIN_WIDTH ? 'canvas' : 'list';
+}
+
+// ---------------------------------------------------------------------------
+// An operation's SHAPE — what the reader is shown instead of its signature.
+//
+// The contract states each op as one Go-ish line (`Foo(a: A, b: *B) → (C,
+// fwm.Error)`). That line is the generator's input; the reviewer sees its parts:
+// the operation's name, each input by name with its type, what it returns, and
+// what it fails with — as labelled fields and diagram rows.
+// ---------------------------------------------------------------------------
+
+/** Splits a comma list at bracket depth 0 (a `map[K]V` or `func(a, b)` stays whole). */
+function splitTop(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of s) {
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    if (ch === ')' || ch === ']' || ch === '}') depth--;
+    if (ch === ',' && depth === 0) {
+      out.push(cur.trim());
+      cur = '';
+    } else cur += ch;
+  }
+  if (cur.trim().length > 0) out.push(cur.trim());
+  return out;
+}
+
+export interface OpParam {
+  name: string;
+  /** The type as the contract states it (`*ReviewFeedback`, `[]AnchoredComment`). */
+  type: string;
+}
+
+export interface OpShape {
+  /** The operation's name (`DispatchActivityTask`). */
+  name: string;
+  /** Its inputs, the context parameter dropped (it is plumbing, not a contract term). */
+  params: OpParam[];
+  /** What a success returns (types), errors excluded. */
+  returns: string[];
+  /** What it fails with (error types). */
+  errors: string[];
+}
+
+/** An op's name, inputs, results and errors, read off its signature line. */
+export function opShape(signature: string): OpShape {
+  const open = signature.indexOf('(');
+  const name = (open < 0 ? signature : signature.slice(0, open)).trim();
+  let depth = 0;
+  let close = -1;
+  for (let i = Math.max(open, 0); i < signature.length; i++) {
+    const ch = signature[i];
+    if (ch === '(') depth++;
+    if (ch === ')') {
+      depth--;
+      if (depth === 0) {
+        close = i;
+        break;
+      }
+    }
+  }
+  const inner = open < 0 ? '' : signature.slice(open + 1, close < 0 ? signature.length : close);
+  const params = splitTop(inner)
+    .map((p): OpParam => {
+      const colon = p.indexOf(':');
+      return colon < 0
+        ? { name: p.trim(), type: '' }
+        : { name: p.slice(0, colon).trim(), type: p.slice(colon + 1).trim() };
+    })
+    .filter(
+      (p) =>
+        p.name.length > 0 &&
+        p.name !== 'ctx' &&
+        p.type !== 'context.Context' &&
+        p.type !== 'Context'
+    );
+  const arrow = signature.indexOf('→', close < 0 ? 0 : close);
+  let ret = arrow < 0 ? '' : signature.slice(arrow + 1).trim();
+  if (ret.startsWith('(') && ret.endsWith(')')) ret = ret.slice(1, -1);
+  const results = splitTop(ret).filter((r) => r.length > 0);
+  return {
+    name,
+    params,
+    returns: results.filter((r) => !isErrorStructName(r.replace(/^\*/, ''))),
+    errors: results.filter((r) => isErrorStructName(r.replace(/^\*/, ''))),
+  };
+}
+
+/**
+ * A type as a reader says it: no pointer star, a slice as "list of X", a map as
+ * "map of K to V", a package qualifier dropped (`fwm.Error` → `Error`; the full
+ * name stays available as a tooltip where it is drawn).
+ */
+export function readableType(type: string): string {
+  let t = type.trim();
+  if (t.length === 0) return '';
+  t = t.replace(/^\*/, '');
+  if (t.startsWith('[]')) return `list of ${readableType(t.slice(2))}`;
+  const map = /^map\[([^\]]+)\](.+)$/.exec(t);
+  if (map !== null) return `map of ${readableType(map[1] ?? '')} to ${readableType(map[2] ?? '')}`;
+  const dot = t.lastIndexOf('.');
+  return dot >= 0 ? t.slice(dot + 1) : t;
+}
+
+/** The error type every op of a contract shares, if they all share one (said once, in the header). */
+export function sharedErrorOf(ops: readonly ContractOp[]): string | undefined {
+  let shared: string | undefined;
+  for (const op of ops) {
+    const errs = opShape(op.signature).errors;
+    if (errs.length !== 1) return undefined;
+    const e = errs[0];
+    if (shared === undefined) shared = e;
+    else if (shared !== e) return undefined;
+  }
+  return shared;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,4 +236,26 @@ export function opStructsFor(op: ContractOp): OpStructs {
     response: outputs.filter((s) => !isErrorStructName(s.name)),
     error: outputs.filter((s) => isErrorStructName(s.name)),
   };
+}
+
+/**
+ * A diagram column's classes: each run of plain single-value inputs folded into
+ * ONE «parameters» class (name → type rows, like a UML class's attributes), every
+ * real struct its own class, and an error never folded — it is drawn apart, in red.
+ */
+export type ColumnSegment =
+  | { kind: 'params'; params: GoField[] }
+  | { kind: 'struct'; struct: ResolvedStruct; isError: boolean };
+
+export function columnSegments(structs: readonly ResolvedStruct[]): ColumnSegment[] {
+  const out: ColumnSegment[] = [];
+  for (const s of structs) {
+    const isError = isErrorStructName(s.name);
+    const param = isError ? undefined : paramOf(s);
+    const last = out[out.length - 1];
+    if (param === undefined) out.push({ kind: 'struct', struct: s, isError });
+    else if (last?.kind === 'params') last.params.push(param);
+    else out.push({ kind: 'params', params: [param] });
+  }
+  return out;
 }

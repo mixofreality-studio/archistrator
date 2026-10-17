@@ -114,8 +114,8 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
 
       {hasRoute ? (
         <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-            {source}
+          <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
+            {`Address: ${source}`}
           </Typography>
           <Box>
             <Button
@@ -130,7 +130,7 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
                 fontFamily: t.mono,
                 fontSize: 11,
                 textTransform: 'none',
-                color: t.accent,
+                color: t.accentInk,
               }}
               target="_blank"
               variant="outlined"
@@ -153,10 +153,8 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
           />
         </Box>
       ) : (
-        <Typography
-          sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, mt: 0.75, fontStyle: 'italic' }}
-        >
-          No route is recorded on this ui-code artifact, so there is nothing to open.
+        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, mt: 0.75 }}>
+          No address is recorded for this built screen yet, so there is nothing to open.
         </Typography>
       )}
     </Paper>

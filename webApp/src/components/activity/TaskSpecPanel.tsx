@@ -31,7 +31,9 @@ import { RoleAvatar } from '../RoleAvatar';
 import { CommentableList } from '../comments/CommentableList';
 import { taskSpecCheckAnchor } from '../comments/CommentContext';
 import type { AsyncArtifactData } from '../construction/artifactRenderers';
+import { LogLines } from '../construction/primitives/LogLines';
 import { ScenarioDetail, StatusChip } from '../construction/renderers/ScenarioRow.tsx';
+import { PromptProse } from './PromptProse';
 import {
   ROLE_LABEL,
   SPEC_CHANGED,
@@ -87,17 +89,32 @@ export type TaskSpecCheckEvidence = Pick<
 
 function Label({ children, t }: { children: ReactNode; t: Tokens }): ReactNode {
   return (
-    <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.14em', color: t.muted }}>
+    <Typography
+      sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.12em', color: t.muted }}
+    >
       {children}
     </Typography>
   );
 }
 
-function Fact({ label, children }: { label: string; children: ReactNode }): ReactNode {
+function Fact({
+  label,
+  tip,
+  children,
+}: {
+  label: string;
+  /** What the fact means, for a reader who has never seen an agent task. */
+  tip: string;
+  children: ReactNode;
+}): ReactNode {
   const t = useTokens();
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Label t={t}>{label}</Label>
+      <Tooltip placement="top-start" title={tip}>
+        <Box component="span" sx={{ cursor: 'help' }} tabIndex={0}>
+          <Label t={t}>{label}</Label>
+        </Box>
+      </Tooltip>
       {typeof children === 'string' ? (
         <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.ink }}>
           {children}
@@ -128,9 +145,10 @@ function MonoChip({
       label={label}
       size="small"
       sx={{
-        height: 18,
+        // A clickable chip is a target: 28px tall (WCAG 2.5.8); a static one stays compact.
+        height: onClick !== undefined ? 28 : 20,
         fontFamily: t.mono,
-        fontSize: 9,
+        fontSize: 10.5,
         bgcolor: pressed === true ? t.paper : t.paperAlt,
         color: pressed === true ? t.ink : t.muted,
         border: `1px solid ${pressed === true ? t.accent : t.line}`,
@@ -143,10 +161,13 @@ function MonoChip({
 /** GatePanel's disclosure: a real button over a Collapse, closed by default. */
 function Disclosure({
   title,
+  hint,
   children,
   t,
 }: {
   title: string;
+  /** One muted line beside the title: what opening it shows. */
+  hint?: string | undefined;
   children: ReactNode;
   t: Tokens;
 }): ReactNode {
@@ -164,6 +185,7 @@ function Disclosure({
           gap: 1,
           px: 1.25,
           py: 0.75,
+          minHeight: 40,
           width: '100%',
           cursor: 'pointer',
           textAlign: 'left',
@@ -172,6 +194,8 @@ function Disclosure({
           border: 'none',
           bgcolor: t.paper,
           borderBottom: open ? `1px solid ${t.line}` : 'none',
+          '&:hover': { bgcolor: t.paperAlt },
+          '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: -2 },
         }}
         type="button"
         onClick={() => {
@@ -179,10 +203,13 @@ function Disclosure({
         }}
       >
         <Typography
-          sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.1em' }}
+          sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, letterSpacing: '0.1em' }}
         >
           {title}
         </Typography>
+        {hint !== undefined ? (
+          <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>{hint}</Typography>
+        ) : null}
         <Box sx={{ flexGrow: 1 }} />
         <ExpandMoreIcon
           sx={{ fontSize: 18, transform: open ? 'rotate(180deg)' : 'none', transition: '120ms' }}
@@ -191,31 +218,6 @@ function Disclosure({
       <Collapse unmountOnExit id={region} in={open}>
         <Box sx={{ p: 1.25, display: 'flex', flexDirection: 'column', gap: 1 }}>{children}</Box>
       </Collapse>
-    </Box>
-  );
-}
-
-function Pre({ children, t }: { children: string; t: Tokens }): ReactNode {
-  return (
-    <Box
-      component="pre"
-      sx={{
-        m: 0,
-        p: 1.25,
-        maxHeight: 480,
-        overflow: 'auto',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-        fontFamily: t.mono,
-        fontSize: 11.5,
-        lineHeight: 1.45,
-        color: t.ink,
-        bgcolor: t.paper,
-        border: `1px solid ${t.line}`,
-        borderRadius: 1,
-      }}
-    >
-      {children}
     </Box>
   );
 }
@@ -279,7 +281,7 @@ function CheckLog({
   }, [ref, onWantOutput]);
   if (ref.length === 0) {
     return (
-      <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+      <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}>
         {SPEC_NO_OUTPUT}
       </Typography>
     );
@@ -287,20 +289,26 @@ function CheckLog({
   const stream = outputs[ref];
   if (stream === undefined || stream.isLoading) {
     return (
-      <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+      <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}>
         {SPEC_OUTPUT_LOADING}
       </Typography>
     );
   }
   if (stream.error !== null) {
     return (
-      <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.dangerFg }}>
+      <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.dangerFg }}>
         {specOutputFailed(ref, stream.error.message)}
       </Typography>
     );
   }
   const text = stream.data ?? '';
-  return <Pre t={t}>{text.length > 0 ? text : `(${ref} is empty)`}</Pre>;
+  return text.trim().length > 0 ? (
+    <LogLines label={`Output of ${row.check.title}`} t={t} text={text} />
+  ) : (
+    <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}>
+      This check ran and printed nothing.
+    </Typography>
+  );
 }
 
 function CheckRow({
@@ -331,10 +339,13 @@ function CheckRow({
       <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, flexShrink: 0 }}>
         {check.title}
       </Typography>
+      {/* What the check reads, in words. A command's argv is the harness's input,
+          not the reviewer's: the row names it by its title and keeps the exact
+          command on hover only. */}
       <Typography
         sx={{
-          fontFamily: t.mono,
-          fontSize: 10.5,
+          fontFamily: t.body,
+          fontSize: 12,
           color: t.muted,
           minWidth: 0,
           flexGrow: 1,
@@ -344,10 +355,13 @@ function CheckRow({
         }}
         title={sourceLabel(check)}
       >
-        {sourceLabel(check)}
+        {check.kind === 'command' ? 'automated check' : sourceLabel(check)}
       </Typography>
       {result !== undefined ? (
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, flexShrink: 0 }}>
+        <Typography
+          sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, flexShrink: 0 }}
+          title="How long the check took"
+        >
           {formatDuration(result.durationMs)}
         </Typography>
       ) : null}
@@ -360,6 +374,7 @@ function CheckRow({
     gap: 1,
     px: 0.75,
     py: 0.5,
+    minHeight: 32,
     textAlign: 'left',
     borderRadius: 1,
     minWidth: 0,
@@ -425,36 +440,41 @@ function Checks({
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
       <Label t={t}>CHECKS</Label>
       {rows.length > 0 ? (
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
+        <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
           {countsLine(counts)}
         </Typography>
       ) : null}
       {spec.specChanged && spec.checkRun !== undefined ? (
-        <Chip
-          label={SPEC_CHANGED}
-          size="small"
-          sx={{
-            height: 18,
-            fontFamily: t.mono,
-            fontSize: 9,
-            bgcolor: t.awaitingBg,
-            color: t.awaitingFg,
-            border: `1px solid ${t.awaitingFg}`,
-          }}
-        />
+        <Tooltip title="This task's spec (its prompt, tools or checks) changed after these results were recorded, so they may not reflect the current spec.">
+          <Chip
+            label={SPEC_CHANGED}
+            size="small"
+            sx={{
+              height: 18,
+              fontFamily: t.mono,
+              fontSize: 9,
+              bgcolor: t.awaitingBg,
+              color: t.awaitingFg,
+              border: `1px solid ${t.awaitingFg}`,
+            }}
+            tabIndex={0}
+          />
+        </Tooltip>
       ) : null}
     </Box>
   );
   return (
     <Section label={header}>
       {rows.length === 0 ? (
-        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}>
           {SPEC_NO_CHECKS}
         </Typography>
       ) : (
         groupByKind(rows).map((g) => (
           <Box key={g.kind} sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, mt: 0.5 }}>
+            <Typography
+              sx={{ fontFamily: t.body, fontSize: 12, fontWeight: 700, color: t.muted, mt: 0.5 }}
+            >
               {KIND_LABEL[g.kind]}
             </Typography>
             <CommentableList
@@ -503,6 +523,9 @@ function EditScope({ spec, t }: { spec: TaskSpecView; t: Tokens }): ReactNode {
   const shown = scope.components.find((c) => c.id === openComp);
   return (
     <Section label="MAY EDIT">
+      <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
+        The files the agent is allowed to change. Open a component to list its files.
+      </Typography>
       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
         {scope.components.map((c) => (
           <MonoChip
@@ -517,14 +540,17 @@ function EditScope({ spec, t }: { spec: TaskSpecView; t: Tokens }): ReactNode {
         ))}
       </Box>
       {shown !== undefined || scope.extra.length > 0 ? (
-        <Box component="ul" sx={{ m: 0, pl: 2.5, fontFamily: t.mono, fontSize: 11, color: t.ink }}>
+        <Box
+          component="ul"
+          sx={{ m: 0, pl: 2.5, fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}
+        >
           {[...(shown?.paths ?? []), ...scope.extra].map((p) => (
             <li key={p}>{p}</li>
           ))}
         </Box>
       ) : null}
       {showsStatePaths(spec) ? (
-        <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+        <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
           {SPEC_STATE_PATHS}
         </Typography>
       ) : null}
@@ -550,15 +576,27 @@ function SpecBody({
         {show.role ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <RoleAvatar seed={identity.workerClass} size={26} />
-            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.ink }}>
-              {ROLE_LABEL[identity.workerClass] ?? identity.workerClass}
-            </Typography>
+            <Box>
+              <Label t={t}>DONE BY</Label>
+              <Typography
+                sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 13.5, color: t.ink }}
+              >
+                {ROLE_LABEL[identity.workerClass] ?? identity.workerClass}
+              </Typography>
+            </Box>
           </Box>
         ) : null}
-        {show.command ? <Fact label="COMMAND">{`/${identity.command}`}</Fact> : null}
+        {show.command ? (
+          <Fact
+            label="COMMAND"
+            tip="The agent command this task runs — the brief below is its prompt"
+          >
+            {`/${identity.command}`}
+          </Fact>
+        ) : null}
         {show.model ? (
-          <Fact label="MODEL">
-            <Tooltip title={modelSourceTip(model.source)}>
+          <Fact label="MODEL" tip="The AI model the agent runs on">
+            <Tooltip title={`Model ${model.id} — ${modelSourceTip(model.source)}`}>
               <Chip
                 data-model-source={model.source}
                 label={model.id}
@@ -572,13 +610,17 @@ function SpecBody({
                   color: t.ink,
                   border: `1px solid ${t.line}`,
                 }}
+                tabIndex={0}
               />
             </Tooltip>
           </Fact>
         ) : null}
         {show.cost ? (
-          <Fact label="COST">
-            {`est ${formatUsd(model.estimate.usd)}${
+          <Fact
+            label="COST"
+            tip="What this task's agent run is estimated to cost, and what it actually cost once a run was captured"
+          >
+            {`estimated ${formatUsd(model.estimate.usd)}${
               episodeCostUsd !== undefined ? ` · actual ${formatUsd(episodeCostUsd)}` : ''
             }`}
           </Fact>
@@ -594,15 +636,27 @@ function SpecBody({
       </Box>
 
       {show.prompt ? (
-        <Disclosure t={t} title={`PROMPT · ~${formatTokens(prompt.tokens)} tokens`}>
-          <Pre t={t}>{prompt.text}</Pre>
+        <Disclosure
+          hint={`the brief the agent is handed · about ${formatTokens(prompt.tokens)} tokens`}
+          t={t}
+          title="PROMPT"
+        >
+          <PromptProse label="Prompt" markdown={prompt.text} t={t} />
           {prompt.charter.length > 0 ? (
-            <Disclosure t={t} title={`CHARTER · ${identity.agent}`}>
-              <Pre t={t}>{prompt.charter}</Pre>
+            <Disclosure
+              hint={`the standing role description of ${identity.agent}`}
+              t={t}
+              title="CHARTER"
+            >
+              <PromptProse label={`Charter of ${identity.agent}`} markdown={prompt.charter} t={t} />
             </Disclosure>
           ) : null}
           {prompt.skills.length > 0 ? (
-            <Disclosure t={t} title={`SKILLS · ${String(prompt.skills.length)}`}>
+            <Disclosure
+              hint={`${String(prompt.skills.length)} method skills the agent may load`}
+              t={t}
+              title="SKILLS"
+            >
               <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                 {prompt.skills.map((k) => (
                   <MonoChip key={k} label={k} t={t} />
@@ -614,11 +668,11 @@ function SpecBody({
       ) : null}
 
       {show.tools ? (
-        <Section label="TOOLS">
+        <Section label="TOOLS · WHAT THE AGENT MAY CALL">
           {(
             [
-              ['State tools', tools.mcp],
-              ['Built-ins', tools.builtin],
+              ['Project-state tools', tools.mcp],
+              ['Built-in tools', tools.builtin],
             ] as const
           )
             .filter(([, list]) => list.length > 0)
@@ -627,7 +681,7 @@ function SpecBody({
                 key={name}
                 sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}
               >
-                <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, mr: 0.5 }}>
+                <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, mr: 0.5 }}>
                   {name}
                 </Typography>
                 {list.map((x) => (
@@ -665,7 +719,7 @@ export function TaskSpecPanel(props: TaskSpecPanelProps): ReactNode {
   if (spec.error !== null) {
     return (
       <Frame>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}>
           {specReadFailed(spec.error.message)}
         </Typography>
       </Frame>

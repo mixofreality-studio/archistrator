@@ -76,7 +76,7 @@ export function DeploymentsTab({
   if (view === undefined) {
     return (
       <AwaitingPanel
-        detail="This operated app has no observed deployment status. Once a desired state is published, aiarch observes convergence via the GitOps runtime — it does not drive it."
+        detail="Nothing has been deployed for this app yet. Once you publish a version, the hosting platform rolls it out and its progress shows here."
         title="No deployment status yet"
       />
     );
@@ -97,10 +97,11 @@ export function DeploymentsTab({
           borderRadius: t.radius / 8 + 0.5,
         }}
       >
-        <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.chatPmFg, lineHeight: 1.5 }}>
-          🔭 aiarch <b>publishes desired state</b> (a git commit to the manifests repo); the GitOps
-          runtime <b>drives convergence</b>. There is no aiarch progress bar — only the observed
-          rollup Phase. Phase=Unknown is the normal just-published transient (converging).
+        <Typography sx={{ fontSize: 13, color: t.chatPmFg, lineHeight: 1.5 }}>
+          archistrator <b>records the version you want</b>; the hosting platform <b>rolls it out</b>
+          . So there is no progress bar here — only the status the platform reports.
+          &ldquo;Unknown&rdquo; right after publishing is normal: the rollout has not reported back
+          yet.
         </Typography>
       </Box>
 
@@ -127,12 +128,12 @@ export function DeploymentsTab({
               color: t.ink,
             }}
           >
-            DESIRED-STATE ROLLUP
+            OVERALL STATUS
           </Typography>
           <PhaseChip phase={rollup} t={t} />
           {view.inFlight ? (
             <Chip
-              label="republish in flight"
+              label="rolling out"
               size="small"
               sx={{ height: 18, fontSize: 8.5, bgcolor: t.chatPmBg, color: t.chatPmFg }}
             />
@@ -153,7 +154,7 @@ export function DeploymentsTab({
           >
             {view.health.detail.length > 0
               ? view.health.detail
-              : 'Per-component revision detail is not carried by the read projection yet. Publish a desired state below; convergence is observed on the reconcile tick.'}
+              : 'Per-part version details aren’t available yet. Publish a version below; its status updates here as the platform reports back.'}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
             <Button
@@ -168,7 +169,7 @@ export function DeploymentsTab({
                 run('deploy');
               }}
             >
-              Deploy / publish revision
+              Publish this version
             </Button>
             {/*
               Scale is DISABLED, not hidden and not wired: it used to publish a
@@ -194,7 +195,8 @@ export function DeploymentsTab({
               </span>
             </Tooltip>
             <Typography sx={{ fontFamily: t.body, fontSize: 10.5, color: t.muted }}>
-              Scale is not available yet — replicas come from the deployment model.
+              Manual scaling isn’t available yet — the number of copies comes from the deployment
+              design.
             </Typography>
             <Box sx={{ flexGrow: 1 }} />
             <Button

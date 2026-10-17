@@ -100,8 +100,12 @@ const activityRoute = createRoute({
   // is `contracts/routePaths.activitySearch`, not an inline lambda, because
   // the containers construct the same object when they navigate and a second
   // copy of the rule is how two callers end up disagreeing about `?rev=0`.
-  validateSearch: (search: Record<string, unknown>): { task?: string; rev?: number } =>
-    activitySearch(search['task'], search['rev']),
+  // `view` + `step` ride along for the Architecture review's call-chain deep
+  // link (architectureDeepLink.ts) — the cross-artifact StepLink sets them.
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { task?: string; rev?: number; view?: string; step?: number } =>
+    activitySearch(search['task'], search['rev'], search['view'], search['step']),
 });
 
 // ── The three OLD rails: registered, componentless, redirecting ──────────────

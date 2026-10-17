@@ -59,6 +59,10 @@ export function Prose({
           py: 0.15,
           borderRadius: 1,
         },
+        // Never a code well (house rule: no code blocks on screen). Should a
+        // projection ever emit a fenced block, it reads as ordinary prose.
+        '& pre': { m: 0, my: 1.25, whiteSpace: 'pre-wrap', fontFamily: t.body },
+        '& pre code': { fontFamily: t.body, fontSize: 'inherit', bgcolor: 'transparent', p: 0 },
         '& blockquote': {
           borderLeft: `3px solid ${t.accent}`,
           bgcolor: t.awaitingBg,

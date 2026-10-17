@@ -10,6 +10,7 @@ import {
   useRegisterCustomer,
   type BillingRef,
 } from '../hooks/useBillingOnboarding';
+import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { BillingOnboarding, type OnboardingStepResult } from '../components/BillingOnboarding';
 
 function stepResult<V>(
@@ -21,11 +22,19 @@ function stepResult<V>(
   return undefined;
 }
 
-export function BillingOnboardingContainer(): ReactNode {
+/**
+ * @param projectId The project this billing page belongs to: step 2's "billed for"
+ *   project, and — through its derived operated-app id — step 1's deployed app, so
+ *   neither has to be typed from memory (both stay editable).
+ */
+export function BillingOnboardingContainer({ projectId }: { projectId: string }): ReactNode {
   const onboard = useOnboardPaymentIntegration();
   const register = useRegisterCustomer();
+  const operatedAppId = useOperatedAppId(projectId);
   return (
     <BillingOnboarding
+      defaultAppId={operatedAppId}
+      defaultProjectId={projectId}
       onboard={stepResult(onboard)}
       register={stepResult(register)}
       onOnboard={(deployedAppId) => {

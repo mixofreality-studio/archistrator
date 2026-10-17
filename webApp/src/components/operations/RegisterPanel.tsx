@@ -75,8 +75,8 @@ export function RegisterPanel({
             Register the delivered system
           </Typography>
           <Typography sx={{ color: t.muted, fontSize: 13, mb: 2, lineHeight: 1.5 }}>
-            Seeds this operated system&apos;s head state once. Name the customer it is operated for,
-            the project that delivered it and the deployable bundle to operate.
+            A one-time step that hands a delivered system to archistrator to run. Name the billing
+            customer it runs for, the project that built it, and the release bundle to run.
           </Typography>
           <Box
             component="form"
@@ -94,8 +94,12 @@ export function RegisterPanel({
           >
             <TextField
               error={customerInvalid}
-              helperText={customerInvalid ? 'A customer id is a UUID' : ' '}
-              label="Customer id"
+              helperText={
+                customerInvalid
+                  ? 'A customer ID looks like 8-4-4-4-12 hex characters'
+                  : 'From the project’s Billing page'
+              }
+              label="Billing customer ID"
               size="small"
               slotProps={{
                 htmlInput: { 'data-testid': UI_IDENTIFIERS.Operations.REGISTER_CUSTOMER_ID },
@@ -119,8 +123,8 @@ export function RegisterPanel({
               }}
             />
             <TextField
-              helperText=" "
-              label="Deployable bundle"
+              helperText="Which build of the system to run"
+              label="Release bundle"
               size="small"
               slotProps={{
                 htmlInput: { 'data-testid': UI_IDENTIFIERS.Operations.REGISTER_BUNDLE_REF },
@@ -152,7 +156,7 @@ export function RegisterPanel({
               {result.kind === 'pending'
                 ? 'Registering…'
                 : result.kind === 'registered'
-                  ? `Registered · head-state version ${String(result.version)}`
+                  ? `Registered (record version ${String(result.version)})`
                   : `Registration refused: ${result.message}`}
             </Typography>
           )}

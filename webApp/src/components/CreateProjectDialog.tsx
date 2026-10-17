@@ -105,9 +105,9 @@ export function CreateProjectDialog({
         sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }}
       >
         <Typography sx={{ color: t.muted, fontSize: 13.5 }}>
-          A project walks The Method from System Design through operation. The project name{' '}
-          <strong>is your GitHub repository name</strong> — aiarch adopts the repo you already
-          created and drives The Method against it.
+          A project walks The Method from system design through to running the finished app. The
+          project name <strong>is your GitHub repository name</strong> — archistrator adopts the
+          repository you already created and does all of its work there.
         </Typography>
 
         <PrereqPanel t={t} />
@@ -151,7 +151,7 @@ export function CreateProjectDialog({
           variant="contained"
           onClick={submit}
         >
-          Adopt &amp; open
+          Start project
         </Button>
       </DialogActions>
     </Dialog>
@@ -188,7 +188,7 @@ function OperatingModelChoice({
       value: 'archistratorOperated',
       label: 'Archistrator-operated',
       detail:
-        'Archistrator operates the app on the platform. The deployment design is constrained to the platform palette only — CNPG Postgres, Temporal, Keycloak, and the OpenTelemetry stack on the platform Kubernetes cluster — with no bespoke AWS/GCP/Azure infrastructure.',
+        'Archistrator runs the app for you on its own hosting platform. The design is limited to the platform’s built-in building blocks — a Postgres database, Temporal workflows, Keycloak sign-in and OpenTelemetry monitoring — with no custom AWS, GCP or Azure infrastructure.',
     },
   ];
   return (
@@ -254,15 +254,17 @@ function PrereqPanel({ t }: { t: ReturnType<typeof useTokens> }): ReactNode {
     {
       label: 'Create the GitHub repository and add the aiarch-project topic',
       detail:
-        'Its name becomes this project’s identity. Add the repository topic aiarch-project so the cloud catalog can discover it.',
+        'Its name becomes this project’s name. The topic (a repository tag set in GitHub’s “About” settings) lets archistrator find it.',
     },
     {
       label: 'Install the aiarch GitHub App on the repo',
-      detail: 'Grants contents:write + metadata:read so aiarch can adopt and drive it.',
+      detail:
+        'Gives archistrator permission to read and write the repository’s files, so it can do its work there.',
     },
     {
-      label: 'Install the Claude Code GitHub App (run /install-github-app)',
-      detail: 'Provisions CLAUDE_CODE_OAUTH_TOKEN — the design token aiarch never sees or stores.',
+      label: 'Install the Claude Code GitHub App (in Claude Code, run /install-github-app)',
+      detail:
+        'Adds the sign-in secret the AI agents use to the repository. It stays in GitHub — archistrator never sees or stores it.',
     },
   ];
   return (
@@ -277,11 +279,11 @@ function PrereqPanel({ t }: { t: ReturnType<typeof useTokens> }): ReactNode {
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-        <GitHubIcon sx={{ fontSize: 16, color: t.ink }} />
+        <GitHubIcon aria-hidden sx={{ fontSize: 16, color: t.ink }} />
         <Typography
           sx={{ fontFamily: t.mono, fontSize: 11.5, letterSpacing: '0.12em', color: t.muted }}
         >
-          BEFORE YOU ADOPT
+          BEFORE YOU START
         </Typography>
       </Box>
       <Box

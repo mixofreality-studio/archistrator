@@ -56,10 +56,29 @@ export function stepBadgeState(
  *  kept as a distinct tone string only so the two states are never conflated in
  *  the label/telemetry layer. */
 export function toneColor(tone: 'ok' | 'warn' | 'error' | 'pending', t: Tokens): string {
-  if (tone === 'ok') return t.committedDot;
+  // committedText, not committedDot: every caller paints this colour as chip TEXT
+  // (and its border), and retro's mid-olive dot is only ~3.6:1 on paper.
+  if (tone === 'ok') return t.committedText;
   if (tone === 'error') return t.dangerFg;
   return t.awaitingFg;
 }
+
+/** Plain-language explanation of a realization tone, for the tooltip on the
+ *  walkthrough's per-step badge — "realized" and a bare rule id mean nothing to
+ *  a reader who has not met the call-chain checks. */
+export function stepBadgeHint(tone: 'ok' | 'warn' | 'error', ruleId: string | undefined): string {
+  if (tone === 'ok')
+    return "Realized: the architecture's call chain makes at least one call for this step.";
+  if (tone === 'error')
+    return `Realized, but Design Health flagged its calls${
+      ruleId !== undefined && ruleId.length > 0 ? ` (rule ${ruleId})` : ''
+    }. Open the architecture's Dynamic view to see why.`;
+  return "Not realized yet: no call in the architecture's call chain performs this step.";
+}
+
+/** Tooltip copy for the carousel's "N/M steps realized" roll-up chip. */
+export const REALIZATION_CHIP_HINT =
+  "How many of this use case's action and event steps the architecture's call chain performs with at least one call. Decisions, merges and forks are not counted.";
 
 /**
  * "N/M steps realized" — N = how many of the given eligible node ids have a

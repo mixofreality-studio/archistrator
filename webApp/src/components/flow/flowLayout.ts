@@ -84,24 +84,21 @@ export function layerColors(t: Tokens): Record<FlowLayer, string> {
 export const MUTED_OPACITY = 0.12;
 
 /**
- * The opacity of the VISITED tier — the calls (and their endpoints) the reader
- * has already walked past in the Dynamic lens' fragment mode (founder QA round
- * 4's trail accretion). Deliberately a mid tint: it must read as "already
- * walked" at a glance, sitting clearly ABOVE the never-walked ghosts at
- * MUTED_OPACITY and clearly BELOW the current fragment at full strength.
- * One token for nodes and edges alike, so the trail reads as one thing.
+ * How an out-of-focus NODE recedes in the flow family: it loses its colour
+ * (grayscale) and the node renders its own text in the muted tone with a dashed
+ * frame (C4Node / PersonNode read `data.dimmed`). NOT MUTED_OPACITY: an opacity
+ * ghost took every out-of-focus label to ~1.2:1, far below WCAG AA, on nodes that
+ * stay focusable and named. Edges (no text) keep the opacity treatment.
  */
-export const VISITED_OPACITY = 0.55;
+export const MUTED_NODE_STYLE = { filter: 'grayscale(1)' } as const;
 
 /**
  * The opacity of the TRAIL — the handful of calls the reader has already walked
  * past, drawn behind the current one in the Dynamic lens (DynamicViewFlow's
  * TRAIL_LIMIT bounds how many).
  *
- * Deliberately LOWER than the VISITED_OPACITY the walked NODES keep. A node
- * occupies its own box and never overlaps another, so 0.55 reads as exactly one
- * quiet box. Wires do overlap, and opacity COMPOSITES: N strokes stacked in the
- * same corridor render as 1-(1-a)^N, so the same tint on a bundle of trail edges
+ * Wires (unlike the walked NODES, which never overlap and so keep full colour)
+ * do overlap, and opacity COMPOSITES: N strokes stacked in the same corridor render as 1-(1-a)^N, so the same tint on a bundle of trail edges
  * paints a solid band precisely where the chain is densest. Bounding the trail
  * and tinting it down here keeps even its worst-case overlap a hairline.
  */
@@ -233,12 +230,13 @@ export function c4Node(
       // controlled-node flow having no onNodesChange, xyflow's built-in selection is
       // inert, so a data flag is the reliable way to drive the Comment toolbar + ring.
       isSelected: opts.selected === true,
+      ...(opts.dimmed === true ? { dimmed: true } : {}),
       ...(opts.findings !== undefined && opts.findings.length > 0
         ? { structureFindings: opts.findings }
         : {}),
     },
     draggable: false,
-    ...(opts.dimmed === true ? { style: { opacity: MUTED_OPACITY } } : {}),
+    ...(opts.dimmed === true ? { style: MUTED_NODE_STYLE } : {}),
   };
 }
 
@@ -260,9 +258,14 @@ export function personNode(
     id: person.id,
     type: 'person',
     position,
-    data: { personId: person.id, role: person.role, color },
+    data: {
+      personId: person.id,
+      role: person.role,
+      color,
+      ...(opts.dimmed === true ? { dimmed: true } : {}),
+    },
     draggable: false,
-    ...(opts.dimmed === true ? { style: { opacity: MUTED_OPACITY } } : {}),
+    ...(opts.dimmed === true ? { style: MUTED_NODE_STYLE } : {}),
   };
 }
 

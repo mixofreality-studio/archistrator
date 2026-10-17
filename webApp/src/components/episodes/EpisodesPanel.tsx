@@ -412,23 +412,33 @@ export function EpisodesPanel({
             : String(episodes.length)}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
-        <IconButton
-          data-testid={UI_IDENTIFIERS.Episodes.EXPORT_MENU_BUTTON}
-          disabled={exportPending || episodes.length === 0}
-          size="small"
-          onClick={(e) => {
-            e.stopPropagation();
-            setExportAnchor(e.currentTarget);
-          }}
-        >
-          {exportPending ? (
-            <CircularProgress size={16} />
-          ) : (
-            <FileDownloadOutlinedIcon fontSize="small" />
-          )}
-        </IconButton>
+        {/* The span keeps the tooltip working while the button is disabled. */}
+        <Tooltip title="Export episodes (JSON or CSV)">
+          <span>
+            <IconButton
+              aria-controls={exportAnchor !== null ? 'episodes-export-menu' : undefined}
+              aria-expanded={exportAnchor !== null ? 'true' : undefined}
+              aria-haspopup="menu"
+              aria-label="Export episodes"
+              data-testid={UI_IDENTIFIERS.Episodes.EXPORT_MENU_BUTTON}
+              disabled={exportPending || episodes.length === 0}
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                setExportAnchor(e.currentTarget);
+              }}
+            >
+              {exportPending ? (
+                <CircularProgress aria-label="Preparing export" size={16} />
+              ) : (
+                <FileDownloadOutlinedIcon fontSize="small" />
+              )}
+            </IconButton>
+          </span>
+        </Tooltip>
         <Menu
           anchorEl={exportAnchor}
+          id="episodes-export-menu"
           open={exportAnchor !== null}
           onClick={(e) => {
             e.stopPropagation();
@@ -456,15 +466,33 @@ export function EpisodesPanel({
             Export CSV
           </MenuItem>
         </Menu>
-        {open ? (
-          <ExpandLessIcon sx={{ fontSize: 18, color: t.muted }} />
-        ) : (
-          <ExpandMoreIcon sx={{ fontSize: 18, color: t.muted }} />
-        )}
+        {/* The header row's click is a mouse convenience; THIS is the keyboard-
+            and screen-reader-operable toggle (a real button with its state). */}
+        <Tooltip title={open ? 'Hide episodes' : 'Show episodes'}>
+          <IconButton
+            aria-controls="episodes-panel-body"
+            aria-expanded={open}
+            aria-label={open ? 'Hide episodes' : 'Show episodes'}
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((o) => !o);
+            }}
+          >
+            {open ? (
+              <ExpandLessIcon sx={{ fontSize: 18, color: t.muted }} />
+            ) : (
+              <ExpandMoreIcon sx={{ fontSize: 18, color: t.muted }} />
+            )}
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {open ? (
-        <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Box
+          id="episodes-panel-body"
+          sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}
+        >
           {exportError !== undefined ? (
             <Alert
               data-testid={UI_IDENTIFIERS.Common.ERROR_ALERT}

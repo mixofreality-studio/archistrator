@@ -48,15 +48,6 @@ export function axisLabel(axis: Axis): string {
   return axis === 'sameCustomerOverTime' ? 'Axis 1 — over time' : 'Axis 2 — across customers';
 }
 
-/**
- * Compact per-item axis indicator ("A1"/"A2") for the lane chips, so an item's
- * axis is readable at a glance without selecting it (the full axis phrasing
- * stays on the lane header / detail panel / announcement via axisLabel).
- */
-export function axisShortLabel(axis: Axis): string {
-  return axis === 'sameCustomerOverTime' ? 'A1' : 'A2';
-}
-
 // ── Encapsulated-by join — volatility → owning component(s) ──────────────────
 
 /**

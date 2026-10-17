@@ -20,7 +20,6 @@ import {
   Background,
   Controls,
   MiniMap,
-  Panel,
   MarkerType,
   useReactFlow,
   useNodesState,
@@ -36,8 +35,6 @@ import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import Collapse from '@mui/material/Collapse';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import type { ProjectArtifactModelEnvelope } from '../../contracts/types';
 import {
   toNetworkView,
@@ -48,20 +45,24 @@ import type { BuildStatus } from '../../contracts/constructionAdapters';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { ComputedBadge, ComputedLegend } from './computed';
+import { SectionHeading } from './SectionHeading';
 import { NetworkSummaryStrip } from './NetworkSummaryStrip';
 import { NetworkNode, type NetworkNodeData } from './NetworkNode';
-import { bandTokens } from './bandTokens';
+import { bandTokens, BAND_LABEL } from './bandTokens';
 
 const nodeTypes = { network: NetworkNode };
 
-const COL_W = 252;
-const ROW_H = 124;
+const COL_W = 284;
+// Rows are packed close (a two-line node plus a ~24px gutter): this network's widest
+// layer stacks ~20 activities in one column, and at the old 124px pitch fitView
+// had to zoom to ~0.25 to frame it, which left every label unreadable.
+const ROW_H = 84;
 const LEFT_PAD = 28;
 const TOP_PAD = 28;
 // Explicit node box dimensions (match NetworkNode's rendered card) so the MiniMap
 // can draw rects — it skips custom nodes whose width/height aren't in the store.
-const NODE_W = 196;
-const NODE_H = 48;
+const NODE_W = 232;
+const NODE_H = 60;
 
 const NETWORK_SOURCE = 'Project Network · CPM';
 
@@ -165,6 +166,11 @@ function build(
     return {
       id: n.id,
       type: 'network',
+      // The focusable node wrapper's accessible name. Without it a keyboard or
+      // screen-reader user heard the card's concatenated text
+      // ("C-artifact-access10d10djunior-developer") — two bare "10d"s with no
+      // way to tell duration from float.
+      ariaLabel: nodeAriaLabel(n),
       position: { x: LEFT_PAD + n.col * COL_W, y: yByNode.get(n.id) ?? TOP_PAD },
       width: NODE_W,
       height: NODE_H,
@@ -213,6 +219,17 @@ function build(
   });
 
   return { nodes, edges };
+}
+
+/** The spoken description of one network node (activity or milestone). */
+function nodeAriaLabel(n: NetworkViewModel['nodes'][number]): string {
+  if (n.kind === 'milestone') {
+    return `Milestone ${n.id}: ${n.label}, ${n.isPublic === true ? 'public' : 'internal'}${n.onCriticalPath ? ', on the critical path' : ''}`;
+  }
+  const who = n.workerClass.length > 0 ? `, ${n.workerClass}` : '';
+  return n.onCriticalPath
+    ? `${n.id}: ${String(n.days)} days of work, zero float, on the critical path${who}`
+    : `${n.id}: ${String(n.days)} days of work, ${String(n.float)} days of float${n.band === 'red' ? ', near-critical' : ''}${who}`;
 }
 
 /** Builds predecessor/successor adjacency from the view edges for subgraph BFS. */
@@ -380,16 +397,37 @@ export function NetworkView({
   const shownCount = visibleIds.size;
   const totalCount = view.nodes.length;
 
+  // The critical path in EXECUTION order. The server lists it end-first
+  // (C-billing-manager → … → requirements), which read as the project running
+  // backwards; earliest start puts it the way the work actually flows.
+  const startOf = new Map(view.nodes.map((n) => [n.id, n.earlyStart]));
+  const criticalPath = [...view.criticalPath].sort(
+    (a, b) => (startOf.get(a) ?? 0) - (startOf.get(b) ?? 0)
+  );
+  const activityCount = view.nodes.filter((n) => n.kind === 'activity').length;
+
   if (view.nodes.length === 0) {
     return (
-      <Typography sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}>
-        No network drafted yet.
-      </Typography>
+      <Paper sx={{ p: 3 }}>
+        <SectionHeading
+          hint="The project network appears once the activities and their dependencies are drafted: it orders the work, finds the critical path, and shows how much each activity can slip (its float)."
+          t={t}
+        >
+          Project network — not drafted yet
+        </SectionHeading>
+      </Paper>
     );
   }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <SectionHeading
+        adornment={<ComputedBadge t={t} />}
+        hint="The order the work must happen in. Each box is an activity, each arrow a dependency, each diamond a milestone. Float is how many days an activity can slip without delaying the project; zero float means it is on the critical path."
+        t={t}
+      >
+        Project network
+      </SectionHeading>
       {showComputedLegend ? <ComputedLegend t={t} /> : null}
 
       {showSummary ? <NetworkSummaryStrip view={view} /> : null}
@@ -419,11 +457,19 @@ export function NetworkView({
         </ToggleButtonGroup>
 
         {/* Milestone filters: each focuses the milestone's bounded subnetwork
-            (reusing the node-focus subgraph machinery). Diamond = milestone. */}
+            (reusing the node-focus subgraph machinery). Diamond = milestone. The
+            chip says the milestone's NAME, not just its id: "M2" alone told a
+            reader nothing. */}
+        <Typography
+          id="network-milestones-label"
+          sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, ml: 0.5 }}
+        >
+          Show work up to a milestone:
+        </Typography>
         {view.milestones.map((m) => (
           <Chip
             clickable
-            aria-label={`Focus milestone ${m.name}`}
+            aria-label={`Focus milestone ${m.id}, ${m.name}`}
             aria-pressed={focusId === m.id}
             icon={
               <Box
@@ -433,22 +479,18 @@ export function NetworkView({
                   height: 9,
                   transform: 'rotate(45deg)',
                   ml: 0.5,
-                  bgcolor: m.isPublic
-                    ? m.onCriticalPath
-                      ? t.criticalFg
-                      : t.committedDot
-                    : 'transparent',
+                  bgcolor: m.isPublic ? (m.onCriticalPath ? t.criticalFg : t.muted) : 'transparent',
                   border: `1.5px solid ${m.onCriticalPath ? t.criticalFg : t.muted}`,
                 }}
               />
             }
             key={m.id}
-            label={m.id}
+            label={`${m.id} · ${m.name}`}
             size="small"
             sx={{
               fontFamily: t.mono,
               fontSize: 11,
-              ...(focusId === m.id ? { borderColor: t.accent, color: t.accent } : {}),
+              ...(focusId === m.id ? { borderColor: t.accent, color: t.accentInk } : {}),
             }}
             variant="outlined"
             onClick={() => {
@@ -460,7 +502,7 @@ export function NetworkView({
         {focusId !== null && (
           <Chip
             aria-label={`Clear focus on ${focusId}`}
-            label={`Focused: ${focusId}`}
+            label={`Showing only ${focusId} and its dependencies`}
             size="small"
             sx={{ fontFamily: t.mono, fontSize: 11 }}
             onDelete={() => {
@@ -473,7 +515,7 @@ export function NetworkView({
           focusId === null && (
             <Chip
               aria-label={`Clear ${filter} band filter`}
-              label={`Band: ${filter}`}
+              label={`Float band: ${BAND_LABEL[filter]}`}
               size="small"
               sx={{ fontFamily: t.mono, fontSize: 11 }}
               onDelete={() => {
@@ -484,12 +526,14 @@ export function NetworkView({
 
         <Box sx={{ flexGrow: 1 }} />
         <Typography aria-live="polite" sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-          {`${String(shownCount)} of ${String(totalCount)} shown`}
+          {`${String(shownCount)} of ${String(totalCount)} nodes shown (${String(activityCount)} activities, ${String(view.milestones.length)} milestones)`}
         </Typography>
       </Paper>
 
-      <Paper sx={{ p: 1.25 }}>
+      <Paper sx={{ p: 1.25, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
         <Box
+          aria-label={`Project network diagram: ${String(activityCount)} activities, ${String(view.edges.length)} dependencies, ${String(view.milestones.length)} milestones. Critical path: ${criticalPath.join(', ')}. Tab to each node to hear its duration and float; the activity list above has the same activities as a list.`}
+          role="region"
           sx={{
             height,
             width: '100%',
@@ -504,46 +548,72 @@ export function NetworkView({
               outline: `2px solid ${t.accent}`,
               outlineOffset: 2,
             },
+            // React Flow's zoom controls ship light-only (white buttons, dark
+            // glyphs): on the dark themes they were white squares with invisible
+            // icons. Theme them, and give them a usable 36px target.
+            // At phone width the minimap covered a third of a 358px canvas.
+            '& .react-flow__minimap': { display: { xs: 'none', sm: 'block' } },
+            '& .react-flow__controls': { boxShadow: 'none', border: `1.5px solid ${t.line}` },
+            '& .react-flow__controls-button': {
+              width: 36,
+              height: 36,
+              bgcolor: t.paper,
+              color: t.ink,
+              borderBottom: `1px solid ${t.line}`,
+              '&:hover': { bgcolor: t.paperAlt },
+              '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: -2 },
+              '& svg': { fill: t.ink, maxWidth: 14, maxHeight: 14 },
+            },
           }}
         >
           <ReactFlowProvider>
             <NetworkCanvas
-              activeBand={
-                filter === 'red' || filter === 'yellow' || filter === 'green' ? filter : null
-              }
               edges={edges}
               nodes={nodes}
               selectedId={selectedId}
               t={t}
               visibleIds={visibleIds}
-              onBandFilter={(band) => {
-                applyFilterFocus({ filter: band, focusId: null });
-              }}
               onSelectNode={onSelectNode}
             />
           </ReactFlowProvider>
         </Box>
+        {/* The key lives OUTSIDE the canvas and is always open: collapsed inside
+            the graph as a 9px "KEY" toggle it was the one thing that explains the
+            colours, and almost nobody found it. */}
+        <NetworkKey
+          activeBand={
+            filter === 'red' || filter === 'yellow' || filter === 'green' || filter === 'critical'
+              ? filter
+              : null
+          }
+          t={t}
+          onBandFilter={(band) => {
+            applyFilterFocus({ filter: band, focusId: null });
+          }}
+        />
       </Paper>
 
-      {view.criticalPath.length > 0 && (
+      {criticalPath.length > 0 && (
         <Paper sx={{ p: 2, bgcolor: t.awaitingBg, border: `1.5px solid ${t.line}` }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography
-              sx={{
-                fontFamily: t.mono,
-                fontWeight: 700,
-                fontSize: 12,
-                letterSpacing: '0.08em',
-                color: t.awaitingFg,
-              }}
-            >
-              CRITICAL PATH
-            </Typography>
-            <ComputedBadge t={t} />
+          <Box sx={{ mb: 1 }}>
+            <SectionHeading color={t.awaitingFg} level={4} t={t}>
+              Critical path, in order
+            </SectionHeading>
           </Box>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5 }}>
-            {view.criticalPath.map((id, i, arr) => (
-              <Box key={id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Box
+            component="ol"
+            sx={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 0.5,
+              listStyle: 'none',
+              m: 0,
+              p: 0,
+            }}
+          >
+            {criticalPath.map((id, i, arr) => (
+              <Box component="li" key={id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <Box
                   sx={{
                     fontFamily: t.mono,
@@ -562,7 +632,9 @@ export function NetworkView({
                   {id}
                 </Box>
                 {i < arr.length - 1 && (
-                  <Typography sx={{ color: t.criticalFg, fontWeight: 700 }}>→</Typography>
+                  <Typography aria-hidden sx={{ color: t.criticalFg, fontWeight: 700 }}>
+                    →
+                  </Typography>
                 )}
               </Box>
             ))}
@@ -570,8 +642,8 @@ export function NetworkView({
           <Typography
             sx={{ fontFamily: t.body, fontSize: 12.5, color: t.awaitingFg, opacity: 0.9, mt: 1.25 }}
           >
-            Solid bold edges trace the path with zero total float — any slip here slips the whole
-            project.
+            The chain of activities with zero float, drawn as thick animated arrows in the diagram —
+            any slip here slips the whole project.
           </Typography>
         </Paper>
       )}
@@ -591,8 +663,6 @@ function NetworkCanvas({
   visibleIds,
   selectedId,
   t,
-  activeBand,
-  onBandFilter,
   onSelectNode,
 }: {
   nodes: Node[];
@@ -600,8 +670,6 @@ function NetworkCanvas({
   visibleIds: Set<string>;
   selectedId: string | null;
   t: Tokens;
-  activeBand: FloatBand | null;
-  onBandFilter: (band: FloatBand) => void;
   onSelectNode: (id: string | null) => void;
 }): ReactNode {
   const { fitView } = useReactFlow();
@@ -688,6 +756,10 @@ function NetworkCanvas({
       elementsSelectable
       fitView
       edges={rfEdges}
+      // Edges are drawn, not operated: as tab stops they put ~60 "Edge from X to
+      // Y" stops between the toolbar and the nodes. Each node's label already
+      // carries its float; the dependency list is the activity list's job.
+      edgesFocusable={false}
       fitViewOptions={{ padding: 0.12, maxZoom: 1 }}
       maxZoom={1.5}
       minZoom={0.05}
@@ -713,9 +785,6 @@ function NetworkCanvas({
         position="bottom-right"
         style={{ border: `1px solid ${t.line}` }}
       />
-      <Panel position="bottom-left">
-        <NetworkKey activeBand={activeBand} t={t} onBandFilter={onBandFilter} />
-      </Panel>
     </ReactFlow>
   );
 }
@@ -736,57 +805,89 @@ function BandSwatch({
   const { fg } = bandTokens(t, band);
   return (
     <Box
-      aria-label={`Filter to ${label}`}
+      aria-label={`Show only ${label}`}
       aria-pressed={active}
       component="button"
       sx={{
         display: 'flex',
         alignItems: 'center',
         gap: 0.75,
-        width: '100%',
-        px: 0.5,
-        py: 0.2,
+        minHeight: 32,
+        px: 1,
+        py: 0.25,
         bgcolor: active ? alpha(fg, 0.16) : 'transparent',
-        border: active ? `1px solid ${fg}` : '1px solid transparent',
-        borderRadius: '3px',
+        border: `1px solid ${active ? fg : t.line}`,
+        borderRadius: '4px',
         cursor: 'pointer',
         textAlign: 'left',
+        color: t.ink,
+        '&:hover': { bgcolor: alpha(fg, 0.1) },
+        '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
       }}
       onClick={onClick}
     >
       <Box
         sx={{
-          width: 16,
-          height: 11,
+          width: 18,
+          height: 12,
           flexShrink: 0,
           bgcolor: t.paperAlt,
           border: `1px solid ${t.line}`,
-          borderLeft: `4px solid ${fg}`,
+          borderLeft: `5px solid ${fg}`,
           borderRadius: '2px',
         }}
       />
-      <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.ink }}>{label}</Typography>
+      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink }}>{label}</Typography>
     </Box>
   );
 }
 
 function KeyRow({ t, swatch, label }: { t: Tokens; swatch: ReactNode; label: string }): ReactNode {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 0.5 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
       {swatch}
-      <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.ink }}>{label}</Typography>
+      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink }}>{label}</Typography>
     </Box>
   );
 }
 
-const SECTION_SX = {
-  fontFamily: 'inherit',
-  fontWeight: 700,
-  fontSize: 8.5,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase' as const,
-};
+function KeyGroup({
+  t,
+  title,
+  children,
+}: {
+  t: Tokens;
+  title: string;
+  children: ReactNode;
+}): ReactNode {
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6, minWidth: 0 }}>
+      <Typography
+        component="h4"
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 10.5,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          color: t.muted,
+          m: 0,
+        }}
+      >
+        {title}
+      </Typography>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1 }}>{children}</Box>
+    </Box>
+  );
+}
 
+const DIAMOND_SX = { width: 10, height: 10, transform: 'rotate(45deg)', flexShrink: 0 } as const;
+
+/**
+ * The diagram's key: float bands (each doubling as a filter), edge styles,
+ * milestone glyphs and the coding/noncoding node glyph. Always visible under
+ * the canvas — see the call site.
+ */
 function NetworkKey({
   t,
   activeBand,
@@ -796,140 +897,97 @@ function NetworkKey({
   activeBand: FloatBand | null;
   onBandFilter: (band: FloatBand) => void;
 }): ReactNode {
-  const [open, setOpen] = useState(false);
   const bands: { band: FloatBand; label: string }[] = [
-    { band: 'critical', label: 'Critical' },
-    { band: 'red', label: 'Red ≤5d float' },
-    { band: 'yellow', label: 'Yellow 6–25d float' },
-    { band: 'green', label: 'Green ≥26d float' },
+    { band: 'critical', label: 'Critical · 0 days float' },
+    { band: 'red', label: 'Near-critical · 1–5 days' },
+    { band: 'yellow', label: '6–25 days float' },
+    { band: 'green', label: '26+ days float' },
   ];
   return (
     <Box
+      aria-label="Diagram key"
+      component="section"
       sx={{
-        bgcolor: t.paper,
-        border: `1.5px solid ${t.line}`,
-        borderRadius: t.radius / 8 + 0.5,
-        overflow: 'hidden',
+        display: 'flex',
+        flexWrap: 'wrap',
+        columnGap: 3,
+        rowGap: 1.5,
+        px: 0.5,
       }}
     >
-      <Box
-        aria-expanded={open}
-        aria-label="Toggle key"
-        component="button"
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.5,
-          width: '100%',
-          px: 1,
-          py: 0.4,
-          bgcolor: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-        }}
-        onClick={() => {
-          setOpen((v) => !v);
-        }}
-      >
-        <Typography sx={{ ...SECTION_SX, fontFamily: t.mono, fontSize: 9, color: t.muted }}>
-          Key
-        </Typography>
-        <ExpandMoreIcon
-          sx={{
-            fontSize: 14,
-            color: t.muted,
-            transform: open ? 'rotate(180deg)' : 'none',
-            transition: 'transform 120ms',
-          }}
+      <KeyGroup t={t} title="Float · left edge colour · click to filter">
+        {bands.map((b) => (
+          <BandSwatch
+            active={activeBand === b.band}
+            band={b.band}
+            key={b.band}
+            label={b.label}
+            t={t}
+            onClick={() => {
+              onBandFilter(b.band);
+            }}
+          />
+        ))}
+      </KeyGroup>
+
+      <KeyGroup t={t} title="Arrows">
+        <KeyRow
+          label="critical path"
+          swatch={<Box sx={{ width: 18, flexShrink: 0, borderTop: `3px solid ${t.criticalFg}` }} />}
+          t={t}
         />
-      </Box>
-      <Collapse in={open}>
-        <Box
-          sx={{ display: 'flex', flexDirection: 'column', gap: 0.4, px: 1, pb: 1, maxWidth: 224 }}
-        >
-          <Typography sx={{ ...SECTION_SX, fontFamily: t.mono, color: t.muted, mt: 0.3, px: 0.5 }}>
-            Float bands · click to filter
-          </Typography>
-          {/* Clickable per-band filters, sorted critical → red → yellow → green. */}
-          {bands.map((b) => (
-            <BandSwatch
-              active={activeBand === b.band}
-              band={b.band}
-              key={b.band}
-              label={b.label}
-              t={t}
-              onClick={() => {
-                onBandFilter(b.band);
+        <KeyRow
+          label="dependency"
+          swatch={<Box sx={{ width: 18, flexShrink: 0, borderTop: `1.5px solid ${t.muted}` }} />}
+          t={t}
+        />
+      </KeyGroup>
+
+      <KeyGroup t={t} title="Nodes">
+        <KeyRow
+          label="public milestone (filled · shown to management)"
+          swatch={
+            <Box sx={{ ...DIAMOND_SX, bgcolor: t.muted, border: `1.5px solid ${t.muted}` }} />
+          }
+          t={t}
+        />
+        <KeyRow
+          label="internal milestone (hollow)"
+          swatch={<Box sx={{ ...DIAMOND_SX, border: `1.5px solid ${t.muted}` }} />}
+          t={t}
+        />
+        <KeyRow
+          label="coding activity"
+          swatch={
+            <Box
+              sx={{
+                width: 8,
+                height: 8,
+                flexShrink: 0,
+                borderRadius: '2px',
+                bgcolor: t.accent2,
+                border: `1.5px solid ${t.accent2}`,
               }}
             />
-          ))}
-
-          <Typography sx={{ ...SECTION_SX, fontFamily: t.mono, color: t.muted, mt: 0.5, px: 0.5 }}>
-            Edges
-          </Typography>
-          <KeyRow
-            label="critical path"
-            swatch={
-              <Box
-                sx={{ width: 16, height: 0, flexShrink: 0, borderTop: `3px solid ${t.criticalFg}` }}
-              />
-            }
-            t={t}
-          />
-          <KeyRow
-            label="dependency"
-            swatch={
-              <Box
-                sx={{ width: 16, height: 0, flexShrink: 0, borderTop: `1.5px solid ${t.line}` }}
-              />
-            }
-            t={t}
-          />
-
-          <Typography sx={{ ...SECTION_SX, fontFamily: t.mono, color: t.muted, mt: 0.5, px: 0.5 }}>
-            Milestones
-          </Typography>
-          <KeyRow
-            label="public gate"
-            swatch={
-              <Box sx={{ width: 16, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
-                <Box
-                  sx={{
-                    width: 9,
-                    height: 9,
-                    transform: 'rotate(45deg)',
-                    bgcolor: t.committedDot,
-                    border: `1.5px solid ${t.muted}`,
-                  }}
-                />
-              </Box>
-            }
-            t={t}
-          />
-          <KeyRow
-            label="private hurdle"
-            swatch={
-              <Box sx={{ width: 16, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
-                <Box
-                  sx={{
-                    width: 9,
-                    height: 9,
-                    transform: 'rotate(45deg)',
-                    bgcolor: 'transparent',
-                    border: `1.5px solid ${t.muted}`,
-                  }}
-                />
-              </Box>
-            }
-            t={t}
-          />
-
-          {/* coding/noncoding demoted to one line — the node glyph carries it now. */}
-          <Typography sx={{ fontFamily: t.mono, fontSize: 8.5, color: t.muted, mt: 0.5, px: 0.5 }}>
-            ◻ coding · ○ noncoding (node glyph)
-          </Typography>
-        </Box>
-      </Collapse>
+          }
+          t={t}
+        />
+        <KeyRow
+          label="noncoding activity"
+          swatch={
+            <Box
+              sx={{
+                width: 8,
+                height: 8,
+                flexShrink: 0,
+                borderRadius: '50%',
+                border: `1.5px solid ${t.muted}`,
+              }}
+            />
+          }
+          t={t}
+        />
+      </KeyGroup>
     </Box>
   );
 }

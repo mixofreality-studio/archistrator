@@ -9,6 +9,7 @@
  * preserves comment anchoring through C4Node.
  */
 import { useMemo, type ReactNode } from 'react';
+import Typography from '@mui/material/Typography';
 import type { Edge, Node, NodeMouseHandler } from '@xyflow/react';
 import { toPerspective, type C4Component, type C4View } from '../../contracts/adapters';
 import type { Finding } from '../../contracts/types';
@@ -21,6 +22,8 @@ import {
   flowEdge,
   layerColors,
   sortByLayoutPosition,
+  LAYER_ORDER,
+  type Layer,
 } from './flowLayout';
 import {
   EMPTY_STRUCTURE_OVERLAYS,
@@ -28,7 +31,7 @@ import {
   edgeOverlayKey,
   type StructureOverlays,
 } from './findingOverlays';
-import { FlowCanvas, FlowEmpty } from './flowShared';
+import { FlowCanvas, FlowEmpty, KeyGroup, LayerLegend } from './flowShared';
 import type { C4NodeData } from './C4Node';
 
 function build(
@@ -37,9 +40,15 @@ function build(
   t: Tokens,
   overlays: StructureOverlays,
   edgeLabel: ((label: string) => string) | undefined
-): { nodes: Node[]; edges: Edge[] } {
+): {
+  nodes: Node[];
+  edges: Edge[];
+  usedLayers: Layer[];
+  edgeKinds: { sync: boolean; async: boolean };
+} {
   const { focus, inbound, outbound } = toPerspective(view, componentId);
-  if (focus === undefined) return { nodes: [], edges: [] };
+  if (focus === undefined)
+    return { nodes: [], edges: [], usedLayers: [], edgeKinds: { sync: false, async: false } };
 
   const colors = layerColors(t);
   const byId = new Map(view.components.map((c) => [c.id, c]));
@@ -112,7 +121,17 @@ function build(
     );
   }
 
-  return { nodes, edges };
+  const present = new Set(subset.map((c) => c.layer));
+  const drawn = rels.filter((r) => layerOf.get(r.to) !== 'utility');
+  return {
+    nodes,
+    edges,
+    usedLayers: LAYER_ORDER.filter((l) => present.has(l)),
+    edgeKinds: {
+      sync: drawn.some((r) => r.mode === 'sync'),
+      async: drawn.some((r) => r.mode !== 'sync'),
+    },
+  };
 }
 
 export function PerspectiveFlow({
@@ -150,7 +169,7 @@ export function PerspectiveFlow({
         : computeStructureOverlays(findings, view.components, view.relationships),
     [findings, view]
   );
-  const { nodes, edges } = useMemo(
+  const { nodes, edges, usedLayers, edgeKinds } = useMemo(
     () => build(view, componentId, t, overlays, edgeLabel),
     [view, componentId, t, overlays, edgeLabel]
   );
@@ -175,7 +194,7 @@ export function PerspectiveFlow({
         }
       : undefined;
 
-  return (
+  const canvas = (
     <FlowCanvas
       edges={edges}
       height={height}
@@ -185,5 +204,27 @@ export function PerspectiveFlow({
       {...(fitMaxZoom !== undefined ? { fitMaxZoom } : {})}
       {...(fitToContent !== undefined ? { fitToContent } : {})}
     />
+  );
+  // The key, on the design page's full-size canvas only: the construction frames
+  // that size the canvas to a few nodes (fitToContent) are compact by design and
+  // every edge there carries its own call label.
+  if (fitToContent !== undefined) return canvas;
+  return (
+    <>
+      <LayerLegend
+        colors={layerColors(t)}
+        edgeKinds={edgeKinds}
+        footer={
+          <KeyGroup label="Highlight" t={t}>
+            <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink }}>
+              glowing = the focused component
+            </Typography>
+          </KeyGroup>
+        }
+        t={t}
+        usedLayers={usedLayers}
+      />
+      {canvas}
+    </>
   );
 }

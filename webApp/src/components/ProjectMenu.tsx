@@ -11,6 +11,7 @@ import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
+import ListSubheader from '@mui/material/ListSubheader';
 import Chip from '@mui/material/Chip';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
@@ -43,6 +44,10 @@ export function ProjectMenu({
   return (
     <>
       <Button
+        aria-controls={anchorEl !== null ? 'project-menu' : undefined}
+        aria-expanded={anchorEl !== null ? 'true' : undefined}
+        aria-haspopup="menu"
+        aria-label={`Switch project (current: ${currentName})`}
         data-testid={UI_IDENTIFIERS.Shell.PROJECT_MENU}
         endIcon={<ExpandMoreIcon sx={{ fontSize: 18 }} />}
         size="small"
@@ -51,7 +56,8 @@ export function ProjectMenu({
           border: `1.5px solid ${t.line}`,
           borderRadius: t.radius / 8 + 0.5,
           bgcolor: t.paperAlt,
-          maxWidth: 280,
+          maxWidth: { xs: 150, sm: 280 },
+          minHeight: 40,
         }}
         onClick={(e) => {
           setAnchorEl(e.currentTarget);
@@ -72,24 +78,25 @@ export function ProjectMenu({
 
       <Menu
         anchorEl={anchorEl}
+        id="project-menu"
         open={anchorEl !== null}
         slotProps={{ paper: { sx: { minWidth: 340 } } }}
         onClose={() => {
           setAnchorEl(null);
         }}
       >
-        <Typography
+        <ListSubheader
+          role="presentation"
           sx={{
-            px: 2,
-            py: 1,
+            lineHeight: 2.5,
             fontFamily: t.mono,
             fontSize: 11,
             letterSpacing: '0.12em',
             color: 'text.secondary',
           }}
         >
-          PROJECTS
-        </Typography>
+          YOUR PROJECTS
+        </ListSubheader>
         {(projects ?? []).map((p) => (
           <MenuItem
             data-testid={UI_IDENTIFIERS.Shell.projectMenuItem(p.projectId)}
@@ -115,24 +122,30 @@ export function ProjectMenu({
                     color: t.chatArchitectFg,
                   }}
                 />
-                <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: 'text.secondary' }}>
-                  {p.committedCount}/{p.totalCount} · {formatUpdatedAt(p.updatedAt)}
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                  {`${String(p.committedCount)}/${String(p.totalCount)} artifacts committed${
+                    formatUpdatedAt(p.updatedAt) !== '—'
+                      ? ` · updated ${formatUpdatedAt(p.updatedAt)}`
+                      : ''
+                  }`}
                 </Typography>
               </Box>
             </Box>
-            {p.projectId === projectId && <CheckIcon sx={{ fontSize: 16, mt: 0.5 }} />}
+            {p.projectId === projectId && (
+              <CheckIcon aria-label="current project" sx={{ fontSize: 16, mt: 0.5 }} />
+            )}
           </MenuItem>
         ))}
         <Divider />
         <MenuItem
           data-testid={UI_IDENTIFIERS.Shell.PROJECT_MENU_NEW}
-          sx={{ gap: 1, py: 1.25, color: t.accent }}
+          sx={{ gap: 1, py: 1.25, color: t.ink }}
           onClick={() => {
             setAnchorEl(null);
             setNewOpen(true);
           }}
         >
-          <AddIcon sx={{ fontSize: 18 }} />
+          <AddIcon aria-hidden sx={{ fontSize: 18, color: t.accent }} />
           <Typography sx={{ fontWeight: 700, fontFamily: t.mono, fontSize: 13 }}>
             New project
           </Typography>

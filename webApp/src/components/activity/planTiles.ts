@@ -43,6 +43,13 @@ export interface PlanActivity {
   lifecycle: readonly LifecycleNode[];
   onCriticalPath: boolean;
   effortDays: number;
+  /**
+   * Whether a decision on this activity is OWED to the reader right now — the
+   * Tasks lens's own owed set (owedWork), threaded in by the container. The
+   * mini lifecycle alone can only say "a gate is open"; it cannot say whose
+   * move it is. Absent ⇒ unknown (the lifecycle's own word stands).
+   */
+  owedToYou?: boolean | undefined;
 }
 
 /**
@@ -52,7 +59,14 @@ export interface PlanActivity {
  * all (unclassified, or a profile the generator does not carry): "not started"
  * would be a claim about an activity nothing is known about.
  */
-export type PlanState = 'unknown' | 'notStarted' | 'running' | 'awaitingYou' | 'failed' | 'done';
+export type PlanState =
+  | 'unknown'
+  | 'notStarted'
+  | 'running'
+  | 'inReview'
+  | 'awaitingYou'
+  | 'failed'
+  | 'done';
 
 /**
  * Which of the shared state fills a plan state paints with
@@ -64,6 +78,7 @@ export const PLAN_STATE_DETAIL: Record<PlanState, TaskDetailState> = {
   unknown: 'unknown',
   notStarted: 'notStarted',
   running: 'running',
+  inReview: 'waiting',
   awaitingYou: 'awaitingHuman',
   failed: 'failed',
   done: 'passed',
@@ -74,6 +89,7 @@ export const PLAN_STATE_LABEL: Record<PlanState, string> = {
   unknown: 'Unclassified',
   notStarted: 'Not started',
   running: 'Running',
+  inReview: 'In review',
   awaitingYou: 'Awaiting you',
   failed: 'Failed',
   done: 'Done',
@@ -84,11 +100,14 @@ export const PLAN_STATE_LABEL: Record<PlanState, string> = {
  * a failure first, then a gate waiting on a human, then work in flight, then
  * fully done, then started-but-quiet, then untouched.
  */
-export function planStateFor(lifecycle: readonly LifecycleNode[]): PlanState {
+export function planStateFor(lifecycle: readonly LifecycleNode[], owedToYou?: boolean): PlanState {
   if (lifecycle.length === 0) return 'unknown';
   if (lifecycle.some((n) => n.state === 'failed')) return 'failed';
   if (lifecycle.some((n) => n.state === 'awaitingHuman' || n.state === 'sentBack')) {
-    return 'awaitingYou';
+    // A gate is open. Only the owed set knows whether it waits on the READER;
+    // when it says no, "Awaiting you" would contradict the Tasks lens's
+    // "Nothing needs you", so the word is the neutral "In review".
+    return owedToYou === false ? 'inReview' : 'awaitingYou';
   }
   if (lifecycle.some((n) => n.state === 'running')) return 'running';
   if (lifecycle.every((n) => n.state === 'done')) return 'done';

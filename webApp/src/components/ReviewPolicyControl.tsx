@@ -18,6 +18,7 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Radio from '@mui/material/Radio';
+import RadioGroup from '@mui/material/RadioGroup';
 import CircularProgress from '@mui/material/CircularProgress';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import type { ReviewPreset } from '../contracts/types';
@@ -71,25 +72,38 @@ export function ReviewPolicyControl({
       sx={{ p: { xs: 2, md: 2.5 }, mb: 3, display: 'flex', flexDirection: 'column', gap: 1 }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Typography sx={{ color: t.ink }} variant="h6">
+        <Typography component="h2" id="review-policy-heading" sx={{ color: t.ink }} variant="h6">
           Review policy
         </Typography>
         {pending ? <CircularProgress size={16} /> : null}
       </Box>
       <ErrorAlert error={error} />
-      <Box
-        aria-label="Review policy preset"
-        role="radiogroup"
-        sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}
+      <Typography id="review-policy-help" sx={{ color: t.muted, fontSize: 13, lineHeight: 1.5 }}>
+        {preset === undefined || preset === ''
+          ? 'No policy chosen yet — until you pick one, only deploy, spend and schema changes stop for your approval; everything else proceeds on its own.'
+          : 'How much of the agents’ work stops for your approval before it moves on.'}
+      </Typography>
+      {/* Native radios in one named group: the browser gives arrow-key movement,
+          one tab stop and the checked state; each whole card is the radio's
+          <label>, so a click anywhere on it chooses it. */}
+      <RadioGroup
+        aria-describedby="review-policy-help"
+        aria-labelledby="review-policy-heading"
+        name="review-policy-preset"
+        sx={{ display: 'flex', flexDirection: 'row', gap: 1.5, flexWrap: 'wrap' }}
+        value={preset ?? ''}
+        onChange={(_e, value) => {
+          const next = PRESETS.find((p) => p.value === value);
+          if (next !== undefined) choose(next.value);
+        }}
       >
         {PRESETS.map((p) => {
           const selected = p.value === preset;
           return (
             <Box
-              aria-checked={selected}
+              component="label"
               data-testid={UI_IDENTIFIERS.HomeBase.reviewPolicyOption(p.value)}
               key={p.value}
-              role="radio"
               sx={{
                 flex: '1 1 220px',
                 minWidth: 0,
@@ -103,31 +117,31 @@ export function ReviewPolicyControl({
                 cursor: pending ? 'progress' : 'pointer',
                 opacity: pending && !selected ? 0.6 : 1,
                 '&:hover': { bgcolor: t.paperAlt },
-              }}
-              tabIndex={0}
-              onClick={() => {
-                choose(p.value);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  choose(p.value);
-                }
+                '&:focus-within': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
               }}
             >
-              <Radio checked={selected} size="small" sx={{ p: 0.5, mt: -0.25 }} tabIndex={-1} />
+              <Radio
+                disabled={pending}
+                size="small"
+                slotProps={{ input: { 'aria-describedby': `review-policy-${p.value}-line` } }}
+                sx={{ p: 0.5, mt: -0.25 }}
+                value={p.value}
+              />
               <Box sx={{ minWidth: 0 }}>
                 <Typography sx={{ color: t.ink, fontWeight: 700, fontSize: 14 }}>
                   {p.title}
                 </Typography>
-                <Typography sx={{ color: t.muted, fontSize: 12.5, lineHeight: 1.45 }}>
+                <Typography
+                  id={`review-policy-${p.value}-line`}
+                  sx={{ color: t.muted, fontSize: 12.5, lineHeight: 1.45 }}
+                >
                   {p.line}
                 </Typography>
               </Box>
             </Box>
           );
         })}
-      </Box>
+      </RadioGroup>
       {/* Permanent risk-floor note — deliberately NOT dismissible: the floor
           applies under every preset and the control must never suggest otherwise. */}
       <Typography
@@ -136,12 +150,11 @@ export function ReviewPolicyControl({
           display: 'flex',
           alignItems: 'center',
           gap: 0.75,
-          fontFamily: t.mono,
-          fontSize: 12,
+          fontSize: 12.5,
           color: t.muted,
         }}
       >
-        <LockOutlinedIcon sx={{ fontSize: 14 }} />
+        <LockOutlinedIcon aria-hidden sx={{ fontSize: 14 }} />
         Deploy, spend, and schema changes always require your approval — on every preset.
       </Typography>
     </Paper>

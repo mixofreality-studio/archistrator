@@ -1,8 +1,8 @@
 /**
- * Presentational pieces for the home base: an artifact table-of-contents row and
- * the static economics strip placeholder. Ported from the frozen UX mock and
- * bound to the real ArtifactMeta view model. Pure presentation — the screen owns
- * selection + navigation.
+ * Presentational pieces for the home base: the economics strip. Pure
+ * presentation — the screen reads the committed SDP review and hands it figures.
+ * (`TocRow` lived here too; the home base's own ArtifactNav replaced it and it had
+ * no caller left, so it went.)
  *
  * `PhaseCard` lived here too, one per Method phase, with a committed/total
  * progress bar and a `resume →` / `open console →` button into that phase's own
@@ -14,82 +14,38 @@ import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
-import Chip from '@mui/material/Chip';
-import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import type { ArtifactMeta } from '../contracts/adapters';
 import type { Tokens } from '../utilities/theme/themes';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
-export function TocRow({
-  artifact,
-  selected,
-  onClick,
-}: {
-  artifact: ArtifactMeta;
-  selected: boolean;
-  onClick: () => void;
-}): ReactNode {
-  const t = useTokens();
-  const dot =
-    artifact.stage === 'committed'
-      ? t.committedDot
-      : artifact.stage === 'awaitingReview'
-        ? t.accent
-        : 'transparent';
-  const muted = artifact.stage === 'empty';
-  return (
-    <Box
-      data-testid={UI_IDENTIFIERS.HomeBase.tocRow(artifact.kind)}
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1.25,
-        px: 2,
-        py: 1.1,
-        cursor: 'pointer',
-        borderLeft: `3px solid ${selected ? t.accent : 'transparent'}`,
-        bgcolor: selected ? t.awaitingBg : 'transparent',
-        opacity: muted ? 0.5 : 1,
-        '&:hover': { bgcolor: selected ? t.awaitingBg : t.paperAlt },
-        borderBottom: `1px solid ${t.line}`,
-      }}
-      onClick={onClick}
-    >
-      <Box
-        sx={{
-          width: 9,
-          height: 9,
-          borderRadius: '50%',
-          flexShrink: 0,
-          bgcolor: dot,
-          border: `1.5px solid ${muted ? t.muted : t.line}`,
-        }}
-      />
-      <Typography
-        sx={{
-          fontFamily: selected ? t.mono : t.body,
-          fontWeight: selected ? 700 : 500,
-          fontSize: 13.5,
-          color: selected ? t.awaitingFg : t.ink,
-        }}
-      >
-        {artifact.title}
-      </Typography>
-    </Box>
-  );
+/** What the economics strip shows, read off the committed SDP review (if any). */
+export interface EconomicsFigures {
+  /** The option the figures come from, in words ("Decompressed-normal", …). */
+  optionLabel: string;
+  /** Whether that option was CHOSEN at SDP review, or is only the recommendation. */
+  chosen: boolean;
+  buildCost: string;
+  monthlyRunCost: string;
+  perCycleNet: string;
 }
 
 /**
- * The ECONOMICS strip. It used to carry a third metric, "revenue share", read off the
- * committed planningAssumptions slot. Revenue share left the vocabulary with stage 4b2
+ * The ECONOMICS strip: what building and running this system costs, from the
+ * committed SDP review — the option management chose, else the architect's
+ * recommendation (said so). Before that review exists the strip says WHEN the
+ * figures appear instead of showing dashes with no explanation.
+ *
+ * It used to carry a third metric, "revenue share", read off the committed
+ * planningAssumptions slot. Revenue share left the vocabulary with stage 4b2
  * (founder ruling) — the platform bills a usage-based hosting fee for operating a
  * delivered system and nothing else — so the metric is gone rather than rendering 0%.
  */
-export function EconomicsStrip(): ReactNode {
+export function EconomicsStrip({ figures }: { figures: EconomicsFigures | undefined }): ReactNode {
   const t = useTokens();
   return (
     <Paper
+      aria-labelledby="economics-heading"
+      component="section"
       data-testid={UI_IDENTIFIERS.HomeBase.ECONOMICS_STRIP}
       sx={{
         p: 2,
@@ -101,19 +57,43 @@ export function EconomicsStrip(): ReactNode {
         bgcolor: t.paperAlt,
       }}
     >
-      <Typography sx={{ color: t.muted }} variant="subtitle2">
-        ECONOMICS
-      </Typography>
-      <Metric hint="set at SDP review" label="build cost" t={t} value="—" />
-      <Metric hint="after first deploy" label="operated net" t={t} value="—" />
-      <Box sx={{ flexGrow: 1 }} />
-      <Chip
-        icon={<LockOutlinedIcon sx={{ fontSize: 14 }} />}
-        label="awaits Phase 2"
-        size="small"
-        sx={{ color: t.muted }}
-        variant="outlined"
-      />
+      <Box>
+        <Typography
+          component="h2"
+          id="economics-heading"
+          sx={{ color: t.ink, fontWeight: 700 }}
+          variant="subtitle1"
+        >
+          Economics
+        </Typography>
+        <Typography sx={{ color: t.muted, fontSize: 12 }}>
+          {figures === undefined
+            ? 'Appears once the delivery plan (SDP review) is committed'
+            : `${figures.optionLabel} option${figures.chosen ? ' (chosen)' : ' (recommended)'}`}
+        </Typography>
+      </Box>
+      {figures === undefined ? null : (
+        <>
+          <Metric
+            hint="one-time, to design and build"
+            label="Build cost"
+            t={t}
+            value={figures.buildCost}
+          />
+          <Metric
+            hint="projected cost to run it each month"
+            label="Monthly running cost"
+            t={t}
+            value={figures.monthlyRunCost}
+          />
+          <Metric
+            hint="expected net per billing cycle once operating"
+            label="Net per cycle"
+            t={t}
+            value={figures.perCycleNet}
+          />
+        </>
+      )}
     </Paper>
   );
 }
@@ -131,23 +111,13 @@ function Metric({
 }): ReactNode {
   return (
     <Box>
-      <Typography
-        sx={{
-          fontFamily: t.mono,
-          fontSize: 10,
-          letterSpacing: '0.1em',
-          color: t.muted,
-          textTransform: 'uppercase',
-        }}
-      >
-        {label}
-      </Typography>
+      <Typography sx={{ fontSize: 12, fontWeight: 600, color: t.muted }}>{label}</Typography>
       <Typography
         sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 22, lineHeight: 1.1, color: t.ink }}
       >
         {value}
       </Typography>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>{hint}</Typography>
+      <Typography sx={{ fontSize: 11.5, color: t.muted }}>{hint}</Typography>
     </Box>
   );
 }

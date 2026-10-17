@@ -81,11 +81,11 @@ function findingsForView(findings: readonly Finding[], dvKey: string): Finding[]
  * its own `dvKey`-scoped join, the same idiom `statusBySeqFromFindings` uses)
  * for this one view.
  *
- *   any dvKey-scoped finding, ALWAYS first   -> 'error'   — "2 CC findings"
+ *   any dvKey-scoped finding, ALWAYS first   -> 'error'   — "2 call-chain check findings"
  *   0 realized, no findings (eligibleNodeCount > 0)
- *                                             -> 'pending' — "0/7 realized · pending"
- *   realizedStepCount === eligibleNodeCount  -> 'ok'       — "15/15 realized · CC clean"
- *   otherwise                                 -> 'warn'     — "3/7 realized"
+ *                                             -> 'pending' — "0/7 steps realized · not started"
+ *   realizedStepCount === eligibleNodeCount  -> 'ok'       — "15/15 steps realized · checks pass"
+ *   otherwise                                 -> 'warn'     — "3/7 steps realized"
  */
 export function viewVerdict(
   findings: readonly Finding[],
@@ -96,19 +96,25 @@ export function viewVerdict(
   const viewFindings = findingsForView(findings, dvKey);
   if (viewFindings.length > 0) {
     const n = viewFindings.length;
-    return { label: `${String(n)} CC finding${n === 1 ? '' : 's'}`, tone: 'error' };
+    return {
+      label: `${String(n)} call-chain check finding${n === 1 ? '' : 's'}`,
+      tone: 'error',
+    };
   }
   if (eligibleNodeCount > 0 && realizedStepCount === 0) {
-    return { label: `0/${String(eligibleNodeCount)} realized · pending`, tone: 'pending' };
+    return {
+      label: `0/${String(eligibleNodeCount)} steps realized · not started`,
+      tone: 'pending',
+    };
   }
   if (realizedStepCount === eligibleNodeCount) {
     return {
-      label: `${String(realizedStepCount)}/${String(eligibleNodeCount)} realized · CC clean`,
+      label: `${String(realizedStepCount)}/${String(eligibleNodeCount)} steps realized · checks pass`,
       tone: 'ok',
     };
   }
   return {
-    label: `${String(realizedStepCount)}/${String(eligibleNodeCount)} realized`,
+    label: `${String(realizedStepCount)}/${String(eligibleNodeCount)} steps realized`,
     tone: 'warn',
   };
 }

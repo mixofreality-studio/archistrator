@@ -32,7 +32,7 @@
  * first component) for the perspective. All three reuse the shared flow chrome and
  * preserve comment anchoring through C4Node.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter, type RegisteredRouter } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
@@ -42,6 +42,7 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import ListSubheader from '@mui/material/ListSubheader';
 import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
 import Typography from '@mui/material/Typography';
 import {
   listDeploymentProfiles,
@@ -84,6 +85,18 @@ import { useComments, dynamicEdgeAnchor, CommentProvider } from '../comments/Com
 import { resolveDeepLinkView } from './architectureDeepLink';
 
 type ViewMode = 'static' | 'dynamic' | 'perspective' | 'deployment';
+
+/** What each lens shows, in plain words, rendered under the lens switch. */
+const LENS_HINT: Record<ViewMode, string> = {
+  static:
+    'Every component, in its layer: clients at the top call managers, managers use engines and resource access, and resource access reaches the resources. Utilities on the right can be used by any layer, so they are drawn without lines. Hover a component to see only its connections.',
+  dynamic:
+    'One use case at a time: walk its steps on the left, and the call chain on the right lights up the calls each step makes, in order.',
+  perspective:
+    'One component and its direct neighbours: everything that calls it and everything it calls. Select a neighbour to move the focus to it.',
+  deployment:
+    'Where the components run: the processes, data stores and outside systems of the deployment, and the connections between them.',
+};
 
 /** Viewport-relative canvas height for the walkthrough-driven trace's two-up
  *  layout ONLY (fix 2, founder QA round 5) — never the full-width fallback,
@@ -485,6 +498,8 @@ export function ArchitectureView({
   // 40/60 split, but the old 1100 threshold stacked it vertically anyway,
   // pushing the call-chain pane entirely below the fold.
   const rootRef = useRef<HTMLDivElement>(null);
+  const dynamicPickerLabelId = useId();
+  const componentPickerLabelId = useId();
   const [sideBySide, setSideBySide] = useState(true);
   useEffect(() => {
     const el = rootRef.current;
@@ -554,15 +569,26 @@ export function ArchitectureView({
   return (
     <Box data-testid={UI_IDENTIFIERS.Architecture.ROOT} ref={rootRef}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
+        {/* Four fixed lenses stay a segmented control (the set does not grow
+            with project data — that is what the companion Selects are for), but
+            at a narrow width the row wraps rather than squeezing the labels.
+            Colours are set here, not left to the theme's primary: the default
+            unselected grey and the selected accent-on-tint both fell below AA. */}
         <ToggleButtonGroup
           exclusive
+          aria-label="Architecture view"
           color="primary"
           data-testid={UI_IDENTIFIERS.Architecture.VIEW_SWITCH}
           size="small"
-          // Four fixed lenses stay a segmented control (the set does not grow
-          // with project data — that is what the companion Selects are for), but
-          // at a narrow width the row wraps rather than squeezing the labels.
-          sx={{ flexWrap: 'wrap' }}
+          sx={{
+            flexWrap: 'wrap',
+            '& .MuiToggleButton-root': { color: t.ink, minHeight: 40 },
+            '& .MuiToggleButton-root.Mui-selected, & .MuiToggleButton-root.Mui-selected:hover': {
+              color: t.accentText,
+              bgcolor: t.accent,
+            },
+            '& .MuiToggleButton-root.Mui-disabled': { color: t.muted },
+          }}
           value={mode}
           onChange={(_e, next: ViewMode | null) => {
             if (next !== null) setMode(next);
@@ -596,9 +622,13 @@ export function ArchitectureView({
 
         {mode === 'dynamic' && dynamicViews.length > 0 && (
           <FormControl size="small" sx={{ minWidth: 240 }}>
+            <InputLabel id={dynamicPickerLabelId} sx={{ fontFamily: t.mono }}>
+              Use case
+            </InputLabel>
             <Select
-              aria-label="Dynamic view"
               data-testid={UI_IDENTIFIERS.Architecture.DYNAMIC_PICKER}
+              label="Use case"
+              labelId={dynamicPickerLabelId}
               sx={{ fontFamily: t.mono, fontSize: 13 }}
               value={activeDynamicKey}
               onChange={(e) => {
@@ -641,9 +671,13 @@ export function ArchitectureView({
 
         {mode === 'perspective' && c4.components.length > 0 && (
           <FormControl size="small" sx={{ minWidth: 240 }}>
+            <InputLabel id={componentPickerLabelId} sx={{ fontFamily: t.mono }}>
+              Component
+            </InputLabel>
             <Select
-              aria-label="Component focus"
               data-testid={UI_IDENTIFIERS.Architecture.PERSPECTIVE_PICKER}
+              label="Component"
+              labelId={componentPickerLabelId}
               sx={{ fontFamily: t.mono, fontSize: 13 }}
               value={activeComponentId}
               onChange={(e) => {
@@ -667,6 +701,12 @@ export function ArchitectureView({
           </FormControl>
         )}
       </Box>
+
+      {/* One sentence on what the chosen lens shows — the four names alone
+          ("Static", "Component focus") assume the reader already knows C4. */}
+      <Typography sx={{ fontFamily: t.body, fontSize: 13, color: t.muted, mb: 1.5, maxWidth: 820 }}>
+        {LENS_HINT[mode]}
+      </Typography>
 
       {mode === 'static' && (
         <ArchitectureFlow envelope={envelope} findings={structureFindings} height={height} />

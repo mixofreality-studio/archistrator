@@ -66,11 +66,14 @@ export function BillingCycleLookup({
 
   return (
     <Paper data-testid={UI_IDENTIFIERS.Billing.CYCLE_LOOKUP} sx={{ p: 2.5, mb: 3 }}>
-      <Typography sx={{ color: t.ink, fontFamily: t.display, fontWeight: 700, fontSize: 16 }}>
-        Billing period
+      <Typography
+        component="h2"
+        sx={{ color: t.ink, fontFamily: t.display, fontWeight: 700, fontSize: 16 }}
+      >
+        Look up a billing month
       </Typography>
       <Typography sx={{ color: t.muted, fontSize: 13, mb: 2 }}>
-        Look up one billing period&apos;s recorded settlement.
+        See how one month was settled: still open, charged, nothing owed, or unpaid.
       </Typography>
       <Box
         component="form"
@@ -84,8 +87,12 @@ export function BillingCycleLookup({
       >
         <TextField
           error={customerInvalid}
-          helperText={customerInvalid ? 'A customer id is a UUID' : ' '}
-          label="Customer id"
+          helperText={
+            customerInvalid
+              ? 'A customer ID looks like 8-4-4-4-12 hex characters'
+              : 'Shown after you connect to billing'
+          }
+          label="Billing customer ID"
           size="small"
           slotProps={{ htmlInput: { 'data-testid': UI_IDENTIFIERS.Billing.CUSTOMER_ID_INPUT } }}
           sx={{ minWidth: 320 }}
@@ -95,8 +102,9 @@ export function BillingCycleLookup({
           }}
         />
         <TextField
-          helperText=" "
-          label="Billing period"
+          helperText="Year and month, e.g. 2026-09"
+          label="Billing month"
+          placeholder="YYYY-MM"
           size="small"
           slotProps={{ htmlInput: { 'data-testid': UI_IDENTIFIERS.Billing.CYCLE_ID_INPUT } }}
           value={cycleId}
@@ -130,7 +138,7 @@ function LookupResult({ result }: { result: BillingCycleLookupResult }): ReactNo
     case 'notFound':
       return (
         <Typography sx={{ color: t.ink, fontSize: 13 }}>
-          No such billing period for this customer.
+          No billing record for that month and customer.
         </Typography>
       );
     case 'failed':
@@ -142,12 +150,12 @@ function LookupResult({ result }: { result: BillingCycleLookupResult }): ReactNo
     case 'read': {
       const copy = OUTCOME_COPY[billingCycleOutcome(result.cycle)];
       return (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box role="status" sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Chip
             data-testid={UI_IDENTIFIERS.Billing.CYCLE_OUTCOME}
             label={copy.label}
             size="small"
-            sx={{ fontFamily: t.mono, fontWeight: 700 }}
+            sx={{ fontWeight: 700 }}
           />
           <Typography sx={{ color: t.ink, fontSize: 13 }}>
             {result.cycle.cycleId}: {copy.detail}

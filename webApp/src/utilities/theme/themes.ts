@@ -1,4 +1,4 @@
-import { createTheme, type Theme } from '@mui/material/styles';
+import { alpha, createTheme, type Theme } from '@mui/material/styles';
 
 // The scanline texture generator. It used to be declared right here; it moved to
 // a zero-import sibling so the construction lens's provenance rail can reuse the
@@ -25,7 +25,20 @@ export interface Tokens {
   ink: string;
   muted: string;
   line: string;
+  /** The brand accent — FILLS and INDICATORS (buttons, focus rings, borders,
+   *  selected tabs' underline, icons). Not guaranteed text-safe: mor's
+   *  lavender is 3.67:1 on its paper. Accent-coloured TEXT uses accentInk. */
   accent: string;
+  /**
+   * Text-safe variant of `accent`: the same hue, adjusted until it clears the
+   * 4.5:1 AA floor for small text against bg, paper AND paperAlt. Every place
+   * the accent colours TEXT (a link, a text/outlined primary button, an
+   * eyebrow, a selected tab label) uses this; fills and indicators keep
+   * `accent`. Where `accent` already clears AA (retroMor, blueprint) the two
+   * are equal.
+   */
+  accentInk: string;
+  /** Text ON an accent fill (contained buttons, selection, active chips). */
   accentText: string;
   accent2: string;
   mono: string;
@@ -100,6 +113,8 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     muted: '#6E6452',
     line: '#22201B',
     accent: '#A85817',
+    // #A85817 is 4.18:1 on bg; #954C12 = 5.13 bg / 5.86 paper / 6.01 paperAlt.
+    accentInk: '#954C12',
     accentText: '#FFF8EC',
     accent2: '#2F6E6A',
     mono: '"Space Mono", ui-monospace, monospace',
@@ -145,6 +160,8 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     muted: '#a3a3a3',
     line: 'rgba(255,255,255,0.12)',
     accent: '#7B68AE',
+    // #7B68AE is 3.67:1 on #1a1a1a; #A291CC = 7.03 bg / 6.18 paper / 6.54 paperAlt.
+    accentInk: '#A291CC',
     accentText: '#ffffff',
     accent2: '#9584C0',
     mono: '"JetBrains Mono", ui-monospace, monospace',
@@ -183,6 +200,8 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     muted: '#B7A98F',
     line: 'rgba(243,233,216,0.18)',
     accent: '#D98A2B',
+    // Already text-safe: 6.65 bg / 6.12 paper / 6.45 paperAlt.
+    accentInk: '#D98A2B',
     accentText: '#1a140d',
     accent2: '#9584C0',
     mono: '"Space Mono", ui-monospace, monospace',
@@ -221,6 +240,8 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     muted: '#8FB3CE',
     line: 'rgba(168,216,255,0.28)',
     accent: '#5FC6E8',
+    // Already text-safe: 7.46 bg / 6.02 paper / 7.00 paperAlt.
+    accentInk: '#5FC6E8',
     accentText: '#06243B',
     accent2: '#A8D8FF',
     mono: '"JetBrains Mono", ui-monospace, monospace',
@@ -260,6 +281,8 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     muted: '#9AA3B8',
     line: 'rgba(255,255,255,0.12)',
     accent: '#7B68AE',
+    // #7B68AE is 3.33:1 on #14233A; #A291CC = 6.20 bg / 5.60 paper / 6.01 paperAlt.
+    accentInk: '#A291CC',
     accentText: '#ffffff',
     accent2: '#6EC6E6',
     mono: '"JetBrains Mono", ui-monospace, monospace',
@@ -365,10 +388,22 @@ export function buildMuiTheme(t: Tokens): Theme {
         defaultProps: { elevation: 0 },
         styleOverrides: { root: { backgroundImage: 'none', border: border(t) } },
       },
+      // ACCENT TEXT IS accentInk. palette.primary.main stays the brand accent
+      // (fills, focus rings, indicators, a contained button's background), but
+      // wherever MUI paints primary as TEXT — a text/outlined button's label, a
+      // Link, Typography color="primary", a selected Tab label, an outlined
+      // primary Chip — the text-safe variant replaces it. Without these, mor's
+      // lavender (#7B68AE) reads 3.67:1 on its own paper.
       MuiButton: {
         defaultProps: { disableElevation: true },
         styleOverrides: {
-          root: { borderRadius: t.radius, paddingInline: 16 },
+          root: ({ ownerState }) => ({
+            borderRadius: t.radius,
+            paddingInline: 16,
+            ...(ownerState.color === 'primary' || ownerState.color === undefined
+              ? { '--variant-textColor': t.accentInk, '--variant-outlinedColor': t.accentInk }
+              : {}),
+          }),
           contained: {
             border: border(t),
             boxShadow: raise(t),
@@ -390,7 +425,28 @@ export function buildMuiTheme(t: Tokens): Theme {
             borderRadius: t.radius,
             border: border(t),
           },
-          outlined: { borderWidth: 1.5 },
+          outlined: ({ ownerState }) => ({
+            borderWidth: 1.5,
+            ...(ownerState.color === 'primary' ? { color: t.accentInk } : {}),
+          }),
+        },
+      },
+      MuiTypography: {
+        styleOverrides: {
+          root: ({ ownerState }) => (ownerState.color === 'primary' ? { color: t.accentInk } : {}),
+        },
+      },
+      MuiLink: {
+        styleOverrides: {
+          root: ({ ownerState }) =>
+            ownerState.color === 'primary' || ownerState.color === undefined
+              ? { color: t.accentInk, '--Link-underlineColor': alpha(t.accentInk, 0.4) }
+              : {},
+        },
+      },
+      MuiTab: {
+        styleOverrides: {
+          textColorPrimary: { '&.Mui-selected': { color: t.accentInk } },
         },
       },
       MuiAppBar: {

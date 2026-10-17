@@ -38,14 +38,15 @@ export function ResearchInputPanel({
       sx={{ p: { xs: 2.5, md: 4 }, maxWidth: 760 }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-        <ScienceOutlinedIcon sx={{ color: t.accent }} />
-        <Typography sx={{ color: t.ink }} variant="h5">
+        <ScienceOutlinedIcon aria-hidden sx={{ color: t.accent }} />
+        <Typography component="h2" sx={{ color: t.ink }} variant="h5">
           Add research input to begin
         </Typography>
       </Box>
       <Typography sx={{ color: t.muted, fontSize: 14, lineHeight: 1.6, mb: 3 }}>
         System Design distills the mission from your research. Add your primary research source — a
-        founder brief, competitor analysis, or customer interview — to start the workflow.
+        founder brief, competitor analysis, or customer interview — to start the workflow. Saving
+        replaces any research added before.
       </Typography>
       <TextField
         fullWidth

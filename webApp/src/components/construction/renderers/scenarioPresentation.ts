@@ -45,6 +45,7 @@ import type {
   UseCaseDecision,
 } from '../../../contracts/types';
 import type { StepDetail, StepStatus } from '../../flow/DynamicViewFlow';
+import { valueSummary } from '../primitives/valueTree.ts';
 import { altLabelsForStep } from '../../../contracts/realization.ts';
 
 /** The committed models the reading joins against (any may be absent). */
@@ -389,15 +390,26 @@ function stimulusRow(
   const sig = opSignature(key !== undefined ? ctx.contracts?.[key] : undefined, op);
 
   const args = step?.inputs ?? [];
-  const inputs: InputRow[] = (sig?.params ?? []).map((p) => ({
-    name: p.name,
-    type: p.type,
-    value: args.find((a) => a.name === p.name)?.value,
-  }));
-  for (const a of args) {
-    if (!inputs.some((i) => i.name === a.name)) {
-      inputs.push({ name: a.name, type: a.schemaRef, value: a.value });
+  // A param can be bound SEVERAL times — a frontend stimulus is a sequence of UI
+  // actions, each an `action` arg. Every bound value is kept, numbered in order
+  // ("action 1", "action 2"…); keeping only the first silently dropped the rest.
+  const inputs: InputRow[] = [];
+  const named = (name: string, type: string): void => {
+    const bound = args.filter((a) => a.name === name);
+    if (bound.length <= 1) {
+      inputs.push({ name, type, value: bound[0]?.value });
+      return;
     }
+    bound.forEach((a, k) => {
+      inputs.push({ name: `${name} ${String(k + 1)}`, type, value: a.value });
+    });
+  };
+  for (const p of sig?.params ?? []) named(p.name, p.type);
+  const seen = new Set((sig?.params ?? []).map((p) => p.name));
+  for (const a of args) {
+    if (seen.has(a.name)) continue;
+    seen.add(a.name);
+    named(a.name, a.schemaRef.replace(/^#\/\$defs\//, ''));
   }
 
   let expect: ExpectRow;
@@ -512,8 +524,19 @@ function stepDetail(row: StimulusRow, step: StepBindingView | undefined): StepDe
   ];
   const expect = step?.expect;
   return {
-    inputs: (step?.inputs ?? []).map((a) => ({ name: a.name, value: a.value })),
-    ...(expect !== undefined && expect.result.length > 0 ? { result: expect.result } : {}),
+    // The step caption is plain text: each value is said as one readable line,
+    // never the harness's JSON (valueTree.valueSummary).
+    // Numbered where a name repeats (a UI action sequence), so every value shows once.
+    inputs: (step?.inputs ?? []).map((a, k, all) => ({
+      name:
+        all.filter((x) => x.name === a.name).length > 1
+          ? `${a.name} ${String(all.slice(0, k + 1).filter((x) => x.name === a.name).length)}`
+          : a.name,
+      value: valueSummary(a.value),
+    })),
+    ...(expect !== undefined && expect.result.length > 0
+      ? { result: valueSummary(expect.result) }
+      : {}),
     errorExpected: expect?.errorExpected ?? false,
     ...(expect !== undefined && expect.errorCode.length > 0 ? { errorCode: expect.errorCode } : {}),
     ...(proves.length > 0 ? { assertion: proves.join(' · ') } : {}),
@@ -701,7 +724,7 @@ export function presentScenario(
       return k !== 'start' && k !== 'end';
     }).length,
   };
-  const guardText = guards.map((g) => g.guard).filter((g) => g.length > 0);
+  const guardText = guards.map((g) => g.guard.replace(/^\[|\]$/g, '')).filter((g) => g.length > 0);
   const pickerLabel =
     name +
     (guardText.length > 0 ? ` — ${guardText.join(' · ')}` : '') +

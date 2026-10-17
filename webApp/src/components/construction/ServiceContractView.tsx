@@ -8,12 +8,13 @@
  * Structure:
  *   1. VolatilityCard  — stereotype banner + component name + a status chip ONLY
  *                        when the contract records one + volatility text
- *   2. 4-tab ToggleButtonGroup  — Code | Component | Dynamic | Facets
+ *   2. 4-tab ToggleButtonGroup  — Interface | Neighbours | Use cases | Data & errors
+ *      (wire values code | component | dynamic | facets, unchanged: the pane's URL holds them)
  *   3. Active tab pane
  *   4. ContractRevisionHistory timeline, or one muted line when none is recorded
  *
  * Tabs:
- *   Code       — ContractCodeFlow: «interface» box listing ops + stereotypes + notes
+ *   Code       — ContractCodeFlow: the UML-class diagram (the labelled op list where narrow)
  *   Component  — the committed architecture's relationships (PerspectiveFlow)
  *   Dynamic    — the use-case dynamic views this component takes part in
  *   Facets     — dataContracts + errorModel + idempotency prose + the ops table
@@ -35,7 +36,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import FormControl from '@mui/material/FormControl';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
-import CodeIcon from '@mui/icons-material/Code';
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
@@ -51,7 +52,7 @@ import { ContractSignatureList } from './ContractSignatureList';
 import { ComponentRelationshipsView } from './ComponentRelationshipsView';
 import { ContractRevisionHistory } from './ContractRevisionHistory';
 import { facetsEmptyCopy } from './serviceContractCopy.ts';
-import { codeTabModeFor } from './contractCode.ts';
+import { codeTabModeFor, opShape, readableType } from './contractCode.ts';
 import { needsRoomCopy } from './focusRail.ts';
 import { useFocusRail } from './FocusRailContext.ts';
 import { useElementWidth } from './useElementWidth';
@@ -109,11 +110,9 @@ function VolatilityCard({
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-          {c.stereotype !== undefined && c.stereotype.length > 0 ? (
-            <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: lc, fontWeight: 700 }}>
-              {c.stereotype}
-            </Typography>
-          ) : null}
+          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink, fontWeight: 700 }}>
+            {`SERVICE CONTRACT · ${c.layer.toUpperCase()} LAYER`}
+          </Typography>
           <Box sx={{ flexGrow: 1 }} />
           {status !== undefined ? (
             <Chip
@@ -140,7 +139,7 @@ function VolatilityCard({
             mt: 0.25,
           }}
         >
-          {c.component}
+          {c.stereotype !== undefined && c.stereotype.length > 0 ? c.stereotype : c.component}
         </Typography>
       </Box>
       {c.volatility !== undefined && c.volatility.length > 0 ? (
@@ -191,14 +190,19 @@ function CodePane({
       </Typography>
     );
   }
-  const mode = codeTabModeFor(width, inFocus);
-  const count = `${String(ops.length)} op${ops.length !== 1 ? 's' : ''}`;
+  const mode = codeTabModeFor(width);
+  const count = `${String(ops.length)} operation${ops.length !== 1 ? 's' : ''}`;
   return (
     <Box data-code-mode={mode} ref={measure} sx={{ minWidth: 0 }}>
       {mode === 'canvas' ? (
         // The canvas carries the one caption itself (ContractCodeFlow).
         <Box data-testid={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS}>
-          <ContractCodeFlow component={c.component} ops={ops} t={t} />
+          <ContractCodeFlow
+            component={c.component}
+            ops={ops}
+            t={t}
+            title={c.stereotype !== undefined && c.stereotype.length > 0 ? c.stereotype : undefined}
+          />
         </Box>
       ) : (
         // The list: one row for the op count and "Open diagram in focus view", so
@@ -340,14 +344,14 @@ function DynamicPane({
         <FormControl size="small" sx={{ minWidth: 240 }}>
           <Select
             aria-label="Use case"
-            sx={{ fontFamily: t.mono, fontSize: 13 }}
+            sx={{ fontFamily: t.body, fontSize: 13 }}
             value={activeKey}
             onChange={(e) => {
               setSelectedKey(e.target.value);
             }}
           >
             {matchingViews.map((v) => (
-              <MenuItem key={v.key} sx={{ fontFamily: t.mono, fontSize: 13 }} value={v.key}>
+              <MenuItem key={v.key} sx={{ fontFamily: t.body, fontSize: 13 }} value={v.key}>
                 {v.title}
               </MenuItem>
             ))}
@@ -392,18 +396,28 @@ function FacetsPane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
               >
                 DATA CONTRACTS
               </Typography>
+              <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, mb: 1 }}>
+                The data types this contract defines and passes across its operations.
+              </Typography>
               <Box
-                component="pre"
-                sx={{
-                  m: 0,
-                  fontFamily: t.mono,
-                  fontSize: 11,
-                  color: t.ink,
-                  whiteSpace: 'pre-wrap',
-                  lineHeight: 1.7,
-                }}
+                component="ul"
+                sx={{ m: 0, p: 0, listStyle: 'none', display: 'flex', flexWrap: 'wrap', gap: 0.75 }}
               >
-                {dataContracts.join('\n')}
+                {dataContracts.map((d) => (
+                  <Box component="li" key={d}>
+                    <Chip
+                      label={d}
+                      size="small"
+                      sx={{
+                        fontFamily: t.body,
+                        fontSize: 12,
+                        bgcolor: t.paperAlt,
+                        color: t.ink,
+                        border: `1px solid ${t.line}`,
+                      }}
+                    />
+                  </Box>
+                ))}
               </Box>
             </Paper>
           ) : null}
@@ -461,7 +475,7 @@ function FacetsPane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
         </Typography>
       )}
 
-      {/* ops table BELOW the facets cards */}
+      {/* ops table BELOW the facets cards — each op by its parts, never its signature line */}
       {ops.length > 0 ? (
         <Paper sx={{ p: 0, overflow: 'hidden' }}>
           <Box sx={{ px: 2, py: 1.1, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${t.line}` }}>
@@ -474,57 +488,77 @@ function FacetsPane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
                 color: t.ink,
               }}
             >
-              OPERATIONS · {ops.length} · App-B §5.2 sweet spot 3–5
+              {`OPERATIONS · ${String(ops.length)}`}
+            </Typography>
+            <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
+              The Method&apos;s contract-design rule of thumb is 3–5 operations per contract; more
+              than 12 is a design smell.
             </Typography>
           </Box>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell
-                  sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}
-                >
-                  SIGNATURE
-                </TableCell>
-                <TableCell
-                  sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}
-                >
-                  STEREOTYPE
-                </TableCell>
-                <TableCell
-                  sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}
-                >
-                  NOTE
-                </TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {ops.map((op, i) => (
-                <TableRow key={`${op.signature}-${String(i)}`}>
-                  <TableCell
-                    sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink, verticalAlign: 'top' }}
-                  >
-                    {op.signature}
-                  </TableCell>
-                  <TableCell
-                    sx={{
-                      fontFamily: t.mono,
-                      fontSize: 10,
-                      color: t.muted,
-                      verticalAlign: 'top',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {op.stereotype}
-                  </TableCell>
-                  <TableCell
-                    sx={{ fontFamily: t.body, fontSize: 11, color: t.ink, verticalAlign: 'top' }}
-                  >
-                    {op.note ?? '—'}
-                  </TableCell>
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table aria-label={`Operations of ${c.component}`} size="small">
+              <TableHead>
+                <TableRow>
+                  {['Operation', 'Takes', 'Returns', 'Fails with', 'Note'].map((h) => (
+                    <TableCell
+                      key={h}
+                      sx={{ fontFamily: t.body, fontSize: 12, fontWeight: 700, color: t.muted }}
+                    >
+                      {h}
+                    </TableCell>
+                  ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {ops.map((op, i) => {
+                  const shape = opShape(op.signature);
+                  const cell = {
+                    fontFamily: t.body,
+                    fontSize: 12.5,
+                    color: t.ink,
+                    verticalAlign: 'top',
+                  } as const;
+                  return (
+                    <TableRow key={`${op.signature}-${String(i)}`}>
+                      <TableCell sx={{ ...cell, fontWeight: 700 }}>
+                        {shape.name}
+                        {op.stereotype.length > 0 ? (
+                          <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted }}>
+                            {op.stereotype}
+                          </Typography>
+                        ) : null}
+                      </TableCell>
+                      <TableCell sx={cell}>
+                        {shape.params.length === 0
+                          ? '—'
+                          : shape.params.map((p) => (
+                              <Box key={p.name}>
+                                {p.name}
+                                <Box component="span" sx={{ color: t.muted }} title={p.type}>
+                                  {` · ${readableType(p.type)}`}
+                                </Box>
+                              </Box>
+                            ))}
+                      </TableCell>
+                      <TableCell sx={cell}>
+                        {shape.returns.length === 0
+                          ? '—'
+                          : shape.returns.map(readableType).join(', ')}
+                      </TableCell>
+                      <TableCell sx={{ ...cell, color: t.dangerFg }}>
+                        {shape.errors.length === 0
+                          ? '—'
+                          : shape.errors.map(readableType).join(', ')}
+                      </TableCell>
+                      <TableCell sx={cell}>
+                        {op.note !== undefined && op.note.length > 0 ? op.note : '—'}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </Box>
         </Paper>
       ) : null}
     </Box>
@@ -599,6 +633,7 @@ export function ServiceContractView({
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
         <ToggleButtonGroup
           exclusive
+          aria-label="Contract view"
           size="small"
           sx={{
             flexWrap: 'wrap',
@@ -610,8 +645,8 @@ export function ServiceContractView({
               textTransform: 'none',
               color: t.ink,
               borderColor: t.line,
-              px: 1.25,
-              py: 0.4,
+              px: 1.5,
+              minHeight: 36,
             },
             '& .Mui-selected': {
               bgcolor: `${t.accent} !important`,
@@ -624,37 +659,30 @@ export function ServiceContractView({
           }}
         >
           <ToggleButton data-testid={UI_IDENTIFIERS.ServiceContract.TAB_CODE} value="code">
-            <CodeIcon sx={{ fontSize: 15, mr: 0.6 }} /> Code
+            <AccountTreeIcon sx={{ fontSize: 15, mr: 0.6 }} /> Interface
           </ToggleButton>
           <ToggleButton
             data-testid={UI_IDENTIFIERS.ServiceContract.TAB_COMPONENT}
             value="component"
           >
-            <AccountTreeIcon sx={{ fontSize: 15, mr: 0.6 }} /> Component
+            <HubOutlinedIcon sx={{ fontSize: 15, mr: 0.6 }} /> Neighbours
           </ToggleButton>
           <ToggleButton data-testid={UI_IDENTIFIERS.ServiceContract.TAB_DYNAMIC} value="dynamic">
-            <TimelineIcon sx={{ fontSize: 15, mr: 0.6 }} /> Dynamic
+            <TimelineIcon sx={{ fontSize: 15, mr: 0.6 }} /> Use cases
           </ToggleButton>
           <ToggleButton data-testid={UI_IDENTIFIERS.ServiceContract.TAB_FACETS} value="facets">
-            <ArticleOutlinedIcon sx={{ fontSize: 15, mr: 0.6 }} /> Facets
+            <ArticleOutlinedIcon sx={{ fontSize: 15, mr: 0.6 }} /> Data &amp; errors
           </ToggleButton>
         </ToggleButtonGroup>
         <Box sx={{ flexGrow: 1 }} />
-        <Typography
-          sx={{
-            display: inFocus ? 'block' : 'none',
-            fontFamily: t.mono,
-            fontSize: 9.5,
-            color: t.muted,
-          }}
-        >
+        <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
           {view === 'component'
-            ? 'C4 · focused component view'
+            ? 'Who calls this component, and whom it calls (C4 component level)'
             : view === 'code'
-              ? 'C4 · code level (interface)'
+              ? 'The operations it offers and the data they pass (C4 code level)'
               : view === 'dynamic'
-                ? 'C4 · dynamic sequence'
-                : `${ops.length.toString()} ops · App-B §5.2 sweet spot 3–5`}
+                ? 'The use cases this component takes part in, call by call'
+                : `The data types, error model and idempotency of its ${ops.length.toString()} operations`}
         </Typography>
       </Box>
 

@@ -181,9 +181,7 @@ function Card(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
         <Typography sx={{ fontFamily: t.body, fontWeight: 600, fontSize: 13, lineHeight: 1.25 }}>
           {d.label}
         </Typography>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, opacity: 0.85 }}>
-          {d.lane}
-        </Typography>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>{d.lane}</Typography>
       </Box>
     </Box>
   );
@@ -265,7 +263,7 @@ function Pentagon(
           <Typography sx={{ fontFamily: t.body, fontWeight: 600, fontSize: 13, lineHeight: 1.25 }}>
             {d.label}
           </Typography>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, opacity: 0.85 }}>
+          <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>
             {d.lane}
           </Typography>
         </Box>
@@ -298,13 +296,11 @@ function ObjectCard(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNod
           {d.label}
         </Typography>
         {d.inState !== undefined && d.inState.length > 0 ? (
-          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink, opacity: 0.9 }}>
+          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink }}>
             {d.inState}
           </Typography>
         ) : null}
-        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, opacity: 0.85 }}>
-          {d.lane}
-        </Typography>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>{d.lane}</Typography>
       </Box>
     </Box>
   );

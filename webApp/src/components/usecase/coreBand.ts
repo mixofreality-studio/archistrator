@@ -20,7 +20,7 @@ export interface CoreBand {
 /** Band context for a committed core-use-case count. */
 export function coreBand(coreCount: number): CoreBand {
   return {
-    label: `target ${String(CORE_TARGET_MIN)}–${String(CORE_TARGET_MAX)}`,
+    label: `target: ${String(CORE_TARGET_MIN)}–${String(CORE_TARGET_MAX)} core`,
     inBand: coreCount >= CORE_TARGET_MIN && coreCount <= CORE_TARGET_MAX,
   };
 }

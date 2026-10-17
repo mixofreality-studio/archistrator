@@ -77,16 +77,17 @@ export function ActivityEdge(props: EdgeProps): ReactNode {
               padding: '2px 6px',
               borderRadius: 4,
               background: t.paper,
-              border: `1px solid ${d.onPath ? t.accent : t.line}`,
+              // An off-path guard recedes through a dashed muted border, never
+              // opacity — the guard text has to stay readable (AA) either way.
+              border: `1px ${d.dim ? 'dashed' : 'solid'} ${d.onPath ? t.accent : d.dim ? t.muted : t.line}`,
               boxShadow: `0 1px 2px ${t.bg}`,
-              color: t.ink,
+              color: d.dim ? t.muted : t.ink,
               fontFamily: t.mono,
               fontSize: 10,
               fontWeight: 700,
               lineHeight: 1.2,
               textAlign: 'center',
               whiteSpace: 'normal',
-              opacity: d.dim ? 0.25 : 1,
               pointerEvents: 'none',
               zIndex: 4,
             }}

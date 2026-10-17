@@ -31,9 +31,10 @@ export function SubprojectFlowScreen(): ReactNode {
 
   return (
     <Box
+      component="main"
       data-testid={UI_IDENTIFIERS.Subproject.ROOT}
       sx={{
-        height: '100vh',
+        minHeight: '100vh',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -47,8 +48,9 @@ export function SubprojectFlowScreen(): ReactNode {
         data-testid={UI_IDENTIFIERS.Subproject.NOT_READY}
         sx={{ p: 4, maxWidth: 560, textAlign: 'center', borderStyle: 'dashed' }}
       >
-        <LockOutlinedIcon sx={{ fontSize: 34, color: t.muted, mb: 1 }} />
+        <LockOutlinedIcon aria-hidden sx={{ fontSize: 34, color: t.muted, mb: 1 }} />
         <Typography
+          component="h1"
           sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink, mb: 1 }}
         >
           Subproject “{subprojectId}” is not available yet
@@ -56,10 +58,10 @@ export function SubprojectFlowScreen(): ReactNode {
         <Typography
           sx={{ fontFamily: t.body, fontSize: 13, color: t.muted, mb: 2, lineHeight: 1.5 }}
         >
-          A change request becomes a subproject — a fresh, scaled System-Design → Project-Design →
-          Construction → Redeploy cycle — only after triage sets its disposition. The subproject
-          registry is not carried by the project read projection yet, so its journey cannot be
-          loaded. The full triage-dependent spine lands once the subproject read is provisioned.
+          A change request becomes a subproject — a small follow-on project that designs, plans,
+          builds and redeploys just that change — once it has been triaged. Subprojects can&rsquo;t
+          be opened yet; this page will show the subproject&rsquo;s steps and progress when they
+          can.
         </Typography>
         <Button
           color="primary"

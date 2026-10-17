@@ -23,14 +23,18 @@ import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../co
 import { SOLUTION_LABELS } from '../../contracts/types';
 import {
   toSdpReviewView,
+  toRiskModelView,
+  narrowProject,
   formatMoney,
   formatDurationDays,
+  type RiskRowView,
   type SdpOptionView,
 } from '../../contracts/projectAdapters';
 import { solutionAccentColor } from './solutionAccent';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { BandedScatter, type ScatterPoint } from './charts';
+import { SectionHeading } from './SectionHeading';
 import { ComputedBadge, AuthoredBadge } from './computed';
 import { useComments } from '../comments/CommentContext';
 import { sdpOptionAnchor } from '../comments/CommentContext';
@@ -122,10 +126,12 @@ function OptionRow({
             border: `1.5px solid ${t.line}`,
           }}
         />
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}>
-          {SOLUTION_LABELS[option.solutionKind] ?? option.solutionKind}
+        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
+          {optionLabel(option.solutionKind)}
         </Typography>
-        {option.recommended ? <StarIcon sx={{ fontSize: 13, color: t.accent }} /> : null}
+        {option.recommended ? (
+          <StarIcon aria-hidden sx={{ fontSize: 13, color: t.accent }} />
+        ) : null}
       </Box>
       {children}
     </Box>
@@ -139,9 +145,48 @@ const ROW_REVEAL_SX = {
   '&:hover .row-comment-action, &:focus-within .row-comment-action': { opacity: 1 },
 } as const;
 
-function shortLabel(kind: ProjectArtifactKind): string {
-  return (SOLUTION_LABELS[kind] ?? kind).split('-')[0] ?? kind;
+function optionLabel(kind: ProjectArtifactKind): string {
+  return SOLUTION_LABELS[kind] ?? kind;
 }
+
+/** Average days in a month — the calendar-days → months hint for management. */
+const DAYS_PER_MONTH = 30.44;
+
+function formatMonths(days: number): string {
+  return `≈${(days / DAYS_PER_MONTH).toFixed(1)} mo`;
+}
+
+/**
+ * The server's rationale names options by their slot kind
+ * (`recommend decompressedSolution: …`) and cites the book by appendix. Both are
+ * opaque to a first-time reader; the option's display label and the book's name
+ * are not. Purely a wording pass — the numbers are left exactly as authored.
+ */
+function humanizeRationale(rationale: string): string {
+  let out = rationale;
+  for (const [kind, label] of Object.entries(SOLUTION_LABELS)) {
+    out = out.split(kind).join(label);
+  }
+  return out
+    .replace(/^recommend\s+/i, 'Recommend ')
+    .replace(/\bApp C\b/g, 'Righting Software Appendix C');
+}
+
+/**
+ * What the per-option glossary says about each option. These are the four
+ * Project Design options of The Method (Righting Software ch. 9–11); a reader
+ * meeting "Subcritical" for the first time cannot be expected to know it is the
+ * deliberately understaffed option.
+ */
+const OPTION_MEANING: Partial<Record<ProjectArtifactKind, string>> = {
+  normalSolution: 'the minimum staffing that keeps the critical path moving unimpeded.',
+  decompressedSolution:
+    'the normal plan with deliberate schedule slack added, trading a little time for lower risk.',
+  subcriticalSolution:
+    'deliberately understaffed — shown to prove fewer people makes the project longer and costlier, not cheaper.',
+  compressedSolution:
+    'finishes sooner through more parallel work and top resources, at higher cost and risk.',
+};
 
 function bounds(values: number[], pad: number): { min: number; max: number } {
   if (values.length === 0) return { min: 0, max: 1 };
@@ -153,14 +198,23 @@ function bounds(values: number[], pad: number): { min: number; max: number } {
 
 export function SdpReviewView({
   envelope,
+  riskEnvelope,
   pending,
-  readOnly = false,
+  readOnly: readOnlyProp = false,
   onCommit,
   onRejectAll,
   decision = 'own',
   onChoose,
 }: {
   envelope: ProjectArtifactModelEnvelope | undefined;
+  /**
+   * The committed `riskModel` slot, OPTIONAL. When present, the options its
+   * exclusion zones rule out are marked EXCLUDED (with the model's own reason) in
+   * the table, on the decision cards and on the time–risk curve, and the curve
+   * shades the too-risky / over-safe zones. Without it the view still renders,
+   * just without that judgement — it never invents one.
+   */
+  riskEnvelope?: ProjectArtifactModelEnvelope | undefined;
   /** A decision mutation is in flight — disable the gate. */
   pending: boolean;
   /**
@@ -172,6 +226,10 @@ export function SdpReviewView({
    * handlers) and present the standing choice in words, so a read-only surface
    * carries no focusable control that does nothing and no orphaned ARIA. Which
    * option was chosen is said as text, never by colour alone.
+   *
+   * A model that already carries a `chosenOption` is read-only regardless: the
+   * decision it records is the plan of record, and offering a second choice over
+   * it would be a control that changes nothing.
    */
   readOnly?: boolean;
   onCommit: (optionId: string) => void;
@@ -213,7 +271,26 @@ export function SdpReviewView({
   // one — would still render a focusable button whose arm is a no-op.
   const { setAnchor, enabled: commentsEnabled } = useComments();
   const view = toSdpReviewView(envelope);
-  const [chosen, setChosen] = useState<string>(view.recommendation);
+  const chosenOnRecord = narrowProject(envelope, 'sdpReview')?.chosenOption ?? '';
+  const readOnly = readOnlyProp || chosenOnRecord.length > 0;
+  const risk = toRiskModelView(riskEnvelope);
+  const riskByKind = new Map<ProjectArtifactKind, RiskRowView>(
+    risk.rows.map((r) => [r.solutionKind, r])
+  );
+  const exclusionOf = (o: SdpOptionView): string | undefined => {
+    const r = riskByKind.get(o.solutionKind);
+    if (r === undefined || r.included) return undefined;
+    return r.exclusionReason.length > 0 ? r.exclusionReason : 'outside the acceptable risk range';
+  };
+  const hasRisk = risk.rows.length > 0;
+
+  // The reader's OWN pick, '' until they touch the radiogroup. The default is
+  // derived on every render, NOT seeded into state: the envelope routinely
+  // arrives after the first render (the slot is fetched), and a `useState`
+  // seeded from an empty view kept '' forever, so the gate silently defaulted to
+  // the FIRST option instead of the architect's recommendation — and reported
+  // that to the host's Approve.
+  const [chosen, setChosen] = useState<string>('');
   const [feedback, setFeedback] = useState('');
   const [rejecting, setRejecting] = useState(false);
 
@@ -259,7 +336,7 @@ export function SdpReviewView({
   );
 
   const armOption = (o: SdpOptionView): void => {
-    const label = SOLUTION_LABELS[o.solutionKind] ?? o.solutionKind;
+    const label = optionLabel(o.solutionKind);
     setAnchor({
       kind: 'node',
       label,
@@ -268,7 +345,16 @@ export function SdpReviewView({
     });
   };
 
-  const selected = chosen.length > 0 ? chosen : (view.options[0]?.optionId ?? '');
+  const isOption = (id: string): boolean => view.options.some((o) => o.optionId === id);
+  const selected = readOnly
+    ? isOption(chosenOnRecord)
+      ? chosenOnRecord
+      : view.recommendation
+    : isOption(chosen)
+      ? chosen
+      : isOption(view.recommendation)
+        ? view.recommendation
+        : (view.options[0]?.optionId ?? '');
 
   // Report the standing choice upward. Above the early return because a hook
   // cannot sit after one; a no-op when nobody is listening (`decision: 'own'`).
@@ -278,27 +364,37 @@ export function SdpReviewView({
 
   if (view.options.length === 0) {
     return (
-      <Typography sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}>
-        The SDP review has not been assembled yet.
-      </Typography>
+      <Paper sx={{ p: 3 }}>
+        <SectionHeading
+          hint="It appears here once the four plan options (normal, decompressed-normal, subcritical and compressed) and their risk model are computed. Management then chooses one to become the plan of record."
+          t={t}
+        >
+          Software Development Plan review — not assembled yet
+        </SectionHeading>
+      </Paper>
     );
   }
+
+  const recommendedOption = view.options.find((o) => o.recommended);
+  const selectedOption = view.options.find((o) => o.optionId === selected);
 
   // time–cost: duration (days) × build cost (major units)
   const costPts: ScatterPoint[] = view.options.map((o) => ({
     x: o.durationDays,
     y: o.buildCost.minorUnits / 100,
-    label: shortLabel(o.solutionKind),
+    label: optionLabel(o.solutionKind),
     color: solutionAccentColor(t, o.solutionKind),
     emphasized: o.recommended,
+    out: exclusionOf(o) !== undefined,
   }));
   // time–risk: duration (days) × composite risk
   const riskPts: ScatterPoint[] = view.options.map((o) => ({
     x: o.durationDays,
     y: o.compositeRisk,
-    label: shortLabel(o.solutionKind),
+    label: optionLabel(o.solutionKind),
     color: solutionAccentColor(t, o.solutionKind),
     emphasized: o.recommended,
+    out: exclusionOf(o) !== undefined,
   }));
 
   const durBounds = bounds(
@@ -309,10 +405,51 @@ export function SdpReviewView({
     view.options.map((o) => o.buildCost.minorUnits / 100),
     0.15
   );
-  const riskBounds = bounds(
-    view.options.map((o) => o.compositeRisk),
-    0.2
+  const riskValues = view.options.map((o) => o.compositeRisk);
+  if (hasRisk) riskValues.push(risk.tooRiskyThreshold, risk.overSafeThreshold);
+  const riskBounds = bounds(riskValues, 0.2);
+  const riskYMin = Math.max(
+    0,
+    Math.min(riskBounds.min, hasRisk ? risk.overSafeThreshold - 0.05 : 0)
   );
+  const riskYMax = Math.min(1, riskBounds.max);
+  const riskBands = hasRisk
+    ? [
+        {
+          from: risk.tooRiskyThreshold,
+          to: riskYMax,
+          kind: 'out' as const,
+          label: `EXCLUDED · TOO RISKY (> ${risk.tooRiskyThreshold.toFixed(2)})`,
+        },
+        {
+          from: risk.overSafeThreshold,
+          to: risk.tooRiskyThreshold,
+          kind: 'in' as const,
+          label: 'ACCEPTABLE RISK',
+        },
+        {
+          from: riskYMin,
+          to: risk.overSafeThreshold,
+          kind: 'out' as const,
+          label: `EXCLUDED · OVER-SAFE (< ${risk.overSafeThreshold.toFixed(2)})`,
+        },
+      ].filter((b) => b.to > b.from)
+    : undefined;
+
+  const currency = view.options[0]?.buildCost.currency ?? 'USD';
+  const moneyTick = (v: number): string =>
+    formatMoney({ minorUnits: Math.round(v * 100), currency });
+  const dayTick = (d: number): string => `${String(Math.round(d))} d`;
+
+  const COLUMNS = [
+    'Option',
+    'Duration · calendar days',
+    'Build cost',
+    'Composite risk · 0–1',
+    'Monthly run cost',
+    'Charge per billing cycle',
+    'Standing',
+  ];
 
   return (
     <Box
@@ -321,21 +458,14 @@ export function SdpReviewView({
     >
       {/* audience banner */}
       <Paper sx={{ p: 2, bgcolor: t.committedBg, borderLeft: `5px solid ${t.committedDot}` }}>
-        <Typography
-          sx={{
-            fontFamily: t.mono,
-            fontSize: 11,
-            letterSpacing: '0.1em',
-            color: t.committedFg,
-            mb: 0.5,
-          }}
-        >
-          AUDIENCE · MANAGEMENT
-        </Typography>
-        <Typography sx={{ fontFamily: t.body, fontSize: 14, color: t.committedFg }}>
-          The SDP gate is not &ldquo;approve prose&rdquo; — it is <b>CHOOSE an option</b> to bind
-          the plan of record and unlock Phase 3, or reject all options to re-enter Project Design.
-          Excluded options stay visible so management sees the trade-offs.
+        <SectionHeading color={t.committedFg} t={t}>
+          Software Development Plan (SDP) review · for management
+        </SectionHeading>
+        <Typography sx={{ fontFamily: t.body, fontSize: 14, color: t.committedFg, mt: 0.5 }}>
+          Project Design produced several ways to build the same system. Here you{' '}
+          <b>choose one option</b> to make it the plan of record — that is milestone M0, and it
+          unlocks Phase 3 (construction) — or reject them all and send Project Design back for
+          rework. Options the risk model excludes stay listed so the trade-offs are visible.
         </Typography>
       </Paper>
 
@@ -344,47 +474,35 @@ export function SdpReviewView({
         <Box
           sx={{
             px: 2,
-            py: 1,
+            py: 1.25,
             bgcolor: t.paperAlt,
             borderBottom: `1.5px solid ${t.line}`,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
           }}
         >
-          <Typography
-            sx={{
-              fontFamily: t.mono,
-              fontWeight: 700,
-              fontSize: 12,
-              letterSpacing: '0.08em',
-              color: t.ink,
-            }}
-          >
-            OPTIONS
-          </Typography>
-          <ComputedBadge t={t} />
+          <SectionHeading adornment={<ComputedBadge t={t} />} t={t}>
+            The options
+          </SectionHeading>
         </Box>
-        <Box sx={{ overflowX: 'auto' }}>
+        <Box
+          aria-label="SDP options table — scroll sideways for more columns"
+          role="region"
+          sx={{
+            overflowX: 'auto',
+            '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: -2 },
+          }}
+          tabIndex={0}
+        >
           <Box
             aria-label="SDP options"
             role="table"
             sx={{
               display: 'grid',
-              gridTemplateColumns: '160px repeat(5, 1fr) 90px',
-              minWidth: 880,
+              gridTemplateColumns: '170px repeat(5, 1fr) 170px',
+              minWidth: 960,
             }}
           >
             <Box role="row" sx={{ display: 'contents' }}>
-              {[
-                'OPTION',
-                'DURATION',
-                'BUILD COST',
-                'RISK',
-                'MONTHLY OPS',
-                'PER-CYCLE NET',
-                'REC',
-              ].map((h) => (
+              {COLUMNS.map((h) => (
                 <Box
                   key={h}
                   role="columnheader"
@@ -393,9 +511,11 @@ export function SdpReviewView({
                   <Typography
                     sx={{
                       fontFamily: t.mono,
-                      fontSize: 9.5,
-                      letterSpacing: '0.06em',
+                      fontSize: 10.5,
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
                       color: t.muted,
+                      lineHeight: 1.3,
                     }}
                   >
                     {h}
@@ -403,95 +523,134 @@ export function SdpReviewView({
                 </Box>
               ))}
             </Box>
-            {view.options.map((o) => (
-              <OptionRow key={o.optionId} option={o} t={t}>
-                <Cell t={t}>{formatDurationDays(o.durationDays)}</Cell>
-                <Cell t={t}>{formatMoney(o.buildCost)}</Cell>
-                <Cell strong t={t}>
-                  {o.compositeRisk.toFixed(2)}
-                </Cell>
-                <Cell t={t}>{formatMoney(o.projectedMonthlyCost)}</Cell>
-                <Cell t={t}>{formatMoney(o.expectedPerCycleNet)}</Cell>
-                <Box
-                  role="cell"
-                  sx={{
-                    px: 1.25,
-                    py: 0.9,
-                    borderBottom: `1px solid ${t.line}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.75,
-                  }}
-                >
-                  {o.recommended ? (
-                    <Chip
-                      label="REC"
-                      size="small"
-                      sx={{
-                        height: 20,
-                        fontSize: 9.5,
-                        color: t.committedFg,
-                        bgcolor: t.committedBg,
-                      }}
-                    />
-                  ) : null}
-                  <Box sx={{ flexGrow: 1 }} />
-                  {commentsEnabled ? (
-                    <RowCommentButton
-                      label={SOLUTION_LABELS[o.solutionKind] ?? o.solutionKind}
-                      t={t}
-                      testKey={o.optionId}
-                      onArm={() => {
-                        armOption(o);
-                      }}
-                    />
-                  ) : null}
-                </Box>
-              </OptionRow>
-            ))}
+            {view.options.map((o) => {
+              const excluded = exclusionOf(o);
+              return (
+                <OptionRow key={o.optionId} option={o} t={t}>
+                  <Cell sub={formatMonths(o.durationDays)} t={t}>
+                    {formatDurationDays(o.durationDays)}
+                  </Cell>
+                  <Cell t={t}>{formatMoney(o.buildCost)}</Cell>
+                  <Cell strong t={t}>
+                    {o.compositeRisk.toFixed(2)}
+                  </Cell>
+                  <Cell t={t}>{formatMoney(o.projectedMonthlyCost)}</Cell>
+                  <Cell t={t}>{formatMoney(o.expectedPerCycleNet)}</Cell>
+                  <Box
+                    role="cell"
+                    sx={{
+                      px: 1.25,
+                      py: 0.9,
+                      borderBottom: `1px solid ${t.line}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.75,
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.4, minWidth: 0 }}>
+                      {o.recommended ? (
+                        <StandingChip bg={t.committedBg} fg={t.committedFg} label="Recommended" />
+                      ) : null}
+                      {excluded !== undefined ? (
+                        <>
+                          <StandingChip bg={t.awaitingBg} fg={t.awaitingFg} label="Excluded" />
+                          <Typography
+                            sx={{
+                              fontFamily: t.body,
+                              fontSize: 11.5,
+                              color: t.muted,
+                              lineHeight: 1.3,
+                            }}
+                          >
+                            {excluded}
+                          </Typography>
+                        </>
+                      ) : null}
+                      {!o.recommended && excluded === undefined ? (
+                        <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
+                          {hasRisk ? 'Within range' : '—'}
+                        </Typography>
+                      ) : null}
+                    </Box>
+                    <Box sx={{ flexGrow: 1 }} />
+                    {commentsEnabled ? (
+                      <RowCommentButton
+                        label={optionLabel(o.solutionKind)}
+                        t={t}
+                        testKey={o.optionId}
+                        onArm={() => {
+                          armOption(o);
+                        }}
+                      />
+                    ) : null}
+                  </Box>
+                </OptionRow>
+              );
+            })}
           </Box>
         </Box>
+        <OptionGlossary
+          options={view.options}
+          overSafe={hasRisk ? risk.overSafeThreshold : undefined}
+          t={t}
+          tooRisky={hasRisk ? risk.tooRiskyThreshold : undefined}
+        />
       </Paper>
 
       {/* the two curves */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
         <Paper sx={{ p: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
-              TIME–COST CURVE
-            </Typography>
-            <ComputedBadge t={t} />
-          </Box>
-          <BandedScatter
-            height={260}
-            points={costPts}
+          <SectionHeading
+            adornment={<ComputedBadge t={t} />}
+            hint="Each dot is one option: how long it takes against what it costs to build. Further left is sooner; lower is cheaper."
             t={t}
-            xLabel="duration (days)"
-            xMax={durBounds.max}
-            xMin={durBounds.min}
-            yLabel="build cost"
-            yMax={costBounds.max}
-            yMin={costBounds.min}
-          />
+          >
+            Time–cost curve
+          </SectionHeading>
+          <Box sx={{ mt: 1 }}>
+            <BandedScatter
+              formatX={dayTick}
+              formatY={moneyTick}
+              height={260}
+              points={costPts}
+              t={t}
+              xLabel="duration (calendar days)"
+              xMax={durBounds.max}
+              xMin={durBounds.min}
+              yLabel="build cost"
+              yMax={costBounds.max}
+              yMin={costBounds.min}
+            />
+          </Box>
         </Paper>
         <Paper sx={{ p: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
-              TIME–RISK CURVE
-            </Typography>
-            <ComputedBadge t={t} />
-          </Box>
-          <BandedScatter
-            height={260}
-            points={riskPts}
+          <SectionHeading
+            adornment={<ComputedBadge t={t} />}
+            hint={
+              hasRisk
+                ? 'Each dot is one option: how long it takes against its composite risk. Shaded zones are the risk model’s limits; a ✕ marks an excluded option.'
+                : 'Each dot is one option: how long it takes against its composite risk. Lower is safer.'
+            }
             t={t}
-            xLabel="duration (days)"
-            xMax={durBounds.max}
-            xMin={durBounds.min}
-            yLabel="composite risk"
-            yMax={riskBounds.max}
-            yMin={Math.min(0, riskBounds.min)}
-          />
+          >
+            Time–risk curve
+          </SectionHeading>
+          <Box sx={{ mt: 1 }}>
+            <BandedScatter
+              {...(riskBands !== undefined ? { bands: riskBands } : {})}
+              formatX={dayTick}
+              formatY={(y) => y.toFixed(2)}
+              height={260}
+              points={riskPts}
+              t={t}
+              xLabel="duration (calendar days)"
+              xMax={durBounds.max}
+              xMin={durBounds.min}
+              yLabel="composite risk"
+              yMax={riskYMax}
+              yMin={riskYMin}
+            />
+          </Box>
         </Paper>
       </Box>
 
@@ -499,14 +658,20 @@ export function SdpReviewView({
       {view.rationale.length > 0 && (
         <Paper sx={{ p: 2.5, borderLeft: `5px solid ${t.accent}` }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <StarIcon sx={{ fontSize: 18, color: t.accent }} />
-            <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink }}>
+            <StarIcon aria-hidden sx={{ fontSize: 18, color: t.accent }} />
+            <Typography
+              component="h3"
+              sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink, m: 0 }}
+            >
               Architect&rsquo;s recommendation
+              {recommendedOption !== undefined
+                ? `: ${optionLabel(recommendedOption.solutionKind)}`
+                : ''}
             </Typography>
             <AuthoredBadge t={t} />
           </Box>
           <Typography sx={{ fontFamily: t.body, fontSize: 13.5, lineHeight: 1.6, color: t.ink }}>
-            {view.rationale}
+            {humanizeRationale(view.rationale)}
           </Typography>
         </Paper>
       )}
@@ -526,24 +691,24 @@ export function SdpReviewView({
             gap: 1,
           }}
         >
-          <CheckIcon sx={{ fontSize: 18, color: t.accentText }} />
+          <CheckIcon aria-hidden sx={{ fontSize: 18, color: t.accentText }} />
           <Typography
+            component="h3"
             sx={{
               fontFamily: t.mono,
               fontWeight: 700,
               fontSize: 13,
               letterSpacing: '0.06em',
               color: t.accentText,
+              m: 0,
             }}
           >
             {readOnly
-              ? 'DECISION CAPTURE — COMMITTED'
+              ? 'DECISION — COMMITTED'
               : decision === 'chooser'
-                ? 'DECISION CAPTURE — CHOOSE THE OPTION'
-                : 'DECISION CAPTURE — THE SDP GATE'}
+                ? 'YOUR DECISION — CHOOSE THE OPTION'
+                : 'YOUR DECISION — THE SDP GATE'}
           </Typography>
-          <Box sx={{ flexGrow: 1 }} />
-          <AuthoredBadge label={readOnly ? 'committed' : 'you decide'} t={t} />
         </Box>
 
         <Box sx={{ p: 2.5 }}>
@@ -572,7 +737,7 @@ export function SdpReviewView({
                   mb: 1,
                 }}
               >
-                {readOnly ? 'THE OPTION ON RECORD' : '1 · CHOOSE AN OPTION'}
+                {readOnly ? 'THE OPTION ON RECORD' : 'CHOOSE AN OPTION'}
               </Typography>
               <Box
                 // `group` and not `radiogroup`: read-only, the cards are not
@@ -583,7 +748,8 @@ export function SdpReviewView({
                 sx={{
                   display: 'grid',
                   gridTemplateColumns: {
-                    xs: '1fr 1fr',
+                    xs: '1fr',
+                    sm: '1fr 1fr',
                     md: `repeat(${String(Math.min(view.options.length, 4))}, 1fr)`,
                   },
                   gap: 1,
@@ -592,6 +758,7 @@ export function SdpReviewView({
               >
                 {view.options.map((o, i) => (
                   <OptionCard
+                    excluded={exclusionOf(o)}
                     key={o.optionId}
                     option={o}
                     readOnly={readOnly}
@@ -611,21 +778,26 @@ export function SdpReviewView({
               </Box>
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                <Box sx={{ minWidth: 0 }}>
+                <Box aria-live="polite" sx={{ minWidth: 0 }}>
                   <Typography
                     sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12.5, color: t.ink }}
                   >
                     {readOnly ? 'Committed' : 'You will commit'}:{' '}
-                    {SOLUTION_LABELS[
-                      view.options.find((o) => o.optionId === selected)?.solutionKind ?? 'sdpReview'
-                    ] ?? selected}
+                    {selectedOption !== undefined
+                      ? optionLabel(selectedOption.solutionKind)
+                      : selected}
                   </Typography>
-                  <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted }}>
+                  <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
                     {readOnly
                       ? 'This decision is already bound as the plan of record.'
                       : decision === 'chooser'
                         ? 'Approving this review binds it as the plan of record and unlocks Phase 3 (Construction).'
                         : 'Commit binds the plan of record and unlocks Phase 3 (Construction).'}
+                    {!readOnly &&
+                    selectedOption !== undefined &&
+                    exclusionOf(selectedOption) !== undefined
+                      ? ' Note: the risk model excludes this option.'
+                      : ''}
                   </Typography>
                 </Box>
                 <Box sx={{ flexGrow: 1 }} />
@@ -667,12 +839,116 @@ export function SdpReviewView({
   );
 }
 
+/** A small text pill for the table's Standing column — a word, never colour alone. */
+function StandingChip({ label, fg, bg }: { label: string; fg: string; bg: string }): ReactNode {
+  return (
+    <Chip
+      label={label}
+      size="small"
+      sx={{
+        alignSelf: 'flex-start',
+        height: 22,
+        fontSize: 11,
+        fontWeight: 700,
+        color: fg,
+        bgcolor: bg,
+        border: `1px solid ${fg}`,
+      }}
+    />
+  );
+}
+
+/**
+ * "How to read this table" — said ONCE, in words, under the options. Every
+ * column header names its unit; this names what each option IS and what the
+ * risk and money columns mean, which a header cannot.
+ */
+function OptionGlossary({
+  t,
+  options,
+  tooRisky,
+  overSafe,
+}: {
+  t: Tokens;
+  options: SdpOptionView[];
+  tooRisky: number | undefined;
+  overSafe: number | undefined;
+}): ReactNode {
+  const kinds = options.map((o) => o.solutionKind).filter((k, i, a) => a.indexOf(k) === i);
+  const term = (label: string): ReactNode => (
+    <Box component="dt" sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
+      {label}
+    </Box>
+  );
+  const def = (text: ReactNode): ReactNode => (
+    <Box
+      component="dd"
+      sx={{ m: 0, fontFamily: t.body, fontSize: 12.5, lineHeight: 1.45, color: t.muted }}
+    >
+      {text}
+    </Box>
+  );
+  return (
+    <Box sx={{ px: 2, py: 1.5, borderTop: `1.5px solid ${t.line}`, bgcolor: t.paperAlt }}>
+      <Typography
+        component="h4"
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 11,
+          letterSpacing: '0.08em',
+          color: t.muted,
+          m: 0,
+          mb: 1,
+        }}
+      >
+        HOW TO READ THE OPTIONS
+      </Typography>
+      <Box
+        component="dl"
+        sx={{
+          m: 0,
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', sm: '180px 1fr' },
+          columnGap: 2,
+          rowGap: 0.75,
+        }}
+      >
+        {kinds.map((k) => {
+          const meaning = OPTION_MEANING[k];
+          return meaning === undefined ? null : (
+            <Box key={k} sx={{ display: 'contents' }}>
+              {term(optionLabel(k))}
+              {def(meaning.charAt(0).toUpperCase() + meaning.slice(1))}
+            </Box>
+          );
+        })}
+        {term('Composite risk')}
+        {def(
+          <>
+            From 0 (every activity has plenty of slack) to 1 (everything is critical): the average
+            of criticality risk (how much of the work sits on or near the critical path) and
+            activity risk (how unevenly slack is spread).
+            {tooRisky !== undefined && overSafe !== undefined
+              ? ` The risk model excludes options above ${tooRisky.toFixed(2)} (too risky) or below ${overSafe.toFixed(2)} (over-safe: paying for slack you do not need).`
+              : ''}
+          </>
+        )}
+        {term('Monthly run cost')}
+        {def('The projected cost of operating the built system per month at your declared load.')}
+        {term('Charge per billing cycle')}
+        {def('The expected charge for each billing cycle of operating the system.')}
+      </Box>
+    </Box>
+  );
+}
+
 /** The read-only card's word for the standing choice — never colour alone. */
 const CHOSEN_MARK = 'CHOSEN';
 
 function OptionCard({
   t,
   option,
+  excluded,
   selected,
   readOnly,
   refCb,
@@ -681,6 +957,8 @@ function OptionCard({
 }: {
   t: Tokens;
   option: SdpOptionView;
+  /** The risk model's exclusion reason, when it rules this option out. */
+  excluded: string | undefined;
   selected: boolean;
   /** Inert presentation: no role, no tab stop, no handlers. See {@link SdpReviewView}. */
   readOnly: boolean;
@@ -688,7 +966,7 @@ function OptionCard({
   onSelect: () => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
 }): ReactNode {
-  const label = SOLUTION_LABELS[option.solutionKind] ?? option.solutionKind;
+  const label = optionLabel(option.solutionKind);
   return (
     <Box
       // A read-only card is not a radio that refuses to change — it is not a
@@ -699,7 +977,7 @@ function OptionCard({
       aria-label={
         readOnly
           ? undefined
-          : `${label}, ${formatMoney(option.buildCost)}, risk ${option.compositeRisk.toFixed(2)}`
+          : `${label}, ${formatDurationDays(option.durationDays)}, ${formatMoney(option.buildCost)}, risk ${option.compositeRisk.toFixed(2)}${option.recommended ? ', recommended' : ''}${excluded !== undefined ? `, excluded: ${excluded}` : ''}`
       }
       data-testid={UI_IDENTIFIERS.SdpReview.optionCard(option.optionId)}
       ref={refCb}
@@ -743,16 +1021,33 @@ function OptionCard({
               fontWeight: 700,
               fontSize: 9.5,
               letterSpacing: '0.12em',
-              color: t.accent,
+              color: t.accentInk,
             }}
           >
             {CHOSEN_MARK}
           </Typography>
         ) : null}
       </Box>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, mt: 0.5 }}>
-        {formatMoney(option.buildCost)} · risk {option.compositeRisk.toFixed(2)}
+      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.5 }}>
+        {formatDurationDays(option.durationDays)} · {formatMoney(option.buildCost)} · risk{' '}
+        {option.compositeRisk.toFixed(2)}
       </Typography>
+      {option.recommended || excluded !== undefined ? (
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 10.5,
+            letterSpacing: '0.06em',
+            mt: 0.5,
+            color: excluded !== undefined ? t.awaitingFg : t.committedText,
+          }}
+        >
+          {option.recommended ? 'RECOMMENDED' : ''}
+          {option.recommended && excluded !== undefined ? ' · ' : ''}
+          {excluded !== undefined ? 'EXCLUDED BY RISK MODEL' : ''}
+        </Typography>
+      ) : null}
     </Box>
   );
 }
@@ -821,10 +1116,13 @@ function Cell({
   t,
   children,
   strong,
+  sub,
 }: {
   t: Tokens;
   children: ReactNode;
   strong?: boolean;
+  /** A secondary line under the value (a unit conversion). */
+  sub?: string;
 }): ReactNode {
   return (
     <Box
@@ -834,7 +1132,8 @@ function Cell({
         py: 0.9,
         borderBottom: `1px solid ${t.line}`,
         display: 'flex',
-        alignItems: 'center',
+        flexDirection: 'column',
+        justifyContent: 'center',
       }}
     >
       <Typography
@@ -847,6 +1146,9 @@ function Cell({
       >
         {children}
       </Typography>
+      {sub !== undefined ? (
+        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>{sub}</Typography>
+      ) : null}
     </Box>
   );
 }

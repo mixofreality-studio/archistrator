@@ -1,6 +1,6 @@
 /**
- * Billing (`/project/$projectId/billing`) — a thin TOP-LEVEL surface. aiarch is a
- * PURE SERVICE VENDOR: it bills the USER for construction tokens + hosting,
+ * Billing (`/project/$projectId/billing`) — a thin TOP-LEVEL surface. archistrator
+ * (aiarch) is a PURE SERVICE VENDOR: it bills the USER for construction tokens + hosting,
  * usage-based, no subscription, no revenue share.
  *
  * Two surfaces are live: payment onboarding (BillingOnboarding —
@@ -18,10 +18,9 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
-import Button from '@mui/material/Button';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
-import { getRouteApi, useNavigate } from '@tanstack/react-router';
+import { getRouteApi } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
 import { BillingCycleLookupContainer } from '../containers/BillingCycleLookupContainer';
 import { BillingOnboardingContainer } from '../containers/BillingOnboardingContainer';
@@ -42,7 +41,6 @@ export function BillingScreen(): ReactNode {
 
 function BillingBody({ projectId }: { projectId: string }): ReactNode {
   const t = useTokens();
-  const navigate = useNavigate();
 
   return (
     <Box
@@ -50,52 +48,34 @@ function BillingBody({ projectId }: { projectId: string }): ReactNode {
       sx={{ maxWidth: 1080, mx: 'auto', px: { xs: 2, md: 4 }, py: 4 }}
     >
       {/* header */}
-      <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2, mb: 1, flexWrap: 'wrap' }}>
-        <Box>
-          <Typography sx={{ color: t.muted }} variant="overline">
-            aiarch service invoices · usage-based
-          </Typography>
-          <Typography sx={{ color: t.ink }} variant="h3">
-            Billing
-          </Typography>
-        </Box>
-        <Box sx={{ flexGrow: 1 }} />
-        <Chip
-          label="PARTLY LIVE"
-          size="small"
-          sx={{ bgcolor: t.awaitingBg, color: t.awaitingFg, fontFamily: t.mono, fontWeight: 700 }}
-        />
-        <Button
-          data-testid={UI_IDENTIFIERS.Billing.HOME_LINK}
-          sx={{ color: t.muted }}
-          variant="text"
-          onClick={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-        >
-          ← Home base
-        </Button>
+      <Box sx={{ mb: 1 }}>
+        <Typography sx={{ color: t.muted }} variant="overline">
+          What archistrator charges you · usage-based
+        </Typography>
+        <Typography component="h1" sx={{ color: t.ink }} variant="h3">
+          Billing
+        </Typography>
       </Box>
 
       {/* model banner */}
       <Box
         sx={{
           mb: 3,
-          p: 1.25,
+          p: 1.5,
           bgcolor: t.committedBg,
           border: `1.5px solid ${t.line}`,
           borderRadius: t.radius / 8 + 0.5,
         }}
       >
-        <Typography
-          sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.committedFg, lineHeight: 1.5 }}
-        >
-          aiarch is a <b>pure service vendor</b>: it bills <b>you</b> for <b>construction tokens</b>{' '}
-          + <b>hosting</b>, usage-based, no subscription. No revenue share — you own your code and
-          are merchant of record for your own app.
+        <Typography sx={{ fontSize: 13.5, color: t.committedFg, lineHeight: 1.55 }}>
+          archistrator bills <b>you</b> only for what you use: the AI work that designs and builds
+          your system, and <b>hosting</b> once it runs. No subscription and no revenue share — you
+          own your code and are the merchant of record for your own app&rsquo;s customers.
         </Typography>
       </Box>
 
       {/* payment onboarding: open it for a deployed app, then register the customer */}
-      <BillingOnboardingContainer />
+      <BillingOnboardingContainer projectId={projectId} />
 
       {/* the one live read: a billing period's recorded settlement */}
       <BillingCycleLookupContainer />
@@ -105,41 +85,40 @@ function BillingBody({ projectId }: { projectId: string }): ReactNode {
         data-testid={UI_IDENTIFIERS.Billing.PENDING_STATE}
         sx={{ p: 4, textAlign: 'center', borderStyle: 'dashed', mb: 3 }}
       >
-        <ReceiptLongOutlinedIcon sx={{ fontSize: 32, color: t.muted, opacity: 0.6 }} />
+        <ReceiptLongOutlinedIcon aria-hidden sx={{ fontSize: 32, color: t.muted, opacity: 0.6 }} />
         <Typography
+          component="h2"
           sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink, mt: 1 }}
         >
-          Invoices, payment method and pricing not yet readable
+          Invoices, payment method and pricing — coming soon
         </Typography>
         <Box sx={{ maxWidth: 560, mx: 'auto' }}>
           <Typography
             sx={{ fontFamily: t.body, fontSize: 13, color: t.muted, mt: 0.5, lineHeight: 1.5 }}
           >
-            The billing manager (Stripe via merchantGatewayAccess) answers one read today — the
-            billing-period lookup above — beside the two onboarding writes. It has no read for the
-            current invoice, the payment method, the price book or the invoice history yet, so their
-            intended layout is previewed below; each activates once its read exists.
+            Today you can set up payments and look up one billing period above. Your current
+            invoice, the card on file, the price list and past invoices will appear here; the
+            outline below shows where each will go.
           </Typography>
         </Box>
       </Paper>
 
-      {/* the INTENDED layout — clearly-labelled placeholders, NO data, NO fetch */}
+      {/* the INTENDED layout — clearly-labelled placeholders, NO data, NO fetch.
+          Hidden from assistive tech: the card above already says what is coming. */}
       <Box
         aria-hidden
         sx={{
           display: 'flex',
           flexDirection: 'column',
           gap: 1.5,
-          opacity: 0.55,
           pointerEvents: 'none',
-          filter: 'grayscale(0.4)',
         }}
       >
         <Placeholder
           icon={<ReceiptLongOutlinedIcon sx={{ fontSize: 16 }} />}
-          sub="construction tokens (to date) · hosting (to date) · invoice total"
+          sub="AI build work to date · hosting to date · total"
           t={t}
-          title="Current invoice — amount owed to aiarch"
+          title="Current invoice — what you owe so far"
         />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
           <Placeholder
@@ -149,13 +128,13 @@ function BillingBody({ projectId }: { projectId: string }): ReactNode {
             title="Payment method"
           />
           <Placeholder
-            sub="usage-based price book · tokens + hosting meters"
+            sub="what each unit of AI work and hosting costs"
             t={t}
             title="Service pricing"
           />
         </Box>
         <Placeholder
-          sub="prior service invoices · period · tokens · hosting · total · status"
+          sub="past invoices · month · AI work · hosting · total · paid?"
           t={t}
           title="Invoice history"
         />
@@ -189,22 +168,12 @@ function Placeholder({
         }}
       >
         {icon !== undefined && <Box sx={{ color: t.muted, display: 'flex' }}>{icon}</Box>}
-        <Typography
-          sx={{
-            fontFamily: t.mono,
-            fontWeight: 700,
-            fontSize: 11,
-            letterSpacing: '0.06em',
-            color: t.ink,
-          }}
-        >
-          {title.toUpperCase()}
-        </Typography>
+        <Typography sx={{ fontWeight: 700, fontSize: 13, color: t.ink }}>{title}</Typography>
         <Box sx={{ flexGrow: 1 }} />
         <Chip
-          label="pending"
+          label="Coming soon"
           size="small"
-          sx={{ height: 18, fontSize: 8.5, fontFamily: t.mono, color: t.muted }}
+          sx={{ height: 20, fontSize: 11, color: t.muted, borderColor: t.line }}
           variant="outlined"
         />
       </Box>
@@ -218,7 +187,7 @@ function Placeholder({
             mb: 0.75,
           }}
         />
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>{sub}</Typography>
+        <Typography sx={{ fontSize: 12, color: t.muted }}>{sub}</Typography>
       </Box>
     </Paper>
   );

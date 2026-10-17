@@ -176,7 +176,7 @@ export function GeneratingScene({
             py: 0.5,
             border: `1.5px solid ${t.accent}`,
             borderRadius: t.radius / 8 + 0.5,
-            color: t.accent,
+            color: t.accentInk,
             animation: 'pulse 1.4s ease-in-out infinite',
             '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.5 } },
           }}
@@ -200,7 +200,7 @@ export function GeneratingScene({
             py: 0.5,
             border: `1.5px solid ${t.accent}`,
             borderRadius: t.radius / 8 + 0.5,
-            color: t.accent,
+            color: t.accentInk,
             animation: 'pulse 1.4s ease-in-out infinite',
             '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.5 } },
           }}

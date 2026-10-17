@@ -34,7 +34,6 @@ import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { FlowCanvas } from '../flow/flowShared';
 import { flowEdge } from '../flow/flowLayout';
-import { CRITICAL_PATH_TOKEN } from '../project/bandRamp';
 import { graphSignatureOf, loadGraphViewport, saveGraphViewport } from './graphViewport.ts';
 import {
   CONTROLS_OFFSET_PX,
@@ -59,6 +58,7 @@ import {
   M0_CAPTION,
   M0_LABEL,
 } from './planCopy.ts';
+import { PlanLegend } from './PlanList';
 import {
   PlanMilestoneNode,
   PlanSpacerNode,
@@ -249,7 +249,13 @@ export function PlanGraph({ activities, projectId, onOpen }: PlanGraphProps): Re
   const stored = loadGraphViewport(signature);
   return (
     <Box data-testid={UI_IDENTIFIERS.Plan.GRAPH}>
-      <Box sx={{ position: 'relative' }}>
+      {/* A text alternative for the canvas: what it shows, and where the same
+          facts are as text. Each tile is itself a focusable, named button. */}
+      <Box
+        aria-label={`Plan network diagram: ${String(tiles.length)} activities in architecture-layer rows, ${criticalPathNote(criticalCount)}. Tab to move between activities; the List view shows the same plan as text.`}
+        role="group"
+        sx={{ position: 'relative' }}
+      >
         <FlowCanvas
           controlsStyle={{ left: CONTROLS_OFFSET_PX }}
           edges={edges}
@@ -273,15 +279,7 @@ export function PlanGraph({ activities, projectId, onOpen }: PlanGraphProps): Re
           <PlanRowGutter rows={layout.rows} />
         </FlowCanvas>
       </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mt: 1 }}>
-        <Box
-          aria-hidden
-          sx={{ width: 14, height: 3, bgcolor: t[CRITICAL_PATH_TOKEN], flexShrink: 0 }}
-        />
-        <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.ink }}>
-          {criticalPathNote(criticalCount)}
-        </Typography>
-      </Box>
+      <PlanLegend criticalCount={criticalCount} />
       {unplaced.length > 0 ? (
         <Typography
           data-testid={UI_IDENTIFIERS.Plan.UNPLACED_NOTE}

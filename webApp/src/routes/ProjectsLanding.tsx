@@ -1,13 +1,14 @@
 /**
  * Top-level projects landing (route `/`): the owner's catalog as a themed grid of
- * project tiles, a dashed "new project" card, and a first-login empty hero. Its
+ * project tiles, ONE "New project" action, and a first-login empty hero. (The
+ * dashed "new project" tile that repeated the header button is gone: one primary
+ * action per surface.) Its
  * own minimal top bar (theme switcher + account avatar) — the per-project AppShell
  * is separate. Create flows through the shared CreateProjectDialog which mints the
  * project server-side and navigates to its home base.
  */
 import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Skeleton from '@mui/material/Skeleton';
@@ -42,6 +43,7 @@ export function ProjectsLanding(): ReactNode {
     >
       <LandingBar t={t} user={userLabel(user)} />
       <Box
+        component="main"
         sx={{ flexGrow: 1, maxWidth: 1180, width: '100%', mx: 'auto', px: { xs: 2, md: 4 }, py: 5 }}
       >
         <ErrorAlert error={error} />
@@ -96,12 +98,6 @@ export function ProjectsLanding(): ReactNode {
                   }}
                 />
               ))}
-              <NewCard
-                t={t}
-                onNew={() => {
-                  setDialogOpen(true);
-                }}
-              />
             </Box>
           </>
         )}
@@ -119,17 +115,19 @@ export function ProjectsLanding(): ReactNode {
 function LandingBar({ t, user }: { t: Tokens; user: string }): ReactNode {
   return (
     <Box
+      component="header"
       sx={{
         display: 'flex',
         alignItems: 'center',
         gap: 1.5,
-        px: 3,
+        px: { xs: 2, md: 3 },
         py: 1.5,
         borderBottom: `1.5px solid ${t.line}`,
         bgcolor: t.paper,
       }}
     >
       <Box
+        aria-hidden
         sx={{
           fontFamily: t.mono,
           fontWeight: 700,
@@ -150,7 +148,9 @@ function LandingBar({ t, user }: { t: Tokens; user: string }): ReactNode {
       <Box sx={{ flexGrow: 1 }} />
       <ThemeSwitcher />
       <Box
+        aria-label={`Signed in as ${user}`}
         data-testid={UI_IDENTIFIERS.Shell.USER_LABEL}
+        role="img"
         sx={{
           width: 28,
           height: 28,
@@ -174,33 +174,6 @@ function LandingBar({ t, user }: { t: Tokens; user: string }): ReactNode {
   );
 }
 
-function NewCard({ t, onNew }: { t: Tokens; onNew: () => void }): ReactNode {
-  return (
-    <Paper
-      data-testid={UI_IDENTIFIERS.ProjectsLanding.NEW_PROJECT_CARD}
-      sx={{
-        p: 2.5,
-        cursor: 'pointer',
-        borderStyle: 'dashed',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 1,
-        minHeight: 170,
-        color: t.muted,
-        '&:hover': { color: t.accent, borderColor: t.accent },
-      }}
-      onClick={onNew}
-    >
-      <AddIcon sx={{ fontSize: 28 }} />
-      <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13 }}>
-        New project
-      </Typography>
-    </Paper>
-  );
-}
-
 function EmptyState({ t, user, onNew }: { t: Tokens; user: string; onNew: () => void }): ReactNode {
   return (
     <Box
@@ -221,9 +194,9 @@ function EmptyState({ t, user, onNew }: { t: Tokens; user: string; onNew: () => 
         Let&rsquo;s design your first system.
       </Typography>
       <Typography sx={{ color: t.muted, fontSize: 15, lineHeight: 1.6, maxWidth: 560 }}>
-        A project walks The Method end-to-end — business alignment, requirements, volatilities,
-        architecture, a planned SDP, then a supervised build. Name it, and the architect drafts the
-        mission from there.
+        A project walks The Method end-to-end — business alignment, requirements, the areas most
+        likely to change, the architecture, a costed delivery plan, then a supervised build. Name
+        it, and the architect drafts the mission from there.
       </Typography>
       <Button
         data-testid={UI_IDENTIFIERS.ProjectsLanding.NEW_PROJECT_BUTTON}

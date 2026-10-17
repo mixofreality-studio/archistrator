@@ -185,7 +185,7 @@ export function MarginThreadCard({
           sx={{
             textTransform: 'none',
             fontSize: 11.5,
-            color: t.accent,
+            color: t.accentInk,
             minWidth: 0,
             p: 0.25,
             maxWidth: '100%',
@@ -267,7 +267,7 @@ export function MarginThreadCard({
         >
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
             <Typography
-              sx={{ fontFamily: t.mono, fontSize: 10, color: t.accent, letterSpacing: '0.06em' }}
+              sx={{ fontFamily: t.mono, fontSize: 10, color: t.accentInk, letterSpacing: '0.06em' }}
             >
               STAGED · NOT SENT
             </Typography>

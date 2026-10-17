@@ -41,7 +41,7 @@ export function ScalingCostTab({
   if (view === undefined) {
     return (
       <AwaitingPanel
-        detail="This operated app has no observed cost or autoscaler data. Once it is deployed, run-rate, projected monthly cost, and the autoscaler mode populate from the live view + queryCostProjection."
+        detail="Nothing is running yet, so there is no cost or scaling history. Once the app is deployed you’ll see what it costs per hour and per month, what it would cost at other sizes, and every automatic scaling decision."
         title="No cost or scaling data yet"
       />
     );
@@ -69,7 +69,7 @@ export function ScalingCostTab({
           <Typography sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 18, color: t.ink }}>
             What you’re billed for hosting
           </Typography>
-          <Tooltip title="The customer always sees run-rate + projected monthly + what-if. Pure read; queryCostProjection mutates no state. The aggregated hosting line is charged on the Billing surface.">
+          <Tooltip title="Running cost now, projected monthly cost, and a what-if for other sizes. Looking changes nothing; hosting is charged on the Billing page.">
             <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>
               queryCostProjection · no state mutation
             </Typography>

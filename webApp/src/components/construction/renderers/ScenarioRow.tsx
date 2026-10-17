@@ -10,6 +10,7 @@ import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { TestRunScenarioView } from '../../../contracts/types';
 import type { Tokens } from '../../../utilities/theme/themes';
 import type { AsyncArtifactData } from '../artifactRenderers';
+import { LogLines } from '../primitives/LogLines';
 import { goTestOutputFor, statusTone, tabsFor, type ScenarioTab } from './testRunPanelLogic.ts';
 
 /** The self-hosted Playwright trace viewer (copied into public/ by postinstall). */
@@ -42,9 +43,10 @@ export function StatusChip({
       label={label ?? status}
       size="small"
       sx={{
-        height: 18,
-        fontSize: 8.5,
-        fontFamily: t.mono,
+        height: 22,
+        fontSize: 11,
+        fontFamily: t.body,
+        fontWeight: 700,
         bgcolor: good ? t.committedBg : bad ? t.paperAlt : t.awaitingBg,
         color: good ? t.committedFg : bad ? t.dangerFg : t.awaitingFg,
         border: `1px solid ${good ? t.committedDot : bad ? t.dangerFg : t.line}`,
@@ -66,7 +68,7 @@ export function OutputTab({
     return (
       <Typography
         data-testid={UI_IDENTIFIERS.Construction.TEST_RUN_OUTPUT}
-        sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}
+        sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}
       >
         No output stream recorded for this scenario.
       </Typography>
@@ -76,7 +78,7 @@ export function OutputTab({
     return (
       <Typography
         data-testid={UI_IDENTIFIERS.Construction.TEST_RUN_OUTPUT}
-        sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}
+        sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}
       >
         Loading output…
       </Typography>
@@ -86,35 +88,30 @@ export function OutputTab({
     return (
       <Typography
         data-testid={UI_IDENTIFIERS.Construction.TEST_RUN_OUTPUT}
-        sx={{ fontFamily: t.mono, fontSize: 12, color: t.dangerFg }}
+        sx={{ fontFamily: t.body, fontSize: 12.5, color: t.dangerFg }}
       >
         {`Could not read ${scenario.outputRef}: ${stream.error.message}`}
       </Typography>
     );
   }
   const text = goTestOutputFor(stream.data ?? '', scenario.id);
+  if (text.trim().length === 0) {
+    return (
+      <Typography
+        data-testid={UI_IDENTIFIERS.Construction.TEST_RUN_OUTPUT}
+        sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}
+      >
+        The run recorded no output for this scenario.
+      </Typography>
+    );
+  }
   return (
-    <Box
-      component="pre"
-      data-testid={UI_IDENTIFIERS.Construction.TEST_RUN_OUTPUT}
-      sx={{
-        m: 0,
-        p: 1.25,
-        maxHeight: 360,
-        overflow: 'auto',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-        fontFamily: t.mono,
-        fontSize: 11.5,
-        lineHeight: 1.45,
-        color: t.ink,
-        bgcolor: t.paperAlt,
-        border: `1px solid ${t.line}`,
-        borderRadius: 1,
-      }}
-    >
-      {text.length > 0 ? text : `(the stream has no output for ${scenario.id})`}
-    </Box>
+    <LogLines
+      label={`Test output of ${scenario.title.length > 0 ? scenario.title : scenario.id}`}
+      t={t}
+      testId={UI_IDENTIFIERS.Construction.TEST_RUN_OUTPUT}
+      text={text}
+    />
   );
 }
 
@@ -143,23 +140,37 @@ export function ScenarioDetail({
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-        <Tabs
-          aria-label={`${scenario.id} detail`}
-          sx={{ minHeight: 32 }}
-          value={active}
-          onChange={(_e, v: ScenarioTab) => {
-            setTab(v);
-          }}
-        >
-          {tabs.map((name) => (
-            <Tab
-              key={name}
-              label={name}
-              sx={{ minHeight: 32, py: 0.5, fontFamily: t.mono, fontSize: 11 }}
-              value={name}
-            />
-          ))}
-        </Tabs>
+        {tabs.length === 1 ? (
+          // One view needs no tab strip: a tab bar over a single tab is chrome
+          // that promises a choice there is not.
+          <Typography sx={{ fontFamily: t.body, fontSize: 12.5, fontWeight: 700, color: t.ink }}>
+            Test output
+          </Typography>
+        ) : (
+          <Tabs
+            aria-label={`${scenario.title.length > 0 ? scenario.title : scenario.id}: evidence`}
+            sx={{ minHeight: 40 }}
+            value={active}
+            onChange={(_e, v: ScenarioTab) => {
+              setTab(v);
+            }}
+          >
+            {tabs.map((name) => (
+              <Tab
+                key={name}
+                label={name}
+                sx={{
+                  minHeight: 40,
+                  py: 0.5,
+                  fontFamily: t.body,
+                  fontSize: 12.5,
+                  textTransform: 'none',
+                }}
+                value={name}
+              />
+            ))}
+          </Tabs>
+        )}
         <Box sx={{ flexGrow: 1 }} />
         {scenario.traceRef.length > 0 ? (
           <Button
@@ -169,10 +180,10 @@ export function ScenarioDetail({
             href={traceViewerUrl(fileUrl(scenario.traceRef))}
             rel="noreferrer"
             size="small"
-            sx={{ py: 0.25, fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
+            sx={{ minHeight: 32, fontSize: 12, textTransform: 'none' }}
             target="_blank"
           >
-            Open trace
+            Open the step-by-step trace
           </Button>
         ) : null}
       </Box>

@@ -14,7 +14,7 @@
  * visually-hidden polite live region (StageChip pattern, keyed by message)
  * announces the match count when filtering changes it.
  */
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -56,8 +56,13 @@ function UsageChips({ index, chips }: { index: number; chips: UsageChip[] }): Re
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Glossary.usage(index)}
-      sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mt: 0.5 }}
+      sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.6, mt: 0.5 }}
     >
+      {/* Say what the chips ARE: without this lead-in "Behaviors ×2" read as a
+          tag or a score rather than "this term appears in 2 behaviors". */}
+      <Typography component="span" sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+        Used in
+      </Typography>
       {chips.map((c) => (
         <StepLink
           key={c.kind}
@@ -70,7 +75,7 @@ function UsageChips({ index, chips }: { index: number; chips: UsageChip[] }): Re
             border: `1px solid ${t.line}`,
             bgcolor: t.paperAlt,
             fontFamily: t.mono,
-            fontSize: 10,
+            fontSize: 11,
             color: t.accent2,
             letterSpacing: '0.02em',
             '&:hover': { borderColor: t.accent, textDecoration: 'underline' },
@@ -108,6 +113,7 @@ export function GlossaryView({
   const [query, setQuery] = useState('');
   const [activeBase, setActiveBase] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const categoryHintId = useId();
   // The pinned header's measured height. In fill mode it sticks at the page's
   // scrollport top, so a section subheader must stick BELOW it — at 0 it would
   // slide underneath and read as missing. Measured rather than guessed: the
@@ -240,7 +246,24 @@ export function GlossaryView({
             }
           }}
         />
-        <Stack useFlexGap direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+        {/* The categories are the Four Questions every term answers — say so,
+            or "Who · 5" / "How · 18" read as unexplained tags. */}
+        <Typography
+          id={categoryHintId}
+          sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, mb: 1 }}
+        >
+          Terms are grouped by the question they answer: who interacts with the system, what it
+          deals with, how it does its work, and where things live. Select a group to filter.
+        </Typography>
+        <Stack
+          useFlexGap
+          aria-describedby={categoryHintId}
+          aria-label="Filter by category"
+          direction="row"
+          role="group"
+          spacing={1}
+          sx={{ flexWrap: 'wrap', gap: 1 }}
+        >
           <Chip
             aria-pressed={activeBase === null}
             data-testid={UI_IDENTIFIERS.Glossary.CHIP_ALL}
@@ -303,6 +326,7 @@ export function GlossaryView({
           grouped.sections.map(([cat, sectionEntries]) => (
             <Box key={cat} sx={{ mb: 1.5 }}>
               <Typography
+                component="h3"
                 data-testid={UI_IDENTIFIERS.Glossary.section(cat)}
                 sx={{
                   position: 'sticky',

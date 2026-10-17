@@ -43,12 +43,14 @@
  * reason, and a per-item comment anchor at `$.rejected[n]` — a path disjoint
  * from the accepted `$.items[n]`, so anchors never collide.
  *
- * Cross-artifact joins are NAVIGABLE (StepLink): the detail card's trace ids
- * link to the Required Behaviors step and its "Encapsulated by" component
- * names (the encapsulationOwners join — typed exact-name field first, prose
- * fallback for older states, multiple owners preserved) link to the
- * Architecture step. Each lane chip also carries a compact A1/A2 axis badge so
- * the axis reads without selecting.
+ * Cross-artifact joins are NAVIGABLE (StepLink): the "Encapsulated by"
+ * component names (the encapsulationOwners join — typed exact-name field
+ * first, prose fallback for older states, multiple owners preserved) link to
+ * the Architecture review (activity `architecture`, task architectureReview).
+ * The detail card's trace ids stay plain text: the Required Behaviors have no
+ * review page of their own. (Lane chips carry no per-item axis badge: the
+ * lane they sit in already names the axis, and an "A1"/"A2" glyph only
+ * duplicated it.)
  */
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -74,7 +76,6 @@ import { useComments, volatilityAnchor, rejectedVolatilityAnchor } from './comme
 import {
   axesLayout,
   axisLabel,
-  axisShortLabel,
   encapsulationOwners,
   laneKeyAction,
   rejectionClassLabel,
@@ -200,16 +201,18 @@ export function VolatilityMap({
               <AxesOverview axis1={axis1} axis2={axis2} sel={sel} t={t} onSelect={setSel} />
             ) : null}
             <Box>
-              <Typography sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
+              <Typography component="h3" sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
                 {points.length} VOLATILITIES
               </Typography>
               <Typography
                 data-testid={UI_IDENTIFIERS.VolatilityMap.SUMMARY}
                 sx={{ color: t.muted, fontSize: 13.5, lineHeight: 1.6 }}
               >
-                Two axes of change: the left lane evolves for one customer over time; the right lane
-                differs across customers at one moment. Select a volatility to inspect
-                {enabled ? ' or comment' : ''}.
+                A volatility is an area of the system likely to change. Each one becomes the job of
+                a single component that encapsulates it, so the change stays contained. They are
+                found along two axes: the left lane changes for one customer over time; the right
+                lane differs between customers at one moment. Hover a dot in the sketch for its
+                name, or select a volatility below to inspect{enabled ? ' or comment on' : ''} it.
               </Typography>
             </Box>
           </Box>
@@ -223,7 +226,7 @@ export function VolatilityMap({
           items={axis1}
           registerChip={registerChip}
           sel={sel}
-          subtitle="Varies for one customer over time."
+          subtitle="What will change for any one customer as their business evolves."
           t={t}
           title={AXIS1_LABEL}
           onSelect={setSel}
@@ -234,7 +237,7 @@ export function VolatilityMap({
           items={axis2}
           registerChip={registerChip}
           sel={sel}
-          subtitle="Differs across customers at one moment."
+          subtitle="What differs from one customer to the next, at the same moment."
           t={t}
           title={AXIS2_LABEL}
           onSelect={setSel}
@@ -593,7 +596,10 @@ function Lane({
   return (
     <Paper sx={{ flex: 1, p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Box sx={{ p: 1.5, borderBottom: `1px solid ${t.line}`, borderTop: `4px solid ${color}` }}>
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12.5, color: t.ink }}>
+        <Typography
+          component="h3"
+          sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12.5, color: t.ink }}
+        >
           {title} · {items.length}
         </Typography>
         <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
@@ -716,30 +722,6 @@ function VolChip({
       >
         {v.name}
       </Typography>
-      <Box sx={{ flexGrow: 1 }} />
-      {/* Compact per-item axis indicator (A1/A2) so the axis is readable without
-          selecting — visual reinforcement only (aria-hidden: the lane's own
-          aria-label already names the axis for AT), in the lane's accent color
-          except on the active chip, where the chip bg IS that accent. */}
-      <Box
-        aria-hidden="true"
-        component="span"
-        sx={{
-          fontFamily: t.mono,
-          fontWeight: 700,
-          fontSize: 9,
-          lineHeight: 1,
-          px: 0.5,
-          py: 0.25,
-          borderRadius: 0.75,
-          flexShrink: 0,
-          color: active ? t.accentText : axisColor(t, v.axis),
-          border: `1px solid ${active ? t.accentText : axisColor(t, v.axis)}`,
-          opacity: active ? 0.9 : 0.75,
-        }}
-      >
-        {axisShortLabel(v.axis)}
-      </Box>
     </Box>
   );
 }
@@ -754,7 +736,7 @@ function SelectionCard({
   v: VolatilityPoint;
   t: Tokens;
   /** The System component(s) that encapsulate this volatility, when the join
-   *  resolves — each name links to the Architecture step. */
+   *  resolves — each name links to the Architecture review. */
   encapsulatedBy?: string[] | undefined;
   /** Back affordance: clear the selection and return to the summary card. */
   onClear: () => void;
@@ -831,7 +813,7 @@ function SelectionCard({
           <Box component="span" sx={{ color: t.muted }}>
             Encapsulated by
           </Box>
-          {/* Each owning component links to the Architecture step (multiple
+          {/* Each owning component links to the Architecture review (multiple
               owners — a drafting smell — all render, comma-separated). */}
           {encapsulatedBy.map((owner, i) => (
             <Box component="span" key={owner} sx={{ fontWeight: 700 }}>

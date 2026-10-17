@@ -67,7 +67,7 @@ function RevisionRow({
               sx={{
                 fontFamily: t.mono,
                 fontSize: 9,
-                color: t.accent,
+                color: t.accentInk,
                 border: `1px solid ${t.line}`,
                 borderRadius: 0.75,
                 px: 0.5,

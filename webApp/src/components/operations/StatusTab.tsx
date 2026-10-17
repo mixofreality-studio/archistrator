@@ -24,7 +24,7 @@ export function StatusTab({ view }: { view: OperationsView | undefined }): React
   if (view === undefined) {
     return (
       <AwaitingPanel
-        detail="This operated app has no observed runtime status — it may not be deployed, or the reconcile read is still converging. readRuntimeStatus is infra-observed; the console re-reads on the reconcile tick."
+        detail="There’s no health information yet — the app may not be deployed, or it was just deployed and hasn’t reported back. This page refreshes on its own."
         title="No runtime status yet"
       />
     );
@@ -71,9 +71,9 @@ export function StatusTab({ view }: { view: OperationsView | undefined }): React
             t={t}
             tone={sum.breaching > 0 ? 'warn' : 'ok'}
           />
-          <Tooltip title="Observed at the last reconcile tick. aiarch OBSERVES infrastructure-driven convergence; it does not command it.">
+          <Tooltip title="As last reported by the hosting platform. archistrator observes the running app; the platform runs it.">
             <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>
-              {view.health.detail.length > 0 ? view.health.detail : 'readRuntimeStatus'}
+              {view.health.detail.length > 0 ? view.health.detail : 'as last reported'}
             </Typography>
           </Tooltip>
         </Box>
@@ -83,10 +83,10 @@ export function StatusTab({ view }: { view: OperationsView | undefined }): React
       <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
           <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 16, color: t.ink }}>
-            SLO listview
+            Service-level objectives
           </Typography>
           <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
-            · per-SLO posture from readRuntimeStatus
+            · each part of the app and whether it meets its target
           </Typography>
         </Box>
         {view.slos.length === 0 ? (

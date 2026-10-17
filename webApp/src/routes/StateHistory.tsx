@@ -6,9 +6,8 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import { getRouteApi, useNavigate } from '@tanstack/react-router';
+import { getRouteApi } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
 import { StateHistoryContainer } from '../containers/StateHistoryContainer';
 import { useTokens } from '../utilities/theme/ThemeContext';
@@ -19,7 +18,6 @@ const routeApi = getRouteApi('/project/$projectId/history');
 export function StateHistoryScreen(): ReactNode {
   const { projectId } = routeApi.useParams();
   const t = useTokens();
-  const navigate = useNavigate();
   return (
     <AppShell projectId={projectId}>
       <Box
@@ -29,20 +27,12 @@ export function StateHistoryScreen(): ReactNode {
         <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2, mb: 2, flexWrap: 'wrap' }}>
           <Box>
             <Typography sx={{ color: t.muted }} variant="overline">
-              every recorded change · newest first
+              Every recorded change · newest first
             </Typography>
-            <Typography sx={{ color: t.ink }} variant="h3">
+            <Typography component="h1" sx={{ color: t.ink }} variant="h3">
               State history
             </Typography>
           </Box>
-          <Box sx={{ flexGrow: 1 }} />
-          <Button
-            sx={{ color: t.muted }}
-            variant="text"
-            onClick={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-          >
-            ← Home base
-          </Button>
         </Box>
         <StateHistoryContainer projectId={projectId} />
       </Box>

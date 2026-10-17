@@ -4,7 +4,8 @@
  *  - activity: a card. Float-criticality (Löwy ch.8 §2, server-computed) drives the
  *    6px LEFT BORDER band; the float chip adopts the band; CRITICAL dominates (full
  *    bold border + filled header + ring). coding/noncoding is a small glyph; the
- *    numeric {float}d is ALWAYS visible (non-colour carrier, WCAG 1.4.1).
+ *    numeric "float {n}d" is ALWAYS visible (non-colour carrier, WCAG 1.4.1), and
+ *    the duration reads "{n}d work" so the two day-counts are never confused.
  *  - milestone: a DIAMOND glyph (public=filled / private=hollow; on-CP=critical
  *    colour, off-CP=muted) with the label below — no duration row.
  * Optional BUILD LENS: when `nodeStatus` is present the node shows a build-status
@@ -25,7 +26,7 @@ import type { FloatBand, NetworkNodeKind } from '../../contracts/projectAdapters
 import type { BuildStatus } from '../../contracts/constructionAdapters';
 import { useComments } from '../comments/CommentContext';
 import { statusColor, StatusChip } from '../construction/status';
-import { bandTokens, BAND_LABEL, type BandTokens } from './bandTokens';
+import { bandTokens, type BandTokens } from './bandTokens';
 
 export interface NetworkNodeData {
   activityId: string;
@@ -109,11 +110,14 @@ function FloatChipInline({
     <Box
       sx={{
         fontFamily: t.mono,
-        fontSize: 9,
+        fontSize: 9.5,
         fontWeight: 700,
-        color: crit ? t.criticalText : band.fg,
-        bgcolor: crit ? t.criticalFg : 'transparent',
-        border: `1px solid ${band.fg}`,
+        // Ink on a band tint, not band-coloured text: the band hues are chosen
+        // for marks (a 6px edge, a chip border), and as 9px text several of them
+        // fell under 4.5:1 on the paper. The band still rides the border + fill.
+        color: crit ? t.criticalText : t.ink,
+        bgcolor: crit ? t.criticalFg : band.soft,
+        border: `1.5px solid ${band.fg}`,
         borderRadius: 99,
         px: 0.55,
         py: 0.05,
@@ -121,7 +125,7 @@ function FloatChipInline({
         lineHeight: 1.5,
       }}
     >
-      {crit ? 'CP · 0' : `${String(data.float)}d`}
+      {crit ? 'critical' : `float ${String(data.float)}d`}
     </Box>
   );
 }
@@ -138,7 +142,6 @@ function MilestoneNode({ d, selected }: { d: NetworkNodeData; selected: boolean 
   const ring = selected ? `0 0 0 3px ${t.accent}` : crit ? `0 0 0 1px ${t.criticalFg}` : 'none';
   return (
     <Box
-      aria-label={`Milestone ${d.label}, ${isPublic ? 'public' : 'private'}${crit ? ', on critical path' : ''}`}
       sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, width: 96 }}
     >
       <Box
@@ -213,14 +216,12 @@ export function NetworkNode({ data, selected }: NodeProps): ReactNode {
       <Handle position={Position.Top} style={{ opacity: 0 }} type="target" />
       {isSelected ? <NodeToolbarActions d={d} t={t} /> : null}
 
+      {/* The spoken name is the React Flow node's `ariaLabel` (NetworkView's
+          nodeAriaLabel), on the focusable wrapper — an aria-label here, on a
+          role-less div, was never announced. */}
       <Box
-        aria-label={
-          crit
-            ? `${d.activityId}, ${String(d.days)} days, float 0 days, on critical path`
-            : `${d.activityId}, ${String(d.days)} days, float ${String(d.float)} days, ${BAND_LABEL[d.band]}`
-        }
         sx={{
-          width: 196,
+          width: 232,
           bgcolor: fill,
           border: `${String(borderWidth)}px solid ${borderColor}`,
           borderLeft: `6px solid ${band.fg}`,
@@ -267,14 +268,24 @@ export function NetworkNode({ data, selected }: NodeProps): ReactNode {
                 border: `1.5px solid ${d.coding ? t.accent2 : t.muted}`,
               }}
             />
-            <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, fontWeight: 700, color: t.ink }}>
-              {String(d.days)}d
+            <Typography
+              sx={{
+                fontFamily: t.mono,
+                fontSize: 9.5,
+                fontWeight: 700,
+                color: t.ink,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {String(d.days)}d work
             </Typography>
             <Typography
               sx={{
                 fontFamily: t.mono,
-                fontSize: 9,
-                color: t.muted,
+                fontSize: 9.5,
+                // ink, not muted: the card body sits on the band tint, and muted
+                // on the near-critical tint measured 3.7:1.
+                color: t.ink,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',

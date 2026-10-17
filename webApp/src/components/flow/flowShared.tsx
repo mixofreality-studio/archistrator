@@ -10,7 +10,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  Panel,
   useReactFlow,
   useStore,
   type Edge,
@@ -32,64 +31,134 @@ import { flowInstanceId } from './flowInstanceId.ts';
 import { fitToWidth } from './fitContent.ts';
 import { useMeasuredSizes } from './measuredSizes.ts';
 
-/** The shared layer-colour legend Panel (only the layers actually present). */
+/**
+ * The shared diagram KEY: one wrapped strip ABOVE the canvas (never a panel over
+ * it — an overlay hid the top rows of nodes behind itself, and grew with every
+ * row a lens needed to explain). It keys the layer colours actually present
+ * (with each layer's component count when given), the arrow styles actually
+ * drawn, and any lens-specific entries a caller passes as `footer`.
+ */
 export function LayerLegend({
   usedLayers,
   colors,
   counts,
   footer,
+  edgeKinds,
   t,
 }: {
   usedLayers: Layer[];
   colors: Record<Layer, string>;
-  /** Optional per-layer component count, rendered as a small "· N" cardinality chip
-   *  beside each legend row — surfaces The Method's per-layer cardinality guidance
-   *  where the eye already is (Static architecture view). */
+  /** Optional per-layer component count — surfaces The Method's per-layer
+   *  cardinality guidance where the eye already is (Static architecture view). */
   counts?: Record<Layer, number>;
-  /** Optional extra row under the layer rows (e.g. the structure-findings count
-   *  chip linking to the Design Health step). */
+  /** Optional extra entries after the layer + arrow keys (e.g. the structure-
+   *  findings count chip, or a lens's own glow/trail vocabulary). */
   footer?: ReactNode;
+  /** Which arrow styles the canvas actually draws, so the key can explain them:
+   *  solid = a synchronous call, dashed = a queued / pub-sub call. Absent → no
+   *  arrow key. */
+  edgeKinds?: { sync: boolean; async: boolean };
+  t: Tokens;
+}): ReactNode {
+  const showEdges = edgeKinds !== undefined && (edgeKinds.sync || edgeKinds.async);
+  return (
+    <Box
+      aria-label="Diagram key"
+      role="group"
+      sx={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        columnGap: 2,
+        rowGap: 0.75,
+        mb: 1,
+        px: 1.25,
+        py: 0.75,
+        bgcolor: t.paper,
+        border: `1px solid ${t.line}`,
+        borderRadius: t.radius / 8 + 0.5,
+      }}
+    >
+      <KeyGroup label={counts !== undefined ? 'Layers (components)' : 'Layers'} t={t}>
+        {usedLayers.map((l) => (
+          <Box key={l} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+            <Box aria-hidden sx={{ width: 12, height: 4, bgcolor: colors[l], flexShrink: 0 }} />
+            <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink }}>
+              {LAYER_LABEL[l]}
+              {counts !== undefined ? ` · ${String(counts[l])}` : ''}
+            </Typography>
+          </Box>
+        ))}
+      </KeyGroup>
+      {showEdges ? (
+        <KeyGroup label="Arrows" t={t}>
+          {edgeKinds.sync ? (
+            <EdgeKeyRow dashed={false} label="call, waits for a reply" t={t} />
+          ) : null}
+          {edgeKinds.async ? <EdgeKeyRow dashed label="queued / published, no wait" t={t} /> : null}
+        </KeyGroup>
+      ) : null}
+      {footer ?? null}
+    </Box>
+  );
+}
+
+/** One labelled cluster of the key strip ("Layers", "Arrows", …). */
+export function KeyGroup({
+  label,
+  t,
+  children,
+}: {
+  label: string;
+  t: Tokens;
+  children: ReactNode;
+}): ReactNode {
+  return (
+    <Box
+      sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 1.25, rowGap: 0.5 }}
+    >
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          color: t.muted,
+        }}
+      >
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  );
+}
+
+/** One arrow-style entry of the key: a short line sample + what it means. */
+function EdgeKeyRow({
+  dashed,
+  label,
+  t,
+}: {
+  dashed: boolean;
+  label: string;
   t: Tokens;
 }): ReactNode {
   return (
-    <Panel position="top-left">
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 0.5,
-          p: 1,
-          bgcolor: t.paper,
-          border: `1.5px solid ${t.line}`,
-          borderRadius: t.radius / 8 + 0.5,
-        }}
-      >
-        {usedLayers.map((l) => (
-          <Box key={l} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-            <Box sx={{ width: 12, height: 4, bgcolor: colors[l] }} />
-            <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink }}>
-              {LAYER_LABEL[l]}
-            </Typography>
-            {counts !== undefined ? (
-              <Box
-                component="span"
-                sx={{
-                  ml: 'auto',
-                  pl: 1,
-                  fontFamily: t.mono,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: colors[l],
-                }}
-              >
-                {counts[l]}
-              </Box>
-            ) : null}
-          </Box>
-        ))}
-        {footer ?? null}
-      </Box>
-    </Panel>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+      <svg aria-hidden="true" focusable="false" height="6" width="20">
+        <line
+          stroke={t.ink}
+          strokeDasharray={dashed ? '4 3' : undefined}
+          strokeWidth="1.5"
+          x1="0"
+          x2="20"
+          y1="3"
+          y2="3"
+        />
+      </svg>
+      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink }}>{label}</Typography>
+    </Box>
   );
 }
 
@@ -180,6 +249,16 @@ export function FlowCanvas({
         border: `1.5px solid ${t.line}`,
         borderRadius: t.radius / 8 + 0.5,
         bgcolor: t.bg,
+        // xyflow's zoom controls ship light-only styling: on the dark themes they
+        // were near-white squares with near-white glyphs. Theme them from tokens.
+        '& .react-flow__controls-button': {
+          bgcolor: t.paper,
+          color: t.ink,
+          fill: t.ink,
+          borderColor: t.line,
+          '&:hover': { bgcolor: t.paperAlt },
+          '& svg': { fill: t.ink },
+        },
       }}
     >
       <ReactFlow

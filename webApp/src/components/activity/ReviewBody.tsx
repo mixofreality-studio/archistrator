@@ -335,7 +335,9 @@ export function ReviewBody({
         artifact={artifact}
         contractJoin={contractJoin}
         project={project}
-        readOnly={historyCaption !== undefined}
+        // Read-only on a past revision AND on a gate no decision is owed on: the
+        // M0 option rows are a chooser only while the gate is live.
+        readOnly={historyCaption !== undefined || !live}
         sdp={sdp}
         slots={slots}
         systemEnvelope={systemEnvelope}

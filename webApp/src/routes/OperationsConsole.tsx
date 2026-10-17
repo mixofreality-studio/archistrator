@@ -18,13 +18,14 @@
  *     operation) seeds the operated system's head state once, above every tab.
  *
  * Operations is CLOUD / k8s only — the local/embedded profile has no operate
- * surface. Every tab degrades to an honest awaiting state rather than an error
+ * surface. (A "CLOUD" chip used to say so in the tab bar; it told a customer
+ * nothing they could act on, so it went.) Every tab degrades to an honest awaiting state rather than an error
  * when the read is quiet (no operated app deployed yet).
  */
-import { useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import Chip from '@mui/material/Chip';
+import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import Tooltip from '@mui/material/Tooltip';
 import Tabs from '@mui/material/Tabs';
@@ -33,10 +34,12 @@ import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import BoltOutlinedIcon from '@mui/icons-material/BoltOutlined';
-import { getRouteApi, useNavigate, Link as RouterLink } from '@tanstack/react-router';
+import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
 import { ApiError } from '../contracts/errors';
 import { useOperationsView } from '../hooks/useOperationsView';
+import { useProjects } from '../hooks/useDeliveryQueries';
+import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { useRegisterOperatedApp } from '../hooks/useOperationsMutations';
 import { sloSummary } from '../contracts/operationsAdapters';
 
@@ -67,29 +70,32 @@ interface TabMeta {
 const TABS: readonly [TabMeta, ...TabMeta[]] = [
   {
     id: 'status',
-    title: 'Status / Health',
-    subtitle: 'readRuntimeStatus — SloMet / Phase + the health timeline',
+    title: 'Health',
+    subtitle:
+      'Is the app up, and is each part meeting its service-level objective (SLO) — the target it promises, such as response time?',
     icon: <MonitorHeartOutlinedIcon sx={{ fontSize: 16 }} />,
     testid: UI_IDENTIFIERS.Operations.TAB_STATUS,
   },
   {
     id: 'deployments',
     title: 'Deployments',
-    subtitle: 'desired-state publish → GitOps-observed Phase',
+    subtitle:
+      'What is deployed, and publishing a new version. archistrator records the version you want; the hosting platform rolls it out and this page shows what it observes.',
     icon: <RocketLaunchOutlinedIcon sx={{ fontSize: 16 }} />,
     testid: UI_IDENTIFIERS.Operations.TAB_DEPLOYMENTS,
   },
   {
     id: 'scaling',
     title: 'Scaling & Cost',
-    subtitle: 'run-rate + what-if curve · autoscaler decision history',
+    subtitle:
+      'What the app costs to run now, what it would cost at other sizes, and how it has scaled with traffic.',
     icon: <TrendingUpOutlinedIcon sx={{ fontSize: 16 }} />,
     testid: UI_IDENTIFIERS.Operations.TAB_SCALING,
   },
   {
     id: 'interventions',
     title: 'Interventions',
-    subtitle: 'interventionEngine escalations · human steer',
+    subtitle: 'Problems the platform could not resolve on its own, waiting for your decision.',
     icon: <BoltOutlinedIcon sx={{ fontSize: 16 }} />,
     testid: UI_IDENTIFIERS.Operations.TAB_INTERVENTIONS,
   },
@@ -105,10 +111,35 @@ export function OperationsConsoleScreen(): ReactNode {
   );
 }
 
+/**
+ * Reports `projectId` when ITS derived operated-app id is the console's. The
+ * route carries only the operated-app id, and the id is a one-way derivation of
+ * the project id (useOperatedAppId), so the owning project is found by asking
+ * each of the owner's projects — one cached, never-polled read apiece.
+ */
+function OwnerProbe({
+  projectId,
+  operatedAppId,
+  onMatch,
+}: {
+  projectId: string;
+  operatedAppId: string;
+  onMatch: (projectId: string) => void;
+}): null {
+  const derived = useOperatedAppId(projectId);
+  useEffect(() => {
+    if (derived === operatedAppId) onMatch(projectId);
+  }, [derived, operatedAppId, projectId, onMatch]);
+  return null;
+}
+
 function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): ReactNode {
   const t = useTokens();
   const navigate = useNavigate();
   const [tab, setTab] = useState<TabId>('status');
+  const { data: projects } = useProjects();
+  const [ownerProjectId, setOwnerProjectId] = useState<string | undefined>(undefined);
+  const ownerName = projects?.find((p) => p.projectId === ownerProjectId)?.name;
 
   const viewQuery = useOperationsView(operatedAppId);
   const viewMissing = viewQuery.error instanceof ApiError && viewQuery.error.status === 404;
@@ -130,10 +161,24 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
     <ExperienceChrome
       // Self: the tab bar is pinned and the tab BODY scrolls (see below). No margin.
       bodyScroll="self"
+      eyebrow="AFTER DELIVERY"
       phaseNum={4}
       phaseTitle="Operations"
-      onClose={() => void navigate({ to: '/' })}
+      projectName={ownerName}
+      onClose={() =>
+        void (ownerProjectId !== undefined
+          ? navigate({ to: '/project/$projectId/home', params: { projectId: ownerProjectId } })
+          : navigate({ to: '/' }))
+      }
     >
+      {(projects ?? []).map((p) => (
+        <OwnerProbe
+          key={p.projectId}
+          operatedAppId={operatedAppId}
+          projectId={p.projectId}
+          onMatch={setOwnerProjectId}
+        />
+      ))}
       <Box
         data-testid={UI_IDENTIFIERS.Operations.ROOT}
         sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
@@ -183,7 +228,9 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
                   textTransform: 'none',
                   color: t.muted,
                   '&:hover': { color: t.ink },
-                  '&.Mui-selected': { color: t.accent },
+                  // The indicator carries the accent; the label stays ink so it
+                  // clears AA on every theme (the lavender accent does not on dark).
+                  '&.Mui-selected': { color: t.ink },
                 }}
                 value={x.id}
               />
@@ -209,30 +256,27 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
                   fontWeight: 700,
                 }}
               >
-                {sum.healthy}/{sum.total} SLOs
+                {sum.healthy} of {sum.total} SLOs met
               </Box>
             )}
-            <Tooltip title="Hosting + token spend are billed on the top-level Billing surface.">
-              <Chip
-                clickable
-                component={RouterLink}
-                data-testid={UI_IDENTIFIERS.Operations.BILLING_LINK}
-                label="Billing →"
-                size="small"
-                sx={{
-                  color: t.ink,
-                  borderColor: t.line,
-                  fontFamily: t.mono,
-                  fontWeight: 700,
-                  textDecoration: 'none',
-                }}
-                to="/billing"
-                variant="outlined"
-              />
-            </Tooltip>
-            <Tooltip title="Operations is cloud / k8s only — the local profile has no operate surface.">
-              <Chip label="CLOUD" size="small" sx={{ bgcolor: t.chatPmBg, color: t.chatPmFg }} />
-            </Tooltip>
+            {ownerProjectId !== undefined ? (
+              <Tooltip title="Hosting and AI-work charges are billed on the project's Billing page.">
+                <Button
+                  data-testid={UI_IDENTIFIERS.Operations.BILLING_LINK}
+                  size="small"
+                  sx={{ color: t.ink, borderColor: t.line, fontWeight: 700, textTransform: 'none' }}
+                  variant="outlined"
+                  onClick={() =>
+                    void navigate({
+                      to: '/project/$projectId/billing',
+                      params: { projectId: ownerProjectId },
+                    })
+                  }
+                >
+                  Billing →
+                </Button>
+              </Tooltip>
+            ) : null}
           </Box>
         </Box>
 
@@ -279,7 +323,9 @@ function ConsoleHeader({
         <Typography component="h1" sx={{ color: t.ink }} variant="h4">
           {title}
         </Typography>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
+        <Typography
+          sx={{ fontSize: 13.5, color: t.muted, mt: 0.5, maxWidth: 760, lineHeight: 1.5 }}
+        >
           {subtitle}
         </Typography>
       </Box>

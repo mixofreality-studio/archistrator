@@ -231,8 +231,10 @@ export function SubmitBar({
             {verb.label}
           </Button>
         ) : (
+          // Plain words: "staged" is our jargon for comments written but not yet
+          // sent, which a first-time reviewer has no reason to know.
           <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
-            Nothing staged — up to date
+            No comments waiting to be sent — nothing to submit
           </Typography>
         )}
         {verb.consequence.length > 0 ? (
@@ -262,6 +264,9 @@ export function SubmitBar({
       {hasMenu ? (
         <>
           <IconButton
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            aria-label="More review actions"
             data-testid={UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_MENU_BUTTON}
             size="small"
             onClick={(e) => {

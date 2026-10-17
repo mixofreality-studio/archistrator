@@ -42,7 +42,7 @@
  * Extracted from DesignExperience.tsx so the two phase screens share one shell
  * rather than forking it.
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
@@ -148,7 +148,19 @@ export function ExperienceChrome({
   // crosses the breakpoint remounts the margin — cheap, and rare.
   const marginNode = margin?.(scrollRoot);
   const inlineMargin = margin !== undefined && !drawer;
-  const drawerMargin = margin !== undefined && drawer;
+  // At drawer widths the margin OVERLAYS the content (up to 92vw on a phone), so it
+  // starts CLOSED there and opens from the header's comments toggle — opened by
+  // default it covered the very artifact a reader came to see. Escape or the
+  // margin's own collapse button closes it again.
+  const [drawerShown, setDrawerShown] = useState(false);
+  const drawerMargin = margin !== undefined && drawer && drawerShown;
+  const drawerToggle = margin !== undefined && drawer && !drawerShown;
+  // Opening moves focus INTO the drawer (the toggle that opened it unmounts), so
+  // a keyboard user lands on the comments and Escape can close them.
+  const drawerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (drawerMargin) drawerRef.current?.focus();
+  }, [drawerMargin]);
   return (
     <Box
       data-testid={UI_IDENTIFIERS.DesignExperience.ROOT}
@@ -182,9 +194,9 @@ export function ExperienceChrome({
           borderTop: `4px solid ${t.accent}`,
         }}
       >
-        <Tooltip title="Close — back to home base">
+        <Tooltip title="Close">
           <Box
-            aria-label="close experience"
+            aria-label="Close"
             data-testid={UI_IDENTIFIERS.DesignExperience.CLOSE}
             role="button"
             sx={{
@@ -233,13 +245,16 @@ export function ExperienceChrome({
               fontFamily: t.mono,
               fontSize: 10.5,
               letterSpacing: '0.22em',
-              color: t.accent,
+              // accentInk: the accent's text-safe variant (≥ 4.5:1 on every
+              // theme's surfaces — the brand accent is 3.7:1 on mor's paper).
+              color: t.accentInk,
               lineHeight: 1,
             }}
           >
             {eyebrow ?? `PHASE ${String(phaseNum)} · EXPERIENCE`}
           </Typography>
           <Typography
+            component="h1"
             sx={{
               fontFamily: t.display,
               fontWeight: 700,
@@ -254,6 +269,7 @@ export function ExperienceChrome({
 
         {projectName !== undefined && (
           <Chip
+            aria-label={`Project: ${projectName}`}
             label={projectName}
             size="small"
             sx={{ bgcolor: t.paperAlt, color: t.ink, display: { xs: 'none', md: 'flex' } }}
@@ -264,18 +280,22 @@ export function ExperienceChrome({
         <Box sx={{ flexGrow: 1 }} />
 
         <ThemeSwitcher />
-        {marginOpen === false && onOpenMargin !== undefined && (
+        {(marginOpen === false && onOpenMargin !== undefined) || drawerToggle ? (
           <Tooltip title="Open comments">
             <IconButton
+              aria-label="Open comments"
               data-testid={UI_IDENTIFIERS.Chat.TOGGLE}
               size="small"
               sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }}
-              onClick={onOpenMargin}
+              onClick={() => {
+                setDrawerShown(true);
+                if (marginOpen === false) onOpenMargin?.();
+              }}
             >
               <ChatBubbleOutlineIcon fontSize="small" />
             </IconButton>
           </Tooltip>
-        )}
+        ) : null}
       </Box>
 
       {/* spine bar */}
@@ -365,6 +385,9 @@ export function ExperienceChrome({
               content space and cannot sit level with anything. */}
           {drawerMargin ? (
             <Box
+              aria-label="Comments"
+              ref={drawerRef}
+              role="region"
               sx={{
                 position: 'absolute',
                 top: 0,
@@ -374,6 +397,10 @@ export function ExperienceChrome({
                 width: 'min(340px, 92vw)',
                 bgcolor: t.bg,
                 boxShadow: `-6px 0 18px ${t.shadowColor}`,
+              }}
+              tabIndex={-1}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setDrawerShown(false);
               }}
             >
               {marginNode}

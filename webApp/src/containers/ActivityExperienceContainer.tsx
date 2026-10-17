@@ -83,10 +83,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { useNavigate } from '@tanstack/react-router';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
-import { CommentMargin } from '../components/design/CommentMargin';
+import { CommentMargin, MARGIN_DRAWER_MEDIA } from '../components/design/CommentMargin';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
 import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
 import { StructureFindingsProvider } from '../components/flow/StructureFindingsContext';
@@ -452,7 +453,13 @@ export function ActivityExperienceContainer({
 
   // The margin auto-opens whenever an anchor is armed (requestId bumps); a manual
   // collapse records the requestId it happened at, and a newer anchor re-opens it.
-  const [closedAt, setClosedAt] = useState<number | null>(null);
+  // Where the margin is a DRAWER over the content (a phone, a narrow window) it
+  // starts closed: opened by default it covers the very artifact under review.
+  // The first armed anchor still opens it, exactly as a newer one re-opens it.
+  const marginIsDrawer = useMediaQuery(MARGIN_DRAWER_MEDIA, { noSsr: true });
+  const [closedAt, setClosedAt] = useState<number | null>(() =>
+    marginIsDrawer ? requestId : null
+  );
   const marginOpen = closedAt === null || requestId > closedAt;
 
   // `revisionParam` is what decides whether the URL carries `rev` at all: the
@@ -1077,12 +1084,15 @@ export function ActivityExperienceContainer({
                 : undefined
             }
             roster={revisionWire?.reviewers}
+            // Only a LIVE M0 gate offers the option chooser: a passed (or not yet
+            // reached) gate shows the committed choice read-only, never "You will
+            // commit…" over a decision already made.
             sdp={
-              historical
+              !liveGate
                 ? undefined
                 : {
                     onChoose: setSdpOption,
-                    ...(liveGate && verbs.rejectAll.kind === 'decision'
+                    ...(verbs.rejectAll.kind === 'decision'
                       ? { onRejectAll: rejectAll, rejectPending: sdpDecision.isPending }
                       : {}),
                   }

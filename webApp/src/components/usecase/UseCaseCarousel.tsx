@@ -11,6 +11,7 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import FormControl from '@mui/material/FormControl';
@@ -36,7 +37,12 @@ import { StepLink } from '../shared/StepLink';
 import { ActivityFlow } from './ActivityFlow';
 import { UseCaseWalkthrough } from './UseCaseWalkthrough';
 import { coreBand } from './coreBand';
-import { realizationChip, isEligibleForRealization, toneColor } from './useCaseChip';
+import {
+  realizationChip,
+  isEligibleForRealization,
+  toneColor,
+  REALIZATION_CHIP_HINT,
+} from './useCaseChip';
 import { laneColors } from './laneColors';
 
 // Diagram-view mode survives the design-experience remount that would otherwise
@@ -58,7 +64,7 @@ export function UseCaseCarousel({
   envelope: ArtifactModelEnvelope | undefined;
   /** The committed System envelope, when the caller has it: resolves each use
    *  case's dynamic call-chain view for the "View call chain" join to the
-   *  Architecture step. Absent (older states / no system yet) → no link. */
+   *  Architecture review. Absent (older states / no system yet) → no link. */
   systemEnvelope?: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
@@ -294,27 +300,27 @@ export function UseCaseCarousel({
               {uc.name}
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-              <Chip
-                label={isCore ? 'CORE' : 'NON-CORE'}
-                size="small"
-                sx={{
-                  bgcolor: isCore ? t.committedBg : t.awaitingBg,
-                  color: isCore ? t.committedFg : t.awaitingFg,
-                }}
-              />
+              {/* No CORE/NON-CORE chip here: the overline above already says
+                  "Core Use Case" / "Variation", and a second label in other words
+                  read as a second classification. */}
               {/* Realization roll-up ("N/M steps realized") — only meaningful once
                   this use case owns a diagram to realize steps of. */}
               {hasDiagram ? (
-                <Chip
-                  data-testid={UI_IDENTIFIERS.UseCaseCarousel.REALIZATION_CHIP}
-                  label={realizationSummary.label}
-                  size="small"
-                  sx={{
-                    bgcolor: 'transparent',
-                    color: toneColor(realizationSummary.tone, t),
-                    border: `1.5px solid ${toneColor(realizationSummary.tone, t)}`,
-                  }}
-                />
+                <Tooltip title={REALIZATION_CHIP_HINT}>
+                  <Chip
+                    aria-label={`${realizationSummary.label}. ${REALIZATION_CHIP_HINT}`}
+                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.REALIZATION_CHIP}
+                    label={realizationSummary.label}
+                    size="small"
+                    sx={{
+                      bgcolor: 'transparent',
+                      color: toneColor(realizationSummary.tone, t),
+                      border: `1.5px solid ${toneColor(realizationSummary.tone, t)}`,
+                      '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
+                    }}
+                    tabIndex={0}
+                  />
+                </Tooltip>
               ) : null}
             </Box>
             {/* WHY this is core — the essence-of-the-business argument, symmetric to
@@ -332,7 +338,7 @@ export function UseCaseCarousel({
                 {uc.rejectionReason}
               </Typography>
             )}
-            {/* Navigable join → this use case's call chain (the Architecture step's
+            {/* Navigable join → this use case's call chain (the Architecture review's
               Dynamic lens, preselected via ?view=). No dynamic view → no link. */}
             {callChainKey !== undefined && (
               <Box sx={{ mb: 2.5 }}>
@@ -368,6 +374,7 @@ export function UseCaseCarousel({
                 </Box>
               ))}
             </Box>
+            {hasDiagram ? <ActivityShapeKey t={t} /> : null}
           </Box>
         )}
 
@@ -411,7 +418,7 @@ export function UseCaseCarousel({
                       {uc.name}
                     </Typography>
                     <Chip
-                      label={isCore ? 'CORE' : 'NON-CORE'}
+                      label={isCore ? 'CORE' : 'VARIATION'}
                       size="small"
                       sx={{
                         height: 20,
@@ -521,6 +528,76 @@ export function UseCaseCarousel({
           )}
         </Box>
       </Paper>
+    </Box>
+  );
+}
+
+/**
+ * What the activity diagram's shapes and line styles mean (UML activity
+ * notation). The lane colours are keyed above; without this, a diamond, a
+ * dashed arrow or a folded card is notation a first-time reader has to guess.
+ */
+function ActivityShapeKey({ t }: { t: Tokens }): ReactNode {
+  const rows: { glyph: ReactNode; text: string }[] = [
+    {
+      glyph: <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: t.ink }} />,
+      text: 'start · ringed dot = end',
+    },
+    {
+      glyph: (
+        <Box
+          sx={{ width: 9, height: 9, transform: 'rotate(45deg)', border: `1.5px solid ${t.ink}` }}
+        />
+      ),
+      text: 'decision — the path splits',
+    },
+    {
+      glyph: <Box sx={{ width: 14, height: 4, bgcolor: t.ink }} />,
+      text: 'bar — paths run in parallel',
+    },
+    {
+      glyph: (
+        <svg aria-hidden="true" focusable="false" height="6" width="16">
+          <line
+            stroke={t.ink}
+            strokeDasharray="4 3"
+            strokeWidth="1.5"
+            x1="0"
+            x2="16"
+            y1="3"
+            y2="3"
+          />
+        </svg>
+      ),
+      text: 'dashed — taken only when its condition holds, or loops back',
+    },
+    {
+      glyph: (
+        <Box sx={{ width: 12, height: 10, bgcolor: t.awaitingBg, border: `1px solid ${t.line}` }} />
+      ),
+      text: 'note — a remark on the step it points at',
+    },
+  ];
+  return (
+    <Box sx={{ mt: 2.5 }}>
+      <Typography sx={{ color: t.muted, mb: 1 }} variant="subtitle2">
+        DIAGRAM KEY
+      </Typography>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+        {rows.map((r) => (
+          <Box key={r.text} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <Box
+              aria-hidden
+              sx={{ width: 16, display: 'flex', justifyContent: 'center', flexShrink: 0 }}
+            >
+              {r.glyph}
+            </Box>
+            <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.ink }}>
+              {r.text}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
     </Box>
   );
 }

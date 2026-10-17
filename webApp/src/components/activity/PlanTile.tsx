@@ -26,7 +26,7 @@ import { CRITICAL_PATH_TOKEN } from '../project/bandRamp';
 import { taskDetailStateFill } from '../construction/detail/detailPaneState.ts';
 import { LifecycleGraphMini } from './LifecycleGraphMini';
 import { miniLifecycleLabel } from './miniLifecycleFromRow.ts';
-import { CRITICAL_MARK } from './planCopy.ts';
+import { CRITICAL_MARK, CRITICAL_MEANING } from './planCopy.ts';
 import { PLAN_GUTTER_ROOM, PLAN_MILESTONE, PLAN_TILE } from './planGraphLayout.ts';
 import {
   PLAN_STATE_DETAIL,
@@ -64,7 +64,7 @@ function Handles(): ReactNode {
 export function PlanTileNode({ data }: NodeProps): ReactNode {
   const t = useTokens();
   const { activity: a, dimmed, onOpen } = data as PlanTileData;
-  const state = planStateFor(a.lifecycle);
+  const state = planStateFor(a.lifecycle, a.owedToYou);
   const fill = taskDetailStateFill(t, PLAN_STATE_DETAIL[state]);
   const done = a.lifecycle.filter((n) => n.state === 'done').length;
   const open = (): void => {
@@ -74,7 +74,7 @@ export function PlanTileNode({ data }: NodeProps): ReactNode {
     <Box
       aria-label={`${a.id} — ${a.title}, ${PLAN_STATE_LABEL[state]}${
         a.onCriticalPath ? ', on the critical path' : ''
-      }`}
+      }. Open the activity.`}
       data-critical={String(a.onCriticalPath)}
       data-state={state}
       data-testid={UI_IDENTIFIERS.Plan.tile(a.id)}
@@ -142,8 +142,9 @@ export function PlanTileNode({ data }: NodeProps): ReactNode {
                 fontWeight: 700,
                 fontSize: 8.5,
                 letterSpacing: '0.06em',
-                color: t[CRITICAL_PATH_TOKEN],
+                color: t.ink,
               }}
+              title={CRITICAL_MEANING}
             >
               {CRITICAL_MARK}
             </Typography>
@@ -204,7 +205,7 @@ export function PlanTileNode({ data }: NodeProps): ReactNode {
             </>
           ) : (
             <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>
-              no lifecycle reported
+              no steps reported yet
             </Typography>
           )}
         </Box>
@@ -248,7 +249,7 @@ export function PlanMilestoneNode({ id, data }: NodeProps): ReactNode {
             fontFamily: t.mono,
             fontWeight: 700,
             fontSize: 11,
-            color: t.accent,
+            color: t.accentInk,
             whiteSpace: 'nowrap',
           }}
         >

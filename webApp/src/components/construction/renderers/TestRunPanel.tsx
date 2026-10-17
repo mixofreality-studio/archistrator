@@ -143,7 +143,7 @@ export function TestRunPanel({ vm, project, t, testing }: ArtifactRendererProps)
                 fontFamily: t.mono,
                 fontSize: 11,
                 textTransform: 'none',
-                color: t.accent,
+                color: t.accentInk,
               }}
               target="_blank"
             >
