@@ -1209,6 +1209,12 @@ type localExecAccess struct {
 	// sequential avoids racing our own metadata writes. V1 assumes one local
 	// developer driving one construction pump at a time (known limitation, not a
 	// deadlock/corruption risk within that scope).
+	//
+	// It guards NO push. Every receive-pack into the shared repo (the merge job's
+	// push to main and its branch delete) runs under fwgithub.PushLocal, the
+	// process-wide per-repo lock every in-process writer of this repo shares
+	// (FIX-002); a private mutex could only ever serialise this instance against
+	// itself, which is how the merge used to race projectstate's writes.
 	gitMu sync.Mutex
 
 	mu   sync.Mutex
@@ -4855,7 +4861,7 @@ func (a *localExecAccess) submitMergeJob(rc fwra.Context, activityID string) (Pi
 	a.runs[token] = run
 	a.mu.Unlock()
 
-	diag, ok := a.mergeActivityBranch(localBranchName(activityID))
+	diag, ok := a.mergeActivityBranch(rc.Context, localBranchName(activityID))
 
 	run.mu.Lock()
 	defer run.mu.Unlock()
@@ -4880,10 +4886,18 @@ func (a *localExecAccess) submitMergeJob(rc fwra.Context, activityID string) (Pi
 // branch (a prior attempt merged but crashed before deleting) skips straight to
 // the branch delete. Returns ok=false with an operator-readable diagnostic on
 // any failure.
-func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string, ok bool) {
-	a.gitMu.Lock()
-	defer a.gitMu.Unlock()
-
+//
+// EVERY PASS HOLDS THE PER-REPO PUSH LOCK (FIX-002, INTERIM — removal condition in
+// docs/bugs/2026-10-18-fix-002-interim-push-lock.md): the shared repo is the one
+// `archistrator init` makes, main CHECKED OUT with updateInstead, and a push that loses
+// the race there has already written its tree into the target's index — leaving staged
+// changes that make git refuse every later push to main. So the pass — clone, merge,
+// push and branch delete — runs inside fwgithub.PushLocal, the same process-wide lock
+// projectstate's GitStore and sourcecontrol's local pushes take for this repo. The
+// instance's own gitMu is NOT held here: it serialises worktree add/remove, which
+// write no ref anyone pushes to. ctx is the caller's, so a parked waiter is
+// cancellable.
+func (a *localExecAccess) mergeActivityBranch(ctx context.Context, branch string) (diagnostic string, ok bool) {
 	// THE PUSH IS A COMPARE-AND-SWAP ON main, SO A LOST RACE IS RE-RUN AND NOT A FAILURE
 	// (wedge #7). Everything below is a clone→merge→push: a read-modify-write on a ref that
 	// other writers advance — the pump's OpenActivity, a round-sweep heal, another activity's
@@ -4904,7 +4918,12 @@ func (a *localExecAccess) mergeActivityBranch(branch string) (diagnostic string,
 	// AND IT NEVER FORCES. --force would fix the symptom by deleting the concurrent write,
 	// which is strictly worse than the wedge; the branch is re-merged on top of it instead.
 	for attempt := 1; ; attempt++ {
-		diagnostic, ok = a.attemptMergeActivityBranch(branch)
+		if err := fwgithub.PushLocal(ctx, a.repoPath, func() error {
+			diagnostic, ok = a.attemptMergeActivityBranch(branch)
+			return nil
+		}); err != nil {
+			return "local merge: wait for the shared repo's push lock: " + err.Error(), false
+		}
 		if ok || !pushRejectedStaleMain(diagnostic) {
 			return diagnostic, ok
 		}
