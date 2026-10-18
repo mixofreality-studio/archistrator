@@ -591,6 +591,13 @@ func (st *pumpState) clearHalt(ctx workflow.Context, in pumpInput) bool {
 		return out
 	}
 	st.Started, st.Finished = keep(st.Started), keep(st.Finished)
+	// A VANISHED MARK IS A VERDICT ON THE EXECUTION THAT WAS GONE, not on the activity. Left
+	// set, it would judge the activity's NEXT execution: a re-dispatch whose start is refused
+	// to a running execution is adopted (its future disowned), and the vanished arm would then
+	// halt the pump on a live child on the very next reconcile, without ever probing it.
+	for _, id := range failed {
+		delete(st.vanished, id)
+	}
 	workflow.GetLogger(ctx).Info("pump: RESUMED — the halt is cleared and the activities it held are back on the frontier",
 		"projectId", string(in.ProjectID), "haltedOn", string(st.Halt.ActivityID), "returned", len(failed))
 	st.Halt = nil
