@@ -18,6 +18,7 @@ import type {
   EpisodeKind,
   EpisodeOutcome,
   FailureReason,
+  ProjectRunState,
 } from './enums.gen';
 
 type S = components['schemas'];
@@ -871,7 +872,7 @@ export interface ConstructionProgress {
 /** EpisodeKind / EpisodeOutcome app strings, sourced mechanically from
  *  enums.gen.ts (unverified — new/unwired enum, no hand table to check
  *  against). Re-exported here so episode-domain consumers pull one import. */
-export type { EpisodeKind, EpisodeOutcome } from './enums.gen';
+export type { EpisodeKind, EpisodeOutcome, ProjectRunState } from './enums.gen';
 
 export interface EpisodeUsage {
   in: number;
@@ -1343,7 +1344,19 @@ export type ProjectStateWithGit = ProjectState & {
   operatorPaused?: boolean;
   /** The reason the operator gave for the pause; absent when there is none. */
   pauseReason?: string;
+  /**
+   * The construction run state (get-project's runState): `halted` while the project's
+   * construction pump is parked on a failed activity (FIX-003 — `pumpHalt` says which),
+   * else `paused` while an operator's pause is recorded, else `running`. Resume is the one
+   * way out of both. Optional only so a hand-built fixture need not invent it.
+   */
+  runState?: ProjectRunState;
+  /** Why construction is halted, read from the pump; absent when it is not halted. */
+  pumpHalt?: PumpHalt;
 };
+
+/** Why the construction pump halted (get-project's pumpHalt, FIX-003). */
+export type PumpHalt = components['schemas']['DeliveryPumpHalt'];
 
 /** Lookup helper — undefined for not-yet-branched activities (honest-empty). */
 export function gitFor(

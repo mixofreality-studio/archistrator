@@ -469,6 +469,8 @@ export function PlanContainer({
   const pausedControl = pausedControlFor({
     operatorPaused: project?.operatorPaused,
     pauseReason: project?.pauseReason,
+    runState: project?.runState,
+    pumpHalt: project?.pumpHalt,
     projectLoading,
     pending: resume.isPending,
   });
