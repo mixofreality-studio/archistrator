@@ -186,8 +186,12 @@ type stack struct {
 	// revisionsBefore is each design activity's revision count per task, taken before a
 	// step whose settler waits on a design walk (snapshotRevisions).
 	revisionsBefore map[string]map[string]int
-	mu              sync.Mutex
-	arranged        map[int]bool
+	// haltedChildRun and mainBeforeResume are what the halted arrangement saw before the
+	// resume (FIX-003): the run of the activity child the store refused, and main's head.
+	haltedChildRun   string
+	mainBeforeResume string
+	mu               sync.Mutex
+	arranged         map[int]bool
 }
 
 var (
@@ -1491,6 +1495,8 @@ var arrangements = map[string]arrangement{
 	"view-the-project-state-log-P2": arrangeSeventhVersion,
 	"resume-paused-construction-P1": arrangePausedProject(false),
 	"resume-paused-construction-P2": arrangePausedProject(true),
+	// [halted]: the pump parked on drivenActivity, whose first write the store refused.
+	"resume-paused-construction-P3": arrangeHaltedProject,
 	// execute-a-project-activity: the review policy names who judges, the agent script
 	// names whether the construction dispatch lands.
 	"execute-a-project-activity-P1":             arrangeExecute(vibes, nil),
@@ -1591,6 +1597,9 @@ func arrangeBuiltActivity(t *testing.T, h *scenariohost.Host, subject delivery.D
 // settlers is keyed by "<scenario>#<seq>".
 var settlers = map[string]settler{
 	"pause-construction-P1#1": settlePaused,
+	// A resume of a halted pump only signals it; it settles when the activity the halt
+	// held is dispatched again.
+	"resume-paused-construction-P3#1": settleHaltReleased,
 	// An ask on a committed artifact settles when the round's answer workflow has closed:
 	// the job ran (or its seat was refused) and its replies, if any, landed on main.
 	"ask-a-clarifying-question-during-review-P3#1": settleAnswerJob,
@@ -1976,6 +1985,212 @@ func arrangePausedProject(inFlight bool) arrangement {
 			t.Fatalf("hooks: request the in-flight pause: %v", err)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// The halted pump (FIX-003)
+// ---------------------------------------------------------------------------
+
+// arrangeHaltedProject is the [yes] arm of the halt-check guard, built the way the bench
+// run of 2026-10-17 met it: the project store REFUSES every write, so the construction
+// activity the pump dispatches fails at its very first write (its OpenActivity birth) and
+// leaves no row, and nothing anyone can read in the store says the cascade stopped. The
+// pump must PARK on that failure instead of returning — which used to hand the project to
+// the 30-second sweep, which restarted a fresh chain into the same refusal, 57 times in
+// that run. Before the operator resumes, this arrangement proves the halt is durable and
+// visible:
+//
+//  1. the in-flight project is built (drivenActivity eligible, the pump idle), then the
+//     store is made to refuse writes (refuseStoreWrites) and the pump is ticked;
+//  2. the halt is READ, from the pump, through the subject's views: the project's run
+//     state is halted and names drivenActivity, the activity reads haltedByFailure, and
+//     the pump is still open;
+//  3. Begin is refused, naming ResumeProject;
+//  4. three sweep ticks each skip the project, and neither the pump's run nor the
+//     activity child's run moves — no restart loop;
+//  5. the store is healed and an unrelated head-state write lands; a reconcile tick later
+//     the pump is still halted and has dispatched nothing — a head move is not a resume.
+func arrangeHaltedProject(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, seq int) {
+	t.Helper()
+	if seq != 1 {
+		return
+	}
+	arrangeProject(t, h, subject, s, "")
+	refuseStoreWrites(t, s.repo)
+	out, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-halt-0001")
+	if err != nil {
+		t.Fatalf("hooks: tick the pump into the refusing store: %v", err)
+	}
+	if !out.Dispatched || !slices.Contains(out.ActivityIDs, delivery.ActivityID(drivenActivity)) {
+		t.Fatalf("hooks: the tick dispatched %+v, want %s", out, drivenActivity)
+	}
+
+	halt := awaitHalt(t, h, subject)
+	if halt.Cause == "" {
+		t.Fatalf("hooks: the halt names no cause: %+v", halt)
+	}
+	if v := awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewHaltedByFailure); v.State != delivery.ActivityViewHaltedByFailure {
+		t.Fatalf("hooks: %s reads %s, want haltedByFailure", drivenActivity, v.State)
+	}
+	pumpRun := pumpRunOf(t, h)
+	s.haltedChildRun = childRunOf(t, h)
+
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-halt-0002"); err == nil ||
+		!errorHasCode(err, "FailedPrecondition") || !strings.Contains(err.Error(), "ResumeProject") {
+		t.Fatalf("hooks: Begin on a halted project answered %v, want FailedPrecondition naming ResumeProject", err)
+	}
+
+	for tick := 1; tick <= 3; tick++ {
+		if pumped := tickSweep(t, h, tick); slices.Contains(pumped, planProject) {
+			t.Fatalf("hooks: sweep tick %d restarted the halted project's pump (pumped %v)", tick, pumped)
+		}
+	}
+	assertStillHalted(t, h, subject, pumpRun, s.haltedChildRun, "after three sweep ticks")
+
+	healStoreWrites(t, s.repo)
+	setPolicy(t, h, subject, vibes)
+	// One full reconcile tick: the pump re-reads head-state on it, and must not take the
+	// moved head for a resume.
+	time.Sleep(haltReconcileWait)
+	assertStillHalted(t, h, subject, pumpRun, s.haltedChildRun, "after an unrelated head-state write and a reconcile tick")
+	s.mainBeforeResume = strings.TrimSpace(git(t, s.repo.Dir, "rev-parse", "main"))
+}
+
+// haltReconcileWait outlasts the pump's 30-second reconcile tick.
+const haltReconcileWait = 35 * time.Second
+
+// refuseStoreWrites puts the scenario repo in the topology the bench run's store had: main
+// CHECKED OUT, receive.denyCurrentBranch=updateInstead, and a change staged in its index.
+// git then refuses every push to main ("Working directory has staged changes") however
+// often it is retried — a store that reads but cannot be written.
+func refuseStoreWrites(t *testing.T, repo workingRepo) {
+	t.Helper()
+	git(t, repo.Dir, "config", "receive.denyCurrentBranch", "updateInstead")
+	git(t, repo.Dir, "checkout", "-q", "main")
+	if err := os.WriteFile(filepath.Join(repo.Dir, haltDirt), []byte("staged by hand\n"), 0o600); err != nil {
+		t.Fatalf("hooks: dirty the checkout: %v", err)
+	}
+	git(t, repo.Dir, "add", haltDirt)
+}
+
+// healStoreWrites is the operator's one-time recovery: unstage, clean, and take the
+// checkout off main again.
+func healStoreWrites(t *testing.T, repo workingRepo) {
+	t.Helper()
+	git(t, repo.Dir, "reset", "-q", "--mixed")
+	if err := os.Remove(filepath.Join(repo.Dir, haltDirt)); err != nil {
+		t.Fatalf("hooks: clean the checkout: %v", err)
+	}
+	git(t, repo.Dir, "checkout", "-q", "checkout")
+	git(t, repo.Dir, "config", "--unset", "receive.denyCurrentBranch")
+}
+
+// haltDirt is the file staged to make the checkout refuse pushes.
+const haltDirt = "staged-by-hand.txt"
+
+// awaitHalt waits until the project view reports the pump halted on drivenActivity.
+func awaitHalt(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager) delivery.PumpHalt {
+	t.Helper()
+	var halt delivery.PumpHalt
+	eventually(t, walkWindow, "the pump halting on "+drivenActivity, func() (bool, string) {
+		v, err := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
+		if err != nil {
+			return false, err.Error()
+		}
+		if v.Summary == nil || v.Summary.RunState != delivery.ProjectHalted || v.Summary.PumpHalt == nil {
+			return false, fmt.Sprintf("run state %v", v.Summary)
+		}
+		halt = *v.Summary.PumpHalt
+		return halt.ActivityID == drivenActivity, "halted on " + string(halt.ActivityID)
+	})
+	return halt
+}
+
+// assertStillHalted checks the halt held: the view still reads halted, the pump is the
+// SAME run (nothing restarted it) and the activity child is the SAME run (nothing
+// re-dispatched it).
+func assertStillHalted(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, pumpRun, childRun, when string) {
+	t.Helper()
+	v, err := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
+	if err != nil || v.Summary == nil || v.Summary.RunState != delivery.ProjectHalted {
+		t.Fatalf("hooks: %s the project is not halted any more (%v, %v)", when, v.Summary, err)
+	}
+	if got := pumpRunOf(t, h); got != pumpRun {
+		t.Fatalf("hooks: %s the pump is run %s, want the halted run %s — something restarted it", when, got, pumpRun)
+	}
+	if got := childRunOf(t, h); got != childRun {
+		t.Fatalf("hooks: %s %s is run %s, want the refused run %s — something re-dispatched it", when, drivenActivity, got, childRun)
+	}
+}
+
+// pumpRunOf is the project pump's latest run, which must be RUNNING: a halted pump parks,
+// it never closes.
+func pumpRunOf(t *testing.T, h *scenariohost.Host) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(h.Context(t), 10*time.Second)
+	defer cancel()
+	d, err := h.TemporalClient().DescribeWorkflowExecution(ctx, planProject+":nextActivity", "")
+	if err != nil {
+		t.Fatalf("hooks: describe the pump: %v", err)
+	}
+	info := d.GetWorkflowExecutionInfo()
+	if info.GetStatus().String() != "Running" {
+		t.Fatalf("hooks: the pump is %s, want Running", info.GetStatus())
+	}
+	return info.GetExecution().GetRunId()
+}
+
+// childRunOf is the latest run of drivenActivity's child execution.
+func childRunOf(t *testing.T, h *scenariohost.Host) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(h.Context(t), 10*time.Second)
+	defer cancel()
+	d, err := h.TemporalClient().DescribeWorkflowExecution(ctx, planProject+":activity:"+drivenActivity, "")
+	if err != nil {
+		t.Fatalf("hooks: describe %s's execution: %v", drivenActivity, err)
+	}
+	return d.GetWorkflowExecutionInfo().GetExecution().GetRunId()
+}
+
+// tickSweep fires ONE tick of the platform's 30-second pump sweep — the workflow its
+// Schedule starts — through the message bus the composition root wires, and returns the
+// projects that tick started a pump for.
+func tickSweep(t *testing.T, h *scenariohost.Host, tick int) []string {
+	t.Helper()
+	id := fmt.Sprintf("dct-dm-sweep-tick-%d", tick)
+	bus := messagebus.NewTemporalMessageBus(h.TemporalClient(), deliveryKinds())
+	if err := bus.DeliverSignal(h.ResourceAccessContext(t, id), messagebus.ExecutionID(id), "tick",
+		messagebus.ExecutionPayload{}, &messagebus.ExecutionStart{Kind: "constructionPumpSweep"}); err != nil {
+		t.Fatalf("hooks: fire sweep tick %d: %v", tick, err)
+	}
+	ctx, cancel := context.WithTimeout(h.Context(t), time.Minute)
+	defer cancel()
+	var res struct{ PumpedProjects []string }
+	if err := h.TemporalClient().GetWorkflow(ctx, id, "").Get(ctx, &res); err != nil {
+		t.Fatalf("hooks: sweep tick %d: %v", tick, err)
+	}
+	return res.PumpedProjects
+}
+
+// settleHaltReleased waits until the resume has freed the halted pump: drivenActivity is
+// dispatched again — a NEW run of its child, the one run a resume buys — and the project
+// reads running. And it checks the resume's own promise: it wrote NOTHING to the store,
+// which may have been refusing writes when the operator pressed it.
+func settleHaltReleased(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, out any, err error) (any, error) {
+	t.Helper()
+	if err != nil {
+		return out, err
+	}
+	awaitActivityState(t, h, subject, drivenActivity,
+		delivery.ActivityViewRunning, delivery.ActivityViewAwaitingHuman, delivery.ActivityViewDone)
+	if got := childRunOf(t, h); got == s.haltedChildRun {
+		t.Fatalf("hooks: %s was not dispatched again after the resume (still run %s)", drivenActivity, got)
+	}
+	log := git(t, s.repo.Dir, "log", "--format=%s", s.mainBeforeResume+"..main")
+	if strings.Contains(log, "OperatorResumed") || strings.Contains(log, "OperatorPaused") {
+		t.Fatalf("hooks: the resume of a halted, unpaused project wrote to the store:\n%s", log)
+	}
+	return out, err
 }
 
 // settlePaused waits until the pause the step requested is recorded on the project.
@@ -2802,6 +3017,16 @@ func stepResumePausedConstructionP2S1(t *testing.T, h *scenariohost.Host, subjec
 	arrange(t, h, subject, "resume-paused-construction-P2", 1)
 	out, err := any(nil), subject.SetProjectRunState(callContext(t, h, ""), in.ProjectID, in.RunState, in.Reason)
 	return settle(t, h, subject, "resume-paused-construction-P2", 1, out, err)
+}
+
+// stepResumePausedConstructionP3S1 — Resume Paused Construction — [yes], step 1: SetProjectRunState
+// Projected stimulus (JSON): {"seq":1,"node":"choose-resume","input":{"kind":"call","from":"web-client","to":"deliverymanager","op":"SetProjectRunState","call":"resume-paused-construction/choose-resume/2","via":["web-client","mcp-client"]},"expectedOutputs":null,"expectedStates":null,"hints":["Resume is setProjectRunState(projectId, running, reason): the run-state value is the literal 'running' and reason must be non-empty (Go-side non-emptiness guard); MCP and web surfaces bind to the same Manager entry."]}
+// Binding (JSON): {"seq":1,"operation":"SetProjectRunState","inputs":[{"name":"projectID","value":"dct-owner/dct-delivery"},{"name":"runState","value":"running"},{"name":"reason","value":"The project store accepts writes again; resume construction."}],"expect":{"errorExpected":false},"probes":[{"for":"release-halt","component":"deliveryManager","operation":"QueryProjectView","inputs":[{"name":"query","value":"{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"}],"expect":{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":false,\"runState\":\"running\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+func stepResumePausedConstructionP3S1(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, in inputResumePausedConstructionP3S1) (any, error) {
+	t.Helper()
+	arrange(t, h, subject, "resume-paused-construction-P3", 1)
+	out, err := any(nil), subject.SetProjectRunState(callContext(t, h, ""), in.ProjectID, in.RunState, in.Reason)
+	return settle(t, h, subject, "resume-paused-construction-P3", 1, out, err)
 }
 
 // stepSendBackChangeRequestsForARedraftP1S1 — Send Back Change Requests for a Redraft — [yes], step 1: SubmitReviewDecision

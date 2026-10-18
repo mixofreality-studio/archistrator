@@ -1749,6 +1749,38 @@ func arrangePaused(t *testing.T, s *stack) {
 	s.pausedAtCommit(t, nil)
 }
 
+// arrangeHalted is the [yes] arm of the halt-check guard (FIX-003): the project's pump
+// is parked on its construction activity, whose first write the project store refused.
+// The plan is committed with nothing started (committedNotStarted); the store is made to
+// refuse every write — main checked out with receive.denyCurrentBranch=updateInstead and a
+// change staged, the topology the bench run's store was wedged in — and the pump ticked,
+// so the activity fails at its OpenActivity birth and leaves no row; the arrangement waits
+// until the project reads halted on it, then heals the store as the operator would before
+// resuming.
+func arrangeHalted(t *testing.T, s *stack) {
+	t.Helper()
+	s.committedNotStarted(t, nil)
+	git(t, s.repo.Dir, "config", "receive.denyCurrentBranch", "updateInstead")
+	git(t, s.repo.Dir, "checkout", "-q", "main")
+	dirt := filepath.Join(s.repo.Dir, "staged-by-hand.txt")
+	if err := os.WriteFile(dirt, []byte("staged by hand\n"), 0o600); err != nil {
+		t.Fatalf("hooks: dirty the checkout: %v", err)
+	}
+	git(t, s.repo.Dir, "add", "staged-by-hand.txt")
+	if _, err := s.mgr.ExecuteNextActivity(s.h.ManagerContext(t), mgr.ProjectID(s.project), "dct-mcp-halt-0001"); err != nil {
+		t.Fatalf("hooks: tick the pump into the refusing store: %v", err)
+	}
+	s.awaitSummary(t, "the pump halting on "+fixtureActivity, func(p *mgr.ProjectState) bool {
+		return p.RunState == mgr.ProjectHalted && p.PumpHalt != nil && string(p.PumpHalt.ActivityID) == fixtureActivity
+	})
+	git(t, s.repo.Dir, "reset", "-q", "--mixed")
+	if err := os.Remove(dirt); err != nil {
+		t.Fatalf("hooks: clean the checkout: %v", err)
+	}
+	git(t, s.repo.Dir, "checkout", "-q", "checkout")
+	git(t, s.repo.Dir, "config", "--unset", "receive.denyCurrentBranch")
+}
+
 // arrangeAsk: [yes: session branch] finds the architecture walk live at its review
 // gate, [no: committed] finds it done; [no: dispatch miss] is the venue refusing the
 // answer job's seat.
@@ -1816,6 +1848,7 @@ var arrangements = map[string]arrangement{
 
 	"resume-paused-construction-P1": onFirst(arrangePaused),
 	"resume-paused-construction-P2": onFirst(arrangePauseInFlight),
+	"resume-paused-construction-P3": onFirst(arrangeHalted),
 
 	"send-back-change-requests-for-a-redraft-P1": onFirst(arrangeArchitectureAtGate),
 	"send-back-change-requests-for-a-redraft-P2": onFirst(arrangeArchitectureAtGate),
@@ -1848,6 +1881,7 @@ var settlers = map[string]settler{
 	"pause-construction-P1#1": settlePaused,
 
 	"resume-paused-construction-P1#2": settlePumpOpen,
+	"resume-paused-construction-P3#2": settlePumpOpen,
 
 	"replan-under-scope-change-P1#2": settleDesignWalk("architecture"),
 	"replan-under-scope-change-P2#2": settleAtGate("projectDesign"),
@@ -2466,6 +2500,24 @@ func stepResumePausedConstructionP2S1(t *testing.T, h *scenariohost.Host, subjec
 func stepResumePausedConstructionP2S2(t *testing.T, h *scenariohost.Host, subject *toolSession, args string) (any, error) {
 	t.Helper()
 	return runStep(t, h, subject, "resume-paused-construction-P2", 2, "deliverySetProjectRunState", args)
+}
+
+// stepResumePausedConstructionP3S1 — Resume Paused Construction — [yes], step 1: DeliveryQueryProjectView (tool deliveryQueryProjectView)
+// Projected stimulus (JSON): {"seq":1,"node":"see-paused","input":{"kind":"action","from":"operator","to":"mcpclient","op":"DeliveryQueryProjectView","call":"resume-paused-construction/see-paused/1"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":1,"operation":"DeliveryQueryProjectView","inputs":[{"name":"query","value":"{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-mcp\"}"}],"expect":{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"halted\",\"pumpHalt\":{\"activityId\":\"C-review-engine\"}}}}","errorExpected":false},"probes":null,"unobservable":null,"hook":true}
+// Arranges the state in which guards halt-check=[yes] hold (runStep), then calls deliveryQueryProjectView as its caller does and returns its result.
+func stepResumePausedConstructionP3S1(t *testing.T, h *scenariohost.Host, subject *toolSession, args string) (any, error) {
+	t.Helper()
+	return runStep(t, h, subject, "resume-paused-construction-P3", 1, "deliveryQueryProjectView", args)
+}
+
+// stepResumePausedConstructionP3S2 — Resume Paused Construction — [yes], step 2: DeliverySetProjectRunState (tool deliverySetProjectRunState)
+// Projected stimulus (JSON): {"seq":2,"node":"choose-resume","input":{"kind":"action","from":"operator","to":"mcpclient","op":"DeliverySetProjectRunState","call":"resume-paused-construction/choose-resume/1"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":2,"operation":"DeliverySetProjectRunState","inputs":[{"name":"projectID","value":"dct-owner/dct-mcp"},{"name":"runState","value":"running"},{"name":"reason","value":"The project store accepts writes again; resume construction."}],"expect":{"errorExpected":false},"probes":[{"for":"release-halt","component":"mcpClient","operation":"DeliveryQueryProjectView","inputs":[{"name":"query","value":"{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-mcp\"}"}],"expect":{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"running\"}}}","errorExpected":false}},{"for":"pump-fires","component":"mcpClient","operation":"DeliveryQueryProjectView","inputs":[{"name":"query","value":"{\"kind\":\"pump\",\"projectId\":\"dct-owner/dct-mcp\"}"}],"expect":{"result":"{\"result\":{\"kind\":\"pump\",\"pump\":{\"open\":true}}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Arranges the state in which guards halt-check=[yes] hold (runStep), then calls deliverySetProjectRunState as its caller does and returns its result.
+func stepResumePausedConstructionP3S2(t *testing.T, h *scenariohost.Host, subject *toolSession, args string) (any, error) {
+	t.Helper()
+	return runStep(t, h, subject, "resume-paused-construction-P3", 2, "deliverySetProjectRunState", args)
 }
 
 // stepSendBackChangeRequestsForARedraftP1S1 — Send Back Change Requests for a Redraft — [yes], step 1: DeliverySubmitReviewDecision (tool deliverySubmitReviewDecision)

@@ -5373,7 +5373,7 @@
                   {
                     "id": "see-paused",
                     "kind": "action",
-                    "label": "Operator sees construction is paused, and why",
+                    "label": "Operator sees construction is paused or halted, and why",
                     "roleName": "Operator",
                     "linkedActorId": "operator"
                   },
@@ -5391,6 +5391,28 @@
                     "roleName": "",
                     "linkedActorId": null,
                     "anchor": "choose-resume"
+                  },
+                  {
+                    "id": "halt-check",
+                    "kind": "decision",
+                    "label": "Is construction halted on a failed activity?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "note-halt-check",
+                    "kind": "note",
+                    "label": "'Halted' is read from the construction pump itself (its haltState query), never from the project store: the failure that halted it may be one the store refused to record. The [yes] branch needs the binding to arrange a pump halted on an activity whose first write the store refused, so this decision is internal and the step is a Hook candidate.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "halt-check"
+                  },
+                  {
+                    "id": "release-halt",
+                    "kind": "action",
+                    "label": "Relay the resume onto the parked pump; nothing is written to the project store, which may still be refusing writes",
+                    "roleName": "",
+                    "linkedActorId": null
                   },
                   {
                     "id": "pause-settled",
@@ -5488,7 +5510,25 @@
                   },
                   {
                     "from": "note-resume-run-state",
+                    "to": "halt-check",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "halt-check",
                     "to": "pause-settled",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "halt-check",
+                    "to": "release-halt",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "release-halt",
+                    "to": "pump-fires",
                     "kind": "controlFlow",
                     "guard": ""
                   },
@@ -10380,6 +10420,17 @@
                     "to": "project-git-repo",
                     "mode": "sync",
                     "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "release-halt",
+                "calls": [
+                  {
+                    "from": "delivery-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "deliverSignal(pump execution, operatorResumeRequested) — releases the pump parked on the failed activity; the halt lives only in the pump, so nothing is written to the project store"
                   }
                 ]
               },
@@ -20952,14 +21003,16 @@
             "running",
             "awaitingHuman",
             "done",
-            "failed"
+            "failed",
+            "haltedByFailure"
           ],
           "x-enum-varnames": [
             "ActivityViewNotStarted",
             "ActivityViewRunning",
             "ActivityViewAwaitingHuman",
             "ActivityViewDone",
-            "ActivityViewFailed"
+            "ActivityViewFailed",
+            "ActivityViewHaltedByFailure"
           ],
           "x-go-base": "string"
         },
@@ -22510,13 +22563,16 @@
         },
         "ProjectRunState": {
           "type": "string",
+          "description": "The run state of a project's construction. running: nothing holds it. paused: an operator's pause is recorded (PauseProject). halted: the project's one construction pump stopped the cascade on an activity that failed and is parked, keeping the halt in its own execution because the failure may be one the project store could not record; it dispatches nothing until ResumeProject. halted is entered by the pump, never requested: setProjectRunState refuses it (ContractMisuse). Paused and halted can hold at once; the view reports halted then, and one resume clears both.",
           "enum": [
             "running",
-            "paused"
+            "paused",
+            "halted"
           ],
           "x-enum-varnames": [
             "ProjectRunning",
-            "ProjectPaused"
+            "ProjectPaused",
+            "ProjectHalted"
           ],
           "x-go-base": "string"
         },
@@ -22603,6 +22659,14 @@
             "pauseReason": {
               "type": "string",
               "description": "The reason the operator gave when pausing construction. Omitted when construction is not paused."
+            },
+            "runState": {
+              "$ref": "#/$defs/ProjectRunState",
+              "description": "The project's construction run state: halted while its construction pump is parked on a failed activity (pumpHalt says which), else paused while an operator's pause is recorded, else running. Resume (setProjectRunState running) is the one way out of paused and halted alike."
+            },
+            "pumpHalt": {
+              "$ref": "#/$defs/PumpHalt",
+              "description": "Why construction is halted, read from the project's construction pump. Omitted when the pump is not halted."
             }
           },
           "required": [
@@ -22619,7 +22683,8 @@
             "ServiceContracts",
             "operatingModel",
             "constructionStarted",
-            "operatorPaused"
+            "operatorPaused",
+            "runState"
           ],
           "additionalProperties": false
         },
@@ -22871,6 +22936,34 @@
           ],
           "additionalProperties": false
         },
+        "PumpHalt": {
+          "type": "object",
+          "description": "Why the project's construction pump halted. The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it.",
+          "properties": {
+            "activityId": {
+              "$ref": "#/$defs/ActivityID",
+              "x-go-name": "ActivityID",
+              "description": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade."
+            },
+            "cause": {
+              "type": "string",
+              "description": "The failure as the pump saw it: the activity execution's error, or the reason its row records."
+            },
+            "haltedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When the pump halted."
+            }
+          },
+          "required": [
+            "activityId",
+            "cause",
+            "haltedAt"
+          ],
+          "additionalProperties": false
+        },
         "PumpResult": {
           "type": "object",
           "properties": {
@@ -22883,7 +22976,11 @@
                 "$ref": "#/$defs/ActivityID"
               },
               "x-go-name": "ActivityIDs",
-              "description": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight)."
+              "description": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, a halted pump, or an activity already in flight)."
+            },
+            "halt": {
+              "$ref": "#/$defs/PumpHalt",
+              "description": "Set when the project's pump is halted on a failed activity: the tick dispatched nothing and will not until ResumeProject."
             }
           },
           "required": [
@@ -27676,14 +27773,16 @@
             "running",
             "awaitingHuman",
             "done",
-            "failed"
+            "failed",
+            "haltedByFailure"
           ],
           "x-enum-varnames": [
             "ActivityViewNotStarted",
             "ActivityViewRunning",
             "ActivityViewAwaitingHuman",
             "ActivityViewDone",
-            "ActivityViewFailed"
+            "ActivityViewFailed",
+            "ActivityViewHaltedByFailure"
           ],
           "x-go-base": "string"
         },
@@ -29255,13 +29354,16 @@
         },
         "ProjectRunState": {
           "type": "string",
+          "description": "The run state of a project's construction. running: nothing holds it. paused: an operator's pause is recorded (PauseProject). halted: the project's one construction pump stopped the cascade on an activity that failed and is parked, keeping the halt in its own execution because the failure may be one the project store could not record; it dispatches nothing until ResumeProject. halted is entered by the pump, never requested: setProjectRunState refuses it (ContractMisuse). Paused and halted can hold at once; the view reports halted then, and one resume clears both.",
           "enum": [
             "running",
-            "paused"
+            "paused",
+            "halted"
           ],
           "x-enum-varnames": [
             "ProjectRunning",
-            "ProjectPaused"
+            "ProjectPaused",
+            "ProjectHalted"
           ],
           "x-go-base": "string"
         },
@@ -29348,6 +29450,14 @@
             "pauseReason": {
               "type": "string",
               "description": "The reason the operator gave when pausing construction. Omitted when construction is not paused."
+            },
+            "runState": {
+              "$ref": "#/$defs/ProjectRunState",
+              "description": "The project's construction run state: halted while its construction pump is parked on a failed activity (pumpHalt says which), else paused while an operator's pause is recorded, else running. Resume (setProjectRunState running) is the one way out of paused and halted alike."
+            },
+            "pumpHalt": {
+              "$ref": "#/$defs/PumpHalt",
+              "description": "Why construction is halted, read from the project's construction pump. Omitted when the pump is not halted."
             }
           },
           "required": [
@@ -29364,7 +29474,8 @@
             "ServiceContracts",
             "operatingModel",
             "constructionStarted",
-            "operatorPaused"
+            "operatorPaused",
+            "runState"
           ],
           "additionalProperties": false
         },
@@ -29616,6 +29727,34 @@
           ],
           "additionalProperties": false
         },
+        "PumpHalt": {
+          "type": "object",
+          "description": "Why the project's construction pump halted. The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it.",
+          "properties": {
+            "activityId": {
+              "$ref": "#/$defs/ActivityID",
+              "x-go-name": "ActivityID",
+              "description": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade."
+            },
+            "cause": {
+              "type": "string",
+              "description": "The failure as the pump saw it: the activity execution's error, or the reason its row records."
+            },
+            "haltedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When the pump halted."
+            }
+          },
+          "required": [
+            "activityId",
+            "cause",
+            "haltedAt"
+          ],
+          "additionalProperties": false
+        },
         "PumpResult": {
           "type": "object",
           "properties": {
@@ -29628,7 +29767,11 @@
                 "$ref": "#/$defs/ActivityID"
               },
               "x-go-name": "ActivityIDs",
-              "description": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight)."
+              "description": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, a halted pump, or an activity already in flight)."
+            },
+            "halt": {
+              "$ref": "#/$defs/PumpHalt",
+              "description": "Set when the project's pump is halted on a failed activity: the tick dispatched nothing and will not until ResumeProject."
             }
           },
           "required": [
@@ -45267,6 +45410,93 @@
             ]
           },
           {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-rs-p3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedVersion",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-ARCH",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "typ",
+                    "value": "8",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-rs-p3:open",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "activity-started",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rs-p3",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-ARCH",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": null,
+                "hook": true
+              }
+            ]
+          },
+          {
             "scenario": "send-back-change-requests-for-a-redraft-P1",
             "steps": [
               {
@@ -53166,6 +53396,58 @@
                     ],
                     "expect": {
                       "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":true}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": null,
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SetProjectRunState",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "runState",
+                    "value": "running",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "reason",
+                    "value": "The project store accepts writes again; resume construction.",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "release-halt",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":false,\"runState\":\"running\"}}",
                       "errorExpected": false,
                       "errorCode": ""
                     }
@@ -61455,6 +61737,94 @@
             ]
           },
           {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DeliveryQueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-mcp\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"halted\",\"pumpHalt\":{\"activityId\":\"C-review-engine\"}}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": null,
+                "unobservable": null,
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DeliverySetProjectRunState",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-mcp",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "runState",
+                    "value": "running",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "reason",
+                    "value": "The project store accepts writes again; resume construction.",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "release-halt",
+                    "component": "mcpClient",
+                    "operation": "DeliveryQueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-mcp\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"running\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "pump-fires",
+                    "component": "mcpClient",
+                    "operation": "DeliveryQueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"pump\",\"projectId\":\"dct-owner/dct-mcp\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"result\":{\"kind\":\"pump\",\"pump\":{\"open\":true}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": null,
+                "hook": true
+              }
+            ]
+          },
+          {
             "scenario": "send-back-change-requests-for-a-redraft-P1",
             "steps": [
               {
@@ -63499,6 +63869,40 @@
                   {
                     "name": "payload",
                     "value": "{\"Bytes\":\"eyJQcm9qZWN0SUQiOiJkY3QtbWVzc2FnZWJ1cy1wYXVzZS1wMSIsIlJlYXNvbiI6Im9wZXJhdG9yIHBhdXNlZCBjb25zdHJ1Y3Rpb24ifQ==\",\"ContentType\":\"application/json\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DeliverSignal",
+                "inputs": [
+                  {
+                    "name": "targetExecutionID",
+                    "value": "dct-messagebus-resume-p3:nextActivity",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "signalName",
+                    "value": "operatorResumeRequested",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "payload",
+                    "value": "{\"Bytes\":\"eyJQcm9qZWN0SUQiOiJkY3QtbWVzc2FnZWJ1cy1yZXN1bWUtcDMiLCJIYWx0ZWRPbiI6IkMtcmV2aWV3LWVuZ2luZSIsIkhhbHRlZEF0IjoiMjAyNi0xMC0xN1QyMTo0Nzo1MVoiLCJIYWx0Q2F1c2UiOiJoZWFkLXN0YXRlIGNvbmZsaWN0IGRpZCBub3QgY29udmVyZ2Ugd2l0aGluIGJvdW5kZWQgYXR0ZW1wdHMifQ==\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -69118,6 +69522,30 @@
                 "unobservable": [
                   "retry-later"
                 ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rs-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rs-p3\",\"Version\":9,\"Phase\":2,\"OperatorPaused\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
                 "hook": true
               }
             ]
@@ -74933,6 +75361,54 @@
                 "probes": null,
                 "unobservable": null,
                 "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenConstructionConsole",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-lens-tasks\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-tasks-lens\"},{\"visible\":\"construction-paused-label\"},{\"visible\":\"construction-resume\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": null,
+                "unobservable": null,
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ResumeConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-resume\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-resume-outcome\"},{\"visible\":\"construction-begin\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": null,
+                "unobservable": null,
+                "hook": false
               }
             ]
           },

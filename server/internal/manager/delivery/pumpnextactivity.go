@@ -36,9 +36,10 @@ import (
 //
 // WHAT HAPPENS AT A CHAIN BOUNDARY, stated plainly because it is the ORDINARY case and
 // not an exotic one. Any pump run that ENDS while a lease is held exits holding it: a
-// pause that lands while the run is parked (pumpPark → paused → pumpLoop returns), a
-// child failure stopping the cascade (G-P12), or any error return. Thirty seconds later
-// the sweep starts a FRESH chain with LeaseHolder == nil and an empty Started. Child A is
+// pause that lands while the run is parked (pumpPark → paused → pumpLoop returns), or any
+// error return. (A child failure stopping the cascade — G-P12 — no longer ends the run: since
+// FIX-003 it HALTS it, parked under the same id, lease state intact; see pumpHalt.) Thirty
+// seconds later the sweep starts a FRESH chain with LeaseHolder == nil and an empty Started. Child A is
 // meanwhile still inside its merge tail — which holds a HUMAN approval gate, so "still
 // there an hour later" is normal — and the new chain knows nothing of it: it dispatches
 // D, D asks, D is granted, and A and D write main at once. NOTHING IN THIS FILE PREVENTS
@@ -119,6 +120,52 @@ type pumpInput struct {
 	LeaseGrantedAt *time.Time
 	// Carried is what the pre-ContinueAsNew drain found. See pumpDrainBeforeContinue.
 	Carried []pumpCarriedSignal
+	// Halt is the pump's DURABLE STOP (FIX-003), or nil. It rides ContinueAsNew because the
+	// pump's own execution is the one place a halt can still be written when the project
+	// store is what refused the failing activity's write. Bounded: one halt, and its Failed
+	// list holds at most one id per activity in the committed plan.
+	Halt *pumpHalt `json:"halt,omitempty"`
+}
+
+// pumpHalt is a halted pump's memory of WHY it stopped, and it is the whole of FIX-003.
+//
+// THE DEFECT IT ENDS (bench run 2026-10-17, 57 identical failures in 28 minutes). Stopping
+// the cascade used to mean RETURNING AN ERROR, and nothing else. The only durable facts that
+// kept a fresh chain from re-dispatching were head-state rows — and a child whose OpenActivity
+// birth was refused by the store has no row, and a failWalk whose own write was refused leaves
+// none either. Thirty seconds later the sweep, which has no memory of how the last run ended,
+// started a fresh chain under the same id, which dispatched the same activity into the same
+// refusal: a restart loop that recorded nothing anywhere anyone could read.
+//
+// SO THE STOP IS A PARK, NOT A RETURN. The pump keeps its workflow id (so the sweep's start is
+// "already started" and skips the project), keeps servicing its siblings' lease requests and
+// finish reports (a halt must not starve another child's merge tail), and dispatches nothing
+// until an operator resumes it through ResumeProject — the one way back, shared with the
+// operator pause. A head-state write does NOT resume it: an unrelated write would re-dispatch
+// the activity into the same refusal and rebuild a bounded loop.
+//
+// WHAT LOSES IT: terminating, resetting or draining the pump execution. The drain runbook
+// (docs/bugs) says to read every pump's haltState before a drain.
+type pumpHalt struct {
+	ActivityID ActivityID `json:"activityId"`
+	Cause      string     `json:"cause"`
+	HaltedAt   time.Time  `json:"haltedAt"`
+	// HeadVersion is the head-state version the halting wake-up read: the store's position
+	// when the pump stopped, for the operator comparing it with the store's position now.
+	HeadVersion projectstate.Version `json:"headVersion"`
+	// Failed is every activity the pump judged broken while halted, the halting one first. A
+	// resume hands each back to the frontier: an activity whose failure was never recorded
+	// has no row, so the frontier re-selects it, and one that was recorded is excluded by its
+	// row exactly as it always was.
+	Failed []ActivityID `json:"failed"`
+}
+
+// toContract is the halt as the contract carries it.
+func (h *pumpHalt) toContract() *PumpHalt {
+	if h == nil {
+		return nil
+	}
+	return &PumpHalt{ActivityID: h.ActivityID, Cause: h.Cause, HaltedAt: h.HaltedAt}
 }
 
 // The two kinds of signal a pump run can be holding when it continues as new. Plain
@@ -263,6 +310,9 @@ type pumpDispatch struct {
 	Dispatched bool `json:"dispatched"`
 	// ActivityIDs is the WHOLE frontier this run started, in declaration order.
 	ActivityIDs []ActivityID `json:"activityIds,omitempty"`
+	// Halt is set, with Decided and not Dispatched, while the pump is HALTED: the caller that
+	// joined it gets the halt at once instead of polling a decision that will never come.
+	Halt *PumpHalt `json:"halt,omitempty"`
 }
 
 // pumpPaceInterval is the short durable wait between the pump's loop ITERATIONS — a
@@ -326,6 +376,8 @@ type pumpState struct {
 	LeaseEpoch     int64
 	LeaseGrantedAt *time.Time
 	Carried        []pumpCarriedSignal
+	// Halt is the durable stop; see pumpHalt. Non-nil means HALTED: no frontier is started.
+	Halt *pumpHalt
 
 	// requests is the queue of unanswered lease asks, in arrival order. It is NOT carried
 	// as its own member: an unanswered request blocks ContinueAsNew outright (rule 1), so
@@ -367,6 +419,7 @@ func pumpStateFrom(in pumpInput) *pumpState {
 		LeaseHolder:    in.LeaseHolder,
 		LeaseEpoch:     in.LeaseEpoch,
 		LeaseGrantedAt: in.LeaseGrantedAt,
+		Halt:           in.Halt,
 		futures:        map[ActivityID]workflow.ChildWorkflowFuture{},
 		blocked:        map[string]bool{},
 		vanished:       map[ActivityID]bool{},
@@ -384,6 +437,7 @@ func (st *pumpState) toInput(in pumpInput) pumpInput {
 		LeaseEpoch:     st.LeaseEpoch,
 		LeaseGrantedAt: st.LeaseGrantedAt,
 		Carried:        append([]pumpCarriedSignal(nil), st.Carried...),
+		Halt:           st.Halt,
 	}
 }
 
@@ -490,6 +544,59 @@ func (st *pumpState) markVanished(id ActivityID) {
 	st.releaseLease(id)
 }
 
+// haltOn is G-P12's verdict made DURABLE (FIX-003): the activity is broken, so the cascade
+// stops — by parking, not by returning. The activity is discharged from this run's in-flight
+// set (its future is resolved, or it has none) and any admission it held is released, exactly
+// as a finish would; what is new is that the pump REMEMBERS the stop, in its own execution,
+// where the sweep's restart cannot erase it.
+//
+// THE FIRST HALT WINS. A second activity found broken while the pump is already halted is
+// recorded in Failed — so a resume hands it back to the frontier too — and logged, but it
+// does not rewrite the cause the operator is reading.
+func (st *pumpState) haltOn(ctx workflow.Context, in pumpInput, id ActivityID, cause string, head projectstate.Version) {
+	logger := workflow.GetLogger(ctx)
+	st.markFinished(id)
+	if st.Halt != nil {
+		if !pumpHolds(st.Halt.Failed, id) {
+			st.Halt.Failed = append(st.Halt.Failed, id)
+		}
+		logger.Error("pump: another activity failed while the pump is halted; it is recorded with the halt and the halt's cause is unchanged",
+			"projectId", string(in.ProjectID), "activityId", string(id), "haltedOn", string(st.Halt.ActivityID), "err", cause)
+		return
+	}
+	st.Halt = &pumpHalt{ActivityID: id, Cause: cause, HaltedAt: workflow.Now(ctx), HeadVersion: head, Failed: []ActivityID{id}}
+	logger.Error("pump: HALTED — the cascade stops on a failed activity and the pump parks until ResumeProject",
+		"projectId", string(in.ProjectID), "activityId", string(id), "headVersion", int64(head), "err", cause)
+}
+
+// clearHalt is a resume landing on a halted pump. Every activity the halt judged broken is
+// handed back to the frontier — removed from Started and Finished, so this chain may
+// dispatch it again — and the row decides, exactly as it does for a fresh chain: an activity
+// whose failure was recorded is excluded by its FailureReason, and one whose failure the
+// store refused has no row and is selected again. It reports whether there was a halt.
+func (st *pumpState) clearHalt(ctx workflow.Context, in pumpInput) bool {
+	if st.Halt == nil {
+		workflow.GetLogger(ctx).Info("pump: a resume arrived at a pump that is not halted; nothing to clear",
+			"projectId", string(in.ProjectID))
+		return false
+	}
+	failed := st.Halt.Failed
+	keep := func(ids []ActivityID) []ActivityID {
+		out := ids[:0]
+		for _, id := range ids {
+			if !pumpHolds(failed, id) {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	st.Started, st.Finished = keep(st.Started), keep(st.Finished)
+	workflow.GetLogger(ctx).Info("pump: RESUMED — the halt is cleared and the activities it held are back on the frontier",
+		"projectId", string(in.ProjectID), "haltedOn", string(st.Halt.ActivityID), "returned", len(failed))
+	st.Halt = nil
+	return true
+}
+
 // applyFinish is the whole meaning of a finish signal, and it is deliberately NOT
 // markFinished — which is what it used to be, and which cost this file its most important
 // guard.
@@ -557,6 +664,16 @@ func (wf *csWorkflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInp
 	}); err != nil {
 		return PumpResult{}, err
 	}
+	// THE HALT IS READ THE SAME WAY, AND REGISTERED AS EARLY (FIX-003). The halt lives only in
+	// this execution — the project store may be the very thing that refused the failure — so
+	// the view (and ResumeProject's precondition) can learn it from nowhere else. st is built
+	// before the handler can be served, and the handler reads it through this one pointer.
+	st := pumpStateFrom(in)
+	if err := workflow.SetQueryHandler(ctx, queryPumpHalt, func() (*PumpHalt, error) {
+		return st.Halt.toContract(), nil
+	}); err != nil {
+		return PumpResult{}, err
+	}
 
 	// THE FOUR CHANNELS. The pause channel is the one that predates this wave; the lease
 	// and finish channels are stage 4b2's, and G-P9's rule — "a signal still buffered on a
@@ -576,25 +693,32 @@ func (wf *csWorkflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInp
 	pauseCh := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
 	leaseCh := workflow.GetSignalChannel(ctx, signalActivityLeaseRequested)
 	finishCh := workflow.GetSignalChannel(ctx, signalActivityFinished)
+	// THE RESUME CHANNEL (FIX-003) is ResumeProject's relay onto a HALTED pump. It is the
+	// operator's one way back from a halt, as it is from a pause; nothing else clears a halt.
+	resumeCh := workflow.GetSignalChannel(ctx, signalOperatorResumeRequested)
 
-	st := pumpStateFrom(in)
 	// RULE 3 OF THE CAN RULE, and it runs BEFORE the frontier is computed: a carried finish
 	// must be applied before this run decides what is eligible, or the run re-selects an
 	// activity whose completion it is holding in its own input.
 	st.replayCarried(ctx, in)
 
-	if reason, paused := pumpPausedAtRunStart(pauseCh); paused {
-		logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
-			"projectId", string(in.ProjectID), "reason", reason)
-		dispatch = pumpDispatch{Decided: true, Dispatched: false}
-		return PumpResult{Dispatched: false}, nil
+	// A HALTED PUMP DOES NOT GO QUIET ON A PAUSE: going quiet ENDS the execution, and the
+	// execution is the only place the halt lives. It stays parked — it dispatches nothing
+	// either way — and one resume clears both.
+	if st.Halt == nil {
+		if reason, paused := pumpPausedAtRunStart(pauseCh); paused {
+			logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
+				"projectId", string(in.ProjectID), "reason", reason)
+			dispatch = pumpDispatch{Decided: true, Dispatched: false}
+			return PumpResult{Dispatched: false}, nil
+		}
 	}
-	return wf.pumpLoop(ctx, in, st, pumpChannels{pause: pauseCh, lease: leaseCh, finish: finishCh}, &dispatch)
+	return wf.pumpLoop(ctx, in, st, pumpChannels{pause: pauseCh, lease: leaseCh, finish: finishCh, resume: resumeCh}, &dispatch)
 }
 
-// pumpChannels is the three signal channels the loop reads, passed as one so the loop's
+// pumpChannels is the four signal channels the loop reads, passed as one so the loop's
 // signature stays readable and no caller can hand them over in the wrong order.
-type pumpChannels struct{ pause, lease, finish workflow.ReceiveChannel }
+type pumpChannels struct{ pause, lease, finish, resume workflow.ReceiveChannel }
 
 // replayCarried applies what the previous run drained at its ContinueAsNew boundary. It is
 // rule 3 of the drain-and-carry and the reason rules 1 and 2 are worth anything.
@@ -621,50 +745,57 @@ func (st *pumpState) replayCarried(ctx workflow.Context, in pumpInput) {
 // pumpLoop is the pump proper: read, reconcile, start the frontier, grant, then park. It
 // is split out of the entry func so the entry func stays the run's setup and this stays
 // the queue (gocognit, and they are two different readings).
+//
+// A HALTED PUMP RUNS THE SAME LOOP WITH THE FRONTIER SWITCHED OFF (FIX-003). It still reads,
+// reconciles, grants and parks — so a sibling's merge tail is never starved of its lease and a
+// sibling's terminal is still observed — but it starts nothing, never quiesces (returning would
+// lose the halt and hand the project back to the sweep's restart), and leaves only through a
+// resume or, as any run does, a continue-as-new that carries the halt.
 func (wf *csWorkflows) pumpLoop(
 	ctx workflow.Context, in pumpInput, st *pumpState, chans pumpChannels, dispatch *pumpDispatch,
 ) (PumpResult, error) {
 	logger := workflow.GetLogger(ctx)
 	var frontier []ActivityID
+	// decide marks the next frontier pass as THIS RUN'S DECISION POINT (G-P8): the first pass,
+	// and the first pass after a resume — which is the Begin-equivalent moment of a halted run.
+	decide := true
 	for iteration := 0; ; iteration++ {
-		proj, halted, err := wf.pumpWakeUp(ctx, in, chans, iteration, dispatch)
+		wake, err := wf.pumpWakeUp(ctx, in, st, chans, iteration, dispatch)
 		if err != nil {
 			return PumpResult{}, err
 		}
-		if halted {
+		if wake.stop {
 			return pumpDispatchedResult(frontier), nil
 		}
-
-		if err := wf.pumpReconcile(ctx, in, st, proj); err != nil {
-			return PumpResult{}, err
+		if wake.read {
+			wf.pumpReconcile(ctx, in, st, wake.proj)
 		}
 
-		started, quiet, err := wf.pumpStartFrontier(ctx, in, st, &proj, chans.pause)
+		started, quiet, err := wf.pumpAdvance(ctx, in, st, &wake.proj, chans.pause, dispatch, &decide)
 		if err != nil {
 			return PumpResult{}, err
 		}
 		frontier = append(frontier, started...)
-		if iteration == 0 {
-			// G-P8. THE DECISION IS RECORDED BEFORE ANY BLOCK, once, after the WHOLE frontier
-			// is started and before the selector. The façade's synchronous ExecuteNextActivity
-			// reads this Query; a decision recorded after the park is a Begin that hangs for the
-			// length of a cascade and then times out at pumpDispatchWaitBudget.
-			*dispatch = pumpDispatchDecision(frontier)
-		}
 		if quiet {
 			return pumpDispatchedResult(frontier), nil
 		}
 
-		if err := wf.pumpGrantLease(ctx, in, st, proj); err != nil {
-			return PumpResult{}, err
+		// A wake-up that could not read head-state grants nothing: adoption is decided off that
+		// read, and a request it cannot back would be DROPPED. Left queued, it is answered on the
+		// next tick that reads.
+		if wake.read {
+			if err := wf.pumpGrantLease(ctx, in, st, wake.proj); err != nil {
+				return PumpResult{}, err
+			}
 		}
 
 		// QUIESCENCE STILL ENDS THE PUMP (guard G-P6), and it is asked BEFORE the
 		// continue-as-new question deliberately: with nothing started, no lease held, no
 		// request outstanding and nothing eligible, the run RETURNS. The cascade's own
 		// drain-to-quiet is what ends the pump, and a continue here is an infinite pump — one
-		// run per second, per project, forever.
-		if st.idle() {
+		// run per second, per project, forever. A HALTED pump is never quiescent: its stop is
+		// the park below, which is what keeps the sweep from restarting it.
+		if st.Halt == nil && st.idle() {
 			logger.Info("no eligible activity and nothing in flight — cascade quiescent",
 				"projectId", string(in.ProjectID))
 			return pumpDispatchedResult(frontier), nil
@@ -673,12 +804,74 @@ func (wf *csWorkflows) pumpLoop(
 		if res, can, err := wf.pumpContinueAsNew(ctx, in, st, chans, frontier); can || err != nil {
 			return res, err
 		}
-		if paused := wf.pumpPark(ctx, in, st, chans); paused {
-			logger.Info("pump cascade paused while parked — going quiet without continue-as-new",
-				"projectId", string(in.ProjectID))
+		if quiet := wf.pumpParkAndApply(ctx, in, st, chans, dispatch, &decide); quiet {
 			return pumpDispatchedResult(frontier), nil
 		}
 	}
+}
+
+// pumpAdvance is one iteration's move on the frontier: a running pump starts every eligible
+// activity (pumpStartFrontier) and, at a decision point, publishes what it started; a HALTED
+// pump starts nothing and publishes its halt as the decision — the moment it is known, so a
+// caller that joins this pump gets the halt at once rather than polling until it falls
+// through to terminalPumpResult. It reports what it started and whether the run must go
+// quiet here.
+func (wf *csWorkflows) pumpAdvance(
+	ctx workflow.Context, in pumpInput, st *pumpState, proj *projectstate.Project, pauseCh workflow.ReceiveChannel,
+	dispatch *pumpDispatch, decide *bool,
+) ([]ActivityID, bool, error) {
+	if st.Halt != nil {
+		*dispatch = pumpDispatch{Decided: true, Dispatched: false, Halt: st.Halt.toContract()}
+		*decide = false
+		return nil, false, nil
+	}
+	started, quiet, err := wf.pumpStartFrontier(ctx, in, st, proj, pauseCh)
+	if err != nil {
+		return nil, false, err
+	}
+	if *decide {
+		// G-P8. THE DECISION IS RECORDED BEFORE ANY BLOCK, once, after the WHOLE frontier is
+		// started and before the selector. The façade's synchronous ExecuteNextActivity reads
+		// this Query; a decision recorded after the park is a Begin that hangs for the length of
+		// a cascade and then times out at pumpDispatchWaitBudget.
+		*dispatch = pumpDispatchDecision(started)
+		*decide = false
+	}
+	return started, quiet, nil
+}
+
+// pumpParkAndApply parks (pumpPark) and applies what woke it. A RESUME clears a halt and makes
+// the next frontier pass a decision point again. A PAUSE ends a running pump quietly — it
+// reports true — but NOT a halted one: going quiet ends the execution the halt lives in, and a
+// halted pump dispatches nothing anyway, so it stays parked and one resume clears both.
+func (wf *csWorkflows) pumpParkAndApply(
+	ctx workflow.Context, in pumpInput, st *pumpState, chans pumpChannels, dispatch *pumpDispatch, decide *bool,
+) bool {
+	logger := workflow.GetLogger(ctx)
+	woke := wf.pumpPark(ctx, in, st, chans)
+	switch {
+	case woke.resumed:
+		if st.clearHalt(ctx, in) {
+			*dispatch = pumpDispatch{}
+			*decide = true
+		}
+	case woke.paused && st.Halt != nil:
+		logger.Info("pump: a pause arrived at a HALTED pump — it already dispatches nothing, and it stays parked so the halt is kept; one resume clears both",
+			"projectId", string(in.ProjectID), "haltedOn", string(st.Halt.ActivityID))
+	case woke.paused:
+		logger.Info("pump cascade paused while parked — going quiet without continue-as-new",
+			"projectId", string(in.ProjectID))
+		return true
+	}
+	return false
+}
+
+// pumpWake is what the head of one loop iteration established: whether the run must stop
+// here, and whether head-state was read (proj is meaningful only then).
+type pumpWake struct {
+	proj projectstate.Project
+	read bool
+	stop bool
 }
 
 // pumpWakeUp is the head of one loop iteration: pace, honour a pause, re-read head-state,
@@ -691,9 +884,13 @@ func (wf *csWorkflows) pumpLoop(
 // writes head-state, so the frontier genuinely moves underneath this run, and a pump that
 // derived eligibility from state it carried in memory would be stale by construction. This
 // is the read the batched-plan wave shrinks; it is not a read this wave removes.
+//
+// A HALTED PUMP NEVER STOPS HERE (FIX-003): not on a pause signal, not on a recorded pause,
+// not on a failed read. Each of those used to end the run, and ending the run is exactly
+// what erases a halt. A read it cannot make leaves it parked to try again on the next tick.
 func (wf *csWorkflows) pumpWakeUp(
-	ctx workflow.Context, in pumpInput, chans pumpChannels, iteration int, dispatch *pumpDispatch,
-) (projectstate.Project, bool, error) {
+	ctx workflow.Context, in pumpInput, st *pumpState, chans pumpChannels, iteration int, dispatch *pumpDispatch,
+) (pumpWake, error) {
 	logger := workflow.GetLogger(ctx)
 	if iteration > 0 {
 		// G-P14. THE PACE. An unpaced wake-up loop burns a workflow task, a durable read and
@@ -701,16 +898,23 @@ func (wf *csWorkflows) pumpWakeUp(
 		// census. The FIRST iteration is unpaced — a Begin must reach its decision point
 		// without a second of latency in front of it.
 		if err := workflow.Sleep(ctx, pumpPaceInterval); err != nil {
-			return projectstate.Project{}, false, err
+			return pumpWake{}, err
 		}
-		if reason, paused := pumpPauseRequested(chans.pause); paused {
-			logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
-				"projectId", string(in.ProjectID), "reason", reason)
-			return projectstate.Project{}, true, nil
+		if st.Halt == nil {
+			if reason, paused := pumpPauseRequested(chans.pause); paused {
+				logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
+					"projectId", string(in.ProjectID), "reason", reason)
+				return pumpWake{stop: true}, nil
+			}
 		}
 	}
 	proj, err := wf.readProject(ctx, in.ProjectID)
 	if err != nil {
+		if st.Halt != nil {
+			logger.Error("pump: a HALTED pump could not read head-state; it stays parked and reads again on the next tick",
+				"projectId", string(in.ProjectID), "haltedOn", string(st.Halt.ActivityID), "err", err.Error())
+			return pumpWake{}, nil
+		}
 		if isReadNotFound(err) {
 			// No project state yet — a normal quiet tick, not an error. Returned as an error it
 			// would fail the Schedule's child start and log a platform-wide sweep error every
@@ -718,24 +922,24 @@ func (wf *csWorkflows) pumpWakeUp(
 			if iteration == 0 {
 				*dispatch = pumpDispatch{Decided: true, Dispatched: false}
 			}
-			return projectstate.Project{}, true, nil
+			return pumpWake{stop: true}, nil
 		}
-		return projectstate.Project{}, false, err
+		return pumpWake{}, err
 	}
 	// RECORDED-PAUSE GATE (I2 ruling, 2026-09-12), and it is still BEFORE the frontier: the
 	// supervision pause branch RECORDS before it relays, so a pump the sweep restarts inside
 	// the relay window sees the recorded pause here and goes quiet — no dispatch, no
 	// ContinueAsNew, and no blocked-activity failure record. Placed after the frontier it
 	// would still act on it.
-	if pumpHonorsRecordedPause(proj) {
+	if st.Halt == nil && pumpHonorsRecordedPause(proj) {
 		logger.Info("pump honours the recorded operator pause — going quiet without continue-as-new",
 			"projectId", string(in.ProjectID), "reason", proj.PauseReason)
 		if iteration == 0 {
 			*dispatch = pumpDispatch{Decided: true, Dispatched: false}
 		}
-		return projectstate.Project{}, true, nil
+		return pumpWake{stop: true}, nil
 	}
-	return proj, false, nil
+	return pumpWake{proj: proj, read: true}, nil
 }
 
 // pumpDispatchDecision renders the frontier as the façade's synchronous answer.
@@ -903,8 +1107,8 @@ func (wf *csWorkflows) pumpRecordBlocked(
 //
 // THE INVARIANT, AT ITS TRUE SCOPE: at most one activity holds the main-write lease at a
 // time WITHIN ONE PUMP CHAIN. LeaseHolder lives in pumpState/pumpInput and survives nothing
-// else, so a pump run that ends holding a lease — a pause while parked, G-P12 firing on
-// another child, any error return — hands the project to a fresh chain that starts with
+// else, so a pump run that ends holding a lease — a pause while parked, any error return —
+// hands the project to a fresh chain that starts with
 // LeaseHolder nil and an empty Started, while the old holder is still in its merge tail
 // behind a human gate. The module header spells that boundary out; the row-level mechanism
 // is what holds across it.
@@ -1172,17 +1376,22 @@ func (wf *csWorkflows) pumpSignalChild(ctx workflow.Context, projectID ProjectID
 // future or its row, because "the execution is gone" says nothing about whether it worked
 // (fix round 2, C1; see markVanished).
 //
-// G-P12 AND WHAT IT COSTS TO KEEP IT. A failed child FAILS THE PUMP RUN — that is how a
+// G-P12 AND WHAT IT COSTS TO KEEP IT. A failed child HALTS THE PUMP — that is how a
 // cascade STOPS on a broken activity instead of marching down the frontier — and nothing
 // in this repo had ever failed a child before the census. For a child of THIS run the
 // future carries the error and the guard is preserved exactly. For a child that predates a
 // ContinueAsNew there is no future, so this tick must APPLY the same semantics rather than
 // merely observe them, and it does: an activity this pump started whose row carries a
 // terminal FAILURE and that reported NO finish signal is a child that died in failWalk,
-// and the run fails. THE DEGRADATION IS REAL AND IS WRITTEN DOWN HERE: for such a child
+// and the pump halts. THE DEGRADATION IS REAL AND IS WRITTEN DOWN HERE: for such a child
 // the cascade stops within one wake-up rather than instantly, and only if the row was
 // written — a child killed before it could record anything is invisible to this rule, and
-// the sweep's restart is its only backstop.
+// the liveness probe (pumpProbeStaleInFlight → the vanished arm) is its backstop.
+//
+// THE STOP IS A PARK, NOT A RETURN (FIX-003). It used to fail the run, and a failed run
+// left nothing durable behind when the failure was one the store refused to record — the
+// sweep restarted a fresh chain thirty seconds later into the same refusal, 57 times in one
+// benchmark run. haltOn keeps the verdict in the pump's own execution instead; see pumpHalt.
 //
 // AND G-P12 DOES NOT FIRE ON A START THAT WAS REFUSED, which is a different fact wearing
 // the same error. "The id was already running" is not a verdict on the activity at all —
@@ -1198,7 +1407,7 @@ func (wf *csWorkflows) pumpSignalChild(ctx workflow.Context, projectID ProjectID
 // nil so the cascade continues past it. failWalk is the one that returns the cause — and
 // it is the one that sends NO finish signal. So "terminal failure row, no finish reported"
 // is precisely "the child's own run broke", and nothing else is.
-func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pumpState, proj projectstate.Project) error {
+func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pumpState, proj projectstate.Project) {
 	logger := workflow.GetLogger(ctx)
 	for _, id := range st.inFlight() {
 		if f, ok := st.futures[id]; ok {
@@ -1221,7 +1430,8 @@ func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pum
 				}
 				logger.Error("pump: the activity child FAILED — stopping the cascade rather than walking past it",
 					"projectId", string(in.ProjectID), "activityId", string(id), "err", err.Error())
-				return err
+				st.haltOn(ctx, in, id, err.Error(), proj.Version)
+				continue
 			}
 			logger.Info("pump: the activity child reached its terminal",
 				"projectId", string(in.ProjectID), "activityId", string(id))
@@ -1239,9 +1449,8 @@ func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pum
 			// removes the id from Started). That is failWalk, one continue-as-new ago.
 			logger.Error("pump: an activity started before this run's continue-as-new is terminally failed and never reported a finish — stopping the cascade",
 				"projectId", string(in.ProjectID), "activityId", string(id), "failureReason", row.FailureReason.String())
-			return temporal.NewNonRetryableApplicationError(
-				"the pump's cascade stops: activity "+string(id)+" failed before this run and never reported a terminal",
-				"ActivityChildFailed", nil)
+			st.haltOn(ctx, in, id, "activity "+string(id)+" failed before this run and never reported a terminal ("+
+				row.FailureReason.String()+")", proj.Version)
 		case row.CompletedAt != nil:
 			// STILL FINISHED, EVEN WHEN THE TAIL DID NOT LAND (stage 4b3 Task 9). The child is
 			// not coming back, and leaving it in flight would wedge the pump on an activity
@@ -1276,12 +1485,9 @@ func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pum
 			// from waiting on a future that will never resolve.
 			logger.Error("pump: an activity's execution is GONE and it recorded no terminal — stopping the cascade",
 				"projectId", string(in.ProjectID), "activityId", string(id))
-			return temporal.NewNonRetryableApplicationError(
-				"the pump's cascade stops: activity "+string(id)+"'s execution is gone and it recorded no terminal",
-				"ActivityChildVanished", nil)
+			st.haltOn(ctx, in, id, "activity "+string(id)+"'s execution is gone and it recorded no terminal", proj.Version)
 		}
 	}
-	return nil
 }
 
 // pumpStartWasRefusedToARunningExecution tells "THIS ACTIVITY IS ALREADY BEING WORKED"
@@ -1335,23 +1541,35 @@ func pumpStartWasRefusedToARunningExecution(ctx workflow.Context, f workflow.Chi
 // THE PARK, AND THE CONTINUE-AS-NEW BOUNDARY
 // ---------------------------------------------------------------------------
 
+// pumpParkWake is what woke a park: a PAUSE, a RESUME, or neither (a child, a lease request,
+// a finish report, the tick).
+type pumpParkWake struct{ paused, resumed bool }
+
 // pumpPark waits for the next thing that can change the answer: a child terminal, a lease
-// request, a finish report, a pause, or the reconcile tick. It reports whether the wake-up
-// was a PAUSE.
+// request, a finish report, a pause, a resume, or the reconcile tick. It reports whether the
+// wake-up was a PAUSE or a RESUME.
 //
 // THE FUTURES ARE ARMS OF THIS SELECTOR, which is what keeps all four of child.Get's
 // affordances for children of this run while giving up the one thing that had to go: the
 // blocking wait. ORDERING IS REPLACED, NOT PRESERVED — see the note at
 // Test_Pump_TheNextSelectionWaitsForTheChildsTerminal.
-func (wf *csWorkflows) pumpPark(ctx workflow.Context, in pumpInput, st *pumpState, chans pumpChannels) bool {
+func (wf *csWorkflows) pumpPark(ctx workflow.Context, in pumpInput, st *pumpState, chans pumpChannels) pumpParkWake {
 	tctx, cancelTimer := workflow.WithCancel(ctx)
 	defer cancelTimer()
-	paused := false
+	var woke pumpParkWake
 	sel := workflow.NewSelector(ctx)
 	sel.AddReceive(chans.pause, func(c workflow.ReceiveChannel, _ bool) {
 		var raw any
 		c.Receive(ctx, &raw)
-		paused = true
+		woke.paused = true
+	})
+	// THE RESUME ARM (FIX-003). Received into `any` for the pause channel's reason: the body
+	// carries nothing the pump needs — the channel NAME is the operator's intent — and a
+	// struct target would silently drop a binary/plain payload.
+	sel.AddReceive(chans.resume, func(c workflow.ReceiveChannel, _ bool) {
+		var raw any
+		c.Receive(ctx, &raw)
+		woke.resumed = true
 	})
 	sel.AddReceive(chans.lease, func(c workflow.ReceiveChannel, _ bool) {
 		var req activityLeaseRequest
@@ -1385,7 +1603,7 @@ func (wf *csWorkflows) pumpPark(ctx workflow.Context, in pumpInput, st *pumpStat
 	}
 	sel.AddFuture(workflow.NewTimer(tctx, pumpReconcileInterval), func(workflow.Future) {})
 	sel.Select(ctx)
-	return paused
+	return woke
 }
 
 // pumpContinueAsNew is the wave's riskiest ten lines, and they are the only part of it
@@ -1418,13 +1636,23 @@ func (wf *csWorkflows) pumpContinueAsNew(
 	if !pumpShouldContinueAsNew(ctx) || st.LeaseHolder != nil || len(st.requests) > 0 {
 		return PumpResult{}, false, nil
 	}
+	// A RESUME BUFFERED AT THE BOUNDARY IS APPLIED, NOT DISCARDED (FIX-003). ContinueAsNew
+	// drops every buffered signal, and the halt rides the payload — so a resume lost here would
+	// leave the next run halted with the operator's resume already spent. Applied now, the
+	// next run starts with the halt cleared and the activities it held back on the frontier.
+	if pumpResumeRequested(chans.resume) {
+		st.clearHalt(ctx, in)
+	}
 	// DRAIN BEFORE THE HAND-OFF, pause first (the gate this file has always had). A pause
 	// that arrived while this run was parked sits in the buffer ContinueAsNew discards, so
-	// honour it here: no further child starts.
-	if reason, paused := pumpPausedBehindGate(chans.pause); paused {
-		workflow.GetLogger(ctx).Info("pump cascade paused by operator signal before continue-as-new — going quiet",
-			"projectId", string(in.ProjectID), "reason", reason)
-		return pumpDispatchedResult(frontier), true, nil
+	// honour it here: no further child starts. A HALTED pump does not go quiet on it — going
+	// quiet ends the execution the halt lives in — and it starts nothing either way.
+	if st.Halt == nil {
+		if reason, paused := pumpPausedBehindGate(chans.pause); paused {
+			workflow.GetLogger(ctx).Info("pump cascade paused by operator signal before continue-as-new — going quiet",
+				"projectId", string(in.ProjectID), "reason", reason)
+			return pumpDispatchedResult(frontier), true, nil
+		}
 	}
 	st.drainForContinue(ctx, in, chans)
 	return PumpResult{}, true, workflow.NewContinueAsNewError(ctx, executionKindPump, st.toInput(in))
@@ -1523,6 +1751,20 @@ func pumpHonorsRecordedPause(proj projectstate.Project) bool {
 // package with no exception at all.
 func pumpPausedAtRunStart(ch workflow.ReceiveChannel) (reason string, paused bool) {
 	return pumpPauseRequested(ch)
+}
+
+// pumpResumeRequested drains every pending operatorResumeRequested signal, non-blocking, and
+// reports whether there was one. Received into `any` for pumpPauseRequested's reason: the
+// channel name is the operator's intent and a body is never needed.
+func pumpResumeRequested(ch workflow.ReceiveChannel) bool {
+	found := false
+	for {
+		var raw any
+		if !ch.ReceiveAsync(&raw) {
+			return found
+		}
+		found = true
+	}
 }
 
 // pumpPauseRequested drains one pending operatorPauseRequested signal, non-blocking,
