@@ -6004,6 +6004,11 @@ func haltedDetail(h PumpHalt) string {
 // closed pump's halt is gone with it, which is what the drain runbook warns about. Each RPC
 // is bounded by pumpRPCTimeout. Any other fault is returned for the caller to classify.
 func (m *constructionManager) pumpHaltOf(ctx context.Context, projectID ProjectID) (PumpHalt, bool, error) {
+	if m.client == nil {
+		// A manager composed without Temporal (a composition that serves project reads and
+		// births only) runs no pump, so it holds no halt.
+		return PumpHalt{}, false, nil
+	}
 	wfID := pumpWorkflowID(projectID)
 	dctx, cancel := context.WithTimeout(ctx, pumpRPCTimeout)
 	defer cancel()
