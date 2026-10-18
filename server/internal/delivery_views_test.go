@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 
@@ -55,11 +56,16 @@ func viewManager(proj projectstate.Project, files []string) delivery.DeliveryMan
 }
 
 // noSessions is a Temporal client with no workflow running: the activity view asks a
-// running row's live session and reads "not dispatched" (NotFound) as no session. Every
+// running row's live session and reads "not dispatched" (NotFound) as no session, and asks
+// the project's pump for a halt (FIX-003) and reads "no pump" (NotFound) as none. Every
 // other client call is absent (nil embedded interface) and would panic.
 type noSessions struct{ client.Client }
 
 func (noSessions) QueryWorkflow(context.Context, string, string, string, ...any) (converter.EncodedValue, error) {
+	return nil, serviceerror.NewNotFound("workflow not found")
+}
+
+func (noSessions) DescribeWorkflowExecution(context.Context, string, string) (*workflowservice.DescribeWorkflowExecutionResponse, error) {
 	return nil, serviceerror.NewNotFound("workflow not found")
 }
 

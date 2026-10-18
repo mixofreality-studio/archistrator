@@ -28923,7 +28923,8 @@
               "defects": []
             },
             "constructionStarted": false,
-            "operatorPaused": false
+            "operatorPaused": false,
+            "runState": "running"
           }
         }
       },

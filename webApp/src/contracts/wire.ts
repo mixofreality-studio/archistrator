@@ -777,6 +777,9 @@ export function mapProjectState(w: Schemas['DeliveryProjectState']): ProjectStat
     // The recorded operator pause (B1.7), passed through as stored.
     operatorPaused: w.operatorPaused,
     ...(w.pauseReason !== undefined && w.pauseReason !== '' ? { pauseReason: w.pauseReason } : {}),
+    // The run state and the pump's halt (FIX-003), passed through as the server folded them.
+    runState: w.runState,
+    ...(w.pumpHalt !== undefined ? { pumpHalt: w.pumpHalt } : {}),
   };
 }
 

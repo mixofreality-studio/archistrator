@@ -593,15 +593,15 @@ func TestScenario_requeue_a_failed_construction_activity_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_resume_paused_construction_P1 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → pause-settled → record-resume → run-state-running → pump-fires → continue → activity-started → end).
+// TestScenario_resume_paused_construction_P1 — Resume Paused Construction — [no] · [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → pause-settled → record-resume → run-state-running → pump-fires → continue → activity-started → end).
 func TestScenario_resume_paused_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "resume-paused-construction-P1", func(t *testing.T) {
 		subject := serveTools(t, h, newSubject(t, h))
-		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node see-paused; guards pause-settled=[yes])
+		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node see-paused; guards halt-check=[no], pause-settled=[yes])
 		out1, err1 := stepResumePausedConstructionP1S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
 		expect(t, "resume-paused-construction-P1", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":true}}}","errorExpected":false}`)
-		// step 2: DeliverySetProjectRunState → tool deliverySetProjectRunState (node choose-resume; guards pause-settled=[yes])
+		// step 2: DeliverySetProjectRunState → tool deliverySetProjectRunState (node choose-resume; guards halt-check=[no], pause-settled=[yes])
 		out2, err2 := stepResumePausedConstructionP1S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","runState":"running","reason":"Vendor contract signed; resume construction."}`)
 		expect(t, "resume-paused-construction-P1", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for run-state-running
@@ -613,20 +613,40 @@ func TestScenario_resume_paused_construction_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_resume_paused_construction_P2 — Resume Paused Construction — [no] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → pause-settled → retry-later → run-state-still-paused → end).
+// TestScenario_resume_paused_construction_P2 — Resume Paused Construction — [no] · [no] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → pause-settled → retry-later → run-state-still-paused → end).
 func TestScenario_resume_paused_construction_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "resume-paused-construction-P2", func(t *testing.T) {
 		subject := serveTools(t, h, newSubject(t, h))
-		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node see-paused; guards pause-settled=[no])
+		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node see-paused; guards halt-check=[no], pause-settled=[no])
 		out1, err1 := stepResumePausedConstructionP2S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
 		expect(t, "resume-paused-construction-P2", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":true}}}","errorExpected":false}`)
-		// step 2: DeliverySetProjectRunState → tool deliverySetProjectRunState (node choose-resume; guards pause-settled=[no])
+		// step 2: DeliverySetProjectRunState → tool deliverySetProjectRunState (node choose-resume; guards halt-check=[no], pause-settled=[no])
 		out2, err2 := stepResumePausedConstructionP2S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","runState":"running","reason":"Vendor contract signed; resume construction."}`)
 		expect(t, "resume-paused-construction-P2", 2, out2, err2, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for run-state-still-paused
 		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
 		expect(t, "resume-paused-construction-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":true}}}","errorExpected":false}`)
+	})
+}
+
+// TestScenario_resume_paused_construction_P3 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → release-halt → pump-fires → continue → activity-started → end).
+func TestScenario_resume_paused_construction_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "mcpClient", "resume-paused-construction-P3", func(t *testing.T) {
+		subject := serveTools(t, h, newSubject(t, h))
+		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node see-paused; guards halt-check=[yes])
+		out1, err1 := stepResumePausedConstructionP3S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		expect(t, "resume-paused-construction-P3", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"halted\",\"pumpHalt\":{\"activityId\":\"C-review-engine\"}}}}","errorExpected":false}`)
+		// step 2: DeliverySetProjectRunState → tool deliverySetProjectRunState (node choose-resume; guards halt-check=[yes])
+		out2, err2 := stepResumePausedConstructionP3S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","runState":"running","reason":"The project store accepts writes again; resume construction."}`)
+		expect(t, "resume-paused-construction-P3", 2, out2, err2, `{"errorExpected":false}`)
+		// probe 2.1: mcpClient.DeliveryQueryProjectView for release-halt
+		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		expect(t, "resume-paused-construction-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"running\"}}}","errorExpected":false}`)
+		// probe 2.2: mcpClient.DeliveryQueryProjectView for pump-fires
+		pout2_2, perr2_2 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"pump","projectId":"dct-owner/dct-mcp"}}`)
+		expect(t, "resume-paused-construction-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"result\":{\"kind\":\"pump\",\"pump\":{\"open\":true}}}","errorExpected":false}`)
 	})
 }
 

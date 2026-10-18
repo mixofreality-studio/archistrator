@@ -28911,7 +28911,8 @@
           },
           "testingState": {"testRuns": [{"id": "TR-2026-08-09-FINISH-CONSTRUCTION-FULL-SUITE", "activity": "", "component": "", "revision": "", "artifact": "", "scenarios": []}], "defects": []},
           "constructionStarted": false,
-          "operatorPaused": false
+          "operatorPaused": false,
+          "runState": "running"
          }
         }
       }
