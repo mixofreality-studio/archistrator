@@ -1868,7 +1868,10 @@ func settleAnswerJob(t *testing.T, h *scenariohost.Host, subject delivery.Delive
 	return out, err
 }
 
-// awaitPumpIdle waits until the project's pump reports no open run.
+// awaitPumpIdle waits until the project's pump dispatches nothing more: it reports no open
+// run, or it is HALTED (FIX-003). A halted pump stays open — parking is what keeps the sweep
+// from restarting it — but it starts nothing until a resume, which is exactly what this wait
+// used to observe as a closed run when a failed activity child ended the pump.
 func awaitPumpIdle(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager) {
 	t.Helper()
 	id := planProject
@@ -1877,7 +1880,14 @@ func awaitPumpIdle(t *testing.T, h *scenariohost.Host, subject delivery.Delivery
 		if err != nil {
 			return false, err.Error()
 		}
-		return v.Pump != nil && !v.Pump.Open, "pump open"
+		if v.Pump != nil && !v.Pump.Open {
+			return true, ""
+		}
+		sum, err := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
+		if err != nil {
+			return false, err.Error()
+		}
+		return sum.Summary != nil && sum.Summary.RunState == delivery.ProjectHalted, "pump open"
 	})
 }
 

@@ -1480,7 +1480,7 @@ func (s *stack) awaitSummary(t *testing.T, what string, ok func(*mgr.ProjectStat
 	})
 }
 
-// awaitPumpIdle waits until the project's pump reports no open run.
+// awaitPumpIdle waits until the project's pump dispatches nothing more: no open run, or HALTED.
 func (s *stack) awaitPumpIdle(t *testing.T) {
 	t.Helper()
 	pid := s.project
@@ -1489,7 +1489,16 @@ func (s *stack) awaitPumpIdle(t *testing.T) {
 		if err != nil {
 			return false, err.Error()
 		}
-		return v.Pump != nil && !v.Pump.Open, "pump open"
+		if v.Pump != nil && !v.Pump.Open {
+			return true, ""
+		}
+		// A HALTED pump (FIX-003) stays open but dispatches nothing until a resume: it is
+		// idle in exactly the sense a pump that a failed child used to close was.
+		sum, err := s.mgr.QueryProjectView(s.h.ManagerContext(t), mgr.ProjectViewQuery{Kind: mgr.ProjectViewSummary, ProjectID: &pid})
+		if err != nil {
+			return false, err.Error()
+		}
+		return sum.Summary != nil && sum.Summary.RunState == mgr.ProjectHalted, "pump open"
 	})
 }
 
