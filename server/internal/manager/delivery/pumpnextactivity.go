@@ -1097,9 +1097,9 @@ func (wf *csWorkflows) pumpRecordBlocked(
 	// (NoActivityVersionExpectation): it fails a row no child holds, and the activity it
 	// blocks — unclassifiable, or waiting on a dependency that does not resolve — was usually
 	// never opened, so the write must BIRTH the row, which only that posture may do.
-	_, ferr := wf.applyRecovering(ctx, in.ProjectID, proj.Version, func(expected projectstate.Version) (projectstate.Version, error) {
+	_, ferr := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionRecordActivityOutcome(
-			ctx, projectstate.ProjectID(in.ProjectID), expected, projectstate.NoActivityVersionExpectation,
+			ctx, projectstate.ProjectID(in.ProjectID), projectstate.NoActivityVersionExpectation,
 			sel.BlockedActivityID, projectstate.ActivityOutcomeUnknown, sel.BlockedFailureReason, sel.BlockedReason,
 			railCredEnvelope{}.toProjectState())
 	})

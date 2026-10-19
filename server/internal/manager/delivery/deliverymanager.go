@@ -4018,6 +4018,14 @@ const changeRowConflictReread = "row-conflict-reread"
 // A history recorded before the fence keeps its recorded decision.
 const changeRowConflictSentVersion = "row-conflict-sent-version"
 
+// changeRowTerminalIgnoresProject fences the ROW-VERB arm of the Conflict loop
+// (applyRowRecovering, FIX-006). Since the row verbs stopped asserting the project version,
+// a project-version move can no longer cause their Conflict, so their terminality is
+// decided on the row alone and the loop makes no project-version read. A history recorded
+// before the fence keeps its recorded sequence — the readVersionE Activity, then the
+// two-version rule — so the suite's recorded histories replay unchanged.
+const changeRowTerminalIgnoresProject = "row-terminal-ignores-project"
+
 // terminalConflictErrType is the Temporal Type() applyRecovering raises when a Conflict
 // cannot be a version conflict, because RE-READING CHANGED NOTHING.
 //
@@ -6699,7 +6707,7 @@ func (m *constructionManager) reopenActivity(ctx context.Context, projectID Proj
 
 // rearmActivity is the reopen arm's ONE write: the requeue note that re-arms the row.
 func (m *constructionManager) rearmActivity(ctx context.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
-	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+	return m.onActivityRow(ctx, projectID, activityID, func(row projectstate.ActivityExecution) error {
 		// TERMINALITY IS PRE-CHECKED HERE, on the row this attempt just read, and the reason is the
 		// error KIND the store answers with (Task 12 round 3, minor (e)): a requeue against a live
 		// row is refused `fwra.Conflict`, because the arguments are impeccable and only the STATE is
@@ -6723,7 +6731,7 @@ func (m *constructionManager) rearmActivity(ctx context.Context, projectID Proje
 				activityID, phase))
 		}
 		_, err := m.activityExecution.RecordOperatorNote(fwra.Context{Context: ctx},
-			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
+			projectstate.ProjectID(projectID), row.Version, string(activityID),
 			projectstate.OperatorNoteInput{
 				NoteID: reopenNoteID(activityID, row),
 				Kind:   projectstate.NoteRequeue,
@@ -7005,37 +7013,38 @@ func (m *constructionManager) GetPumpStatus(rc fwmanager.Context, projectID Proj
 // here is the ordinary case and not an error to surface.
 const activityRowWriteAttempts = 3
 
-// onActivityRow is the Manager-side applyRecovering: read the project ONCE (its version AND
-// the row's come out of the same read, so the two expectations the facet's CAS pair needs
-// can never disagree), apply, and re-read on a version Conflict.
+// onActivityRow is the Manager-side row write: read the activity's ROW, apply, and re-read
+// on a Conflict.
 //
-// ONE READ PER ATTEMPT, deliberately. The narrow ReadActivityExecution answers the row but
-// not the project version the verbs assert on, so a narrow read would be two reads and two
-// chances for them to describe different moments.
+// ONE NARROW READ PER ATTEMPT (FIX-006). The row verbs assert no project version any more —
+// they are applied at the store's tip under its write queue — so the only expectation a
+// façade write carries is the row's own version, and the narrow ReadActivityExecution is
+// the whole read. (It used to read the whole project so that the project version and the row
+// version came out of one read; with the project version gone that reason lapsed, and so did
+// the "changed concurrently" failures an operator's reopen, resolve, withdraw or ask hit
+// whenever a fan-out of sibling rows was being written.) A Conflict now means THIS row moved
+// — the child writing it while the operator decided — which is still the ordinary case the
+// bound exists for.
 //
 // A Conflict is RETRIED; anything else is returned as it came, because `apply` also carries
 // this path's own FailedPrecondition refusals (no round, a decided round, a live gate) and
 // re-reading cannot change any of them.
 func (m *constructionManager) onActivityRow(
 	ctx context.Context, projectID ProjectID, activityID ActivityID,
-	apply func(proj projectstate.Project, row projectstate.ActivityExecution) error,
+	apply func(row projectstate.ActivityExecution) error,
 ) error {
 	var last error
 	for range activityRowWriteAttempts {
-		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+		row, err := m.activityExecution.ReadActivityExecution(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), string(activityID))
 		if err != nil {
 			if isRANotFound(err) {
-				return newError(fwmanager.NotFound, err.Error())
+				return newError(fwmanager.NotFound, fmt.Sprintf(
+					"activity %s has no execution row: the pump has not dispatched it, so it has no ledger to write on (%v)", activityID, err))
 			}
 			return newError(fwmanager.Infrastructure, err.Error())
 		}
-		row, ok := proj.ActivityExecution[string(activityID)]
-		if !ok {
-			return newError(fwmanager.NotFound, fmt.Sprintf(
-				"activity %s has no execution row: the pump has not dispatched it, so it has no ledger to write on", activityID))
-		}
 		row.ActivityID = string(activityID)
-		err = apply(proj, row)
+		err = apply(row)
 		if err == nil {
 			return nil
 		}
@@ -7076,7 +7085,7 @@ func (m *constructionManager) SetTaskCommentStatus(
 		return newError(fwmanager.ContractMisuse, "a comment-status decision needs the status to set")
 	}
 	var mirror string
-	if err := m.onActivityRow(rc.Context, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+	if err := m.onActivityRow(rc.Context, projectID, activityID, func(row projectstate.ActivityExecution) error {
 		r, ok := roundOfComment(row, commentID)
 		if !ok {
 			// The caller's own address is in the sentence, because "no such comment" is most often
@@ -7086,7 +7095,7 @@ func (m *constructionManager) SetTaskCommentStatus(
 		}
 		mirror = taskOfRound(r)
 		_, err := m.activityExecution.SetReviewCommentStatus(fwra.Context{Context: rc.Context},
-			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
+			projectstate.ProjectID(projectID), row.Version, string(activityID),
 			r.RoundID, commentID, status, projectstate.RepoCredential{},
 			rowWriteKey("comment-status", projectID, activityID))
 		if err != nil && !csIsRAConflict(err) {
@@ -7194,7 +7203,7 @@ func (m *constructionManager) WithdrawReviewRound(
 	default:
 		return err
 	}
-	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+	return m.onActivityRow(ctx, projectID, activityID, func(row projectstate.ActivityExecution) error {
 		r, rerr := latestRoundFor(row, taskID, kind)
 		if rerr != nil {
 			return rerr
@@ -7205,7 +7214,7 @@ func (m *constructionManager) WithdrawReviewRound(
 				r.Round, taskID, r.Outcome, r.DecidedBy))
 		}
 		_, err := m.activityExecution.DecideReviewRound(fwra.Context{Context: ctx},
-			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
+			projectstate.ProjectID(projectID), row.Version, string(activityID),
 			r.RoundID, projectstate.RoundWithdrawn, decidedByOperator, projectstate.RepoCredential{},
 			rowWriteKey("withdraw", projectID, activityID))
 		if err != nil && !csIsRAConflict(err) {
@@ -7246,7 +7255,7 @@ func (m *constructionManager) AskTaskQuestions(
 	if len(qs) == 0 && len(replies) == 0 {
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
 	}
-	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+	return m.onActivityRow(ctx, projectID, activityID, func(row projectstate.ActivityExecution) error {
 		r, rerr := latestRoundFor(row, taskID, kind)
 		if rerr != nil {
 			return rerr
@@ -7265,7 +7274,7 @@ func (m *constructionManager) AskTaskQuestions(
 			return perr
 		}
 		_, err := m.activityExecution.AppendReviewVerdict(fwra.Context{Context: ctx},
-			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID), r.RoundID,
+			projectstate.ProjectID(projectID), row.Version, string(activityID), r.RoundID,
 			projectstate.ReviewVerdict{
 				ReviewerRole: reviewAuthorRole,
 				Actor:        decidedByOperator,
@@ -8798,8 +8807,8 @@ func observePipelineActivityOptions() workflow.ActivityOptions {
 // recordActivityOptions is the head-state Record-verb preset VALUE (10s; ContractMisuse
 // terminal only — Conflict must reach the workflow so the §6.5 re-read→re-apply loop can
 // recover it) the manifest's Opts hook (workermanifest.go) applies to the GENERATED
-// activityExecutionAccess / gitActivityStatusAccess / projectStateAccess Record* invokers
-// by registered name. Every Record* verb goes through the generated invoker surface, so only the
+// projectStateAccess Record* invokers by registered name. (The activityExecutionAccess and
+// gitActivityStatusAccess row verbs moved to rowWriteActivityOptions in FIX-006.) Every Record* verb goes through the generated invoker surface, so only the
 // VALUE form is needed (no direct-ExecuteActivity call site for this preset).
 func recordActivityOptions() workflow.ActivityOptions {
 	return fwmanager.ActivityPreset{
@@ -8808,11 +8817,34 @@ func recordActivityOptions() workflow.ActivityOptions {
 	}.Options()
 }
 
-// stampNoteDeliveredActivityOptions is the delivery stamp's preset (M4): the record
-// preset's per-attempt timeout, uncapped attempts inside noteStampRetryWindow, and
-// ContractMisuse terminal (the store refusing to stamp one note to two attempts).
+// rowWriteActivityOptions is the preset for the ROW verbs (FIX-006): the eight
+// activityExecutionAccess mutators and the two gitActivityStatusAccess upserts. The store
+// now serialises every state write of a repo in a per-process queue that spans read → apply
+// → commit, and the wait in that queue counts against StartToClose. A 31-wide M0-seal
+// fan-out puts ~63 early row writes in the queue at once, at roughly 0.3–0.5 s each locally
+// (measured: mgr_1 moved the project version 53→74 in ~12 s under contention) and more on
+// GitHub, where every write is a depth-1 clone plus a push — so the record preset's 10 s
+// would time the tail of the queue out, and a timed-out waiter re-enters at the tail on
+// retry: convergent, but with wasted attempts and noisy timeouts. Two minutes holds the
+// measured local queue with room; the RA test reports the write-latency p50/p99 that sizes
+// it. Terminal on ContractMisuse only: a row Conflict reaches the workflow's
+// applyRowRecovering, and the store's in-RA re-apply EXHAUSTION is a Transient this
+// RetryPolicy backs off (never a Conflict).
+func rowWriteActivityOptions() workflow.ActivityOptions {
+	return fwmanager.ActivityPreset{
+		Timeout:    2 * time.Minute,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse},
+	}.Options()
+}
+
+// stampNoteDeliveredActivityOptions is the delivery stamp's preset (M4): uncapped attempts
+// inside noteStampRetryWindow, and ContractMisuse terminal (the store refusing to stamp one
+// note to two attempts). The stamp is a row write (FIX-006), so an attempt may wait in the
+// store's write queue: its per-attempt timeout is half the window rather than the record
+// preset's 10 s, which leaves the window room for a second attempt.
 func stampNoteDeliveredActivityOptions() workflow.ActivityOptions {
-	o := recordActivityOptions()
+	o := rowWriteActivityOptions()
+	o.StartToCloseTimeout = noteStampRetryWindow / 2
 	o.ScheduleToCloseTimeout = noteStampRetryWindow
 	return o
 }
@@ -9315,31 +9347,30 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		"designSessionAccess.commitArtifactWithProvenance":   mutateActivityOptions(),
 		"designSessionAccess.stageArtifactForReviewOnBranch": mutateActivityOptions(),
 		"designSessionAccess.reconcileBranchFromMain":        mutateActivityOptions(),
-		"gitActivityStatusAccess.recordActivityBranchOpened": recordActivityOptions(),
-		"gitActivityStatusAccess.recordActivityCIObserved":   recordActivityOptions(),
+		// The git-status upserts are ROW writes (FIX-006) and take the row-write preset.
+		"gitActivityStatusAccess.recordActivityBranchOpened": rowWriteActivityOptions(),
+		"gitActivityStatusAccess.recordActivityCIObserved":   rowWriteActivityOptions(),
 		// (The git-status started/completed/archApproved/merged verbs were deleted in dct4:
 		// the ledger's OpenActivity / RecordActivityOutcome / review round carry those facts.)
 		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
 		// business one (see appendEpisodeActivityOptions).
 		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
-		// EXECUTION LEDGER (stage 3, changeExecutionLedger): the attempt and review-round
-		// writes are head-state Record verbs and take the Record preset for the same
-		// reason — ContractMisuse terminal, and Conflict deliberately NOT, so the §6.5
-		// re-read→re-apply loop in applyRecovering is what resolves it rather than a
-		// Temporal retry re-issuing the same stale expected version forever.
-		"activityExecutionAccess.openActivity":          recordActivityOptions(),
-		"activityExecutionAccess.recordAttemptOutcome":  recordActivityOptions(),
-		"activityExecutionAccess.openReviewRound":       recordActivityOptions(),
-		"activityExecutionAccess.appendReviewVerdict":   recordActivityOptions(),
-		"activityExecutionAccess.decideReviewRound":     recordActivityOptions(),
-		"activityExecutionAccess.recordActivityOutcome": recordActivityOptions(),
+		// EXECUTION LEDGER (stage 3, changeExecutionLedger; FIX-006): the attempt, round and
+		// outcome writes are ROW writes and take the row-write preset — ContractMisuse
+		// terminal, a row Conflict left to applyRowRecovering, and a StartToClose sized for
+		// the store's write queue (rowWriteActivityOptions says why).
+		"activityExecutionAccess.openActivity":          rowWriteActivityOptions(),
+		"activityExecutionAccess.recordAttemptOutcome":  rowWriteActivityOptions(),
+		"activityExecutionAccess.openReviewRound":       rowWriteActivityOptions(),
+		"activityExecutionAccess.appendReviewVerdict":   rowWriteActivityOptions(),
+		"activityExecutionAccess.decideReviewRound":     rowWriteActivityOptions(),
+		"activityExecutionAccess.recordActivityOutcome": rowWriteActivityOptions(),
 		// THE REQUEUE NOTE (stage 4b3 Task 10) joins them, because the round sweep's heal
 		// gave this verb its first WORKFLOW caller — every other writer of it is the Manager,
-		// which does not consult this hook at all. It is a head-state Record verb like the six
-		// above and takes their preset for their reason; without an entry it would silently
-		// inherit the generated 15s default, which is how the defect this gate exists for
-		// shipped once.
-		"activityExecutionAccess.recordOperatorNote": recordActivityOptions(),
+		// which does not consult this hook at all. It is a row write like the six above and
+		// takes their preset for their reason; without an entry it would silently inherit the
+		// generated 15s default, which is how the defect this gate exists for shipped once.
+		"activityExecutionAccess.recordOperatorNote": rowWriteActivityOptions(),
 		// The ROW READ the Conflict arm makes (stage 4b1, terminalAfterRowReread) takes NO
 		// entry here, DELIBERATELY: it rides the generated default, exactly as the two
 		// design rails' row read has since stage 3. A preset was considered and rejected —

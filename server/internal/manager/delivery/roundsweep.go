@@ -188,13 +188,9 @@ func (wf *csWorkflows) fanOutRoundSweep(ctx workflow.Context) (roundSweepResult,
 // activity of one project, in a deterministic order, bounded per tick — and then offer the
 // re-open heal to every activity that completed its work and failed to land it.
 //
-// THE TWO STEPS SHARE ONE PROJECT READ and nothing else. The heal is handed the project as
-// it was read at the top of this arm, not the head version the round loop advanced: the two
-// steps are independent jobs over the same document, and threading a mutated counter between
-// them would couple them through a variable for the sake of a re-read that applyRecovering
-// already makes correctly. On the rare tick that does BOTH jobs the heal's first write pays
-// one Conflict and the loop re-seeds; on every other tick — which is every tick with no
-// stranded round, the common case — the seed is exact.
+// THE TWO STEPS SHARE ONE PROJECT READ and nothing else. Both write ROWS only (FIX-006: a
+// row verb asserts no project version), so neither threads a head version to the other or
+// to its own next write; the per-row counter each binds is the only expectation they carry.
 func (wf *csWorkflows) sweepProjectRounds(ctx workflow.Context, in roundSweepInput) (roundSweepResult, error) {
 	logger := workflow.GetLogger(ctx)
 	proj, err := wf.readProject(ctx, in.ProjectID)
@@ -207,7 +203,6 @@ func (wf *csWorkflows) sweepProjectRounds(ctx workflow.Context, in roundSweepInp
 		return roundSweepResult{}, err
 	}
 
-	headVersion := proj.Version
 	result := roundSweepResult{}
 	for _, activityID := range sortedActivityIDs(proj.ActivityExecution) {
 		row := proj.ActivityExecution[activityID]
@@ -241,9 +236,9 @@ func (wf *csWorkflows) sweepProjectRounds(ctx workflow.Context, in roundSweepInp
 				result.Bounded = true
 				return result, nil
 			}
-			v, serr := wf.applyRecovering(rctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			_, serr := wf.applyRowRecovering(rctx, in.ProjectID, func() (projectstate.Version, error) {
 				return wf.Acts.ActivityExecutionDecideReviewRound(
-					rctx, projectstate.ProjectID(in.ProjectID), expected,
+					rctx, projectstate.ProjectID(in.ProjectID),
 					rowVersion, activityID, r.RoundID,
 					projectstate.RoundWithdrawn, roundSweepDecidedBy,
 					railCredEnvelope{}.toProjectState())
@@ -258,7 +253,6 @@ func (wf *csWorkflows) sweepProjectRounds(ctx workflow.Context, in roundSweepInp
 				}
 				return roundSweepResult{}, serr
 			}
-			headVersion = v
 			// The write stamped the row's per-activity counter, so the run's copy advances by
 			// hand — the same discipline as the construction rail's rowAdvanced(). Without it
 			// the NEXT stranded round on this same row would present a stale expectation and
@@ -338,7 +332,6 @@ func (wf *csWorkflows) sweepReopenNotLanded(ctx workflow.Context, projectID Proj
 		return 0, nil
 	}
 
-	head := proj.Version
 	reopened := 0
 	for _, activityID := range sortedActivityIDs(proj.ActivityExecution) {
 		row := proj.ActivityExecution[activityID]
@@ -385,8 +378,8 @@ func (wf *csWorkflows) sweepReopenNotLanded(ctx workflow.Context, projectID Proj
 			Gate:   reopenGateKey,
 			Text:   sweepReopenNoteText(row),
 		}
-		v, werr := wf.applyRecovering(rctx, projectID, head, func(expected projectstate.Version) (projectstate.Version, error) {
-			return wf.Acts.ActivityExecutionRecordOperatorNote(rctx, projectstate.ProjectID(projectID), expected,
+		_, werr := wf.applyRowRecovering(rctx, projectID, func() (projectstate.Version, error) {
+			return wf.Acts.ActivityExecutionRecordOperatorNote(rctx, projectstate.ProjectID(projectID),
 				rowVersion, activityID, note, "", railCredEnvelope{}.toProjectState())
 		})
 		if werr != nil {
@@ -401,7 +394,6 @@ func (wf *csWorkflows) sweepReopenNotLanded(ctx workflow.Context, projectID Proj
 			}
 			return 0, werr
 		}
-		head = v
 		reopened++
 		logger.Info("activity completed its work and did not land it; re-opened",
 			"projectId", string(projectID), "activityId", activityID,

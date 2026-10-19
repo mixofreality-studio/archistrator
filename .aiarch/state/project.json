@@ -17928,12 +17928,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "expectedActivityVersion",
                 "schema": {
                   "type": "integer",
@@ -18056,12 +18050,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "expectedActivityVersion",
                 "schema": {
                   "type": "integer",
@@ -18108,12 +18096,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "expectedActivityVersion",
                 "schema": {
                   "type": "integer",
@@ -18157,12 +18139,6 @@
                 "name": "projectID",
                 "schema": {
                   "$ref": "#/$defs/ProjectID"
-                }
-              },
-              {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
                 }
               },
               {
@@ -18236,12 +18212,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "expectedActivityVersion",
                 "schema": {
                   "type": "integer",
@@ -18297,12 +18267,6 @@
                 "name": "projectID",
                 "schema": {
                   "$ref": "#/$defs/ProjectID"
-                }
-              },
-              {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
                 }
               },
               {
@@ -18364,12 +18328,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "expectedActivityVersion",
                 "schema": {
                   "type": "integer",
@@ -18425,12 +18383,6 @@
                 "name": "projectID",
                 "schema": {
                   "$ref": "#/$defs/ProjectID"
-                }
-              },
-              {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
                 }
               },
               {
@@ -18501,7 +18453,7 @@
           }
         ]
       },
-      "notes": "The one staging -\u003e review -\u003e commit verb family for EVERY activity, and the owner of the two append-only per-activity ledgers (Attempts, Reviews). Added ADDITIVELY in stage 3 task 3 over three facets it supersedes. constructionTransitionAccess is DELETED (dct Plan 4 Task 3, spec §11 ruling A5 — there is no production usage, so no in-flight history to protect): its activity-scoped callers moved onto these verbs (RecordActivityExited + RecordActivityFailed → RecordActivityOutcome, RecordOperatorNote + RecordOperatorNoteDelivered → RecordOperatorNote, RecordChangeReviewed dropped because the review is the round DecideReviewRound records), and its three project-scoped writes moved to projectStateAccess. gitActivityStatusAccess and designSessionAccess keep only the ops with live callers (their own notes list them). RecordActivityOutcome is the one verb besides OpenActivity that may BIRTH a row: a FAILURE recorded with no activity-version expectation against an activity that has no row (the pump's blocked verdict — an unclassifiable activity or an unresolvable dependency has nothing to open) creates the row it fails, exactly as the retired RecordActivityFailed did; an outcome without a failure reason, or any expectation, still requires the row. RecordOperatorNote STAMPS DELIVERY ON A RE-RECORD: re-recording a note that is already held with identical content and a deliveredToAttemptID stamps it delivered to that attempt if it was not yet delivered, is a no-op if it was delivered to the same attempt, and is refused (ContractMisuse) if it was delivered to another — the fold of the retired note/delivery pair, so the dispatch that carries a gate's note marks it delivered without a second verb. NO SEPARATE COMMIT LANE. Spec 5.3 asks for a project-scoped serialized lane {projectId}:statewrite; it is deliberately NOT built, because applyMutationOnBranchFiles already is one: it fetches the branch tip fresh per call, probes the idempotency ledger BEFORE the version guard, and commits project.json plus the dedup record in ONE git commit CAS'd against the observed base, so git's ref update is the cross-process gate on both substrates. A CAS loss surfaces as fwra.Conflict, which is Temporal-retryable, and the workflow already carries the re-read -\u003e re-apply loop. A second durable singleton per project is exactly the shape the pump-singular-per-project fix had to clean up. Per-activity Version (task 4) is an additional in-document guard inside the transition, not a lane; {projectId}:statewrite is earmarked for stage 4, where the parallel pump actually raises contention. REOPEN IS A REQUEUE NOTE, NOT A THIRTEENTH VERB (stage 4b1 task 12). Terminal was terminal and nothing could undo it: OpenActivity refuses an exited row ('a finished activity is not re-opened in place'), StartedAt/CompletedAt/FailureReason/FailureDetail are write-once, and the pump's eligibility refuses any row a pump has written - so a failed walk, a spent variance budget or an operator's Skip left an activity NOTHING could ever re-run, and the operator's only recovery was an amendment minting a new activity id. RecordOperatorNote of kind REQUEUE now re-arms such a row: it clears exactly those four head facts and preserves everything that makes the activity's history readable (both ledgers, the lifecycle pin, the classified type/variant, produced artifacts, operator notes), so the next walk re-seeds the tasks that passed and re-dispatches only what did not. A requeue against a row that has NOT exited is refused - there is nothing to requeue, and re-arming a live row would hand a second child the row this one is writing. WHY A FOLD AND NOT A NEW OP, measured rather than assumed: a thirteenth verb here puts this facet past App-C's op ceiling of 12 and fires DH-CONTRACT-OPCOUNT-MAX, which the committed state's own advisory pin asserts ABSENT (designhealth TestGreenFixtureAdvisoriesFire: 'the largest surviving contract is 12 ... the FIRST time the repo has had no Manager contract past App-C's ceiling'). The requeue kind was already in the OperatorNoteKind vocabulary with no writer, an operator's re-open is exactly the decision that verb records, and folding makes the audit entry and the re-arm ONE commit - so a crash can no longer leave a re-armed activity with nobody's name on it, which two ops could."
+      "notes": "The one staging -\u003e review -\u003e commit verb family for EVERY activity, and the owner of the two append-only per-activity ledgers (Attempts, Reviews). Added ADDITIVELY in stage 3 task 3 over three facets it supersedes. constructionTransitionAccess is DELETED (dct Plan 4 Task 3, spec §11 ruling A5 — there is no production usage, so no in-flight history to protect): its activity-scoped callers moved onto these verbs (RecordActivityExited + RecordActivityFailed → RecordActivityOutcome, RecordOperatorNote + RecordOperatorNoteDelivered → RecordOperatorNote, RecordChangeReviewed dropped because the review is the round DecideReviewRound records), and its three project-scoped writes moved to projectStateAccess. gitActivityStatusAccess and designSessionAccess keep only the ops with live callers (their own notes list them). RecordActivityOutcome is the one verb besides OpenActivity that may BIRTH a row: a FAILURE recorded with no activity-version expectation against an activity that has no row (the pump's blocked verdict — an unclassifiable activity or an unresolvable dependency has nothing to open) creates the row it fails, exactly as the retired RecordActivityFailed did; an outcome without a failure reason, or any expectation, still requires the row. RecordOperatorNote STAMPS DELIVERY ON A RE-RECORD: re-recording a note that is already held with identical content and a deliveredToAttemptID stamps it delivered to that attempt if it was not yet delivered, is a no-op if it was delivered to the same attempt, and is refused (ContractMisuse) if it was delivered to another — the fold of the retired note/delivery pair, so the dispatch that carries a gate's note marks it delivered without a second verb. NO SEPARATE COMMIT LANE. Spec 5.3 asks for a project-scoped serialized lane {projectId}:statewrite; it is deliberately NOT built, because applyMutationOnBranchFiles already is one: it fetches the branch tip fresh per call, probes the idempotency ledger BEFORE the version guard, and commits project.json plus the dedup record in ONE git commit CAS'd against the observed base, so git's ref update is the cross-process gate on both substrates. A CAS loss surfaces as fwra.Conflict, which is Temporal-retryable, and the workflow already carries the re-read -\u003e re-apply loop. A second durable singleton per project is exactly the shape the pump-singular-per-project fix had to clean up. Per-activity Version (task 4) is an additional in-document guard inside the transition, not a lane; {projectId}:statewrite is earmarked for stage 4, where the parallel pump actually raises contention. REOPEN IS A REQUEUE NOTE, NOT A THIRTEENTH VERB (stage 4b1 task 12). Terminal was terminal and nothing could undo it: OpenActivity refuses an exited row ('a finished activity is not re-opened in place'), StartedAt/CompletedAt/FailureReason/FailureDetail are write-once, and the pump's eligibility refuses any row a pump has written - so a failed walk, a spent variance budget or an operator's Skip left an activity NOTHING could ever re-run, and the operator's only recovery was an amendment minting a new activity id. RecordOperatorNote of kind REQUEUE now re-arms such a row: it clears exactly those four head facts and preserves everything that makes the activity's history readable (both ledgers, the lifecycle pin, the classified type/variant, produced artifacts, operator notes), so the next walk re-seeds the tasks that passed and re-dispatches only what did not. A requeue against a row that has NOT exited is refused - there is nothing to requeue, and re-arming a live row would hand a second child the row this one is writing. WHY A FOLD AND NOT A NEW OP, measured rather than assumed: a thirteenth verb here puts this facet past App-C's op ceiling of 12 and fires DH-CONTRACT-OPCOUNT-MAX, which the committed state's own advisory pin asserts ABSENT (designhealth TestGreenFixtureAdvisoriesFire: 'the largest surviving contract is 12 ... the FIRST time the repo has had no Manager contract past App-C's ceiling'). The requeue kind was already in the OperatorNoteKind vocabulary with no writer, an operator's re-open is exactly the decision that verb records, and folding makes the audit entry and the re-arm ONE commit - so a crash can no longer leave a re-armed activity with nobody's name on it, which two ops could. FIX-006 (2026-10-18): the eight mutators (OpenActivity, RecordAttemptOutcome, OpenReviewRound, AppendReviewVerdict, SetReviewCommentStatus, DecideReviewRound, RecordActivityOutcome, RecordOperatorNote) are ROW-SCOPED and take no expectedVersion. Each reads and writes only its own activity's row, whose own optimistic check is expectedActivityVersion; the project version was false sharing that made every sibling write stale the next, and a fan-out wider than the caller's retry bound halted the pump at the M0 seal. The store applies a row write at the tip it reads, under a per-repo+branch in-process write queue that spans read, apply and commit, still stamps Version = tip + 1 and returns it, and re-applies the write itself when a ref compare-and-swap is lost to a writer outside the queue. A Conflict from a row verb is therefore always the ROW's refusal (a stale expectedActivityVersion, an exited row, a decided round); exhausting the in-store re-apply bound is a retryable Transient, never a Conflict. StageTaskOutput is not a row write: it is a conditional whole-document write on the session BRANCH and keeps its live expectedVersion."
     },
     "agenticJobAccess": {
       "component": "agenticJobAccess",
@@ -26772,12 +26724,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "activityID",
                 "schema": {
                   "type": "string"
@@ -26841,12 +26787,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "activityID",
                 "schema": {
                   "type": "string"
@@ -26878,7 +26818,7 @@
           }
         ]
       },
-      "notes": "The git-forward PR/CI mirror, and nothing else. The execution facts it used to carry (started, completed, merged, architect-approved) were folded onto activityExecutionAccess and deleted in dct4: OpenActivity births the row, RecordActivityOutcome stamps the exit, and the review ledger (AppendReviewVerdict / DecideReviewRound) is the authoritative approval. The two survivors mirror what the rail reports: RecordActivityBranchOpened (the activity branch and its pull request, read by the Tasks lens and the test-run venue URL) and RecordActivityCIObserved (the PR's required-check rollup, written by the merge guard so a refused merge's reason is readable off project state)."
+      "notes": "The git-forward PR/CI mirror, and nothing else. The execution facts it used to carry (started, completed, merged, architect-approved) were folded onto activityExecutionAccess and deleted in dct4: OpenActivity births the row, RecordActivityOutcome stamps the exit, and the review ledger (AppendReviewVerdict / DecideReviewRound) is the authoritative approval. The two survivors mirror what the rail reports: RecordActivityBranchOpened (the activity branch and its pull request, read by the Tasks lens and the test-run venue URL) and RecordActivityCIObserved (the PR's required-check rollup, written by the merge guard so a refused merge's reason is readable off project state). FIX-006 (2026-10-18): both verbs are ROW-SCOPED upserts on one activity's git-status row and take no expectedVersion: the store applies them at the tip it reads, under the per-repo+branch in-process write queue, stamps Version = tip + 1, and re-applies itself on a ref compare-and-swap lost to a writer outside the queue (exhausting that bound is a retryable Transient, never a Conflict). The rows carry no row version: their writes were blind re-applies after a project-version re-read before, and an at-tip apply is the same semantics."
     },
     "interventionEngine": {
       "component": "interventionEngine",
@@ -40784,11 +40724,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -40868,11 +40803,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-ask-p1",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "1",
                     "schemaRef": ""
                   },
                   {
@@ -40963,11 +40893,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41055,11 +40980,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41144,11 +41064,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-cpo-p1",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "22",
                     "schemaRef": ""
                   },
                   {
@@ -41268,11 +41183,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "22",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41386,11 +41296,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p1",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -41554,11 +41459,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41670,11 +41570,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "2",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41754,11 +41649,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -41922,11 +41812,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -42038,11 +41923,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "2",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -42112,11 +41992,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "3",
                     "schemaRef": ""
                   },
                   {
@@ -42199,11 +42074,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p3",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -42308,11 +42178,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -42377,11 +42242,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p3",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -42467,11 +42327,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -42546,11 +42401,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p3",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "4",
                     "schemaRef": ""
                   },
                   {
@@ -42633,11 +42483,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p4",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -42742,11 +42587,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -42811,11 +42651,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p4",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -42901,11 +42736,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -42980,11 +42810,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p4",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "4",
                     "schemaRef": ""
                   },
                   {
@@ -43067,11 +42892,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p5",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -43232,11 +43052,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p5",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "1",
                     "schemaRef": ""
                   },
                   {
@@ -43410,11 +43225,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "2",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -43526,11 +43336,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -43610,11 +43415,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p6",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -43778,11 +43578,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -43894,11 +43689,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "2",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -43971,11 +43761,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -44045,11 +43830,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p6",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "4",
                     "schemaRef": ""
                   },
                   {
@@ -44132,11 +43912,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -44241,11 +44016,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -44310,11 +44080,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -44397,11 +44162,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "3",
                     "schemaRef": ""
                   },
                   {
@@ -44565,11 +44325,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "4",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -44678,11 +44433,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "5",
                     "schemaRef": ""
                   },
                   {
@@ -44852,11 +44602,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -45023,11 +44768,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -45107,11 +44847,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-rq-p1",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -45231,11 +44966,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -45335,11 +45065,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -45422,11 +45147,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -45506,11 +45226,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-sb-p1",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -45680,11 +45395,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -45764,11 +45474,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-sb-p2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -45938,11 +45643,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -46106,11 +45806,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-sb-p2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -57357,11 +57052,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "12",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57421,11 +57111,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "13",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57467,11 +57152,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "12",
                     "schemaRef": ""
                   },
                   {
@@ -57534,11 +57214,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "13",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57580,11 +57255,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P3",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "12",
                     "schemaRef": ""
                   },
                   {
@@ -57632,11 +57302,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "12",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57678,11 +57343,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P5",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "12",
                     "schemaRef": ""
                   },
                   {
@@ -57745,11 +57405,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "13",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57786,11 +57441,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P5",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "14",
                     "schemaRef": ""
                   },
                   {
@@ -57853,11 +57503,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "15",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57899,11 +57544,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P6",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "12",
                     "schemaRef": ""
                   },
                   {
@@ -57966,11 +57606,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "13",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -58012,11 +57647,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "12",
                     "schemaRef": ""
                   },
                   {
@@ -58076,11 +57706,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "13",
                     "schemaRef": ""
                   },
                   {

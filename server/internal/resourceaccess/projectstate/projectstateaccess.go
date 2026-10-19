@@ -37,13 +37,17 @@ import (
 	"log/slog"
 	"maps"
 	"math"
+	"math/rand/v2"
 	"path"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
@@ -1028,6 +1032,15 @@ func (s *GitStore) applyMutationOnBranchFiles(
 		return 0, err
 	}
 
+	// THE WRITE QUEUE spans read → apply → commit (FIX-006), so this verb's own read is
+	// never older than its slot: among this process's state writers the only stale value a
+	// conditional write can still carry is the CALLER's expectedVersion.
+	release, err := s.enterWriteQueue(ctx, op, projectID, branch)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+
 	// Load the subtree at the current branch tip (the observed CAS base). The dedup
 	// probe runs against THIS fetched remote tip, never a stale local clone
 	// (C-PA-R invariant i).
@@ -1085,10 +1098,382 @@ func (s *GitStore) applyMutationOnBranchFiles(
 	res, err := repo.CommitSubtree(ctx, statePathPrefix, files, snap.Base, commitMessage(op, idempotencyKey), auth)
 	if err != nil {
 		// A non-fast-forward CAS loss is already fwra.Conflict from the satellite.
+		if errors.Is(err, fwgithub.ErrRefCASLost) {
+			stateWriteCASLosses.Add(1)
+		}
 		return 0, err
 	}
 	_ = res // Base token is the satellite's; Version is the caller-visible token.
 	return p.Version, nil
+}
+
+// ---------------------------------------------------------------------------
+// THE ROW WRITE PATH (FIX-006).
+//
+// The per-activity verbs — activityExecutionAccess's eight mutators and
+// gitActivityStatusAccess's two upserts — read and write ONE row of the aggregate. Their
+// transitions consult nothing else in the document (pinned by the read-independence test in
+// access_hooks_test.go), and the row carries its own CAS where two writers can meet
+// (ActivityExecution.Version, withActivityVersion). Guarding them with the PROJECT version
+// as well was false sharing: every sibling write bumped the one token, so every other
+// sibling's next write was stale, and a fan-out wider than the workflow's retry bound
+// exhausted it by construction (the M0-seal halt).
+//
+// So a row write asserts no project version. It is applied at the tip it reads, inside the
+// project's write queue, and the Version it stamps is still tip+1 — the counter stays
+// monotonic and every reader of it is unchanged. A ref-CAS lost to a writer OUTSIDE this
+// process's queue (another pod, an in-process pusher that does not go through this RA such
+// as the local merge step, the GitHub merge) is re-applied HERE, at the new tip, without a
+// Temporal round-trip: the transition is pure over *Project with its clock captured
+// outside, the dedup ledger is re-probed at every tip, and a lost CAS means the commit did
+// not land, so a re-apply is a first apply.
+//
+// The CLASSIFICATION is load-bearing for the Manager. A Conflict from a row verb is now
+// always the ROW's refusal (a stale held row version, an exited row, a decided round) —
+// the caller's to resolve, so it is returned at once and never re-applied. Re-apply
+// EXHAUSTION is not a refusal: it is returned as a retryable fwra.Transient, which the
+// Activity RetryPolicy backs off and which never reaches the Manager's terminal-Conflict
+// classifier (a Conflict on a row that did not move reads as terminal there).
+// ---------------------------------------------------------------------------
+
+// maxRowReapply bounds the in-RA re-apply of one row write after lost ref-CASes. It is
+// generous because it only ever counts losses to writers outside this process's queue.
+const maxRowReapply = 32
+
+// rowReapplyJitter caps the pause before a re-apply. It is taken OUTSIDE the queue slot.
+const rowReapplyJitter = 50 * time.Millisecond
+
+// stateWriteCASLosses counts every ref-CAS this process's state writers lost (row and
+// conditional paths alike). Inside one process the write queue makes it zero among them;
+// it moves only when a writer outside the queue advanced the branch.
+var stateWriteCASLosses atomic.Int64
+
+// StateWriteCASLosses reports how many ref-CASes this process's state writes have lost
+// since start. An operational counter and the regression test's probe of the write queue:
+// with every state writer of a repo in one process it stays still under any fan-out.
+func StateWriteCASLosses() int64 { return stateWriteCASLosses.Load() }
+
+// StateWriteTestHooks are the two levers the regression tests need on the row write path
+// and cannot reach through the contract: a smaller re-apply bound (to drive exhaustion) and
+// a callback run after the tip is read and before the commit (to lose a CAS on purpose).
+type StateWriteTestHooks struct {
+	// MaxRowReapply, when > 0, replaces maxRowReapply.
+	MaxRowReapply int
+	// BeforeRowCommit, when non-nil, runs inside the queue slot between the read and the commit.
+	BeforeRowCommit func()
+}
+
+var stateWriteTestHooks atomic.Pointer[StateWriteTestHooks]
+
+// SetStateWriteTestHooks installs hooks for the row write path and returns the restore.
+// TEST-ONLY: production never calls it, so the zero hooks (the shipped bounds) apply.
+func SetStateWriteTestHooks(h StateWriteTestHooks) (restore func()) {
+	prev := stateWriteTestHooks.Swap(&h)
+	return func() { stateWriteTestHooks.Store(prev) }
+}
+
+func rowReapplyBound() int {
+	if h := stateWriteTestHooks.Load(); h != nil && h.MaxRowReapply > 0 {
+		return h.MaxRowReapply
+	}
+	return maxRowReapply
+}
+
+func beforeRowCommit() {
+	if h := stateWriteTestHooks.Load(); h != nil && h.BeforeRowCommit != nil {
+		h.BeforeRowCommit()
+	}
+}
+
+// applyRowMutation is the row-scoped write: no expectedVersion, applied at the tip it reads
+// inside the project's write queue, re-applied in-RA on a lost ref-CAS. See the section
+// header for the contract it keeps.
+func (s *GitStore) applyRowMutation(
+	ctx context.Context,
+	op string,
+	projectID ProjectID,
+	cred RepoCredential,
+	idempotencyKey fwra.IdempotencyKey,
+	mutate func(p *Project) error,
+) (Version, error) {
+	if projectID == "" {
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate."+op+": zero projectID")
+	}
+	if idempotencyKey.IsZero() {
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate."+op+": empty idempotencyKey")
+	}
+	auth, err := s.gitAuth(cred, op)
+	if err != nil {
+		return 0, err
+	}
+	repo, err := s.projectRepo(projectID, "")
+	if err != nil {
+		return 0, err
+	}
+	bound := rowReapplyBound()
+	var lost error
+	for attempt := 0; attempt <= bound; attempt++ {
+		if attempt > 0 {
+			// The pause is taken OUTSIDE the slot, and the re-apply re-enters at the tail.
+			if err := sleepCtx(ctx, rowJitter(attempt)); err != nil {
+				return 0, fwra.Wrap(fwra.Transient, err, "projectstate."+op+": cancelled while re-applying after a lost ref-CAS")
+			}
+		}
+		v, err := s.applyRowOnce(ctx, op, projectID, repo, auth, idempotencyKey, mutate)
+		if err == nil {
+			return v, nil
+		}
+		if !errors.Is(err, fwgithub.ErrRefCASLost) {
+			return 0, err
+		}
+		stateWriteCASLosses.Add(1)
+		lost = err
+	}
+	return 0, fwra.Wrap(fwra.Transient, lost, fmt.Sprintf(
+		"projectstate.%s: the branch kept advancing under %d re-applies of a row write (writers outside this process); retry the write",
+		op, bound+1))
+}
+
+// applyRowOnce is one queued read → dedup → apply → commit of a row write.
+func (s *GitStore) applyRowOnce(
+	ctx context.Context,
+	op string,
+	projectID ProjectID,
+	repo *fwgithub.GitStore,
+	auth fwgithub.GitAuth,
+	idempotencyKey fwra.IdempotencyKey,
+	mutate func(p *Project) error,
+) (Version, error) {
+	release, err := s.enterWriteQueue(ctx, op, projectID, "")
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+
+	snap, err := repo.ReadSubtree(ctx, statePathPrefix, auth)
+	if err != nil {
+		return 0, err
+	}
+	// STEP 0 and STEP 1 exactly as the conditional path runs them (see there): identity
+	// first, then the dedup probe at THIS tip — re-probed on every re-apply, so a write that
+	// did land (a transport error after the push) is answered by its own record.
+	if err := guardProjectIdentity(snap, op, projectID, s.repoDescription(projectID)); err != nil {
+		return 0, err
+	}
+	if rec, found, derr := lookupAppliedInSnapshot(snap, idempotencyKey); derr != nil {
+		return 0, derr
+	} else if found {
+		return rec.ResultVersion, nil
+	}
+	p, exists, err := decodeProjectFromSnapshot(snap, projectID)
+	if err != nil {
+		return 0, err
+	}
+	if !exists {
+		return 0, fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.%s: no aggregate for project %s (create it first)", op, projectID))
+	}
+	// The row's own guard rides inside mutate; a refusal from it is returned untouched.
+	if mErr := mutate(&p); mErr != nil {
+		return 0, mErr
+	}
+	p.Version++
+	files, err := buildStateFiles(snap, &p, idempotencyKey, p.Version, op, s.now(), nil)
+	if err != nil {
+		return 0, err
+	}
+	beforeRowCommit()
+	if _, err := repo.CommitSubtree(ctx, statePathPrefix, files, snap.Base, commitMessage(op, idempotencyKey), auth); err != nil {
+		return 0, err
+	}
+	return p.Version, nil
+}
+
+// rowJitter is a small, attempt-scaled pause before a re-apply, so writers that lost to
+// the same outside push do not re-read in lockstep.
+func rowJitter(attempt int) time.Duration {
+	n := time.Duration(attempt) * 5 * time.Millisecond
+	if n > rowReapplyJitter {
+		n = rowReapplyJitter
+	}
+	return n + time.Duration(rand.Int64N(int64(5*time.Millisecond)))
+}
+
+// sleepCtx sleeps d or until ctx is done.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// ---------------------------------------------------------------------------
+// THE WRITE QUEUE (FIX-006). A per-repo+branch, in-process FIFO that every state write
+// holds across read → apply → commit, so a herd of writers becomes a queue instead of a
+// round of CAS losses with one winner. Package level, keyed by the CANONICAL repo + branch,
+// so the facets' separate *GitStores over one repo share one queue. It is NOT interim: it
+// stays when the platform's FIX-002 push lock goes, because it is what serialises
+// read-modify-write on every topology (the push lock serialises only the push). The
+// platform lock stays strictly INNER (this queue, then PushLocal inside CommitSubtree), and
+// nothing inside a PushLocal callback calls this RA, so the two cannot deadlock.
+//
+// A FIFO by construction: waiters park on a ticket channel in arrival order. A waiter whose
+// ctx ends leaves the line (its turn is skipped), so a timed-out Activity re-enters at the
+// tail on Temporal's retry.
+// ---------------------------------------------------------------------------
+
+type writeQueue struct {
+	mu      sync.Mutex
+	busy    bool
+	waiters []chan struct{}
+}
+
+var writeQueues = struct {
+	mu sync.Mutex
+	m  map[string]*writeQueue
+}{m: map[string]*writeQueue{}}
+
+func writeQueueFor(key string) *writeQueue {
+	writeQueues.mu.Lock()
+	defer writeQueues.mu.Unlock()
+	q, ok := writeQueues.m[key]
+	if !ok {
+		q = &writeQueue{}
+		writeQueues.m[key] = q
+	}
+	return q
+}
+
+// acquire waits its turn (FIFO) or until ctx is done.
+func (q *writeQueue) acquire(ctx context.Context) error {
+	q.mu.Lock()
+	if !q.busy && len(q.waiters) == 0 {
+		q.busy = true
+		q.mu.Unlock()
+		return nil
+	}
+	ticket := make(chan struct{})
+	q.waiters = append(q.waiters, ticket)
+	q.mu.Unlock()
+	select {
+	case <-ticket:
+		return nil
+	case <-ctx.Done():
+		q.mu.Lock()
+		for i, w := range q.waiters {
+			if w == ticket {
+				q.waiters = slices.Delete(q.waiters, i, i+1)
+				q.mu.Unlock()
+				return ctx.Err()
+			}
+		}
+		q.mu.Unlock()
+		// The turn was handed over in the same instant ctx ended: take it and pass it on.
+		<-ticket
+		q.release()
+		return ctx.Err()
+	}
+}
+
+// release hands the slot to the longest waiter, or frees it.
+func (q *writeQueue) release() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.waiters) == 0 {
+		q.busy = false
+		return
+	}
+	next := q.waiters[0]
+	q.waiters = q.waiters[1:]
+	close(next) // busy stays true: ownership moves to next.
+}
+
+// enterWriteQueue takes projectID's write slot on branch ("" = the locator's default).
+func (s *GitStore) enterWriteQueue(ctx context.Context, op string, projectID ProjectID, branch string) (func(), error) {
+	q := writeQueueFor(s.writeQueueKey(projectID, branch))
+	if err := q.acquire(ctx); err != nil {
+		return nil, fwra.Wrap(fwra.Transient, err, "projectstate."+op+": cancelled while waiting for the project's write queue")
+	}
+	var once sync.Once
+	return func() { once.Do(q.release) }, nil
+}
+
+// repoQueueKeyer is the OPTIONAL locator capability that names the physical repo + branch a
+// project's writes land on, canonicalised, so every store over one repo shares one queue.
+type repoQueueKeyer interface {
+	WriteQueueKey(projectID ProjectID, branch string) string
+}
+
+// writeQueueKey is the queue a write joins: the locator's canonical repo+branch, or — for a
+// locator that cannot name its repo — the project and branch, which still serialises every
+// writer that shares this process's locator family.
+func (s *GitStore) writeQueueKey(projectID ProjectID, branch string) string {
+	if k, ok := s.locator.(repoQueueKeyer); ok {
+		if key := k.WriteQueueKey(projectID, branch); key != "" {
+			return key
+		}
+	}
+	return "project:" + string(projectID) + "@" + branch
+}
+
+// canonicalRepoKey normalises a repo URL so every spelling of one repo is one key. A local
+// repo (a file:// URL or a path) uses the platform's own lock-key rule (canonicalLocalPath:
+// scheme stripped, absolute, symlinks resolved). A remote is lower-cased in its scheme and
+// host, stripped of credentials, a trailing slash and a trailing ".git"; an scp-style
+// remote (git@host:owner/repo) is rewritten to its ssh:// form first.
+func canonicalRepoKey(repoURL string) string {
+	u := strings.TrimSpace(repoURL)
+	if isLocalRepoURL(u) {
+		return "file://" + canonicalLocalPath(u)
+	}
+	if !strings.Contains(u, "://") {
+		if at := strings.Index(u, "@"); at >= 0 {
+			u = u[at+1:]
+		}
+		u = "ssh://" + strings.Replace(u, ":", "/", 1)
+	}
+	scheme, rest, _ := strings.Cut(u, "://")
+	if at := strings.Index(rest, "@"); at >= 0 && at < strings.IndexByte(rest+"/", '/') {
+		rest = rest[at+1:]
+	}
+	host, pathPart, _ := strings.Cut(rest, "/")
+	pathPart = strings.TrimSuffix(strings.TrimSuffix(pathPart, "/"), ".git")
+	return strings.ToLower(scheme) + "://" + strings.ToLower(host) + "/" + pathPart
+}
+
+// canonicalLocalPath is the platform's CanonicalLocalRepoPath rule (the FIX-002 push lock's
+// key), restated here because that function ships in an infra-github release this module
+// does not pin yet: the file:// scheme stripped, then Abs, EvalSymlinks (when the path
+// resolves) and Clean, so the file:// form, the plain form and a symlink are ONE key.
+// EARMARK: call fwgithub.CanonicalLocalRepoPath once the pin carries it.
+func canonicalLocalPath(repoURL string) string {
+	p := strings.TrimPrefix(strings.TrimSpace(repoURL), "file://")
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return filepath.Clean(p)
+	}
+	if resolved, rerr := filepath.EvalSymlinks(abs); rerr == nil {
+		abs = resolved
+	}
+	return filepath.Clean(abs)
+}
+
+// isLocalRepoURL mirrors the platform's local/remote split: a file:// URL or a filesystem
+// path is local; anything with another scheme, or scp-like user@host:path, is remote.
+func isLocalRepoURL(u string) bool {
+	if strings.HasPrefix(u, "file://") {
+		return true
+	}
+	if strings.Contains(u, "://") {
+		return false
+	}
+	if i := strings.Index(u, ":"); i > 0 && !strings.Contains(u[:i], "/") && !strings.HasPrefix(u, "/") {
+		return false
+	}
+	return true
 }
 
 // loadAggregateForMutation is applyMutationOnBranchFiles' STEP 2 + STEP 3,
@@ -1919,6 +2304,23 @@ func (l gitRepoLocator) ProjectRepo(projectID ProjectID) (*fwgithub.GitStore, er
 		return nil, fwra.New(fwra.ContractMisuse, fmt.Sprintf("gitRepoLocator: empty repo URL for project %s", projectID))
 	}
 	return fwgithub.NewGitStore(url, l.branch)
+}
+
+// WriteQueueKey satisfies repoQueueKeyer: the canonical repo URL + the CAS target branch
+// (the locator's default when branch is empty, "main" when that is empty too, exactly as
+// fwgithub.NewGitStore resolves it), so every facet's store over one repo shares a queue.
+func (l gitRepoLocator) WriteQueueKey(projectID ProjectID, branch string) string {
+	url := l.perProjectRepoURL(projectID)
+	if url == "" {
+		return ""
+	}
+	if branch == "" {
+		branch = l.branch
+	}
+	if strings.TrimSpace(branch) == "" {
+		branch = "main"
+	}
+	return canonicalRepoKey(url) + "@" + branch
 }
 
 // DescribeRepo satisfies repoDescriber: exposes the resolved repo's clone URL /
@@ -3549,18 +3951,20 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 var _ GitActivityStatusAccess = (*GitStore)(nil)
 
 // upsertActivity fetches (or initialises) the per-activity row, applies the supplied
-// in-place mutation, server-resolves UpdatedAt, and writes the SINGLE map key back.
+// in-place mutation, stamps UpdatedAt with the server time the CALLER resolved (once, before
+// the write, so an in-store re-apply after a lost ref-CAS is deterministic), and writes the
+// SINGLE map key back.
 // The map is lazily allocated. This is a PARTIAL map-key update (GIT.4): only the
 // named key is touched; every other ActivityGit entry is left byte-identical, so two
 // records on DIFFERENT activityIds converge under ref-CAS instead of clobbering.
-func (s *GitStore) upsertActivity(p *Project, activityID string, mutate func(g *ActivityGitStatus)) {
+func (s *GitStore) upsertActivity(p *Project, activityID string, now time.Time, mutate func(g *ActivityGitStatus)) {
 	if p.ActivityGit == nil {
 		p.ActivityGit = map[string]ActivityGitStatus{}
 	}
 	g := p.ActivityGit[activityID] // zero value on first touch — births the row
 	g.ActivityID = activityID
 	mutate(&g)
-	g.UpdatedAt = s.now()
+	g.UpdatedAt = now
 	p.ActivityGit[activityID] = g
 }
 
@@ -3568,17 +3972,20 @@ func (s *GitStore) upsertActivity(p *Project, activityID string, mutate func(g *
 // branch (and, when carried, PR) coordinates. First touch also seeds CICheck to
 // Pending; PR-side fields are never clobbered back to empty (see the in-body
 // PR-tolerant-upsert note).
-func (s *GitStore) RecordActivityBranchOpened(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+//
+// ROW-SCOPED (FIX-006): it asserts no project version — see applyRowMutation.
+func (s *GitStore) RecordActivityBranchOpened(rc fwra.Context, projectID ProjectID, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityBranchOpened: empty activityID")
 	}
-	return s.applyMutation(rc.Context, "RecordActivityBranchOpened", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	now := s.now()
+	return s.applyRowMutation(rc.Context, "RecordActivityBranchOpened", projectID, cred, idempotencyKey, func(p *Project) error {
 		first := true
 		if p.ActivityGit != nil {
 			_, first = p.ActivityGit[activityID]
 			first = !first
 		}
-		s.upsertActivity(p, activityID, func(g *ActivityGitStatus) {
+		s.upsertActivity(p, activityID, now, func(g *ActivityGitStatus) {
 			g.BranchName = branch
 			g.BranchRef = branchRef
 			// PR-TOLERANT UPSERT: only overwrite the PR-side fields when the caller
@@ -3604,12 +4011,15 @@ func (s *GitStore) RecordActivityBranchOpened(rc fwra.Context, projectID Project
 
 // RecordActivityCIObserved records the latest observed CI check state on the
 // activity's git-status row.
-func (s *GitStore) RecordActivityCIObserved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+//
+// ROW-SCOPED (FIX-006): it asserts no project version — see applyRowMutation.
+func (s *GitStore) RecordActivityCIObserved(rc fwra.Context, projectID ProjectID, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityCIObserved: empty activityID")
 	}
-	return s.applyMutation(rc.Context, "RecordActivityCIObserved", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		s.upsertActivity(p, activityID, func(g *ActivityGitStatus) {
+	now := s.now()
+	return s.applyRowMutation(rc.Context, "RecordActivityCIObserved", projectID, cred, idempotencyKey, func(p *Project) error {
+		s.upsertActivity(p, activityID, now, func(g *ActivityGitStatus) {
 			g.CICheck = ci
 		})
 		return nil
@@ -9607,9 +10017,13 @@ func execMisuse(op, detail string) error {
 const NoActivityVersionExpectation int64 = 0
 
 // withActivityVersion wraps a narrow activity transition in the per-activity optimistic
-// check. The project-level guard (loadAggregateForMutation, STEP 3) is the CAS token for
-// the whole document; this one is scoped to the row, so two children writing DIFFERENT
-// activities never contend, and two writers on the SAME activity cannot interleave.
+// check. It is the ONLY optimistic check a row write carries (FIX-006): the row verbs go
+// through applyRowMutation, which asserts no project version — the project-level guard
+// (loadAggregateForMutation, STEP 3) stays on the whole-document conditional writes — and
+// applies the transition at the tip it reads inside the project's write queue. That is
+// what makes "two children writing DIFFERENT activities never contend" true: before it the
+// project guard in front of this one made every sibling write stale the next. Two writers
+// on the SAME activity still cannot interleave, because this check is per row.
 //
 // A mismatch is fwra.Conflict naming BOTH versions — the same class the git ref-CAS loss
 // carries, because it is the same "someone already moved this" the caller resolves by
@@ -9673,14 +10087,14 @@ func guardActivityVersion(op string, p *Project, activityID string, expected int
 // per-activity version check. A verb that may birth the row (only OpenActivity) does not
 // use it.
 func (a *activityExecutionAccess) onActivity(
-	rc fwra.Context, op string, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64,
+	rc fwra.Context, op string, projectID ProjectID, expectedActivityVersion int64,
 	activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey,
 	mutate func(cs *ActivityExecution) error,
 ) (Version, error) {
 	if activityID == "" {
 		return 0, execMisuse(op, "empty activityID")
 	}
-	return a.store.applyMutation(rc.Context, op, projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting,
+	return a.store.applyRowMutation(rc.Context, op, projectID, cred, idempotencyKey,
 		withActivityVersion(op, activityID, expectedActivityVersion, mutate))
 }
 
@@ -9706,7 +10120,7 @@ func roundPtr(cs *ActivityExecution, op, roundID string) (*ReviewRound, error) {
 // The pin is not decoration: without it a method-assets release landing mid-flight
 // re-shapes an activity that is already running, and the ledger below would be read
 // against a DAG it was never written under.
-func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, typ ActivityType, variant TestingVariant, pin LifecyclePin, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, typ ActivityType, variant TestingVariant, pin LifecyclePin, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case activityID == "":
 		return 0, execMisuse("OpenActivity", "empty activityID")
@@ -9716,15 +10130,20 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 		return 0, execMisuse("OpenActivity", "empty lifecycle pin assetsVersion")
 	}
 	now := a.store.now()
-	return a.store.applyMutation(rc.Context, "OpenActivity", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return a.store.applyRowMutation(rc.Context, "OpenActivity", projectID, cred, idempotencyKey, func(p *Project) error {
 		// The per-activity CAS, spelled out here rather than delegated to
 		// withActivityVersion, because this is the ONE verb that may birth the row and so
 		// the one that has to say what an expectation means when there is nothing to
 		// compare against yet. A BIRTH takes NoActivityVersionExpectation and nothing
 		// else: a caller claiming to hold version n of a row this store does not have is
-		// as stale as one holding the wrong n, and saying so here is what keeps two
-		// children from both believing they birthed the activity. A RE-OPEN of a live row
-		// is checked exactly as every other transition is.
+		// as stale as one holding the wrong n. A RE-OPEN of a live row is checked exactly as
+		// every other transition is.
+		//
+		// This guard does NOT keep two children from both birthing the activity (it used to
+		// say it did, before and after FIX-006 alike): a second birth with
+		// NoActivityVersionExpectation honours any row and lands as a no-op re-open. One
+		// child per activity is the Temporal workflow-id singleton's job
+		// (deliveryActivityWorkflowID, adopted on a refused start), not this store's.
 		if err := guardActivityVersion("OpenActivity", p, activityID, expectedActivityVersion); err != nil {
 			return err
 		}
@@ -9827,8 +10246,14 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 // is blank here to say so out loud rather than by omission: the write lands on the
 // session BRANCH (stageArtifactForReviewOnBranch), while the row and its counter live on
 // main, so a main-row version compared inside a branch write would be a guard over two
-// different documents. Its signature keeps the parameter because a verb whose shape
-// diverges from its ten siblings is the next reader's trap.
+// different documents. Its signature keeps the parameter so the facet's row-version slot
+// stays where every sibling has it.
+//
+// IT KEEPS expectedVersion, AND ITS SIBLINGS DO NOT (FIX-006). The other eight mutators are
+// row writes and assert no project version; this one is a CONDITIONAL whole-document write
+// on the session branch (stageArtifactForReviewOnBranch), and its expectedVersion is live.
+// The facet's signatures stop being uniform because the verbs are not the same kind of
+// write.
 func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID ProjectID, expectedVersion Version, _ int64, activityID string, taskID string, branch string, model ModelEnvelope, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (StagedRef, error) {
 	switch {
 	case activityID == "":
@@ -9862,7 +10287,7 @@ func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID Pro
 // passes only on a qualifying run, and a pass citing none is one no reader would count
 // (QualifiedAttempts). The row's own classified type decides, as it decides every other
 // reading of the row.
-func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, attempt TaskAttemptInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, attempt TaskAttemptInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case attempt.AttemptID == "":
 		return 0, execMisuse("RecordAttemptOutcome", "empty attemptId")
@@ -9872,7 +10297,7 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 		return 0, execMisuse("RecordAttemptOutcome", "attempt number must be 1-based")
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "RecordAttemptOutcome", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "RecordAttemptOutcome", projectID, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		if attempt.TaskID == TaskTesting && attempt.Outcome == OutcomePassed && testsScenarios(ProfileFor(cs.Type, cs.Variant)) &&
 			!testingPassCitesRun(TaskAttempt{Evidence: EvidenceRef{Kind: attempt.EvidenceKind, Ref: attempt.EvidenceRef}}) {
 			return execMisuse("RecordAttemptOutcome", fmt.Sprintf(
@@ -9928,7 +10353,7 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 // round id twice opens ONE round — the property the whole ledger rests on, because
 // Temporal retries an activity and an append that is not idempotent doubles the
 // history it exists to record.
-func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, round ReviewRoundInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, round ReviewRoundInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case round.RoundID == "":
 		return 0, execMisuse("OpenReviewRound", "empty roundId")
@@ -9949,7 +10374,7 @@ func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID Pro
 		k := *round.ArtifactKind
 		kind = &k
 	}
-	return a.onActivity(rc, "OpenReviewRound", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "OpenReviewRound", projectID, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		for i := range cs.Reviews {
 			if cs.Reviews[i].RoundID != round.RoundID {
 				continue
@@ -10001,7 +10426,7 @@ func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID Pro
 // The comments ride ApplyReviewBatch — the same append + reply normaliser the
 // artifact ledger uses, reused verbatim so the two ledgers can never disagree about
 // what a batch IS. A decided round takes no further verdicts.
-func (a *activityExecutionAccess) AppendReviewVerdict(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, verdict ReviewVerdict, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) AppendReviewVerdict(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, roundID string, verdict ReviewVerdict, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case verdict.ReviewerRole == "":
 		return 0, execMisuse("AppendReviewVerdict", "empty reviewerRole")
@@ -10014,7 +10439,7 @@ func (a *activityExecutionAccess) AppendReviewVerdict(rc fwra.Context, projectID
 		return 0, err
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "AppendReviewVerdict", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "AppendReviewVerdict", projectID, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		r, err := roundPtr(cs, "AppendReviewVerdict", roundID)
 		if err != nil {
 			return err
@@ -10141,14 +10566,14 @@ func reviewVerdictPresent(held []ReviewVerdict, v ReviewVerdict) bool {
 // vocabulary and its own legal transitions (applyReviewCommentStatus). Only the
 // ledger it walks moved; the rules did not, and duplicating them here is how the two
 // would drift.
-func (a *activityExecutionAccess) SetReviewCommentStatus(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) SetReviewCommentStatus(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case commentID == "":
 		return 0, execMisuse("SetReviewCommentStatus", "empty commentID")
 	case !validReviewCommentStatus(status):
 		return 0, execMisuse("SetReviewCommentStatus", fmt.Sprintf("unknown status %q", status))
 	}
-	return a.onActivity(rc, "SetReviewCommentStatus", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "SetReviewCommentStatus", projectID, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		r, err := roundPtr(cs, "SetReviewCommentStatus", roundID)
 		if err != nil {
 			return err
@@ -10167,7 +10592,7 @@ func (a *activityExecutionAccess) SetReviewCommentStatus(rc fwra.Context, projec
 // separate fact appended to it. A second, different decision is a Conflict — the same
 // class a CAS loss carries, because it is the same kind of "someone already settled
 // this" the caller must re-read to resolve.
-func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, outcome ReviewRoundOutcome, decidedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, roundID string, outcome ReviewRoundOutcome, decidedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if decidedBy == "" {
 		return 0, execMisuse("DecideReviewRound", "empty decidedBy")
 	}
@@ -10175,7 +10600,7 @@ func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID P
 		return 0, err
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "DecideReviewRound", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "DecideReviewRound", projectID, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		r, err := roundPtr(cs, "DecideReviewRound", roundID)
 		if err != nil {
 			return err
@@ -10212,7 +10637,7 @@ func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID P
 // able to land on an already-written row without failing an activity that did its work —
 // which is exactly the shape stampExit already had, and is why the row's own doc calls
 // these facts write-once rather than single-call.
-func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, outcome ActivityOutcome, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, outcome ActivityOutcome, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if outcome == ActivityOutcomeUnknown && reason == FailureReasonUnknown {
 		return 0, execMisuse("RecordActivityOutcome", "neither an outcome nor a failure reason — an activity does not exit for no stated cause")
 	}
@@ -10268,7 +10693,7 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 		}
 		return nil
 	}
-	return a.store.applyMutation(rc.Context, "RecordActivityOutcome", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return a.store.applyRowMutation(rc.Context, "RecordActivityOutcome", projectID, cred, idempotencyKey, func(p *Project) error {
 		// A FAILURE BIRTHS AN UNOPENED ROW (dct Plan 4 Task 3, the fold of the retired
 		// RecordActivityFailed). The pump's blocked verdict fails an activity that was never
 		// opened and never can be — unclassifiable, or blocked on a dependency that does not
@@ -10299,12 +10724,12 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 //
 // A REQUEUE NOTE RE-ARMS A TERMINAL ACTIVITY, and it is the ONE note kind that changes the row
 // (stage 4b1 task 12; see reopenTerminalRow for the whole rule and why it lives here).
-func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if err := validateOperatorNoteInput(activityID, note); err != nil {
 		return 0, err
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "RecordOperatorNote", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "RecordOperatorNote", projectID, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		for i, n := range cs.OperatorNotes {
 			if n.NoteID != note.NoteID {
 				continue

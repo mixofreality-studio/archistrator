@@ -157,7 +157,6 @@ func TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project
 // inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
 type inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	RoundID                 string                       `json:"roundID"`
@@ -171,7 +170,6 @@ type inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1 struct {
 // inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S2 is step 2's parameters of AppendReviewVerdict, decoded from the binding's inputs.
 type inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S2 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	RoundID                 string                       `json:"roundID"`
@@ -189,7 +187,7 @@ func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_revie
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: AppendReviewVerdict (node append-session-branch; guards artifact-state=[yes: session branch], answer-ran=[yes])
 		var in1 inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"operator","actor":"operator","verdict":"abstain","summary":"Clarifying questions before a verdict.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"q-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Does 'operated' include billing the customer?","authorRole":"operator","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"question","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p1:verdict:1"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p1","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"operator","actor":"operator","verdict":"abstain","summary":"Clarifying questions before a verdict.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"q-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Does 'operated' include billing the customer?","authorRole":"operator","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"question","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p1:verdict:1"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1(t, h, subject, in1)
@@ -206,10 +204,10 @@ func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_revie
 		expect(t, "ask-a-clarifying-question-during-review-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}","errorExpected":false}`)
 		// step 2: AppendReviewVerdict (node record-answers; guards artifact-state=[yes: session branch], answer-ran=[yes])
 		var in2 inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S2
-		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p1","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"agent","verdict":"abstain","summary":"Answers to the reviewer's questions.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[{"commentId":"r1c1","authorRole":"architect","text":"Yes: operating the system includes billing the customer for it.","at":""}],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p1:answer:1"}`, &in2)
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p1","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"agent","verdict":"abstain","summary":"Answers to the reviewer's questions.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[{"commentId":"r1c1","authorRole":"architect","text":"Yes: operating the system includes billing the customer for it.","at":""}],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p1:answer:1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.AppendReviewVerdict(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedVersion, in2.ExpectedActivityVersion, in2.ActivityID, in2.RoundID, in2.Verdict, in2.Comments, in2.Replies, in2.Cred, in2.IdempotencyKey)
+		out2, err2 = subject.AppendReviewVerdict(callContext(t, h, "2"), in2.ProjectID, in2.ExpectedActivityVersion, in2.ActivityID, in2.RoundID, in2.Verdict, in2.Comments, in2.Replies, in2.Cred, in2.IdempotencyKey)
 		expect(t, "ask-a-clarifying-question-during-review-P1", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: activityExecutionAccess.ReadActivityExecution for question-answered
 		var pout2_1 any
@@ -227,7 +225,6 @@ func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_revie
 // inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
 type inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	RoundID                 string                       `json:"roundID"`
@@ -245,7 +242,7 @@ func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_revie
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: AppendReviewVerdict (node append-session-branch; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
 		var in1 inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"operator","actor":"operator","verdict":"abstain","summary":"Clarifying questions before a verdict.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"q-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Does 'operated' include billing the customer?","authorRole":"operator","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"question","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p2:verdict:1"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"operator","actor":"operator","verdict":"abstain","summary":"Clarifying questions before a verdict.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"q-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Does 'operated' include billing the customer?","authorRole":"operator","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"question","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p2:verdict:1"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1(t, h, subject, in1)
@@ -266,7 +263,6 @@ func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_revie
 // inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
 type inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	RoundID                 string                       `json:"roundID"`
@@ -284,7 +280,7 @@ func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_revie
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: AppendReviewVerdict (node record-answers; guards artifact-state=[no: committed], answer-ran=[yes])
 		var in1 inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p3","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"agent","verdict":"abstain","summary":"Answers to the reviewer's questions.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[{"commentId":"r1c1","authorRole":"architect","text":"Yes: operating the system includes billing the customer for it.","at":""}],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p3:answer:1"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p3","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"agent","verdict":"abstain","summary":"Answers to the reviewer's questions.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[{"commentId":"r1c1","authorRole":"architect","text":"Yes: operating the system includes billing the customer for it.","at":""}],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-ask-p3:answer:1"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1(t, h, subject, in1)
@@ -305,7 +301,6 @@ func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_revie
 // inputActivityExecutionAccessCommitToAProjectOptionP1S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessCommitToAProjectOptionP1S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -322,7 +317,7 @@ func TestScenario_ActivityExecutionAccess_commit_to_a_project_option_P1(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node commit-option; guards decision=[commit], revoke-window=[no])
 		var in1 inputActivityExecutionAccessCommitToAProjectOptionP1S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-cpo-p1","expectedVersion":22,"expectedActivityVersion":0,"activityID":"C-project-state-access","typ":0,"variant":0,"pin":{"typeKey":"service","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-cpo-p1:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-cpo-p1","expectedActivityVersion":0,"activityID":"C-project-state-access","typ":0,"variant":0,"pin":{"typeKey":"service","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-cpo-p1:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessCommitToAProjectOptionP1S1(t, h, subject, in1)
@@ -353,7 +348,6 @@ func TestScenario_ActivityExecutionAccess_commit_to_a_project_option_P1(t *testi
 // inputActivityExecutionAccessCommitToAProjectOptionP2S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessCommitToAProjectOptionP2S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -370,7 +364,7 @@ func TestScenario_ActivityExecutionAccess_commit_to_a_project_option_P2(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node commit-option; guards decision=[commit], revoke-window=[yes])
 		var in1 inputActivityExecutionAccessCommitToAProjectOptionP2S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-cpo-p2","expectedVersion":22,"expectedActivityVersion":0,"activityID":"C-project-state-access","typ":0,"variant":0,"pin":{"typeKey":"service","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-cpo-p2:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-cpo-p2","expectedActivityVersion":0,"activityID":"C-project-state-access","typ":0,"variant":0,"pin":{"typeKey":"service","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-cpo-p2:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessCommitToAProjectOptionP2S1(t, h, subject, in1)
@@ -401,7 +395,6 @@ func TestScenario_ActivityExecutionAccess_commit_to_a_project_option_P2(t *testi
 // inputActivityExecutionAccessExecuteAProjectActivityP1S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP1S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -433,7 +426,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP1S3 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP1S4 is step 4's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP1S4 struct {
 	ProjectID               projectstate.ProjectID        `json:"projectID"`
-	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
 	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
 	ActivityID              string                        `json:"activityID"`
 	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
@@ -444,7 +436,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP1S4 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP1S5 is step 5's parameters of RecordActivityOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP1S5 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
@@ -461,7 +452,7 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P1(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node activity-eligible; guards task-kind=dispatch, exit-met=yes)
 		var in1 inputActivityExecutionAccessExecuteAProjectActivityP1S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p1:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p1:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP1S1(t, h, subject, in1)
@@ -492,10 +483,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P1(t *testi
 		expect(t, "execute-a-project-activity-P1", 3, out3, err3, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
 		// step 4: RecordAttemptOutcome (node observe-validate; guards task-kind=dispatch, exit-met=yes)
 		var in4 inputActivityExecutionAccessExecuteAProjectActivityP1S4
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"passed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p1-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p1:attempt:1"}`, &in4)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"passed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p1-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p1:attempt:1"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
+		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P1", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
 		var pout4_1 any
@@ -519,10 +510,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P1(t *testi
 		expect(t, "execute-a-project-activity-P1 probe 4.3", 4, pout4_3, perr4_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"passed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p1-missionDraft-1\"}}]}","errorExpected":false}`)
 		// step 5: RecordActivityOutcome (node record-exit; guards task-kind=dispatch, exit-met=yes)
 		var in5 inputActivityExecutionAccessExecuteAProjectActivityP1S5
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p1:exit"}`, &in5)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p1","expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p1:exit"}`, &in5)
 		var out5 any
 		var err5 error
-		out5, err5 = subject.RecordActivityOutcome(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.Outcome, in5.Reason, in5.Detail, in5.Cred, in5.IdempotencyKey)
+		out5, err5 = subject.RecordActivityOutcome(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedActivityVersion, in5.ActivityID, in5.Outcome, in5.Reason, in5.Detail, in5.Cred, in5.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P1", 5, out5, err5, `{"errorExpected":false}`)
 		// probe 5.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
 		var pout5_1 any
@@ -540,7 +531,6 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P1(t *testi
 // inputActivityExecutionAccessExecuteAProjectActivityP2S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP2S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -572,7 +562,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP2S3 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP2S4 is step 4's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP2S4 struct {
 	ProjectID               projectstate.ProjectID        `json:"projectID"`
-	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
 	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
 	ActivityID              string                        `json:"activityID"`
 	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
@@ -583,7 +572,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP2S4 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP2S5 is step 5's parameters of RecordOperatorNote, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP2S5 struct {
 	ProjectID               projectstate.ProjectID         `json:"projectID"`
-	ExpectedVersion         projectstate.Version           `json:"expectedVersion"`
 	ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
 	ActivityID              string                         `json:"activityID"`
 	Note                    projectstate.OperatorNoteInput `json:"note"`
@@ -595,7 +583,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP2S5 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP2S6 is step 6's parameters of RecordActivityOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP2S6 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
@@ -612,7 +599,7 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P2(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
 		var in1 inputActivityExecutionAccessExecuteAProjectActivityP2S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP2S1(t, h, subject, in1)
@@ -643,10 +630,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P2(t *testi
 		expect(t, "execute-a-project-activity-P2", 3, out3, err3, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
 		// step 4: RecordAttemptOutcome (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
 		var in4 inputActivityExecutionAccessExecuteAProjectActivityP2S4
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"failed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p2-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:attempt:1"}`, &in4)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"failed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p2-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:attempt:1"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
+		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P2", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
 		var pout4_1 any
@@ -670,10 +657,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P2(t *testi
 		expect(t, "execute-a-project-activity-P2 probe 4.3", 4, pout4_3, perr4_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p2-missionDraft-1\"}}]}","errorExpected":false}`)
 		// step 5: RecordOperatorNote (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
 		var in5 inputActivityExecutionAccessExecuteAProjectActivityP2S5
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"stp-aea-epa-p2:takeover:mission","kind":3,"gate":"mission","text":"Taking this task over: the agent cannot meet the exit criterion.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:note:1"}`, &in5)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"stp-aea-epa-p2:takeover:mission","kind":3,"gate":"mission","text":"Taking this task over: the agent cannot meet the exit criterion.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:note:1"}`, &in5)
 		var out5 any
 		var err5 error
-		out5, err5 = subject.RecordOperatorNote(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.Note, in5.DeliveredToAttemptID, in5.Cred, in5.IdempotencyKey)
+		out5, err5 = subject.RecordOperatorNote(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedActivityVersion, in5.ActivityID, in5.Note, in5.DeliveredToAttemptID, in5.Cred, in5.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P2", 5, out5, err5, `{"errorExpected":false}`)
 		// probe 5.1: activityExecutionAccess.ReadActivityExecution for operator-note-recorded
 		var pout5_1 any
@@ -687,10 +674,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P2(t *testi
 		expect(t, "execute-a-project-activity-P2 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"noteId\":\"stp-aea-epa-p2:takeover:mission\",\"kind\":3,\"gate\":\"mission\",\"text\":\"Taking this task over: the agent cannot meet the exit criterion.\"}]}","errorExpected":false}`)
 		// step 6: RecordActivityOutcome (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
 		var in6 inputActivityExecutionAccessExecuteAProjectActivityP2S6
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":3,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:exit"}`, &in6)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p2","expectedActivityVersion":0,"activityID":"D-REQ","outcome":3,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p2:exit"}`, &in6)
 		var out6 any
 		var err6 error
-		out6, err6 = subject.RecordActivityOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.ExpectedActivityVersion, in6.ActivityID, in6.Outcome, in6.Reason, in6.Detail, in6.Cred, in6.IdempotencyKey)
+		out6, err6 = subject.RecordActivityOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedActivityVersion, in6.ActivityID, in6.Outcome, in6.Reason, in6.Detail, in6.Cred, in6.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P2", 6, out6, err6, `{"errorExpected":false}`)
 		// probe 6.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
 		var pout6_1 any
@@ -708,7 +695,6 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P2(t *testi
 // inputActivityExecutionAccessExecuteAProjectActivityP3S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP3S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -727,7 +713,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP3S2 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP3S3 is step 3's parameters of OpenReviewRound, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP3S3 struct {
 	ProjectID               projectstate.ProjectID        `json:"projectID"`
-	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
 	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
 	ActivityID              string                        `json:"activityID"`
 	Round                   projectstate.ReviewRoundInput `json:"round"`
@@ -738,7 +723,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP3S3 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP3S4 is step 4's parameters of AppendReviewVerdict, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP3S4 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	RoundID                 string                       `json:"roundID"`
@@ -752,7 +736,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP3S4 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP3S5 is step 5's parameters of DecideReviewRound, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP3S5 struct {
 	ProjectID               projectstate.ProjectID          `json:"projectID"`
-	ExpectedVersion         projectstate.Version            `json:"expectedVersion"`
 	ExpectedActivityVersion int64                           `json:"expectedActivityVersion"`
 	ActivityID              string                          `json:"activityID"`
 	RoundID                 string                          `json:"roundID"`
@@ -765,7 +748,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP3S5 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP3S6 is step 6's parameters of RecordActivityOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP3S6 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
@@ -782,7 +764,7 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P3(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node activity-eligible; guards task-kind=review, requires-human=agents only, verdict=approve)
 		var in1 inputActivityExecutionAccessExecuteAProjectActivityP3S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP3S1(t, h, subject, in1)
@@ -806,10 +788,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P3(t *testi
 		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
 		// step 3: OpenReviewRound (node propose-reviews; guards task-kind=review, requires-human=agents only, verdict=approve)
 		var in3 inputActivityExecutionAccessExecuteAProjectActivityP3S3
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","round":{"roundId":"D-REQ:missionReview:mission:1","taskId":"missionReview","reviews":"missionDraft","artifactKind":"mission","round":1,"subjectRef":{"kind":"pullRequest","ref":"stp-aea-epa-p3#pr-1"},"reviewers":[{"role":"productManager","actor":"agent:product-manager","required":true}]},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:round:1"}`, &in3)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedActivityVersion":0,"activityID":"D-REQ","round":{"roundId":"D-REQ:missionReview:mission:1","taskId":"missionReview","reviews":"missionDraft","artifactKind":"mission","round":1,"subjectRef":{"kind":"pullRequest","ref":"stp-aea-epa-p3#pr-1"},"reviewers":[{"role":"productManager","actor":"agent:product-manager","required":true}]},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:round:1"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.OpenReviewRound(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.ExpectedActivityVersion, in3.ActivityID, in3.Round, in3.Cred, in3.IdempotencyKey)
+		out3, err3 = subject.OpenReviewRound(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedActivityVersion, in3.ActivityID, in3.Round, in3.Cred, in3.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P3", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: activityExecutionAccess.ReadActivityExecution for review-pr-open
 		var pout3_1 any
@@ -823,10 +805,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P3(t *testi
 		expect(t, "execute-a-project-activity-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p3#pr-1\"},\"outcome\":\"pending\"}]}","errorExpected":false}`)
 		// step 4: AppendReviewVerdict (node dispatch-reviewers; guards task-kind=review, requires-human=agents only, verdict=approve)
 		var in4 inputActivityExecutionAccessExecuteAProjectActivityP3S4
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"productManager","actor":"agent:product-manager","verdict":"approve","summary":"Mission meets the exit criterion.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:verdict:1"}`, &in4)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"productManager","actor":"agent:product-manager","verdict":"approve","summary":"Mission meets the exit criterion.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:verdict:1"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.AppendReviewVerdict(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.RoundID, in4.Verdict, in4.Comments, in4.Replies, in4.Cred, in4.IdempotencyKey)
+		out4, err4 = subject.AppendReviewVerdict(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedActivityVersion, in4.ActivityID, in4.RoundID, in4.Verdict, in4.Comments, in4.Replies, in4.Cred, in4.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P3", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: activityExecutionAccess.ReadActivityExecution for
 		var pout4_1 any
@@ -840,10 +822,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P3(t *testi
 		expect(t, "execute-a-project-activity-P3 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"reviewerRole\":\"productManager\",\"actor\":\"agent:product-manager\",\"verdict\":\"approve\"}]}]}","errorExpected":false}`)
 		// step 5: DecideReviewRound (node verdict; guards task-kind=review, requires-human=agents only, verdict=approve)
 		var in5 inputActivityExecutionAccessExecuteAProjectActivityP3S5
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","outcome":"passed","decidedBy":"delivery-manager","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:decide:1"}`, &in5)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","outcome":"passed","decidedBy":"delivery-manager","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:decide:1"}`, &in5)
 		var out5 any
 		var err5 error
-		out5, err5 = subject.DecideReviewRound(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.Outcome, in5.DecidedBy, in5.Cred, in5.IdempotencyKey)
+		out5, err5 = subject.DecideReviewRound(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.Outcome, in5.DecidedBy, in5.Cred, in5.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P3", 5, out5, err5, `{"errorExpected":false}`)
 		// probe 5.1: activityExecutionAccess.ReadActivityExecution for
 		var pout5_1 any
@@ -857,10 +839,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P3(t *testi
 		expect(t, "execute-a-project-activity-P3 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"passed\",\"decidedBy\":\"delivery-manager\"}]}","errorExpected":false}`)
 		// step 6: RecordActivityOutcome (node record-exit; guards task-kind=review, requires-human=agents only, verdict=approve)
 		var in6 inputActivityExecutionAccessExecuteAProjectActivityP3S6
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedVersion":4,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:exit"}`, &in6)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p3","expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p3:exit"}`, &in6)
 		var out6 any
 		var err6 error
-		out6, err6 = subject.RecordActivityOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.ExpectedActivityVersion, in6.ActivityID, in6.Outcome, in6.Reason, in6.Detail, in6.Cred, in6.IdempotencyKey)
+		out6, err6 = subject.RecordActivityOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedActivityVersion, in6.ActivityID, in6.Outcome, in6.Reason, in6.Detail, in6.Cred, in6.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P3", 6, out6, err6, `{"errorExpected":false}`)
 		// probe 6.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
 		var pout6_1 any
@@ -878,7 +860,6 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P3(t *testi
 // inputActivityExecutionAccessExecuteAProjectActivityP4S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP4S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -897,7 +878,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP4S2 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP4S3 is step 3's parameters of OpenReviewRound, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP4S3 struct {
 	ProjectID               projectstate.ProjectID        `json:"projectID"`
-	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
 	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
 	ActivityID              string                        `json:"activityID"`
 	Round                   projectstate.ReviewRoundInput `json:"round"`
@@ -908,7 +888,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP4S3 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP4S4 is step 4's parameters of AppendReviewVerdict, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP4S4 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	RoundID                 string                       `json:"roundID"`
@@ -922,7 +901,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP4S4 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP4S5 is step 5's parameters of DecideReviewRound, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP4S5 struct {
 	ProjectID               projectstate.ProjectID          `json:"projectID"`
-	ExpectedVersion         projectstate.Version            `json:"expectedVersion"`
 	ExpectedActivityVersion int64                           `json:"expectedActivityVersion"`
 	ActivityID              string                          `json:"activityID"`
 	RoundID                 string                          `json:"roundID"`
@@ -935,7 +913,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP4S5 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP4S6 is step 6's parameters of RecordActivityOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP4S6 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
@@ -952,7 +929,7 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P4(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node activity-eligible; guards task-kind=review, requires-human=human required, verdict=approve)
 		var in1 inputActivityExecutionAccessExecuteAProjectActivityP4S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP4S1(t, h, subject, in1)
@@ -976,10 +953,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P4(t *testi
 		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
 		// step 3: OpenReviewRound (node propose-reviews; guards task-kind=review, requires-human=human required, verdict=approve)
 		var in3 inputActivityExecutionAccessExecuteAProjectActivityP4S3
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","round":{"roundId":"D-REQ:missionReview:mission:1","taskId":"missionReview","reviews":"missionDraft","artifactKind":"mission","round":1,"subjectRef":{"kind":"pullRequest","ref":"stp-aea-epa-p4#pr-1"},"reviewers":[{"role":"productManager","actor":"agent:product-manager","required":true},{"role":"architect","actor":"architect-user","required":true}]},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:round:1"}`, &in3)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedActivityVersion":0,"activityID":"D-REQ","round":{"roundId":"D-REQ:missionReview:mission:1","taskId":"missionReview","reviews":"missionDraft","artifactKind":"mission","round":1,"subjectRef":{"kind":"pullRequest","ref":"stp-aea-epa-p4#pr-1"},"reviewers":[{"role":"productManager","actor":"agent:product-manager","required":true},{"role":"architect","actor":"architect-user","required":true}]},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:round:1"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.OpenReviewRound(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.ExpectedActivityVersion, in3.ActivityID, in3.Round, in3.Cred, in3.IdempotencyKey)
+		out3, err3 = subject.OpenReviewRound(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedActivityVersion, in3.ActivityID, in3.Round, in3.Cred, in3.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P4", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: activityExecutionAccess.ReadActivityExecution for review-pr-open
 		var pout3_1 any
@@ -993,10 +970,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P4(t *testi
 		expect(t, "execute-a-project-activity-P4 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p4#pr-1\"},\"outcome\":\"pending\"}]}","errorExpected":false}`)
 		// step 4: AppendReviewVerdict (node human-decision; guards task-kind=review, requires-human=human required, verdict=approve)
 		var in4 inputActivityExecutionAccessExecuteAProjectActivityP4S4
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"approve","summary":"Approved by the architect.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:verdict:1"}`, &in4)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"approve","summary":"Approved by the architect.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:verdict:1"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.AppendReviewVerdict(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.RoundID, in4.Verdict, in4.Comments, in4.Replies, in4.Cred, in4.IdempotencyKey)
+		out4, err4 = subject.AppendReviewVerdict(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedActivityVersion, in4.ActivityID, in4.RoundID, in4.Verdict, in4.Comments, in4.Replies, in4.Cred, in4.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P4", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: activityExecutionAccess.ReadActivityExecution for
 		var pout4_1 any
@@ -1010,10 +987,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P4(t *testi
 		expect(t, "execute-a-project-activity-P4 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"approve\"}]}]}","errorExpected":false}`)
 		// step 5: DecideReviewRound (node verdict; guards task-kind=review, requires-human=human required, verdict=approve)
 		var in5 inputActivityExecutionAccessExecuteAProjectActivityP4S5
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","outcome":"passed","decidedBy":"architect-user","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:decide:1"}`, &in5)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","outcome":"passed","decidedBy":"architect-user","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:decide:1"}`, &in5)
 		var out5 any
 		var err5 error
-		out5, err5 = subject.DecideReviewRound(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.Outcome, in5.DecidedBy, in5.Cred, in5.IdempotencyKey)
+		out5, err5 = subject.DecideReviewRound(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.Outcome, in5.DecidedBy, in5.Cred, in5.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P4", 5, out5, err5, `{"errorExpected":false}`)
 		// probe 5.1: activityExecutionAccess.ReadActivityExecution for
 		var pout5_1 any
@@ -1027,10 +1004,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P4(t *testi
 		expect(t, "execute-a-project-activity-P4 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"passed\",\"decidedBy\":\"architect-user\"}]}","errorExpected":false}`)
 		// step 6: RecordActivityOutcome (node record-exit; guards task-kind=review, requires-human=human required, verdict=approve)
 		var in6 inputActivityExecutionAccessExecuteAProjectActivityP4S6
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedVersion":4,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:exit"}`, &in6)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p4","expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p4:exit"}`, &in6)
 		var out6 any
 		var err6 error
-		out6, err6 = subject.RecordActivityOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.ExpectedActivityVersion, in6.ActivityID, in6.Outcome, in6.Reason, in6.Detail, in6.Cred, in6.IdempotencyKey)
+		out6, err6 = subject.RecordActivityOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedActivityVersion, in6.ActivityID, in6.Outcome, in6.Reason, in6.Detail, in6.Cred, in6.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P4", 6, out6, err6, `{"errorExpected":false}`)
 		// probe 6.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
 		var pout6_1 any
@@ -1048,7 +1025,6 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P4(t *testi
 // inputActivityExecutionAccessExecuteAProjectActivityP5S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP5S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -1080,7 +1056,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP5S3 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP5S4 is step 4's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP5S4 struct {
 	ProjectID               projectstate.ProjectID        `json:"projectID"`
-	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
 	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
 	ActivityID              string                        `json:"activityID"`
 	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
@@ -1104,7 +1079,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP5S5 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP5S6 is step 6's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP5S6 struct {
 	ProjectID               projectstate.ProjectID        `json:"projectID"`
-	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
 	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
 	ActivityID              string                        `json:"activityID"`
 	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
@@ -1115,7 +1089,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP5S6 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP5S7 is step 7's parameters of RecordActivityOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP5S7 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
@@ -1132,7 +1105,7 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P5(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var in1 inputActivityExecutionAccessExecuteAProjectActivityP5S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP5S1(t, h, subject, in1)
@@ -1163,10 +1136,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P5(t *testi
 		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
 		// step 4: RecordAttemptOutcome (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var in4 inputActivityExecutionAccessExecuteAProjectActivityP5S4
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"failed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p5-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:attempt:1"}`, &in4)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"failed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p5-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:attempt:1"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
+		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P5", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
 		var pout4_1 any
@@ -1197,10 +1170,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P5(t *testi
 		expect(t, "execute-a-project-activity-P5", 5, out5, err5, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
 		// step 6: RecordAttemptOutcome (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var in6 inputActivityExecutionAccessExecuteAProjectActivityP5S6
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:2","taskId":"missionDraft","attempt":2,"actor":"agent","outcome":"passed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p5-missionDraft-2","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:attempt:2"}`, &in6)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:2","taskId":"missionDraft","attempt":2,"actor":"agent","outcome":"passed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p5-missionDraft-2","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:attempt:2"}`, &in6)
 		var out6 any
 		var err6 error
-		out6, err6 = subject.RecordAttemptOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.ExpectedActivityVersion, in6.ActivityID, in6.Attempt, in6.Cred, in6.IdempotencyKey)
+		out6, err6 = subject.RecordAttemptOutcome(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedActivityVersion, in6.ActivityID, in6.Attempt, in6.Cred, in6.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P5", 6, out6, err6, `{"errorExpected":false}`)
 		// probe 6.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
 		var pout6_1 any
@@ -1224,10 +1197,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P5(t *testi
 		expect(t, "execute-a-project-activity-P5 probe 6.3", 6, pout6_3, perr6_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p5-missionDraft-1\"}},{\"attemptId\":\"D-REQ:missionDraft:2\",\"attempt\":2,\"outcome\":\"passed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p5-missionDraft-2\"}}]}","errorExpected":false}`)
 		// step 7: RecordActivityOutcome (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var in7 inputActivityExecutionAccessExecuteAProjectActivityP5S7
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:exit"}`, &in7)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p5","expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p5:exit"}`, &in7)
 		var out7 any
 		var err7 error
-		out7, err7 = subject.RecordActivityOutcome(callContext(t, h, "7"), in7.ProjectID, in7.ExpectedVersion, in7.ExpectedActivityVersion, in7.ActivityID, in7.Outcome, in7.Reason, in7.Detail, in7.Cred, in7.IdempotencyKey)
+		out7, err7 = subject.RecordActivityOutcome(callContext(t, h, "7"), in7.ProjectID, in7.ExpectedActivityVersion, in7.ActivityID, in7.Outcome, in7.Reason, in7.Detail, in7.Cred, in7.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P5", 7, out7, err7, `{"errorExpected":false}`)
 		// probe 7.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
 		var pout7_1 any
@@ -1245,7 +1218,6 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P5(t *testi
 // inputActivityExecutionAccessExecuteAProjectActivityP6S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP6S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -1277,7 +1249,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP6S3 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP6S4 is step 4's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP6S4 struct {
 	ProjectID               projectstate.ProjectID        `json:"projectID"`
-	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
 	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
 	ActivityID              string                        `json:"activityID"`
 	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
@@ -1288,7 +1259,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP6S4 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP6S5 is step 5's parameters of RecordOperatorNote, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP6S5 struct {
 	ProjectID               projectstate.ProjectID         `json:"projectID"`
-	ExpectedVersion         projectstate.Version           `json:"expectedVersion"`
 	ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
 	ActivityID              string                         `json:"activityID"`
 	Note                    projectstate.OperatorNoteInput `json:"note"`
@@ -1300,7 +1270,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP6S5 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP6S6 is step 6's parameters of RecordOperatorNote, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP6S6 struct {
 	ProjectID               projectstate.ProjectID         `json:"projectID"`
-	ExpectedVersion         projectstate.Version           `json:"expectedVersion"`
 	ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
 	ActivityID              string                         `json:"activityID"`
 	Note                    projectstate.OperatorNoteInput `json:"note"`
@@ -1312,7 +1281,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP6S6 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP6S7 is step 7's parameters of RecordActivityOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP6S7 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
@@ -1329,7 +1297,7 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P6(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
 		var in1 inputActivityExecutionAccessExecuteAProjectActivityP6S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP6S1(t, h, subject, in1)
@@ -1360,10 +1328,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P6(t *testi
 		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
 		// step 4: RecordAttemptOutcome (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
 		var in4 inputActivityExecutionAccessExecuteAProjectActivityP6S4
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"failed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p6-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:attempt:1"}`, &in4)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:1","taskId":"missionDraft","attempt":1,"actor":"agent","outcome":"failed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p6-missionDraft-1","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:attempt:1"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
+		out4, err4 = subject.RecordAttemptOutcome(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedActivityVersion, in4.ActivityID, in4.Attempt, in4.Cred, in4.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P6", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
 		var pout4_1 any
@@ -1387,10 +1355,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P6(t *testi
 		expect(t, "execute-a-project-activity-P6 probe 4.3", 4, pout4_3, perr4_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p6-missionDraft-1\"}}]}","errorExpected":false}`)
 		// step 5: RecordOperatorNote (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
 		var in5 inputActivityExecutionAccessExecuteAProjectActivityP6S5
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"stp-aea-epa-p6:reassign:mission","kind":4,"gate":"mission","text":"Reassigning to a second worker while the escalation stays open.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:note:1"}`, &in5)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"stp-aea-epa-p6:reassign:mission","kind":4,"gate":"mission","text":"Reassigning to a second worker while the escalation stays open.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:note:1"}`, &in5)
 		var out5 any
 		var err5 error
-		out5, err5 = subject.RecordOperatorNote(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.Note, in5.DeliveredToAttemptID, in5.Cred, in5.IdempotencyKey)
+		out5, err5 = subject.RecordOperatorNote(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedActivityVersion, in5.ActivityID, in5.Note, in5.DeliveredToAttemptID, in5.Cred, in5.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P6", 5, out5, err5, `{"errorExpected":false}`)
 		// probe 5.1: activityExecutionAccess.ReadActivityExecution for operator-note-recorded
 		var pout5_1 any
@@ -1404,10 +1372,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P6(t *testi
 		expect(t, "execute-a-project-activity-P6 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"noteId\":\"stp-aea-epa-p6:reassign:mission\",\"kind\":4,\"gate\":\"mission\",\"text\":\"Reassigning to a second worker while the escalation stays open.\"}]}","errorExpected":false}`)
 		// step 6: RecordOperatorNote (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
 		var in6 inputActivityExecutionAccessExecuteAProjectActivityP6S6
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"stp-aea-epa-p6:takeover:mission","kind":3,"gate":"mission","text":"Taking this task over after the escalation window.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:note:2"}`, &in6)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"stp-aea-epa-p6:takeover:mission","kind":3,"gate":"mission","text":"Taking this task over after the escalation window.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:note:2"}`, &in6)
 		var out6 any
 		var err6 error
-		out6, err6 = subject.RecordOperatorNote(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedVersion, in6.ExpectedActivityVersion, in6.ActivityID, in6.Note, in6.DeliveredToAttemptID, in6.Cred, in6.IdempotencyKey)
+		out6, err6 = subject.RecordOperatorNote(callContext(t, h, "6"), in6.ProjectID, in6.ExpectedActivityVersion, in6.ActivityID, in6.Note, in6.DeliveredToAttemptID, in6.Cred, in6.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P6", 6, out6, err6, `{"errorExpected":false}`)
 		// probe 6.1: activityExecutionAccess.ReadActivityExecution for operator-note-recorded
 		var pout6_1 any
@@ -1421,10 +1389,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P6(t *testi
 		expect(t, "execute-a-project-activity-P6 probe 6.1", 6, pout6_1, perr6_1, `{"result":"{\"activityID\":\"D-REQ\",\"operatorNotes\":[{\"noteId\":\"stp-aea-epa-p6:reassign:mission\",\"kind\":4,\"gate\":\"mission\",\"text\":\"Reassigning to a second worker while the escalation stays open.\"},{\"noteId\":\"stp-aea-epa-p6:takeover:mission\",\"kind\":3,\"gate\":\"mission\",\"text\":\"Taking this task over after the escalation window.\"}]}","errorExpected":false}`)
 		// step 7: RecordActivityOutcome (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
 		var in7 inputActivityExecutionAccessExecuteAProjectActivityP6S7
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedVersion":4,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":3,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:exit"}`, &in7)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p6","expectedActivityVersion":0,"activityID":"D-REQ","outcome":3,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p6:exit"}`, &in7)
 		var out7 any
 		var err7 error
-		out7, err7 = subject.RecordActivityOutcome(callContext(t, h, "7"), in7.ProjectID, in7.ExpectedVersion, in7.ExpectedActivityVersion, in7.ActivityID, in7.Outcome, in7.Reason, in7.Detail, in7.Cred, in7.IdempotencyKey)
+		out7, err7 = subject.RecordActivityOutcome(callContext(t, h, "7"), in7.ProjectID, in7.ExpectedActivityVersion, in7.ActivityID, in7.Outcome, in7.Reason, in7.Detail, in7.Cred, in7.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P6", 7, out7, err7, `{"errorExpected":false}`)
 		// probe 7.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
 		var pout7_1 any
@@ -1442,7 +1410,6 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P6(t *testi
 // inputActivityExecutionAccessExecuteAProjectActivityP7S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP7S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -1461,7 +1428,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP7S2 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP7S3 is step 3's parameters of OpenReviewRound, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP7S3 struct {
 	ProjectID               projectstate.ProjectID        `json:"projectID"`
-	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
 	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
 	ActivityID              string                        `json:"activityID"`
 	Round                   projectstate.ReviewRoundInput `json:"round"`
@@ -1472,7 +1438,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP7S3 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP7S4 is step 4's parameters of AppendReviewVerdict, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP7S4 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	RoundID                 string                       `json:"roundID"`
@@ -1486,7 +1451,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP7S4 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP7S5 is step 5's parameters of DecideReviewRound, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP7S5 struct {
 	ProjectID               projectstate.ProjectID          `json:"projectID"`
-	ExpectedVersion         projectstate.Version            `json:"expectedVersion"`
 	ExpectedActivityVersion int64                           `json:"expectedActivityVersion"`
 	ActivityID              string                          `json:"activityID"`
 	RoundID                 string                          `json:"roundID"`
@@ -1518,7 +1482,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP7S7 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP7S8 is step 8's parameters of RecordAttemptOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP7S8 struct {
 	ProjectID               projectstate.ProjectID        `json:"projectID"`
-	ExpectedVersion         projectstate.Version          `json:"expectedVersion"`
 	ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
 	ActivityID              string                        `json:"activityID"`
 	Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
@@ -1529,7 +1492,6 @@ type inputActivityExecutionAccessExecuteAProjectActivityP7S8 struct {
 // inputActivityExecutionAccessExecuteAProjectActivityP7S9 is step 9's parameters of RecordActivityOutcome, decoded from the binding's inputs.
 type inputActivityExecutionAccessExecuteAProjectActivityP7S9 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	Outcome                 projectstate.ActivityOutcome `json:"outcome"`
@@ -1546,7 +1508,7 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P7(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node activity-eligible; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
 		var in1 inputActivityExecutionAccessExecuteAProjectActivityP7S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{"typeKey":"requirements","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessExecuteAProjectActivityP7S1(t, h, subject, in1)
@@ -1570,10 +1532,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P7(t *testi
 		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
 		// step 3: OpenReviewRound (node propose-reviews; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
 		var in3 inputActivityExecutionAccessExecuteAProjectActivityP7S3
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","round":{"roundId":"D-REQ:missionReview:mission:1","taskId":"missionReview","reviews":"missionDraft","artifactKind":"mission","round":1,"subjectRef":{"kind":"pullRequest","ref":"stp-aea-epa-p7#pr-1"},"reviewers":[{"role":"productManager","actor":"agent:product-manager","required":true}]},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:round:1"}`, &in3)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedActivityVersion":0,"activityID":"D-REQ","round":{"roundId":"D-REQ:missionReview:mission:1","taskId":"missionReview","reviews":"missionDraft","artifactKind":"mission","round":1,"subjectRef":{"kind":"pullRequest","ref":"stp-aea-epa-p7#pr-1"},"reviewers":[{"role":"productManager","actor":"agent:product-manager","required":true}]},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:round:1"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.OpenReviewRound(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.ExpectedActivityVersion, in3.ActivityID, in3.Round, in3.Cred, in3.IdempotencyKey)
+		out3, err3 = subject.OpenReviewRound(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedActivityVersion, in3.ActivityID, in3.Round, in3.Cred, in3.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P7", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: activityExecutionAccess.ReadActivityExecution for review-pr-open
 		var pout3_1 any
@@ -1587,10 +1549,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P7(t *testi
 		expect(t, "execute-a-project-activity-P7 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityID\":\"D-REQ\",\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"round\":1,\"subjectRef\":{\"kind\":\"pullRequest\",\"ref\":\"stp-aea-epa-p7#pr-1\"},\"outcome\":\"pending\"}]}","errorExpected":false}`)
 		// step 4: AppendReviewVerdict (node dispatch-reviewers; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
 		var in4 inputActivityExecutionAccessExecuteAProjectActivityP7S4
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"productManager","actor":"agent:product-manager","verdict":"sendBack","summary":"The mission names no customer outcome.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:verdict:1"}`, &in4)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"productManager","actor":"agent:product-manager","verdict":"sendBack","summary":"The mission names no customer outcome.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:verdict:1"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.AppendReviewVerdict(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedVersion, in4.ExpectedActivityVersion, in4.ActivityID, in4.RoundID, in4.Verdict, in4.Comments, in4.Replies, in4.Cred, in4.IdempotencyKey)
+		out4, err4 = subject.AppendReviewVerdict(callContext(t, h, "4"), in4.ProjectID, in4.ExpectedActivityVersion, in4.ActivityID, in4.RoundID, in4.Verdict, in4.Comments, in4.Replies, in4.Cred, in4.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P7", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: activityExecutionAccess.ReadActivityExecution for
 		var pout4_1 any
@@ -1604,10 +1566,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P7(t *testi
 		expect(t, "execute-a-project-activity-P7 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"reviewerRole\":\"productManager\",\"actor\":\"agent:product-manager\",\"verdict\":\"sendBack\"}]}]}","errorExpected":false}`)
 		// step 5: DecideReviewRound (node verdict; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
 		var in5 inputActivityExecutionAccessExecuteAProjectActivityP7S5
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","outcome":"sentBack","decidedBy":"delivery-manager","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:decide:1"}`, &in5)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","outcome":"sentBack","decidedBy":"delivery-manager","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:decide:1"}`, &in5)
 		var out5 any
 		var err5 error
-		out5, err5 = subject.DecideReviewRound(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.Outcome, in5.DecidedBy, in5.Cred, in5.IdempotencyKey)
+		out5, err5 = subject.DecideReviewRound(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.Outcome, in5.DecidedBy, in5.Cred, in5.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P7", 5, out5, err5, `{"errorExpected":false}`)
 		// probe 5.1: activityExecutionAccess.ReadActivityExecution for
 		var pout5_1 any
@@ -1635,10 +1597,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P7(t *testi
 		expect(t, "execute-a-project-activity-P7", 7, out7, err7, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"missionDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
 		// step 8: RecordAttemptOutcome (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
 		var in8 inputActivityExecutionAccessExecuteAProjectActivityP7S8
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":4,"expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:2","taskId":"missionDraft","attempt":2,"actor":"agent","outcome":"passed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p7-missionDraft-2","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:attempt:2"}`, &in8)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedActivityVersion":0,"activityID":"D-REQ","attempt":{"attemptId":"D-REQ:missionDraft:2","taskId":"missionDraft","attempt":2,"actor":"agent","outcome":"passed","evidenceKind":"episode","evidenceRef":"ep-stp-aea-epa-p7-missionDraft-2","detail":""},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:attempt:2"}`, &in8)
 		var out8 any
 		var err8 error
-		out8, err8 = subject.RecordAttemptOutcome(callContext(t, h, "8"), in8.ProjectID, in8.ExpectedVersion, in8.ExpectedActivityVersion, in8.ActivityID, in8.Attempt, in8.Cred, in8.IdempotencyKey)
+		out8, err8 = subject.RecordAttemptOutcome(callContext(t, h, "8"), in8.ProjectID, in8.ExpectedActivityVersion, in8.ActivityID, in8.Attempt, in8.Cred, in8.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P7", 8, out8, err8, `{"errorExpected":false}`)
 		// probe 8.1: designSessionAccess.ReadProjectOnBranch for staged-artifact
 		var pout8_1 any
@@ -1662,10 +1624,10 @@ func TestScenario_ActivityExecutionAccess_execute_a_project_activity_P7(t *testi
 		expect(t, "execute-a-project-activity-P7 probe 8.3", 8, pout8_3, perr8_3, `{"result":"{\"activityID\":\"D-REQ\",\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:2\",\"attempt\":2,\"outcome\":\"passed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-epa-p7-missionDraft-2\"}}]}","errorExpected":false}`)
 		// step 9: RecordActivityOutcome (node record-exit; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
 		var in9 inputActivityExecutionAccessExecuteAProjectActivityP7S9
-		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedVersion":5,"expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:exit"}`, &in9)
+		mustUnmarshal(t, `{"projectID":"stp-aea-epa-p7","expectedActivityVersion":0,"activityID":"D-REQ","outcome":1,"reason":0,"detail":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-epa-p7:exit"}`, &in9)
 		var out9 any
 		var err9 error
-		out9, err9 = subject.RecordActivityOutcome(callContext(t, h, "9"), in9.ProjectID, in9.ExpectedVersion, in9.ExpectedActivityVersion, in9.ActivityID, in9.Outcome, in9.Reason, in9.Detail, in9.Cred, in9.IdempotencyKey)
+		out9, err9 = subject.RecordActivityOutcome(callContext(t, h, "9"), in9.ProjectID, in9.ExpectedActivityVersion, in9.ActivityID, in9.Outcome, in9.Reason, in9.Detail, in9.Cred, in9.IdempotencyKey)
 		expect(t, "execute-a-project-activity-P7", 9, out9, err9, `{"errorExpected":false}`)
 		// probe 9.1: activityExecutionAccess.ReadActivityExecution for activity-exit-recorded
 		var pout9_1 any
@@ -1696,7 +1658,6 @@ type inputActivityExecutionAccessReplanUnderScopeChangeP2S1 struct {
 // inputActivityExecutionAccessReplanUnderScopeChangeP2S2 is step 2's parameters of DecideReviewRound, decoded from the binding's inputs.
 type inputActivityExecutionAccessReplanUnderScopeChangeP2S2 struct {
 	ProjectID               projectstate.ProjectID          `json:"projectID"`
-	ExpectedVersion         projectstate.Version            `json:"expectedVersion"`
 	ExpectedActivityVersion int64                           `json:"expectedActivityVersion"`
 	ActivityID              string                          `json:"activityID"`
 	RoundID                 string                          `json:"roundID"`
@@ -1726,7 +1687,7 @@ func TestScenario_ActivityExecutionAccess_replan_under_scope_change_P2(t *testin
 		expect(t, "replan-under-scope-change-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aea-rp-p2\",\"slots\":{\"16\":{\"model\":{\"kind\":\"sdpReview\",\"model\":{\"recommendation\":\"opt-normal\",\"rationale\":\"Revised for the added use case: one more service activity.\"}}}}}","errorExpected":false}`)
 		// step 2: DecideReviewRound (node adopt; guards classify=[no: scope change], mgmt=[accept])
 		var in2 inputActivityExecutionAccessReplanUnderScopeChangeP2S2
-		mustUnmarshal(t, `{"projectID":"stp-aea-rp-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-PD","roundID":"D-PD:sdpReview:sdpReview:2","outcome":"passed","decidedBy":"architect-user","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rp-p2:decide:1"}`, &in2)
+		mustUnmarshal(t, `{"projectID":"stp-aea-rp-p2","expectedActivityVersion":0,"activityID":"D-PD","roundID":"D-PD:sdpReview:sdpReview:2","outcome":"passed","decidedBy":"architect-user","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rp-p2:decide:1"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = stepActivityExecutionAccessReplanUnderScopeChangeP2S2(t, h, subject, in2)
@@ -1760,7 +1721,6 @@ type inputActivityExecutionAccessReplanUnderScopeChangeP3S1 struct {
 // inputActivityExecutionAccessReplanUnderScopeChangeP3S2 is step 2's parameters of DecideReviewRound, decoded from the binding's inputs.
 type inputActivityExecutionAccessReplanUnderScopeChangeP3S2 struct {
 	ProjectID               projectstate.ProjectID          `json:"projectID"`
-	ExpectedVersion         projectstate.Version            `json:"expectedVersion"`
 	ExpectedActivityVersion int64                           `json:"expectedActivityVersion"`
 	ActivityID              string                          `json:"activityID"`
 	RoundID                 string                          `json:"roundID"`
@@ -1790,7 +1750,7 @@ func TestScenario_ActivityExecutionAccess_replan_under_scope_change_P3(t *testin
 		expect(t, "replan-under-scope-change-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aea-rp-p3\",\"slots\":{\"16\":{\"model\":{\"kind\":\"sdpReview\",\"model\":{\"recommendation\":\"opt-normal\",\"rationale\":\"Revised for the added use case: one more service activity.\"}}}}}","errorExpected":false}`)
 		// step 2: DecideReviewRound (node record-reject; guards classify=[no: scope change], mgmt=[reject])
 		var in2 inputActivityExecutionAccessReplanUnderScopeChangeP3S2
-		mustUnmarshal(t, `{"projectID":"stp-aea-rp-p3","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-PD","roundID":"D-PD:sdpReview:sdpReview:2","outcome":"sentBack","decidedBy":"architect-user","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rp-p3:decide:1"}`, &in2)
+		mustUnmarshal(t, `{"projectID":"stp-aea-rp-p3","expectedActivityVersion":0,"activityID":"D-PD","roundID":"D-PD:sdpReview:sdpReview:2","outcome":"sentBack","decidedBy":"architect-user","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rp-p3:decide:1"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = stepActivityExecutionAccessReplanUnderScopeChangeP3S2(t, h, subject, in2)
@@ -1811,7 +1771,6 @@ func TestScenario_ActivityExecutionAccess_replan_under_scope_change_P3(t *testin
 // inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S1 is step 1's parameters of RecordOperatorNote, decoded from the binding's inputs.
 type inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S1 struct {
 	ProjectID               projectstate.ProjectID         `json:"projectID"`
-	ExpectedVersion         projectstate.Version           `json:"expectedVersion"`
 	ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
 	ActivityID              string                         `json:"activityID"`
 	Note                    projectstate.OperatorNoteInput `json:"note"`
@@ -1823,7 +1782,6 @@ type inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S1 struct {
 // inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S2 is step 2's parameters of RecordOperatorNote, decoded from the binding's inputs.
 type inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S2 struct {
 	ProjectID               projectstate.ProjectID         `json:"projectID"`
-	ExpectedVersion         projectstate.Version           `json:"expectedVersion"`
 	ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
 	ActivityID              string                         `json:"activityID"`
 	Note                    projectstate.OperatorNoteInput `json:"note"`
@@ -1839,7 +1797,7 @@ func TestScenario_ActivityExecutionAccess_requeue_a_failed_construction_activity
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: RecordOperatorNote (node record-reopen)
 		var in1 inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"requeue:D-REQ:2026-10-01T12:00:00Z","kind":6,"gate":"reopen","text":"Re-queue after the upstream fix landed.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rq-p1:note:1"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"requeue:D-REQ:2026-10-01T12:00:00Z","kind":6,"gate":"reopen","text":"Re-queue after the upstream fix landed.","comments":null},"deliveredToAttemptID":"","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rq-p1:note:1"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessRequeueAFailedConstructionActivityP1S1(t, h, subject, in1)
@@ -1876,7 +1834,7 @@ func TestScenario_ActivityExecutionAccess_requeue_a_failed_construction_activity
 		expect(t, "requeue-a-failed-construction-activity-P1 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}","errorExpected":false}`)
 		// step 2: RecordOperatorNote (node resume-activity)
 		var in2 inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S2
-		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","expectedVersion":3,"expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"requeue:D-REQ:2026-10-01T12:00:00Z","kind":6,"gate":"reopen","text":"Re-queue after the upstream fix landed.","comments":null},"deliveredToAttemptID":"D-REQ:missionDraft:2","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rq-p1:note:2"}`, &in2)
+		mustUnmarshal(t, `{"projectID":"stp-aea-rq-p1","expectedActivityVersion":0,"activityID":"D-REQ","note":{"noteId":"requeue:D-REQ:2026-10-01T12:00:00Z","kind":6,"gate":"reopen","text":"Re-queue after the upstream fix landed.","comments":null},"deliveredToAttemptID":"D-REQ:missionDraft:2","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rq-p1:note:2"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = stepActivityExecutionAccessRequeueAFailedConstructionActivityP1S2(t, h, subject, in2)
@@ -1907,7 +1865,6 @@ func TestScenario_ActivityExecutionAccess_requeue_a_failed_construction_activity
 // inputActivityExecutionAccessResumePausedConstructionP1S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessResumePausedConstructionP1S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -1924,7 +1881,7 @@ func TestScenario_ActivityExecutionAccess_resume_paused_construction_P1(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node continue; guards halt-check=[no], pause-settled=[yes])
 		var in1 inputActivityExecutionAccessResumePausedConstructionP1S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-rs-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-ARCH","typ":8,"variant":0,"pin":{"typeKey":"architecture","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rs-p1:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-rs-p1","expectedActivityVersion":0,"activityID":"D-ARCH","typ":8,"variant":0,"pin":{"typeKey":"architecture","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rs-p1:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessResumePausedConstructionP1S1(t, h, subject, in1)
@@ -1945,7 +1902,6 @@ func TestScenario_ActivityExecutionAccess_resume_paused_construction_P1(t *testi
 // inputActivityExecutionAccessResumePausedConstructionP3S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
 type inputActivityExecutionAccessResumePausedConstructionP3S1 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	Typ                     projectstate.ActivityType   `json:"typ"`
@@ -1962,7 +1918,7 @@ func TestScenario_ActivityExecutionAccess_resume_paused_construction_P3(t *testi
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: OpenActivity (node continue; guards halt-check=[yes])
 		var in1 inputActivityExecutionAccessResumePausedConstructionP3S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-rs-p3","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-ARCH","typ":8,"variant":0,"pin":{"typeKey":"architecture","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rs-p3:open"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-rs-p3","expectedActivityVersion":0,"activityID":"D-ARCH","typ":8,"variant":0,"pin":{"typeKey":"architecture","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rs-p3:open"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessResumePausedConstructionP3S1(t, h, subject, in1)
@@ -1983,7 +1939,6 @@ func TestScenario_ActivityExecutionAccess_resume_paused_construction_P3(t *testi
 // inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
 type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	RoundID                 string                       `json:"roundID"`
@@ -2010,7 +1965,6 @@ type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S2 struct {
 // inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S3 is step 3's parameters of SetReviewCommentStatus, decoded from the binding's inputs.
 type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S3 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	RoundID                 string                      `json:"roundID"`
@@ -2027,7 +1981,7 @@ func TestScenario_ActivityExecutionAccess_send_back_change_requests_for_a_redraf
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: AppendReviewVerdict (node retain-thread; guards resolved=[yes])
 		var in1 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"sendBack","summary":"Change requests attached.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"cr-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Name the customer outcome the mission commits to.","authorRole":"architect","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"changeRequest","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p1:verdict:1"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p1","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"sendBack","summary":"Change requests attached.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"cr-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Name the customer outcome the mission commits to.","authorRole":"architect","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"changeRequest","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p1:verdict:1"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1(t, h, subject, in1)
@@ -2057,10 +2011,10 @@ func TestScenario_ActivityExecutionAccess_send_back_change_requests_for_a_redraf
 		expect(t, "send-back-change-requests-for-a-redraft-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-aea-sb-p1\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Deliver predictably engineered software so customers know cost before code.\"}}}}}","errorExpected":false}`)
 		// step 3: SetReviewCommentStatus (node close-comments; guards resolved=[yes])
 		var in3 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S3
-		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p1","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","commentID":"r1c1","status":"resolved","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p1:close:1"}`, &in3)
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p1","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","commentID":"r1c1","status":"resolved","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p1:close:1"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.SetReviewCommentStatus(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.ExpectedActivityVersion, in3.ActivityID, in3.RoundID, in3.CommentID, in3.Status, in3.Cred, in3.IdempotencyKey)
+		out3, err3 = subject.SetReviewCommentStatus(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedActivityVersion, in3.ActivityID, in3.RoundID, in3.CommentID, in3.Status, in3.Cred, in3.IdempotencyKey)
 		expect(t, "send-back-change-requests-for-a-redraft-P1", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: activityExecutionAccess.ReadActivityExecution for obj-thread-resolved
 		var pout3_1 any
@@ -2078,7 +2032,6 @@ func TestScenario_ActivityExecutionAccess_send_back_change_requests_for_a_redraf
 // inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
 type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	RoundID                 string                       `json:"roundID"`
@@ -2105,7 +2058,6 @@ type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S2 struct {
 // inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S3 is step 3's parameters of AppendReviewVerdict, decoded from the binding's inputs.
 type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S3 struct {
 	ProjectID               projectstate.ProjectID       `json:"projectID"`
-	ExpectedVersion         projectstate.Version         `json:"expectedVersion"`
 	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
 	ActivityID              string                       `json:"activityID"`
 	RoundID                 string                       `json:"roundID"`
@@ -2132,7 +2084,6 @@ type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S4 struct {
 // inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S5 is step 5's parameters of SetReviewCommentStatus, decoded from the binding's inputs.
 type inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S5 struct {
 	ProjectID               projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
 	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
 	ActivityID              string                      `json:"activityID"`
 	RoundID                 string                      `json:"roundID"`
@@ -2149,7 +2100,7 @@ func TestScenario_ActivityExecutionAccess_send_back_change_requests_for_a_redraf
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
 		// step 1: AppendReviewVerdict (node retain-thread; guards resolved=[no: iterate], resolved=[yes])
 		var in1 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1
-		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"sendBack","summary":"Change requests attached.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"cr-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Name the customer outcome the mission commits to.","authorRole":"architect","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"changeRequest","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:verdict:1"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"sendBack","summary":"Change requests attached.","attemptId":"D-REQ:missionDraft:1","at":""},"comments":[{"id":"cr-1","anchor":"$.mission","anchorText":"operated on the customer's behalf","text":"Name the customer outcome the mission commits to.","authorRole":"architect","round":1,"status":"open","response":"","replies":[],"reopened":false,"type":"changeRequest","addressee":"system-architect"}],"replies":[],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:verdict:1"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1(t, h, subject, in1)
@@ -2179,10 +2130,10 @@ func TestScenario_ActivityExecutionAccess_send_back_change_requests_for_a_redraf
 		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-aea-sb-p2\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Redraft one: customers know cost before code.\"}}}}}","errorExpected":false}`)
 		// step 3: AppendReviewVerdict (node retain-thread; guards resolved=[no: iterate], resolved=[yes])
 		var in3 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S3
-		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedVersion":1,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"sendBack","summary":"Still no measurable outcome.","attemptId":"D-REQ:missionDraft:2","at":""},"comments":[],"replies":[{"commentId":"r1c1","authorRole":"architect-user","text":"Still no measurable outcome.","at":""}],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:verdict:2"}`, &in3)
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{"reviewerRole":"architect","actor":"architect-user","verdict":"sendBack","summary":"Still no measurable outcome.","attemptId":"D-REQ:missionDraft:2","at":""},"comments":[],"replies":[{"commentId":"r1c1","authorRole":"architect-user","text":"Still no measurable outcome.","at":""}],"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:verdict:2"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.AppendReviewVerdict(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedVersion, in3.ExpectedActivityVersion, in3.ActivityID, in3.RoundID, in3.Verdict, in3.Comments, in3.Replies, in3.Cred, in3.IdempotencyKey)
+		out3, err3 = subject.AppendReviewVerdict(callContext(t, h, "3"), in3.ProjectID, in3.ExpectedActivityVersion, in3.ActivityID, in3.RoundID, in3.Verdict, in3.Comments, in3.Replies, in3.Cred, in3.IdempotencyKey)
 		expect(t, "send-back-change-requests-for-a-redraft-P2", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: activityExecutionAccess.ReadActivityExecution for obj-thread-open
 		var pout3_1 any
@@ -2209,10 +2160,10 @@ func TestScenario_ActivityExecutionAccess_send_back_change_requests_for_a_redraf
 		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"id\":\"stp-aea-sb-p2\",\"slots\":{\"0\":{\"model\":{\"kind\":\"mission\",\"model\":{\"mission\":\"Redraft two: customers know duration, cost and risk before code.\"}}}}}","errorExpected":false}`)
 		// step 5: SetReviewCommentStatus (node close-comments; guards resolved=[no: iterate], resolved=[yes])
 		var in5 inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S5
-		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedVersion":2,"expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","commentID":"r1c1","status":"resolved","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:close:1"}`, &in5)
+		mustUnmarshal(t, `{"projectID":"stp-aea-sb-p2","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","commentID":"r1c1","status":"resolved","cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-sb-p2:close:1"}`, &in5)
 		var out5 any
 		var err5 error
-		out5, err5 = subject.SetReviewCommentStatus(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedVersion, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.CommentID, in5.Status, in5.Cred, in5.IdempotencyKey)
+		out5, err5 = subject.SetReviewCommentStatus(callContext(t, h, "5"), in5.ProjectID, in5.ExpectedActivityVersion, in5.ActivityID, in5.RoundID, in5.CommentID, in5.Status, in5.Cred, in5.IdempotencyKey)
 		expect(t, "send-back-change-requests-for-a-redraft-P2", 5, out5, err5, `{"errorExpected":false}`)
 		// probe 5.1: activityExecutionAccess.ReadActivityExecution for obj-thread-resolved
 		var pout5_1 any
@@ -2981,26 +2932,24 @@ func TestScenario_DesignSessionAccess_replan_under_scope_change_P2(t *testing.T)
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP1S1 is step 1's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP1S1 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Branch          string                      `json:"branch"`
-	BranchRef       string                      `json:"branchRef"`
-	PrRef           string                      `json:"prRef"`
-	CrLabel         string                      `json:"crLabel"`
-	IsRevert        bool                        `json:"isRevert"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Branch         string                      `json:"branch"`
+	BranchRef      string                      `json:"branchRef"`
+	PrRef          string                      `json:"prRef"`
+	CrLabel        string                      `json:"crLabel"`
+	IsRevert       bool                        `json:"isRevert"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP1S2 is step 2's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP1S2 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Ci              projectstate.CICheckState   `json:"ci"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Ci             projectstate.CICheckState   `json:"ci"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // TestScenario_GitActivityStatusAccess_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -3010,14 +2959,14 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P1(t *testi
 		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
 		// step 1: RecordActivityBranchOpened (node dispatch-task; guards task-kind=dispatch, exit-met=yes)
 		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP1S1
-		mustUnmarshal(t, `{"projectID":"stp-gas-P1","expectedVersion":12,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/101","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P1-s1-branch-opened"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P1","activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/101","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P1-s1-branch-opened"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP1S1(t, h, subject, in1)
 		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"13","errorExpected":false}`)
 		// step 2: RecordActivityCIObserved (node observe-validate; guards task-kind=dispatch, exit-met=yes)
 		var in2 inputGitActivityStatusAccessExecuteAProjectActivityP1S2
-		mustUnmarshal(t, `{"projectID":"stp-gas-P1","expectedVersion":13,"activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P1-s2-ci-success"}`, &in2)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P1","activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P1-s2-ci-success"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = stepGitActivityStatusAccessExecuteAProjectActivityP1S2(t, h, subject, in2)
@@ -3027,26 +2976,24 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P1(t *testi
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP2S1 is step 1's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP2S1 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Branch          string                      `json:"branch"`
-	BranchRef       string                      `json:"branchRef"`
-	PrRef           string                      `json:"prRef"`
-	CrLabel         string                      `json:"crLabel"`
-	IsRevert        bool                        `json:"isRevert"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Branch         string                      `json:"branch"`
+	BranchRef      string                      `json:"branchRef"`
+	PrRef          string                      `json:"prRef"`
+	CrLabel        string                      `json:"crLabel"`
+	IsRevert       bool                        `json:"isRevert"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP2S2 is step 2's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP2S2 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Ci              projectstate.CICheckState   `json:"ci"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Ci             projectstate.CICheckState   `json:"ci"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // TestScenario_GitActivityStatusAccess_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -3056,14 +3003,14 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P2(t *testi
 		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
 		// step 1: RecordActivityBranchOpened (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
 		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP2S1
-		mustUnmarshal(t, `{"projectID":"stp-gas-P2","expectedVersion":12,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/102","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P2-s1-branch-opened"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P2","activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/102","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P2-s1-branch-opened"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP2S1(t, h, subject, in1)
 		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"13","errorExpected":false}`)
 		// step 2: RecordActivityCIObserved (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
 		var in2 inputGitActivityStatusAccessExecuteAProjectActivityP2S2
-		mustUnmarshal(t, `{"projectID":"stp-gas-P2","expectedVersion":13,"activityID":"C-DM","ci":2,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P2-s2-ci-failure"}`, &in2)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P2","activityID":"C-DM","ci":2,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P2-s2-ci-failure"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = stepGitActivityStatusAccessExecuteAProjectActivityP2S2(t, h, subject, in2)
@@ -3073,12 +3020,11 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P2(t *testi
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP3S1 is step 1's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP3S1 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Ci              projectstate.CICheckState   `json:"ci"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Ci             projectstate.CICheckState   `json:"ci"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // TestScenario_GitActivityStatusAccess_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -3088,7 +3034,7 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P3(t *testi
 		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
 		// step 1: RecordActivityCIObserved (node commit-artifact; guards task-kind=review, requires-human=agents only, verdict=approve)
 		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP3S1
-		mustUnmarshal(t, `{"projectID":"stp-gas-P3","expectedVersion":12,"activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P3-s1-ci-success"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P3","activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P3-s1-ci-success"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP3S1(t, h, subject, in1)
@@ -3098,12 +3044,11 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P3(t *testi
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP4S1 is step 1's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP4S1 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Ci              projectstate.CICheckState   `json:"ci"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Ci             projectstate.CICheckState   `json:"ci"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // TestScenario_GitActivityStatusAccess_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -3113,7 +3058,7 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P4(t *testi
 		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
 		// step 1: RecordActivityCIObserved (node commit-artifact; guards task-kind=review, requires-human=human required, verdict=approve)
 		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP4S1
-		mustUnmarshal(t, `{"projectID":"stp-gas-P4","expectedVersion":12,"activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P4-s1-ci-success"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P4","activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P4-s1-ci-success"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP4S1(t, h, subject, in1)
@@ -3123,50 +3068,46 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P4(t *testi
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP5S1 is step 1's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP5S1 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Branch          string                      `json:"branch"`
-	BranchRef       string                      `json:"branchRef"`
-	PrRef           string                      `json:"prRef"`
-	CrLabel         string                      `json:"crLabel"`
-	IsRevert        bool                        `json:"isRevert"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Branch         string                      `json:"branch"`
+	BranchRef      string                      `json:"branchRef"`
+	PrRef          string                      `json:"prRef"`
+	CrLabel        string                      `json:"crLabel"`
+	IsRevert       bool                        `json:"isRevert"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP5S2 is step 2's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP5S2 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Ci              projectstate.CICheckState   `json:"ci"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Ci             projectstate.CICheckState   `json:"ci"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP5S3 is step 3's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP5S3 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Branch          string                      `json:"branch"`
-	BranchRef       string                      `json:"branchRef"`
-	PrRef           string                      `json:"prRef"`
-	CrLabel         string                      `json:"crLabel"`
-	IsRevert        bool                        `json:"isRevert"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Branch         string                      `json:"branch"`
+	BranchRef      string                      `json:"branchRef"`
+	PrRef          string                      `json:"prRef"`
+	CrLabel        string                      `json:"crLabel"`
+	IsRevert       bool                        `json:"isRevert"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP5S4 is step 4's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP5S4 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Ci              projectstate.CICheckState   `json:"ci"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Ci             projectstate.CICheckState   `json:"ci"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // TestScenario_GitActivityStatusAccess_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -3176,28 +3117,28 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P5(t *testi
 		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
 		// step 1: RecordActivityBranchOpened (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP5S1
-		mustUnmarshal(t, `{"projectID":"stp-gas-P5","expectedVersion":12,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/105","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s1-branch-opened"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P5","activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/105","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s1-branch-opened"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP5S1(t, h, subject, in1)
 		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"13","errorExpected":false}`)
 		// step 2: RecordActivityCIObserved (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var in2 inputGitActivityStatusAccessExecuteAProjectActivityP5S2
-		mustUnmarshal(t, `{"projectID":"stp-gas-P5","expectedVersion":13,"activityID":"C-DM","ci":2,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s2-ci-failure"}`, &in2)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P5","activityID":"C-DM","ci":2,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s2-ci-failure"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = stepGitActivityStatusAccessExecuteAProjectActivityP5S2(t, h, subject, in2)
 		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"14","errorExpected":false}`)
 		// step 3: RecordActivityBranchOpened (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var in3 inputGitActivityStatusAccessExecuteAProjectActivityP5S3
-		mustUnmarshal(t, `{"projectID":"stp-gas-P5","expectedVersion":14,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/105","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s3-branch-opened"}`, &in3)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P5","activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/105","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s3-branch-opened"}`, &in3)
 		var out3 any
 		var err3 error
 		out3, err3 = stepGitActivityStatusAccessExecuteAProjectActivityP5S3(t, h, subject, in3)
 		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"result":"15","errorExpected":false}`)
 		// step 4: RecordActivityCIObserved (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var in4 inputGitActivityStatusAccessExecuteAProjectActivityP5S4
-		mustUnmarshal(t, `{"projectID":"stp-gas-P5","expectedVersion":15,"activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s4-ci-success"}`, &in4)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P5","activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P5-s4-ci-success"}`, &in4)
 		var out4 any
 		var err4 error
 		out4, err4 = stepGitActivityStatusAccessExecuteAProjectActivityP5S4(t, h, subject, in4)
@@ -3207,26 +3148,24 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P5(t *testi
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP6S1 is step 1's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP6S1 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Branch          string                      `json:"branch"`
-	BranchRef       string                      `json:"branchRef"`
-	PrRef           string                      `json:"prRef"`
-	CrLabel         string                      `json:"crLabel"`
-	IsRevert        bool                        `json:"isRevert"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Branch         string                      `json:"branch"`
+	BranchRef      string                      `json:"branchRef"`
+	PrRef          string                      `json:"prRef"`
+	CrLabel        string                      `json:"crLabel"`
+	IsRevert       bool                        `json:"isRevert"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP6S2 is step 2's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP6S2 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Ci              projectstate.CICheckState   `json:"ci"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Ci             projectstate.CICheckState   `json:"ci"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // TestScenario_GitActivityStatusAccess_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -3236,14 +3175,14 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P6(t *testi
 		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
 		// step 1: RecordActivityBranchOpened (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
 		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP6S1
-		mustUnmarshal(t, `{"projectID":"stp-gas-P6","expectedVersion":12,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/106","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P6-s1-branch-opened"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P6","activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/106","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P6-s1-branch-opened"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP6S1(t, h, subject, in1)
 		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"13","errorExpected":false}`)
 		// step 2: RecordActivityCIObserved (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
 		var in2 inputGitActivityStatusAccessExecuteAProjectActivityP6S2
-		mustUnmarshal(t, `{"projectID":"stp-gas-P6","expectedVersion":13,"activityID":"C-DM","ci":2,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P6-s2-ci-failure"}`, &in2)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P6","activityID":"C-DM","ci":2,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P6-s2-ci-failure"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = stepGitActivityStatusAccessExecuteAProjectActivityP6S2(t, h, subject, in2)
@@ -3253,26 +3192,24 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P6(t *testi
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP7S1 is step 1's parameters of RecordActivityBranchOpened, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP7S1 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Branch          string                      `json:"branch"`
-	BranchRef       string                      `json:"branchRef"`
-	PrRef           string                      `json:"prRef"`
-	CrLabel         string                      `json:"crLabel"`
-	IsRevert        bool                        `json:"isRevert"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Branch         string                      `json:"branch"`
+	BranchRef      string                      `json:"branchRef"`
+	PrRef          string                      `json:"prRef"`
+	CrLabel        string                      `json:"crLabel"`
+	IsRevert       bool                        `json:"isRevert"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // inputGitActivityStatusAccessExecuteAProjectActivityP7S2 is step 2's parameters of RecordActivityCIObserved, decoded from the binding's inputs.
 type inputGitActivityStatusAccessExecuteAProjectActivityP7S2 struct {
-	ProjectID       projectstate.ProjectID      `json:"projectID"`
-	ExpectedVersion projectstate.Version        `json:"expectedVersion"`
-	ActivityID      string                      `json:"activityID"`
-	Ci              projectstate.CICheckState   `json:"ci"`
-	Cred            projectstate.RepoCredential `json:"cred"`
-	IdempotencyKey  fwra.IdempotencyKey         `json:"idempotencyKey"`
+	ProjectID      projectstate.ProjectID      `json:"projectID"`
+	ActivityID     string                      `json:"activityID"`
+	Ci             projectstate.CICheckState   `json:"ci"`
+	Cred           projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
 // TestScenario_GitActivityStatusAccess_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -3282,14 +3219,14 @@ func TestScenario_GitActivityStatusAccess_execute_a_project_activity_P7(t *testi
 		var subject projectstate.GitActivityStatusAccess = newSubjectGitActivityStatusAccess(t, h)
 		// step 1: RecordActivityBranchOpened (node dispatch-task; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
 		var in1 inputGitActivityStatusAccessExecuteAProjectActivityP7S1
-		mustUnmarshal(t, `{"projectID":"stp-gas-P7","expectedVersion":12,"activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/107","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P7-s1-branch-opened"}`, &in1)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P7","activityID":"C-DM","branch":"activity/C-DM","branchRef":"refs/heads/activity/C-DM","prRef":"https://github.com/mixofreality-studio/stp-fixture/pull/107","crLabel":"","isRevert":false,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P7-s1-branch-opened"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepGitActivityStatusAccessExecuteAProjectActivityP7S1(t, h, subject, in1)
 		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"13","errorExpected":false}`)
 		// step 2: RecordActivityCIObserved (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
 		var in2 inputGitActivityStatusAccessExecuteAProjectActivityP7S2
-		mustUnmarshal(t, `{"projectID":"stp-gas-P7","expectedVersion":13,"activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P7-s2-ci-success"}`, &in2)
+		mustUnmarshal(t, `{"projectID":"stp-gas-P7","activityID":"C-DM","ci":1,"cred":{"Bytes":"c3RwLWdhcy1yZXBvLXRva2Vu","ExpiresAt":"2026-10-03T12:00:00Z"},"idempotencyKey":"stp-gas-P7-s2-ci-success"}`, &in2)
 		var out2 any
 		var err2 error
 		out2, err2 = stepGitActivityStatusAccessExecuteAProjectActivityP7S2(t, h, subject, in2)
