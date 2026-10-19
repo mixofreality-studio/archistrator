@@ -178,6 +178,26 @@ func awaitOneSignal(ctx workflow.Context, signalName string) ([]byte, error) {
 // bytes the delivery carried.
 func stepPauseConstructionP1S1(t *testing.T, h *scenariohost.Host, subject messagebus.MessageBus, in inputPauseConstructionP1S1) (any, error) {
 	t.Helper()
+	return nil, deliverToReceiver(t, h, subject, in.TargetExecutionID, in.SignalName, in.Payload, in.Start)
+}
+
+// stepResumePausedConstructionP3S1 — Resume Paused Construction — [yes], step 1: DeliverSignal
+// Projected stimulus (JSON): {"seq":1,"node":"release-halt","input":{"kind":"call","from":"delivery-manager","to":"messagebus","op":"DeliverSignal","call":"resume-paused-construction/release-halt/0"},"expectedOutputs":null,"expectedStates":[{"node":"run-state-running","object":"Project run state","inState":"[running]"}],"hints":null}
+// Binding (JSON): {"seq":1,"operation":"DeliverSignal","inputs":[{"name":"targetExecutionID","value":"dct-messagebus-resume-p3:nextActivity"},{"name":"signalName","value":"operatorResumeRequested"},{"name":"payload","value":"{\"Bytes\":\"eyJQcm9qZWN0SUQiOiJkY3QtbWVzc2FnZWJ1cy1yZXN1bWUtcDMiLCJIYWx0ZWRPbiI6IkMtcmV2aWV3LWVuZ2luZSIsIkhhbHRlZEF0IjoiMjAyNi0xMC0xN1QyMTo0Nzo1MVoiLCJIYWx0Q2F1c2UiOiJoZWFkLXN0YXRlIGNvbmZsaWN0IGRpZCBub3QgY29udmVyZ2Ugd2l0aGluIGJvdW5kZWQgYXR0ZW1wdHMifQ==\"}"}],"expect":{"errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+//
+// The resume releases a HALTED pump (FIX-003), which is parked and running under the target
+// id: the arrangement starts a receiving execution there, waiting on the signal's channel,
+// and the receiver must complete with exactly the payload bytes the delivery carried.
+func stepResumePausedConstructionP3S1(t *testing.T, h *scenariohost.Host, subject messagebus.MessageBus, in inputResumePausedConstructionP3S1) (any, error) {
+	t.Helper()
+	return nil, deliverToReceiver(t, h, subject, in.TargetExecutionID, in.SignalName, in.Payload, in.Start)
+}
+
+// deliverToReceiver is the two DeliverSignal steps' arrangement and check: a receiving
+// execution is started under target, waiting on signal's channel; the delivery is made; and
+// a delivery that succeeded must reach it with its payload bytes unchanged.
+func deliverToReceiver(t *testing.T, h *scenariohost.Host, subject messagebus.MessageBus, target messagebus.ExecutionID, signal messagebus.SignalName, payload messagebus.ExecutionPayload, start *messagebus.ExecutionStart) error {
+	t.Helper()
 	cl := dialTemporal(t, h)
 	w := worker.New(cl, receiverTaskQueue, worker.Options{})
 	w.RegisterWorkflowWithOptions(awaitOneSignal, workflow.RegisterOptions{Name: receiverWorkflowType})
@@ -187,32 +207,32 @@ func stepPauseConstructionP1S1(t *testing.T, h *scenariohost.Host, subject messa
 	t.Cleanup(w.Stop)
 
 	run, err := cl.ExecuteWorkflow(h.Context(t), client.StartWorkflowOptions{
-		ID:                       string(in.TargetExecutionID),
+		ID:                       string(target),
 		TaskQueue:                receiverTaskQueue,
 		WorkflowExecutionTimeout: time.Minute,
-	}, receiverWorkflowType, string(in.SignalName))
+	}, receiverWorkflowType, string(signal))
 	if err != nil {
-		t.Fatalf("hooks: start the receiving execution %s: %v", in.TargetExecutionID, err)
+		t.Fatalf("hooks: start the receiving execution %s: %v", target, err)
 	}
 
-	err = subject.DeliverSignal(rcFor(t, h, "1"), in.TargetExecutionID, in.SignalName, in.Payload, in.Start)
+	err = subject.DeliverSignal(rcFor(t, h, "1"), target, signal, payload, start)
 	if err == nil {
-		requireReceived(t, h, run, in)
+		requireReceived(t, h, run, target, signal, payload)
 	}
-	return nil, err
+	return err
 }
 
 // requireReceived waits for the receiving execution to complete and fails the
 // scenario unless it received exactly the delivered payload bytes.
-func requireReceived(t *testing.T, h *scenariohost.Host, run client.WorkflowRun, in inputPauseConstructionP1S1) {
+func requireReceived(t *testing.T, h *scenariohost.Host, run client.WorkflowRun, target messagebus.ExecutionID, signal messagebus.SignalName, payload messagebus.ExecutionPayload) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(h.Context(t), settleTimeout)
 	defer cancel()
 	var received []byte
 	if err := run.Get(ctx, &received); err != nil {
-		t.Fatalf("hooks: the receiving execution %s did not complete on %s: %v", in.TargetExecutionID, in.SignalName, err)
+		t.Fatalf("hooks: the receiving execution %s did not complete on %s: %v", target, signal, err)
 	}
-	if !bytes.Equal(received, in.Payload.Bytes) {
-		t.Fatalf("hooks: %s received %q on %s, delivered %q", in.TargetExecutionID, received, in.SignalName, in.Payload.Bytes)
+	if !bytes.Equal(received, payload.Bytes) {
+		t.Fatalf("hooks: %s received %q on %s, delivered %q", target, received, signal, payload.Bytes)
 	}
 }

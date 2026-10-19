@@ -164,6 +164,7 @@ export const ACTIVITY_VIEW_STATE_VALUES = [
   'awaitingHuman',
   'done',
   'failed',
+  'haltedByFailure',
 ] as const;
 
 export type ActivityViewState = (typeof ACTIVITY_VIEW_STATE_VALUES)[number];
@@ -174,6 +175,7 @@ export const ACTIVITY_VIEW_STATE_GO_VARNAMES = [
   'ActivityViewAwaitingHuman',
   'ActivityViewDone',
   'ActivityViewFailed',
+  'ActivityViewHaltedByFailure',
 ] as const;
 
 // --- ArtifactKind --------------------------------------------------------
@@ -723,11 +725,15 @@ export const PROJECT_PHASE_APP_TO_ORDINAL: Readonly<Record<ProjectPhase, number>
 // --- ProjectRunState -----------------------------------------------------
 // Sources: DeliveryProjectRunState
 // String-valued enum — the wire value is already the app string (no ordinal indirection).
-export const PROJECT_RUN_STATE_VALUES = ['running', 'paused'] as const;
+export const PROJECT_RUN_STATE_VALUES = ['running', 'paused', 'halted'] as const;
 
 export type ProjectRunState = (typeof PROJECT_RUN_STATE_VALUES)[number];
 
-export const PROJECT_RUN_STATE_GO_VARNAMES = ['ProjectRunning', 'ProjectPaused'] as const;
+export const PROJECT_RUN_STATE_GO_VARNAMES = [
+  'ProjectRunning',
+  'ProjectPaused',
+  'ProjectHalted',
+] as const;
 
 // --- ProjectViewKind -----------------------------------------------------
 // Sources: DeliveryProjectViewKind

@@ -27999,7 +27999,8 @@
        }
       },
       "constructionStarted": true,
-      "operatorPaused": false
+      "operatorPaused": false,
+      "runState": "running"
      }
     }
    },

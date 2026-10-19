@@ -515,7 +515,13 @@ export interface components {
       variant?: string;
     };
     /** @enum {string} */
-    DeliveryActivityViewState: 'notStarted' | 'running' | 'awaitingHuman' | 'done' | 'failed';
+    DeliveryActivityViewState:
+      | 'notStarted'
+      | 'running'
+      | 'awaitingHuman'
+      | 'done'
+      | 'failed'
+      | 'haltedByFailure';
     DeliveryAnchoredComment: {
       anchorText: string;
       jsonPath: string;
@@ -900,8 +906,11 @@ export interface components {
       operation: string;
     };
     DeliveryProjectID: string;
-    /** @enum {string} */
-    DeliveryProjectRunState: 'running' | 'paused';
+    /**
+     * @description The run state of a project's construction. running: nothing holds it. paused: an operator's pause is recorded (PauseProject). halted: the project's one construction pump stopped the cascade on an activity that failed and is parked, keeping the halt in its own execution because the failure may be one the project store could not record; it dispatches nothing until ResumeProject. halted is entered by the pump, never requested: setProjectRunState refuses it (ContractMisuse). Paused and halted can hold at once; the view reports halted then, and one resume clears both.
+     * @enum {string}
+     */
+    DeliveryProjectRunState: 'running' | 'paused' | 'halted';
     DeliveryProjectState: {
       GitRows: {
         [key: string]: components['schemas']['DeliveryActivityGitStatus'];
@@ -930,7 +939,11 @@ export interface components {
       operatorPaused: boolean;
       /** @description The reason the operator gave when pausing construction. Omitted when construction is not paused. */
       pauseReason?: string;
+      /** @description Why construction is halted, read from the project's construction pump. Omitted when the pump is not halted. */
+      pumpHalt?: components['schemas']['DeliveryPumpHalt'];
       reviewPolicy?: components['schemas']['DeliveryReviewPolicyView'];
+      /** @description The project's construction run state: halted while its construction pump is parked on a failed activity (pumpHalt says which), else paused while an operator's pause is recorded, else running. Resume (setProjectRunState running) is the one way out of paused and halted alike. */
+      runState: components['schemas']['DeliveryProjectRunState'];
       testingState?: components['schemas']['DeliveryTestingStateView'];
     };
     DeliveryProjectSummary: {
@@ -985,10 +998,24 @@ export interface components {
       runId?: null | string;
       taskId?: null | string;
     };
+    /** @description Why the project's construction pump halted. The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it. */
+    DeliveryPumpHalt: {
+      /** @description The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade. */
+      activityId: components['schemas']['DeliveryActivityID'];
+      /** @description The failure as the pump saw it: the activity execution's error, or the reason its row records. */
+      cause: string;
+      /**
+       * Format: date-time
+       * @description When the pump halted.
+       */
+      haltedAt: string;
+    };
     DeliveryPumpResult: {
-      /** @description Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight). */
+      /** @description Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, a halted pump, or an activity already in flight). */
       activityIds?: components['schemas']['DeliveryActivityID'][];
       dispatched: boolean;
+      /** @description Set when the project's pump is halted on a failed activity: the tick dispatched nothing and will not until ResumeProject. */
+      halt?: components['schemas']['DeliveryPumpHalt'];
     };
     /** @description Whether the project's one construction pump is running now. It is one fact, deliberately separate from the recorded operator pause and from any activity's live session: a client combines them. */
     DeliveryPumpStatus: {

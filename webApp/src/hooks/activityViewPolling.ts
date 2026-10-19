@@ -70,7 +70,9 @@ export function activityViewPollIntervalMs(
     if (data.tasks.some((t) => t.state === 'running') || data.state === 'running') {
       return ACTIVITY_LIVE_POLL_MS;
     }
-    if (data.state === 'awaitingHuman') return ACTIVITY_GATE_POLL_MS;
+    // A halted activity (FIX-003) waits on a human too — the operator's resume.
+    if (data.state === 'awaitingHuman' || data.state === 'haltedByFailure')
+      return ACTIVITY_GATE_POLL_MS;
     if (data.state === 'notStarted') return notStartedPollMs;
     return false;
   }

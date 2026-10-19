@@ -22,8 +22,9 @@
  * enough that a reader owed one and given the other has been lied to.
  *
  * ── HOW LIVENESS IS READ, and the one approximation in it ───────────────────
- * `DeliveryActivityView.state` has five members — notStarted, running,
- * awaitingHuman, done, failed — and NONE of them is "escalated": the server folds a
+ * `DeliveryActivityView.state` has six members — notStarted, running,
+ * awaitingHuman, done, failed, haltedByFailure — and NONE of them is "escalated": the
+ * server folds a
  * takeover gate and an approval gate into the same `awaitingHuman`. TERMINAL is
  * therefore exact (done | failed, the two the store's own `CoarsePhaseFor` answers
  * and the two `RecordOperatorNote{requeue}` accepts), and ESCALATED is DERIVED, by
@@ -69,6 +70,9 @@ export function overrideActionFor(view: ActivityViewWire | undefined): ActivityO
   if (view === undefined) return 'none';
   if (view.state === 'done' || view.state === 'failed') return 'reopen';
   if (view.state === 'notStarted') return 'none';
+  // A HALTED activity (FIX-003) has no live child to steer and no recorded terminal to
+  // reopen: the project's pump is parked on it, and the project-level Resume is the way back.
+  if (view.state === 'haltedByFailure') return 'none';
   return hasFailedLatestAttempt(view) ? 'steer' : 'none';
 }
 

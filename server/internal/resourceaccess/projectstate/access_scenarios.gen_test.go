@@ -1917,12 +1917,12 @@ type inputActivityExecutionAccessResumePausedConstructionP1S1 struct {
 	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
 }
 
-// TestScenario_ActivityExecutionAccess_resume_paused_construction_P1 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → pause-settled → record-resume → run-state-running → pump-fires → continue → activity-started → end).
+// TestScenario_ActivityExecutionAccess_resume_paused_construction_P1 — Resume Paused Construction — [no] · [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → pause-settled → record-resume → run-state-running → pump-fires → continue → activity-started → end).
 func TestScenario_ActivityExecutionAccess_resume_paused_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "activityExecutionAccess", "resume-paused-construction-P1", func(t *testing.T) {
 		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
-		// step 1: OpenActivity (node continue; guards pause-settled=[yes])
+		// step 1: OpenActivity (node continue; guards halt-check=[no], pause-settled=[yes])
 		var in1 inputActivityExecutionAccessResumePausedConstructionP1S1
 		mustUnmarshal(t, `{"projectID":"stp-aea-rs-p1","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-ARCH","typ":8,"variant":0,"pin":{"typeKey":"architecture","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rs-p1:open"}`, &in1)
 		var out1 any
@@ -1939,6 +1939,44 @@ func TestScenario_ActivityExecutionAccess_resume_paused_construction_P1(t *testi
 		mustUnmarshal(t, `{"projectID":"stp-aea-rs-p1","activityID":"D-ARCH"}`, &probe1_1)
 		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
 		expect(t, "resume-paused-construction-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+	})
+}
+
+// inputActivityExecutionAccessResumePausedConstructionP3S1 is step 1's parameters of OpenActivity, decoded from the binding's inputs.
+type inputActivityExecutionAccessResumePausedConstructionP3S1 struct {
+	ProjectID               projectstate.ProjectID      `json:"projectID"`
+	ExpectedVersion         projectstate.Version        `json:"expectedVersion"`
+	ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+	ActivityID              string                      `json:"activityID"`
+	Typ                     projectstate.ActivityType   `json:"typ"`
+	Variant                 projectstate.TestingVariant `json:"variant"`
+	Pin                     projectstate.LifecyclePin   `json:"pin"`
+	Cred                    projectstate.RepoCredential `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+}
+
+// TestScenario_ActivityExecutionAccess_resume_paused_construction_P3 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → release-halt → pump-fires → continue → activity-started → end).
+func TestScenario_ActivityExecutionAccess_resume_paused_construction_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "activityExecutionAccess", "resume-paused-construction-P3", func(t *testing.T) {
+		var subject projectstate.ActivityExecutionAccess = newSubjectActivityExecutionAccess(t, h)
+		// step 1: OpenActivity (node continue; guards halt-check=[yes])
+		var in1 inputActivityExecutionAccessResumePausedConstructionP3S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-rs-p3","expectedVersion":0,"expectedActivityVersion":0,"activityID":"D-ARCH","typ":8,"variant":0,"pin":{"typeKey":"architecture","assetsVersion":"v0.10.1"},"cred":{"Bytes":"","ExpiresAt":"2027-01-01T00:00:00Z"},"idempotencyKey":"stp-aea-rs-p3:open"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepActivityExecutionAccessResumePausedConstructionP3S1(t, h, subject, in1)
+		expect(t, "resume-paused-construction-P3", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for activity-started
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			ProjectID  projectstate.ProjectID `json:"projectID"`
+			ActivityID string                 `json:"activityID"`
+		}
+		mustUnmarshal(t, `{"projectID":"stp-aea-rs-p3","activityID":"D-ARCH"}`, &probe1_1)
+		pout1_1, perr1_1 = subject.ReadActivityExecution(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		expect(t, "resume-paused-construction-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
 	})
 }
 
@@ -4660,19 +4698,19 @@ type inputProjectStateAccessResumePausedConstructionP1S3 struct {
 	ProjectID projectstate.ProjectID `json:"projectID"`
 }
 
-// TestScenario_ProjectStateAccess_resume_paused_construction_P1 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → pause-settled → record-resume → run-state-running → pump-fires → continue → activity-started → end).
+// TestScenario_ProjectStateAccess_resume_paused_construction_P1 — Resume Paused Construction — [no] · [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → pause-settled → record-resume → run-state-running → pump-fires → continue → activity-started → end).
 func TestScenario_ProjectStateAccess_resume_paused_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "projectStateAccess", "resume-paused-construction-P1", func(t *testing.T) {
 		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
-		// step 1: ReadProject (node pause-settled; guards pause-settled=[yes])
+		// step 1: ReadProject (node pause-settled; guards halt-check=[no], pause-settled=[yes])
 		var in1 inputProjectStateAccessResumePausedConstructionP1S1
 		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p1"}`, &in1)
 		var out1 any
 		var err1 error
 		out1, err1 = stepProjectStateAccessResumePausedConstructionP1S1(t, h, subject, in1)
 		expect(t, "resume-paused-construction-P1", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-rs-p1\",\"Version\":9,\"Phase\":2,\"OperatorPaused\":true,\"PauseReason\":\"Operator pause: upstream incident under investigation\"}","errorExpected":false}`)
-		// step 2: RecordOperatorResumed (node record-resume; guards pause-settled=[yes])
+		// step 2: RecordOperatorResumed (node record-resume; guards halt-check=[no], pause-settled=[yes])
 		var in2 inputProjectStateAccessResumePausedConstructionP1S2
 		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p1","expectedVersion":9,"idempotencyKey":"stp-psa-rs-p1:resume"}`, &in2)
 		var out2 any
@@ -4697,7 +4735,7 @@ func TestScenario_ProjectStateAccess_resume_paused_construction_P1(t *testing.T)
 		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p1"}`, &probe2_2)
 		pout2_2, perr2_2 = subject.ReadProject(callContext(t, h, "2.2"), probe2_2.ProjectID)
 		expect(t, "resume-paused-construction-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Version\":10,\"OperatorPaused\":false,\"PauseReason\":\"\"}","errorExpected":false}`)
-		// step 3: ReadProject (node pump-fires; guards pause-settled=[yes])
+		// step 3: ReadProject (node pump-fires; guards halt-check=[no], pause-settled=[yes])
 		var in3 inputProjectStateAccessResumePausedConstructionP1S3
 		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p1"}`, &in3)
 		var out3 any
@@ -4712,12 +4750,12 @@ type inputProjectStateAccessResumePausedConstructionP2S1 struct {
 	ProjectID projectstate.ProjectID `json:"projectID"`
 }
 
-// TestScenario_ProjectStateAccess_resume_paused_construction_P2 — Resume Paused Construction — [no] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → pause-settled → retry-later → run-state-still-paused → end).
+// TestScenario_ProjectStateAccess_resume_paused_construction_P2 — Resume Paused Construction — [no] · [no] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → pause-settled → retry-later → run-state-still-paused → end).
 func TestScenario_ProjectStateAccess_resume_paused_construction_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "projectStateAccess", "resume-paused-construction-P2", func(t *testing.T) {
 		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
-		// step 1: ReadProject (node pause-settled; guards pause-settled=[no])
+		// step 1: ReadProject (node pause-settled; guards halt-check=[no], pause-settled=[no])
 		var in1 inputProjectStateAccessResumePausedConstructionP2S1
 		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p2"}`, &in1)
 		var out1 any
@@ -4734,6 +4772,26 @@ func TestScenario_ProjectStateAccess_resume_paused_construction_P2(t *testing.T)
 		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p2"}`, &probe1_1)
 		pout1_1, perr1_1 = subject.ReadProject(callContext(t, h, "1.1"), probe1_1.ProjectID)
 		expect(t, "resume-paused-construction-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Version\":9,\"OperatorPaused\":true,\"PauseReason\":\"Operator pause: upstream incident under investigation\"}","errorExpected":false}`)
+	})
+}
+
+// inputProjectStateAccessResumePausedConstructionP3S1 is step 1's parameters of ReadProject, decoded from the binding's inputs.
+type inputProjectStateAccessResumePausedConstructionP3S1 struct {
+	ProjectID projectstate.ProjectID `json:"projectID"`
+}
+
+// TestScenario_ProjectStateAccess_resume_paused_construction_P3 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → release-halt → pump-fires → continue → activity-started → end).
+func TestScenario_ProjectStateAccess_resume_paused_construction_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "projectStateAccess", "resume-paused-construction-P3", func(t *testing.T) {
+		var subject projectstate.ProjectStateAccess = newSubjectProjectStateAccess(t, h)
+		// step 1: ReadProject (node pump-fires; guards halt-check=[yes])
+		var in1 inputProjectStateAccessResumePausedConstructionP3S1
+		mustUnmarshal(t, `{"projectID":"stp-psa-rs-p3"}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepProjectStateAccessResumePausedConstructionP3S1(t, h, subject, in1)
+		expect(t, "resume-paused-construction-P3", 1, out1, err1, `{"result":"{\"ID\":\"stp-psa-rs-p3\",\"Version\":9,\"Phase\":2,\"OperatorPaused\":false}","errorExpected":false}`)
 	})
 }
 
