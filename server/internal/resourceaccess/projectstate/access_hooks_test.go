@@ -7,9 +7,14 @@
 package projectstate_test
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2514,4 +2519,323 @@ func trackedConstruction(id projectstate.ProjectID, v projectstate.Version, week
 	}
 	p.ConstructionProgress = cp
 	return p
+}
+
+// ---------------------------------------------------------------------------
+// FIX-006 regressions: row-scoped writes commute under a sibling herd.
+// ---------------------------------------------------------------------------
+
+// fix006Project is the project every FIX-006 regression writes to.
+const fix006Project projectstate.ProjectID = "stp-fix-006"
+
+// fix006Herd is wider than twice the workflow's old retry bound (20), so a store that
+// still made sibling row writes contend on the project version could not converge it.
+const fix006Herd = 48
+
+// seedRepoDoc commits p as main's project.json in the repo at dir (bare or checked out).
+func seedRepoDoc(t *testing.T, dir string, p projectstate.Project) {
+	t.Helper()
+	raw, err := projectstate.EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("arrange: encode: %v", err)
+	}
+	work := filepath.Join(t.TempDir(), "seed")
+	runGit(t, "", "clone", "--quiet", dir, work)
+	runGit(t, work, "checkout", "--quiet", "-B", "main")
+	if err := os.MkdirAll(filepath.Join(work, ".aiarch", "state"), 0o750); err != nil {
+		t.Fatalf("arrange: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".aiarch", "state", "project.json"), raw, 0o600); err != nil {
+		t.Fatalf("arrange: %v", err)
+	}
+	runGit(t, work, "add", ".aiarch/state/project.json")
+	runGit(t, work, "-c", "user.name=seed", "-c", "user.email=seed@aiarch.local", "-c", "commit.gpgsign=false",
+		"commit", "--quiet", "-m", "seed")
+	runGit(t, work, "push", "--quiet", "origin", "main")
+}
+
+// pushOutsideCommit advances main in the repo at dir with a commit no projectstate writer
+// made: the cross-process writer (another pod, the local merge step) the store's in-RA
+// re-apply exists for.
+func pushOutsideCommit(dir, name string) error {
+	work, err := os.MkdirTemp("", "fix006-outside-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(work) }()
+	steps := [][]string{
+		{"clone", "--quiet", dir, work},
+		{"-C", work, "checkout", "--quiet", "main"},
+	}
+	for _, s := range steps {
+		if out, err := exec.Command("git", s...).CombinedOutput(); err != nil {
+			return fmt.Errorf("git %v: %v: %s", s, err, out)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(work, "outside"), 0o750); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(work, "outside", name), []byte(name), 0o600); err != nil {
+		return err
+	}
+	for _, s := range [][]string{
+		{"-C", work, "add", "outside/" + name},
+		{"-C", work, "-c", "user.name=outside", "-c", "user.email=outside@aiarch.local", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "outside " + name},
+		{"-C", work, "push", "--quiet", "origin", "main"},
+	} {
+		if out, err := exec.Command("git", s...).CombinedOutput(); err != nil {
+			return fmt.Errorf("git %v: %v: %s", s, err, out)
+		}
+	}
+	return nil
+}
+
+func raKind(err error) string {
+	var e *projectstate.Error
+	if errors.As(err, &e) {
+		return e.Kind.String()
+	}
+	return "not an RA error"
+}
+
+func fix006Pin() projectstate.LifecyclePin {
+	return projectstate.LifecyclePin{TypeKey: "service", AssetsVersion: assetsVersion}
+}
+
+// writeSiblingTriple is the herd member's three early writes, as a construction child makes
+// them: the birth, the first task's pending attempt, and the git-status branch row.
+func writeSiblingTriple(t *testing.T, h *scenariohost.Host, ae projectstate.ActivityExecutionAccess, git projectstate.GitActivityStatusAccess, id string, lat *[]time.Duration, mu *sync.Mutex) error {
+	timed := func(f func() error) error {
+		start := time.Now()
+		err := f()
+		mu.Lock()
+		*lat = append(*lat, time.Since(start))
+		mu.Unlock()
+		return err
+	}
+	if err := timed(func() error {
+		_, err := ae.OpenActivity(callContext(t, h, "open-"+id), fix006Project, projectstate.NoActivityVersionExpectation, id,
+			projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "open-"+id).IdempotencyKey)
+		return err
+	}); err != nil {
+		return fmt.Errorf("OpenActivity %s: %w", id, err)
+	}
+	row, err := ae.ReadActivityExecution(callContext(t, h, "read-"+id), fix006Project, id)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", id, err)
+	}
+	if err := timed(func() error {
+		_, err := ae.RecordAttemptOutcome(callContext(t, h, "attempt-"+id), fix006Project, row.Version, id,
+			projectstate.TaskAttemptInput{AttemptID: "a-" + id, TaskID: projectstate.TaskSRS, Attempt: 1, Actor: projectstate.ActorAgent, Outcome: projectstate.OutcomePending},
+			projectstate.RepoCredential{}, callContext(t, h, "attempt-"+id).IdempotencyKey)
+		return err
+	}); err != nil {
+		return fmt.Errorf("RecordAttemptOutcome %s: %w", id, err)
+	}
+	if err := timed(func() error {
+		_, err := git.RecordActivityBranchOpened(callContext(t, h, "branch-"+id), fix006Project, id, "activity/"+id, "refs/heads/activity/"+id, "", "", false,
+			projectstate.RepoCredential{}, callContext(t, h, "branch-"+id).IdempotencyKey)
+		return err
+	}); err != nil {
+		return fmt.Errorf("RecordActivityBranchOpened %s: %w", id, err)
+	}
+	return nil
+}
+
+// TestActivityExecution_ConcurrentSiblingBirthsConverge is the FIX-006 regression: a
+// fan-out of fix006Herd siblings, each writing its own row three times with no project
+// version, all land — no Conflict, every row and git-status row present, one commit per
+// write, and NO ref-CAS lost among this process's state writers (the write queue spans
+// read → apply → commit). Before the fix every sibling write staled every other's project
+// version and the herd exhausted the workflow's bound at the M0 seal.
+func TestActivityExecution_ConcurrentSiblingBirthsConverge(t *testing.T) {
+	for _, topo := range []struct {
+		name  string
+		start func(*testing.T, string) testinfra.LocalGitRepo
+	}{{"bare", testinfra.StartLocalGitRepo}, {"checkedOut", testinfra.StartLocalCheckedOutRepo}} {
+		t.Run(topo.name, func(t *testing.T) {
+			h := scenariohost.Start(t)
+			repo := topo.start(t, "main")
+			const seedVersion = 7
+			seedRepoDoc(t, repo.Dir, baseProject(fix006Project, seedVersion, projectstate.PhaseConstruction))
+			commitsBefore := revCount(t, repo.Dir)
+			ae := projectstate.NewGitLocalActivityExecutionAccess(repo.URL)
+			git := projectstate.NewGitLocalGitActivityStatusAccess(repo.URL)
+			lossesBefore := projectstate.StateWriteCASLosses()
+
+			var (
+				mu   sync.Mutex
+				lat  []time.Duration
+				wg   sync.WaitGroup
+				gate = make(chan struct{})
+			)
+			errs := make([]error, fix006Herd)
+			for i := range fix006Herd {
+				wg.Go(func() {
+					<-gate
+					errs[i] = writeSiblingTriple(t, h, ae, git, fmt.Sprintf("C-sib-%02d", i), &lat, &mu)
+				})
+			}
+			close(gate)
+			wg.Wait()
+			for i, err := range errs {
+				if err != nil {
+					t.Errorf("sibling %d: %v (kind %s)", i, err, raKind(err))
+				}
+			}
+			if t.Failed() {
+				t.FailNow()
+			}
+
+			p, err := projectstate.NewGitLocalProjectStateAccess(repo.URL).ReadProject(callContext(t, h, "probe"), fix006Project)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			for i := range fix006Herd {
+				id := fmt.Sprintf("C-sib-%02d", i)
+				row, ok := p.ActivityExecution[id]
+				if !ok || row.StartedAt == nil || row.Pin == nil {
+					t.Errorf("row %s not born with StartedAt and pin: %+v", id, row)
+				}
+				if _, ok := p.ActivityGit[id]; !ok {
+					t.Errorf("git-status row %s missing", id)
+				}
+			}
+			if want := projectstate.Version(seedVersion + 3*fix006Herd); p.Version != want {
+				t.Errorf("Version = %d, want %d (one bump per write)", p.Version, want)
+			}
+			if got := revCount(t, repo.Dir) - commitsBefore; got != 3*fix006Herd {
+				t.Errorf("%d commits landed, want %d", got, 3*fix006Herd)
+			}
+			if lost := projectstate.StateWriteCASLosses() - lossesBefore; lost != 0 {
+				t.Errorf("%d ref-CASes lost among in-process state writers, want 0 (the write queue must span read → commit)", lost)
+			}
+			slices.Sort(lat)
+			t.Logf("row write latency over %d writes: p50 %v p99 %v max %v", len(lat), lat[len(lat)/2], lat[len(lat)*99/100], lat[len(lat)-1])
+		})
+	}
+}
+
+func revCount(t *testing.T, dir string) int {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "rev-list", "--count", "main").CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-list: %v: %s", err, out)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		t.Fatalf("rev-list: %v", err)
+	}
+	return n
+}
+
+// TestActivityExecution_RowWriteReappliesAfterAnOutsideCommit: a ref-CAS lost to a writer
+// OUTSIDE this process's queue is re-applied inside the store at the new tip — the caller
+// sees success, never a Conflict — and exhausting the re-apply bound is a retryable
+// Transient, never a Conflict (a Conflict on a row verb is read as the ROW's refusal by the
+// Manager, and on a row that did not move that is a false terminal).
+func TestActivityExecution_RowWriteReappliesAfterAnOutsideCommit(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, baseProject(fix006Project, 3, projectstate.PhaseConstruction))
+	ae := projectstate.NewGitLocalActivityExecutionAccess(repo.URL)
+
+	var (
+		pushes  int
+		pushErr error
+	)
+	const outsideWins = 4
+	restore := projectstate.SetStateWriteTestHooks(projectstate.StateWriteTestHooks{BeforeRowCommit: func() {
+		if pushes < outsideWins {
+			pushes++
+			if err := pushOutsideCommit(repo.Dir, fmt.Sprintf("o%d", pushes)); err != nil {
+				pushErr = err
+			}
+		}
+	}})
+	lossesBefore := projectstate.StateWriteCASLosses()
+	_, err := ae.OpenActivity(callContext(t, h, "reapply"), fix006Project, projectstate.NoActivityVersionExpectation, "C-reapply",
+		projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "reapply").IdempotencyKey)
+	restore()
+	if pushErr != nil {
+		t.Fatalf("outside push: %v", pushErr)
+	}
+	if err != nil {
+		t.Fatalf("OpenActivity after %d outside commits: %v (kind %s), want the store to re-apply it", outsideWins, err, raKind(err))
+	}
+	if lost := projectstate.StateWriteCASLosses() - lossesBefore; lost != outsideWins {
+		t.Errorf("%d ref-CASes lost, want %d (one per outside commit, each re-applied)", lost, outsideWins)
+	}
+	p, err := projectstate.NewGitLocalProjectStateAccess(repo.URL).ReadProject(callContext(t, h, "probe"), fix006Project)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if _, ok := p.ActivityExecution["C-reapply"]; !ok || p.Version != 4 {
+		t.Errorf("after re-apply: row present %v, Version %d; want the row and Version 4", ok, p.Version)
+	}
+
+	// Exhaustion: every attempt loses to an outside commit, and the bound is 1 re-apply.
+	n := 0
+	restore = projectstate.SetStateWriteTestHooks(projectstate.StateWriteTestHooks{MaxRowReapply: 1, BeforeRowCommit: func() {
+		n++
+		if err := pushOutsideCommit(repo.Dir, fmt.Sprintf("x%d", n)); err != nil {
+			pushErr = err
+		}
+	}})
+	_, err = ae.OpenActivity(callContext(t, h, "exhaust"), fix006Project, projectstate.NoActivityVersionExpectation, "C-exhaust",
+		projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "exhaust").IdempotencyKey)
+	restore()
+	if pushErr != nil {
+		t.Fatalf("outside push: %v", pushErr)
+	}
+	if err == nil {
+		t.Fatal("OpenActivity converged although every attempt lost its ref-CAS")
+	}
+	if k := raKind(err); k != "Transient" {
+		t.Errorf("re-apply exhaustion classified %s, want Transient (never Conflict): %v", k, err)
+	}
+}
+
+// TestActivityExecution_RowGuardAndConditionalGuardKept: dropping the project version from
+// the row verbs does not drop the ROW's own guard, and the whole-document conditional verbs
+// keep their project version guard.
+func TestActivityExecution_RowGuardAndConditionalGuardKept(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, baseProject(fix006Project, 3, projectstate.PhaseConstruction))
+	ae := projectstate.NewGitLocalActivityExecutionAccess(repo.URL)
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+
+	if _, err := ae.OpenActivity(callContext(t, h, "stale-birth"), fix006Project, 5, "C-guard",
+		projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "stale-birth").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a birth holding row version 5 of an absent row: err %v, want Conflict", err)
+	}
+	if _, err := ae.OpenActivity(callContext(t, h, "birth"), fix006Project, projectstate.NoActivityVersionExpectation, "C-guard",
+		projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "birth").IdempotencyKey); err != nil {
+		t.Fatalf("birth: %v", err)
+	}
+	row, err := ae.ReadActivityExecution(callContext(t, h, "read"), fix006Project, "C-guard")
+	if err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	attempt := func(n int64) error {
+		_, err := ae.RecordAttemptOutcome(callContext(t, h, fmt.Sprintf("a%d", n)), fix006Project, row.Version, "C-guard",
+			projectstate.TaskAttemptInput{AttemptID: fmt.Sprintf("a%d", n), TaskID: projectstate.TaskSRS, Attempt: n, Actor: projectstate.ActorAgent, Outcome: projectstate.OutcomePending},
+			projectstate.RepoCredential{}, callContext(t, h, fmt.Sprintf("a%d", n)).IdempotencyKey)
+		return err
+	}
+	if err := attempt(1); err != nil {
+		t.Fatalf("first writer on the held row version: %v", err)
+	}
+	if err := attempt(2); raKind(err) != "Conflict" || !strings.Contains(err.Error(), strconv.FormatInt(row.Version, 10)) {
+		t.Errorf("second writer on the same held row version: err %v, want a Conflict naming the versions", err)
+	}
+
+	head, err := ps.ReadProjectVersion(callContext(t, h, "head"), fix006Project)
+	if err != nil {
+		t.Fatalf("read version: %v", err)
+	}
+	if _, err := ps.AdvancePhase(callContext(t, h, "stale-advance"), fix006Project, head-1); raKind(err) != "Conflict" {
+		t.Errorf("a conditional write on a stale project version: err %v, want Conflict", err)
+	}
 }
