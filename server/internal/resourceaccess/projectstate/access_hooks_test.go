@@ -2839,3 +2839,62 @@ func TestActivityExecution_RowGuardAndConditionalGuardKept(t *testing.T) {
 		t.Errorf("a conditional write on a stale project version: err %v, want Conflict", err)
 	}
 }
+
+// TestActivityExecution_ConditionalWriteUnderSiblingHerd MEASURES ruling 5's residual: a
+// conditional whole-document write (the facade's Pause: read the version, write against
+// it, re-read on Conflict) racing a fix006Herd sibling herd. It must converge once the herd
+// drains; how many attempts it needed WHILE the herd ran is the number ruling 5 decides
+// on (the facade bounds itself at 3).
+func TestActivityExecution_ConditionalWriteUnderSiblingHerd(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, baseProject(fix006Project, 3, projectstate.PhaseConstruction))
+	ae := projectstate.NewGitLocalActivityExecutionAccess(repo.URL)
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+
+	var herd sync.WaitGroup
+	herdDone := make(chan struct{})
+	errs := make([]error, fix006Herd)
+	for i := range fix006Herd {
+		herd.Go(func() {
+			id := fmt.Sprintf("C-cond-%02d", i)
+			_, errs[i] = ae.OpenActivity(callContext(t, h, "open-"+id), fix006Project, projectstate.NoActivityVersionExpectation, id,
+				projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "open-"+id).IdempotencyKey)
+		})
+	}
+	go func() { herd.Wait(); close(herdDone) }()
+
+	const bound = 500
+	attempts, duringHerd := 0, 0
+	var last error
+	for attempts < bound {
+		attempts++
+		select {
+		case <-herdDone:
+		default:
+			duringHerd++
+		}
+		v, err := ps.ReadProjectVersion(callContext(t, h, "pause-read"), fix006Project)
+		if err != nil {
+			t.Fatalf("read version: %v", err)
+		}
+		if _, last = ps.RecordOperatorPaused(callContext(t, h, "pause"), fix006Project, v, "FIX-006 measurement",
+			callContext(t, h, "pause").IdempotencyKey); last == nil {
+			break
+		}
+		if raKind(last) != "Conflict" {
+			t.Fatalf("pause attempt %d: %v (kind %s), want only Conflicts", attempts, last, raKind(last))
+		}
+	}
+	herd.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("sibling %d: %v", i, err)
+		}
+	}
+	if last != nil {
+		t.Fatalf("the conditional write did not converge in %d attempts: %v", bound, last)
+	}
+	t.Logf("ruling-5 measurement: the conditional write needed %d attempt(s), %d of them while the %d-sibling herd was still writing (facade bound: 3)",
+		attempts, duringHerd, fix006Herd)
+}
